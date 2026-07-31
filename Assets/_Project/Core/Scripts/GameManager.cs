@@ -12,6 +12,12 @@ public class GameManager : NetworkBehaviour
     public List<GameObject> monsterPrefabs;
     public int monsterCount = 3;
 
+    [Header("Spawn Points")]
+    [Tooltip("Drag SpawnPoint GameObjects here for the Girl / Demon player.")]
+    public List<Transform> girlSpawnPoints = new List<Transform>();
+    [Tooltip("Drag SpawnPoint GameObjects here for Explorer players. One is picked randomly per Explorer.")]
+    public List<Transform> explorerSpawnPoints = new List<Transform>();
+
     [Header("Match Settings")]
     public int minPlayers = 2; 
     public float spawnHeight = 50f;
@@ -118,7 +124,7 @@ public class GameManager : NetworkBehaviour
         
         if (prefabToSpawn == null) return;
 
-        Vector3 spawnPos = isGirl ? new Vector3(0, spawnHeight, 0) : new Vector3(Random.Range(-10f, 10f), spawnHeight, Random.Range(-10f, 10f));
+        Vector3 spawnPos = GetSpawnPosition(isGirl);
         GameObject playerInstance = Instantiate(prefabToSpawn, spawnPos, Quaternion.identity);
         
         NetworkObject netObj = playerInstance.GetComponent<NetworkObject>();
@@ -126,6 +132,42 @@ public class GameManager : NetworkBehaviour
         {
             netObj.SpawnAsPlayerObject(clientId);
             RegisterPlayer(netObj, isGirl);
+        }
+    }
+
+    /// <summary>
+    /// Returns a world-space spawn position.
+    /// For the Girl, picks randomly from girlSpawnPoints (or falls back to origin + spawnHeight).
+    /// For Explorers, picks a UNIQUE random point from explorerSpawnPoints where possible
+    /// (or falls back to a random XZ offset + spawnHeight).
+    /// </summary>
+    private Vector3 GetSpawnPosition(bool isGirl)
+    {
+        if (isGirl)
+        {
+            if (girlSpawnPoints != null && girlSpawnPoints.Count > 0)
+            {
+                Transform pt = girlSpawnPoints[Random.Range(0, girlSpawnPoints.Count)];
+                if (pt != null) return pt.position;
+            }
+            // Fallback
+            return new Vector3(0f, spawnHeight, 0f);
+        }
+        else
+        {
+            if (explorerSpawnPoints != null && explorerSpawnPoints.Count > 0)
+            {
+                // Shuffle a copy so each Explorer gets a different point if possible
+                List<Transform> available = new List<Transform>(explorerSpawnPoints);
+                available.RemoveAll(t => t == null);
+                if (available.Count > 0)
+                {
+                    int index = Random.Range(0, available.Count);
+                    return available[index].position;
+                }
+            }
+            // Fallback
+            return new Vector3(Random.Range(-10f, 10f), spawnHeight, Random.Range(-10f, 10f));
         }
     }
 
