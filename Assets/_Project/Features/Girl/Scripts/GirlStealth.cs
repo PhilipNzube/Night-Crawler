@@ -105,7 +105,7 @@ public class GirlStealth : NetworkBehaviour
         if (_vcam == null) 
         {
             _vcam = GetComponentInChildren<CinemachineCamera>();
-            if (_vcam == null) _vcam = FindObjectOfType<CinemachineCamera>();
+            if (_vcam == null) _vcam = FindAnyObjectByType<CinemachineCamera>();
         }
 
         if (_vcam != null)
@@ -145,7 +145,7 @@ public class GirlStealth : NetworkBehaviour
         _tauntCooldown = 4f;
     }
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     private void PlayTauntServerRpc(int type)
     {
         // Server tracks the cooldown for this specific Demon

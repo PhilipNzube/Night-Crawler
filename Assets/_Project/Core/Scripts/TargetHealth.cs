@@ -1,7 +1,7 @@
 using UnityEngine;
 using Unity.Netcode;
 
-public class TargetHealth : NetworkBehaviour
+public class TargetHealth : NetworkBehaviour, IDamageReceiver
 {
     [Header("Data (ScriptableObject)")]
     public EntityStats stats;

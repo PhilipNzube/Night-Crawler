@@ -1,54 +1,106 @@
 using Unity.Netcode;
 using UnityEngine;
-using Unity.Netcode.Components;
 using System.Collections.Generic;
 
+/// <summary>
+/// SOLID — SRP: Orchestrates the match lifecycle (player spawning, death routing,
+/// win condition evaluation, and taunt broadcasting).
+/// Timer and monster spawning have been intentionally removed.
+/// 
+/// OCP: Win-condition messages are driven by a dictionary — add new WinReasons
+/// without touching EndMatch logic.
+/// 
+/// DIP: Interacts with GirlStealth and MonsterAI through their public APIs,
+/// not through internal implementation details.
+/// </summary>
 public class GameManager : NetworkBehaviour
 {
+    // -------------------------------------------------------------------------
+    //  Inspector Fields — Prefabs
+    // -------------------------------------------------------------------------
+    [Header("Player Prefabs")]
     public GameObject girlPrefab;
     public List<GameObject> explorerPrefabs;
-    
-    [Header("Monster Settings")]
-    public List<GameObject> monsterPrefabs;
-    public int monsterCount = 3;
 
+    // -------------------------------------------------------------------------
+    //  Inspector Fields — Spawn Points
+    // -------------------------------------------------------------------------
     [Header("Spawn Points")]
     [Tooltip("Drag SpawnPoint GameObjects here for the Girl / Demon player.")]
     public List<Transform> girlSpawnPoints = new List<Transform>();
-    [Tooltip("Drag SpawnPoint GameObjects here for Explorer players. One is picked randomly per Explorer.")]
+
+    [Tooltip("Drag SpawnPoint GameObjects here for Explorer players.")]
     public List<Transform> explorerSpawnPoints = new List<Transform>();
 
+    // -------------------------------------------------------------------------
+    //  Inspector Fields — Match Settings
+    // -------------------------------------------------------------------------
     [Header("Match Settings")]
-    public int minPlayers = 2; 
+    public int minPlayers = 2;
     public float spawnHeight = 50f;
-    public float matchDuration = 900f; // 15 minutes
-    
-    [Header("Runtime State (Synced)")]
-    public NetworkVariable<float> matchTimer = new NetworkVariable<float>(900f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
-    public NetworkVariable<bool> gameEnded = new NetworkVariable<bool>(false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
+    // -------------------------------------------------------------------------
+    //  Network Variables (Runtime State, Synced)
+    // -------------------------------------------------------------------------
+    [Header("Runtime State (Synced)")]
+    public NetworkVariable<bool> gameEnded = new NetworkVariable<bool>(
+        false,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server);
+
+    // -------------------------------------------------------------------------
+    //  Singleton
+    // -------------------------------------------------------------------------
     public static GameManager Instance { get; private set; }
     public static GameManager Singleton => Instance;
 
-    private bool _gameHasStarted = false;
-    private List<NetworkObject> _aliveExplorers = new List<NetworkObject>();
-    private List<MonsterAI> _activeMonsters = new List<MonsterAI>();
-    private NetworkObject _girlPlayer;
-    private List<GirlStealth> _allGirlComponents = new List<GirlStealth>();
-    private MatchResultOverlay _cachedOverlay;
-    
+    // -------------------------------------------------------------------------
+    //  Public State Accessors
+    // -------------------------------------------------------------------------
+    public int  CurrentPlayerCount => NetworkManager.Singleton.ConnectedClientsIds.Count;
+    public bool HasGameStarted     => _gameHasStarted;
     public Transform GirlTransform => _girlPlayer != null ? _girlPlayer.transform : null;
 
+    // -------------------------------------------------------------------------
+    //  Private State
+    // -------------------------------------------------------------------------
+    private bool _gameHasStarted = false;
+    private NetworkObject _girlPlayer;
+    private List<NetworkObject> _aliveExplorers   = new List<NetworkObject>();
+    private List<GirlStealth>   _allGirlComponents = new List<GirlStealth>();
+    private MatchResultOverlay  _cachedOverlay;
+
+    // OCP: Extend win messages here without touching EndMatch logic.
+    private static readonly Dictionary<WinReason, string> WinMessages = new Dictionary<WinReason, string>
+    {
+        { WinReason.TeamWipe,   "Demon Wins! (No Survivors)"   },
+        { WinReason.DemonSlain, "Explorers Win! (Demon Slain)" },
+    };
+
+    // -------------------------------------------------------------------------
+    //  Win Reason Enum
+    // -------------------------------------------------------------------------
+    public enum WinReason { TeamWipe, DemonSlain }
+
+    // =========================================================================
+    //  Unity Lifecycle
+    // =========================================================================
     void Awake()
     {
-        if (Instance != null && Instance != this) Destroy(gameObject);
-        else Instance = this;
-        
-        // --- OPTIMIZED: Pre-cache overlay if it exists in the scene ---
-        _cachedOverlay = FindObjectOfType<MatchResultOverlay>(true);
+        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
+        Instance = this;
+
+        // Pre-cache overlay so EndMatch doesn't need a scene search
+        _cachedOverlay = FindFirstObjectByType<MatchResultOverlay>(FindObjectsInactive.Include);
     }
-    
-    // Call this whenever a player spawns to keep our list in sync
+
+    // =========================================================================
+    //  Player Registration
+    // =========================================================================
+
+    /// <summary>
+    /// Called by the server when a player prefab spawns to keep internal lists in sync.
+    /// </summary>
     public void RegisterPlayer(NetworkObject player, bool isGirl)
     {
         if (isGirl)
@@ -56,77 +108,58 @@ public class GameManager : NetworkBehaviour
             _girlPlayer = player;
             if (player.TryGetComponent<GirlStealth>(out var stealth))
             {
-                if (!_allGirlComponents.Contains(stealth)) _allGirlComponents.Add(stealth);
+                if (!_allGirlComponents.Contains(stealth))
+                    _allGirlComponents.Add(stealth);
             }
         }
         else
         {
-            if (!_aliveExplorers.Contains(player)) _aliveExplorers.Add(player);
+            if (!_aliveExplorers.Contains(player))
+                _aliveExplorers.Add(player);
         }
     }
 
-    // --- ACCESSIBILITY HELPER ---
+    /// <summary>Returns all active demon components (used by taunt system).</summary>
     public List<GirlStealth> GetAllDemons() => _allGirlComponents;
 
-    void Update()
-    {
-        // --- GRACEFUL SHUTDOWN GUARD ---
-        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening) return;
+    // =========================================================================
+    //  Match Start
+    // =========================================================================
 
-        if (!IsServer || !_gameHasStarted || gameEnded.Value) return;
-
-        // 1. Tick match timer
-        matchTimer.Value -= Time.deltaTime;
-        if (matchTimer.Value <= 0)
-        {
-            matchTimer.Value = 0;
-            EndMatch(WinReason.TimeOut);
-        }
-    }
-
-    public enum WinReason { TimeOut, TeamWipe, DemonSlain }
-
-    public int CurrentPlayerCount => NetworkManager.Singleton.ConnectedClientsIds.Count;
-    public bool HasGameStarted => _gameHasStarted;
-
-    // The Host can call this via a UI Button when the lobby is full
+    /// <summary>The Host calls this via the Lobby UI when the lobby is ready.</summary>
     public void StartGame()
     {
         if (!IsServer || _gameHasStarted) return;
 
-        _gameHasStarted = true;
-        
-        List<ulong> clientIds = new List<ulong>();
-        foreach (var client in NetworkManager.Singleton.ConnectedClientsIds)
-        {
-            clientIds.Add(client);
-        }
-
+        List<ulong> clientIds = new List<ulong>(NetworkManager.Singleton.ConnectedClientsIds);
         if (clientIds.Count < minPlayers) return;
 
-        // Pick a random client to be the Girl
-        int randomGirlIndex = Random.Range(0, clientIds.Count);
-        ulong girlClientId = clientIds[randomGirlIndex];
+        _gameHasStarted = true;
 
-        // 1. Spawn roles for every human who joined the lobby
+        // Pick a random client to be the Girl / Demon
+        int  randomGirlIndex = Random.Range(0, clientIds.Count);
+        ulong girlClientId   = clientIds[randomGirlIndex];
+
         foreach (ulong clientId in clientIds)
         {
             SpawnPlayerRole(clientId, clientId == girlClientId);
         }
 
-        // --- NEW: SPAWN THE AI MONSTERS ---
-        SpawnMonsters();
+        // NOTE: Monster spawning has been intentionally disabled.
+        // To re-enable, attach a separate MonsterSpawner component to the scene.
     }
 
+    // =========================================================================
+    //  Private Spawn Helpers
+    // =========================================================================
     private void SpawnPlayerRole(ulong clientId, bool isGirl)
     {
         GameObject prefabToSpawn = isGirl ? girlPrefab : GetRandomExplorerPrefab();
-        
         if (prefabToSpawn == null) return;
 
         Vector3 spawnPos = GetSpawnPosition(isGirl);
         GameObject playerInstance = Instantiate(prefabToSpawn, spawnPos, Quaternion.identity);
-        
+
         NetworkObject netObj = playerInstance.GetComponent<NetworkObject>();
         if (netObj != null)
         {
@@ -137,9 +170,8 @@ public class GameManager : NetworkBehaviour
 
     /// <summary>
     /// Returns a world-space spawn position.
-    /// For the Girl, picks randomly from girlSpawnPoints (or falls back to origin + spawnHeight).
-    /// For Explorers, picks a UNIQUE random point from explorerSpawnPoints where possible
-    /// (or falls back to a random XZ offset + spawnHeight).
+    /// Girl: random pick from girlSpawnPoints (fallback: origin + spawnHeight).
+    /// Explorer: random pick from explorerSpawnPoints (fallback: random XZ offset).
     /// </summary>
     private Vector3 GetSpawnPosition(bool isGirl)
     {
@@ -150,28 +182,32 @@ public class GameManager : NetworkBehaviour
                 Transform pt = girlSpawnPoints[Random.Range(0, girlSpawnPoints.Count)];
                 if (pt != null) return pt.position;
             }
-            // Fallback
             return new Vector3(0f, spawnHeight, 0f);
         }
         else
         {
             if (explorerSpawnPoints != null && explorerSpawnPoints.Count > 0)
             {
-                // Shuffle a copy so each Explorer gets a different point if possible
                 List<Transform> available = new List<Transform>(explorerSpawnPoints);
                 available.RemoveAll(t => t == null);
                 if (available.Count > 0)
-                {
-                    int index = Random.Range(0, available.Count);
-                    return available[index].position;
-                }
+                    return available[Random.Range(0, available.Count)].position;
             }
-            // Fallback
             return new Vector3(Random.Range(-10f, 10f), spawnHeight, Random.Range(-10f, 10f));
         }
     }
 
-    // Called by TargetHealth when someone dies on the Server
+    private GameObject GetRandomExplorerPrefab()
+    {
+        if (explorerPrefabs == null || explorerPrefabs.Count == 0) return null;
+        return explorerPrefabs[Random.Range(0, explorerPrefabs.Count)];
+    }
+
+    // =========================================================================
+    //  Death & Win Conditions
+    // =========================================================================
+
+    /// <summary>Called by TargetHealth on the Server when an entity reaches 0 HP.</summary>
     public void OnEntityDeath(NetworkObject victim)
     {
         if (!IsServer || gameEnded.Value) return;
@@ -184,23 +220,16 @@ public class GameManager : NetworkBehaviour
         {
             _aliveExplorers.Remove(victim);
             if (_aliveExplorers.Count == 0)
-            {
                 EndMatch(WinReason.TeamWipe);
-            }
         }
     }
 
     private void EndMatch(WinReason reason)
     {
         gameEnded.Value = true;
-        string resultMessage = "";
 
-        switch (reason)
-        {
-            case WinReason.TimeOut: resultMessage = "Explorers Survived! (Time Ran Out)"; break;
-            case WinReason.TeamWipe: resultMessage = "Demon Wins! (No Survivors)"; break;
-            case WinReason.DemonSlain: resultMessage = "Explorers Win! (Demon Slain)"; break;
-        }
+        // OCP: message looked up from dictionary — no switch/case to modify
+        string resultMessage = WinMessages.TryGetValue(reason, out string msg) ? msg : "Match Over";
 
         EndMatchClientRpc(resultMessage);
         Invoke(nameof(ResetMatch), 10f);
@@ -209,20 +238,26 @@ public class GameManager : NetworkBehaviour
     [ClientRpc]
     private void EndMatchClientRpc(string resultMessage)
     {
-        // --- OPTIMIZED: Use cached overlay instead of finding it ---
-        if (_cachedOverlay == null) _cachedOverlay = FindObjectOfType<MatchResultOverlay>(true);
-        
-        if (_cachedOverlay != null)
-        {
-            _cachedOverlay.ShowResultDirectly(resultMessage);
-        }
+        if (_cachedOverlay == null)
+            _cachedOverlay = FindFirstObjectByType<MatchResultOverlay>(FindObjectsInactive.Include);
+
+        _cachedOverlay?.ShowResultDirectly(resultMessage);
     }
 
-    // --- GLOBAL HANDSHAKE: BROADCAST TAUNTS ---
-    [ServerRpc(RequireOwnership = false)]
+    private void ResetMatch()
+    {
+        if (!IsServer) return;
+        UnityEngine.SceneManagement.SceneManager.LoadScene(
+            UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
+    }
+
+    // =========================================================================
+    //  Taunt Broadcast (Global Handshake)
+    // =========================================================================
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     public void BroadcastTauntServerRpc(ulong demonId, int type)
     {
-        // --- OPTIMIZED: Use cached girl sequence ---
         foreach (var girl in _allGirlComponents)
         {
             if (girl != null && girl.NetworkObjectId == demonId)
@@ -240,7 +275,6 @@ public class GameManager : NetworkBehaviour
     [ClientRpc]
     private void BroadcastTauntClientRpc(ulong demonId, int type)
     {
-        // --- OPTIMIZED: Use cached girl sequence ---
         foreach (var girl in _allGirlComponents)
         {
             if (girl != null && girl.NetworkObjectId == demonId)
@@ -249,65 +283,5 @@ public class GameManager : NetworkBehaviour
                 break;
             }
         }
-    }
-
-    private void ResetMatch()
-    {
-        if (!IsServer) return;
-        // For now, let's just reload the scene or simple reset
-        UnityEngine.SceneManagement.SceneManager.LoadScene(UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
-    }
-    private void SpawnMonsters()
-    {
-        if (monsterPrefabs == null || monsterPrefabs.Count == 0)
-        {
-            Debug.LogWarning("[SERVER] No Monster Prefabs assigned! Skipping monster spawn.");
-            return;
-        }
-
-        for (int i = 0; i < monsterCount; i++)
-        {
-            // Pick a random monster type!
-            GameObject randomMonsterPrefab = monsterPrefabs[Random.Range(0, monsterPrefabs.Count)];
-            if (randomMonsterPrefab == null) continue;
-
-            // Spawn them in a radius of 20 meters from the center, high in the sky!
-            Vector2 randomCircle = Random.insideUnitCircle * 20f;
-            Vector3 spawnPos = new Vector3(randomCircle.x, spawnHeight, randomCircle.y);
-
-            GameObject monsterObj = Instantiate(randomMonsterPrefab, spawnPos, Quaternion.identity);
-            NetworkObject netObj = monsterObj.GetComponent<NetworkObject>();
-
-            if (netObj != null)
-            {
-                netObj.Spawn(); // Simple Spawn() for non-player AI
-                
-                // Track for command system
-                if (monsterObj.TryGetComponent<MonsterAI>(out MonsterAI ai))
-                {
-                    _activeMonsters.Add(ai);
-                }
-
-                Debug.Log($"[SERVER] Spawned AI Monster {i + 1}/{monsterCount} at {spawnPos}");
-            }
-        }
-    }
-
-    // Called by the Girl via ServerRpc to lead her army
-    public void CommandAllMonsters(MonsterAI.Command command)
-    {
-        if (!IsServer) return;
-
-        Debug.Log($"[SERVER] Girl is commanding monsters to: {command}");
-        foreach (var monster in _activeMonsters)
-        {
-            if (monster != null) monster.currentCommand = command;
-        }
-    }
-
-    private GameObject GetRandomExplorerPrefab()
-    {
-        if (explorerPrefabs == null || explorerPrefabs.Count == 0) return null;
-        return explorerPrefabs[Random.Range(0, explorerPrefabs.Count)];
     }
 }
