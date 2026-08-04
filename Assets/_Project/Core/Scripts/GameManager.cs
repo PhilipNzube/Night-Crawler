@@ -252,7 +252,7 @@ public class GameManager : NetworkBehaviour
         }
     }
 
-    private GameObject GetRandomExplorerPrefab()
+    public GameObject GetRandomExplorerPrefab()
     {
         if (explorerPrefabs == null || explorerPrefabs.Count == 0) return null;
         return explorerPrefabs[Random.Range(0, explorerPrefabs.Count)];

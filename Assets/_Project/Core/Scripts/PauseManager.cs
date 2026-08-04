@@ -4,48 +4,63 @@ using StarterAssets;
 using Unity.Netcode;
 
 /// <summary>
-/// SOLID — SRP: Handles pause state toggling for the local player only.
-///
-/// DIP note: This script depends on the concrete StarterAssets types because
-/// Unity's component system doesn't support constructor injection. If the input
-/// system is ever swapped, only this file needs updating — all callers remain
-/// unaffected (they never reference PauseManager directly).
-///
-/// LSP / ISP: Does not inherit from or implement any interface — intentional, as
-/// pause is a singleton concern tied to one scene lifecycle.
+/// SOLID — SRP: Handles pause state toggling for the local player.
+/// Multiplayer-friendly: Shows UI overlay and unlocks cursor without altering Time.timeScale.
 /// </summary>
 public class PauseManager : MonoBehaviour
 {
-    private bool _isPaused = false;
+    [Header("Pause UI Reference")]
+    [Tooltip("Optional reference to PauseUI component. Automatically found if unassigned.")]
+    public PauseUI pauseUI;
 
-    // Cached lazily on first pause — avoids searching the scene on every frame
-    private StarterAssetsInputs  _inputs;
+    // -------------------------------------------------------------------------
+    //  Private State
+    // -------------------------------------------------------------------------
+    private bool _isPaused = false;
+    private StarterAssetsInputs   _inputs;
     private ThirdPersonController _controller;
 
     // =========================================================================
     //  Unity Lifecycle
     // =========================================================================
+    void Start()
+    {
+        if (pauseUI == null)
+            pauseUI = FindFirstObjectByType<PauseUI>();
+    }
+
     void Update()
     {
-        if (Keyboard.current.escapeKey.wasPressedThisFrame)
+        if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
+        {
             TogglePause();
+        }
     }
 
     // =========================================================================
-    //  Pause Logic
+    //  Public API
     // =========================================================================
-    private void TogglePause()
+    public void TogglePause()
     {
-        _isPaused = !_isPaused;
+        SetPaused(!_isPaused);
+    }
 
-        // Lazy-cache local player components on first call (not every frame)
+    public void ResumeGame()
+    {
+        SetPaused(false);
+    }
+
+    public void SetPaused(bool paused)
+    {
+        _isPaused = paused;
+
         TryCacheLocalPlayerComponents();
 
-        // Cursor
+        // Cursor state
         Cursor.lockState = _isPaused ? CursorLockMode.None : CursorLockMode.Locked;
         Cursor.visible   = _isPaused;
 
-        // Disable look / movement while paused
+        // Player look and movement controls
         if (_inputs != null)
         {
             _inputs.cursorLocked       = !_isPaused;
@@ -55,13 +70,19 @@ public class PauseManager : MonoBehaviour
         if (_controller != null)
             _controller.enabled = !_isPaused;
 
-        Debug.Log($"[PauseManager] {(_isPaused ? "PAUSED" : "RESUMED")}");
+        // UI Panel visibility
+        if (pauseUI != null)
+        {
+            if (_isPaused) pauseUI.ShowPauseMenu();
+            else pauseUI.HidePauseMenu();
+        }
+
+        Debug.Log($"[PauseManager] Game {(_isPaused ? "PAUSED" : "RESUMED")}");
     }
 
-    /// <summary>
-    /// Searches for components on the local player object only once.
-    /// Safe to call repeatedly — exits immediately if already cached.
-    /// </summary>
+    // =========================================================================
+    //  Helpers
+    // =========================================================================
     private void TryCacheLocalPlayerComponents()
     {
         if (_inputs != null && _controller != null) return;

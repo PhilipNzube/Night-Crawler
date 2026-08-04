@@ -88,11 +88,12 @@ public class LoadingScreen : MonoBehaviour
     [TextArea(2, 4)]
     public string[] tips = new string[]
     {
-        "The Vengeful Spirit can vanish from sight — listen for footsteps.",
-        "Investigators: stick together. Alone, you are easy prey.",
-        "Watch your ammo. Every shot counts.",
-        "The Vengeful Spirit grows stronger the longer the match goes on.",
-        "Avoid dark corners — the Vengeful Spirit thrives in the shadows."
+        "When footsteps sound upon the stone, beware the dark, you're not alone.",
+        "Trust is fragile down below, who is friend and who is foe?",
+        "Save your bullets, count your gear, the Vengeful Spirit draws so near.",
+        "Shadows twist and paths turn round, no escape can here be found.",
+        "Whispers echo in the cold, don't believe the lies you're told.",
+        "When the lights begin to fade, someone has a bargain made."
     };
 
     // -------------------------------------------------------------------------

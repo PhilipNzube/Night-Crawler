@@ -88,8 +88,8 @@ public class PlayerHUD : MonoBehaviour
     // =========================================================================
     void Start()
     {
-        // Show waiting overlay until bound
-        SetWaitingState(true);
+        // Keep waiting overlay hidden when match starts
+        SetWaitingState(false);
     }
 
     void Update()
