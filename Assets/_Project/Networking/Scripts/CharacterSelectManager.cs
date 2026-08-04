@@ -48,10 +48,10 @@ public class CharacterSelectManager : NetworkBehaviour
     {
         base.OnNetworkSpawn();
 
-        if (IsServer)
-        {
-            SelectRandomVengefulSpirit();
-        }
+        // NOTE: SelectRandomVengefulSpirit() is intentionally NOT called here.
+        // It is called by GirlRevealManager.BeginReveal() when the host presses
+        // START MATCH, at which point all players are guaranteed to be connected.
+        // Calling it at spawn time risked selecting before all clients joined.
     }
 
     // =========================================================================
@@ -66,9 +66,10 @@ public class CharacterSelectManager : NetworkBehaviour
 
         int randomIndex = Random.Range(0, clientIds.Count);
         vengefulSpiritClientId.Value = clientIds[randomIndex];
-        roleSelectionDone.Value = true;
+        roleSelectionDone.Value      = true;
 
-        Debug.Log($"[CharacterSelectManager] Client {vengefulSpiritClientId.Value} secretively chosen as Vengeful Spirit!");
+        Debug.Log($"[CharacterSelectManager] {clientIds.Count} players connected. " +
+                  $"Client {vengefulSpiritClientId.Value} selected as Vengeful Spirit.");
     }
 
     // =========================================================================

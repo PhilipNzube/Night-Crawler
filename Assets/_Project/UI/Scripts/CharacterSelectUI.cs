@@ -36,15 +36,55 @@ public class CharacterSelectUI : MonoBehaviour
     // -------------------------------------------------------------------------
     //  Private State
     // -------------------------------------------------------------------------
-    private int _selectedIndex = 0;
-    private bool _isVengefulSpirit = false;
-    private GameObject _currentPreviewInstance;
+    private int         _selectedIndex             = 0;
+    private bool        _isVengefulSpirit          = false;
+    private GameObject  _currentPreviewInstance;
+    private bool        _initialized               = false; // prevents double setup
 
     // =========================================================================
     //  Unity Lifecycle
     // =========================================================================
     void Start()
     {
+        // If the panel is disabled at start (normal case — GirlRevealManager
+        // enables it after the reveal), skip initial setup. OnEnable will
+        // handle setup when the panel is first shown.
+        if (characterSelectPanel != null && !characterSelectPanel.activeInHierarchy) return;
+
+        InitialSetup();
+    }
+
+    void OnEnable()
+    {
+        // Activate the white room environment whenever this panel is shown
+        if (CharacterSceneController.Instance != null)
+            CharacterSceneController.Instance.EnableCharacterSelectEnvironment();
+
+        // If Start() skipped setup (panel was inactive), run it now
+        if (!_initialized)
+            InitialSetup();
+    }
+
+    void OnDisable()
+    {
+        // Deactivate the white room when the panel is hidden or destroyed
+        if (CharacterSceneController.Instance != null)
+            CharacterSceneController.Instance.DisableCharacterSelectEnvironment();
+    }
+
+    void OnDestroy()
+    {
+        if (CharacterSelectManager.Instance != null)
+        {
+            CharacterSelectManager.Instance.roleSelectionDone.OnValueChanged -= OnRoleSelectionChanged;
+        }
+    }
+
+    private void InitialSetup()
+    {
+        if (_initialized) return;
+        _initialized = true;
+
         if (confirmButton != null)
             confirmButton.onClick.AddListener(OnConfirmSelection);
 
@@ -55,14 +95,6 @@ public class CharacterSelectUI : MonoBehaviour
 
         CheckLocalRole();
         SelectProfession(0);
-    }
-
-    void OnDestroy()
-    {
-        if (CharacterSelectManager.Instance != null)
-        {
-            CharacterSelectManager.Instance.roleSelectionDone.OnValueChanged -= OnRoleSelectionChanged;
-        }
     }
 
     // =========================================================================
@@ -79,19 +111,23 @@ public class CharacterSelectUI : MonoBehaviour
         {
             var data = chars[index];
 
-            if (detailsTitleText != null) detailsTitleText.text = data.characterName;
+            if (detailsTitleText       != null) detailsTitleText.text       = data.characterName;
             if (detailsDescriptionText != null) detailsDescriptionText.text = data.description;
-            if (detailsAbilitiesText != null) detailsAbilitiesText.text = data.specialAbilities;
+            if (detailsAbilitiesText   != null) detailsAbilitiesText.text   = data.specialAbilities;
 
             if (detailsIconImage != null)
             {
-                detailsIconImage.sprite = data.characterIcon;
+                detailsIconImage.sprite  = data.characterIcon;
                 detailsIconImage.enabled = (data.characterIcon != null);
             }
 
             // Spawn 3D character preview model if assigned
             UpdateModelPreview(data.characterPrefab);
         }
+
+        // Reset idle gesture timer — user is actively browsing characters
+        if (CharacterSceneController.Instance != null)
+            CharacterSceneController.Instance.ResetIdleTimer();
     }
 
     // =========================================================================
@@ -107,16 +143,36 @@ public class CharacterSelectUI : MonoBehaviour
 
         if (modelPreviewPivot != null && prefabToSpawn != null)
         {
-            _currentPreviewInstance = Instantiate(prefabToSpawn, modelPreviewPivot.position, modelPreviewPivot.rotation, modelPreviewPivot);
+            _currentPreviewInstance = Instantiate(
+                prefabToSpawn, modelPreviewPivot.position,
+                modelPreviewPivot.rotation, modelPreviewPivot);
 
-            // Disable player control scripts on the preview instance (e.g. CharacterController, NetworkBehaviour, inputs)
-            // so the preview model stays standing cleanly in place
-            MonoBehaviour[] scripts = _currentPreviewInstance.GetComponentsInChildren<MonoBehaviour>();
-            foreach (var script in scripts)
+            // Disable player control scripts on the preview instance so the
+            // preview model stands cleanly in place
+            foreach (var script in _currentPreviewInstance.GetComponentsInChildren<MonoBehaviour>())
             {
-                if (!(script is Animator))
-                    script.enabled = false;
+                if (script is Animator || script is CharacterAnimationController) continue;
+                script.enabled = false;
             }
+
+            // Attach animation controller and start idle
+            CharacterAnimationController animCtrl =
+                _currentPreviewInstance.GetComponent<CharacterAnimationController>();
+            if (animCtrl == null)
+                animCtrl = _currentPreviewInstance.AddComponent<CharacterAnimationController>();
+
+            // Character type will be set per-selection; default to Adventurer idle
+            animCtrl.characterType = CharacterAnimationController.CharacterType.Adventurer;
+
+            // Inform CharacterSceneController so it can manage the gesture delay timer
+            if (CharacterSceneController.Instance != null)
+                CharacterSceneController.Instance.NotifyPreviewModelChanged(animCtrl);
+        }
+        else
+        {
+            // No model — clear the gesture timer reference
+            if (CharacterSceneController.Instance != null)
+                CharacterSceneController.Instance.NotifyPreviewModelChanged(null);
         }
     }
 

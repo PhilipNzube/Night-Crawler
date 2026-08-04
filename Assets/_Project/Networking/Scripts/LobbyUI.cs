@@ -144,9 +144,31 @@ public class LobbyUI : MonoBehaviour
         int currentCount = NetworkManager.Singleton.ConnectedClientsIds.Count;
         if (currentCount < minPlayers) return;
 
-        // Hide lobby UI
+        // Hide lobby UI — the reveal and character selection screens take over
         HideLobbyUI();
 
+        // Route through the reveal flow so all players experience the
+        // slot-machine spirit selection, character select, and squad lineup
+        // before the game scene loads.
+        if (GirlRevealManager.Instance != null)
+        {
+            GirlRevealManager.Instance.BeginReveal();
+        }
+        else
+        {
+            // Fallback: GirlRevealManager not present — load scene directly
+            // (preserves original behaviour for legacy scene setups)
+            Debug.LogWarning("[LobbyUI] GirlRevealManager not found. Loading game scene directly.");
+            LoadGameSceneFallback();
+        }
+    }
+
+    /// <summary>
+    /// Legacy direct scene load — used only when GirlRevealManager is absent.
+    /// GirlRevealManager handles scene loading in the normal flow.
+    /// </summary>
+    private void LoadGameSceneFallback()
+    {
         // 1. If Netcode SceneManagement is enabled on NetworkManager:
         if (NetworkManager.Singleton.SceneManager != null)
         {
@@ -157,7 +179,7 @@ public class LobbyUI : MonoBehaviour
         {
             LoadingScreen.Instance.LoadScene(gameSceneName);
         }
-        // 3. Fallback standard scene load:
+        // 3. Standard scene load:
         else
         {
             UnityEngine.SceneManagement.SceneManager.LoadScene(gameSceneName);

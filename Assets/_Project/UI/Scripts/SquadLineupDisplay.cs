@@ -59,6 +59,14 @@ public class SquadLineupDisplay : MonoBehaviour
     public float countdownFrom = 3f;
 
     // -------------------------------------------------------------------------
+    //  Inspector — Cinematic Animation
+    // -------------------------------------------------------------------------
+    [Header("Cinematic Animation")]
+    [Tooltip("Seconds between each character starting their cinematic sequence. " +
+             "Staggers the animations so they don't all fire simultaneously.")]
+    public float characterSequenceStagger = 0.6f;
+
+    // -------------------------------------------------------------------------
     //  Private State
     // -------------------------------------------------------------------------
     private readonly List<GameObject> _modelInstances = new List<GameObject>();
@@ -81,12 +89,17 @@ public class SquadLineupDisplay : MonoBehaviour
     // =========================================================================
 
     /// <summary>
-    /// Activates the 3D squad lineup, then after <see cref="showcaseDuration"/> calls
+    /// Activates the squad environment, builds the 3D lineup, plays cinematic
+    /// sequences per character, then after <see cref="showcaseDuration"/> calls
     /// <paramref name="onComplete"/> (e.g. to trigger scene load).
     /// Safe to call when prefabs or pivots are not yet wired.
     /// </summary>
     public void ShowSquadLineup(System.Action onComplete = null)
     {
+        // Activate the rocks/trees squad world and camera
+        if (SquadSceneController.Instance != null)
+            SquadSceneController.Instance.EnableSquadEnvironment();
+
         if (_showcaseRoutine != null) StopCoroutine(_showcaseRoutine);
         _showcaseRoutine = StartCoroutine(RunShowcase(onComplete));
     }
@@ -124,6 +137,14 @@ public class SquadLineupDisplay : MonoBehaviour
         ClearLineup();
         SetPanelVisible(false);
 
+        // Disable squad world environment
+        if (SquadSceneController.Instance != null)
+            SquadSceneController.Instance.DisableSquadEnvironment();
+
+        // Notify GirlRevealManager that this investigator is done
+        if (GirlRevealManager.Instance != null)
+            GirlRevealManager.Instance.ReportInvestigatorReadyServerRpc();
+
         onComplete?.Invoke();
         _showcaseRoutine = null;
     }
@@ -137,22 +158,37 @@ public class SquadLineupDisplay : MonoBehaviour
 
         if (NetworkManager.Singleton == null) return;
 
+        // The Vengeful Spirit is excluded from the squad display entirely —
+        // she has her own dedicated GirlPlayerScreen during this phase.
+        ulong girlClientId = CharacterSelectManager.Instance != null
+            ? CharacterSelectManager.Instance.vengefulSpiritClientId.Value
+            : ulong.MaxValue;
+
         List<ulong> clientIds = new List<ulong>(NetworkManager.Singleton.ConnectedClientsIds);
-        int slots = Mathf.Min(clientIds.Count, squadPivots != null ? squadPivots.Count : 0);
+        // Remove the girl client so she doesn't get a squad slot
+        clientIds.RemoveAll(id => id == girlClientId);
+
+        int slots     = Mathf.Min(clientIds.Count, squadPivots != null ? squadPivots.Count : 0);
+        int slotIndex = 0;
 
         for (int i = 0; i < slots; i++)
         {
             ulong     clientId = clientIds[i];
-            Transform pivot    = squadPivots[i];
-            if (pivot == null) continue;
+            Transform pivot    = squadPivots[slotIndex];
+            if (pivot == null) { slotIndex++; continue; }
 
-            SpawnModelAtPivot(clientId, pivot);
-            PlaceNameTag(clientId, i);
+            SpawnModelAtPivot(clientId, pivot, slotIndex);
+            PlaceNameTag(clientId, slotIndex);
+            slotIndex++;
         }
     }
 
-    /// <summary>Instantiates the correct character model at the given pivot.</summary>
-    private void SpawnModelAtPivot(ulong clientId, Transform pivot)
+    /// <summary>
+    /// Instantiates the correct character model at the given pivot, then
+    /// attaches a CharacterAnimationController and queues its cinematic sequence
+    /// with a per-slot stagger delay so characters animate one after another.
+    /// </summary>
+    private void SpawnModelAtPivot(ulong clientId, Transform pivot, int slotIndex)
     {
         GameObject prefab = ResolveCharacterPrefab(clientId);
         if (prefab == null) return;
@@ -160,31 +196,32 @@ public class SquadLineupDisplay : MonoBehaviour
         GameObject instance = Instantiate(prefab, pivot.position, pivot.rotation, pivot);
         _modelInstances.Add(instance);
 
-        // Disable all MonoBehaviours except Animator — model stays in idle pose
+        // Disable all MonoBehaviours except Animator and CharacterAnimationController
         foreach (MonoBehaviour mb in instance.GetComponentsInChildren<MonoBehaviour>())
         {
-            if (!(mb is Animator))
-                mb.enabled = false;
+            if (mb is Animator || mb is CharacterAnimationController) continue;
+            mb.enabled = false;
         }
+
+        // Wire up animation controller and trigger the staggered cinematic sequence
+        CharacterAnimationController animCtrl = instance.GetComponent<CharacterAnimationController>();
+        if (animCtrl == null)
+            animCtrl = instance.AddComponent<CharacterAnimationController>();
+
+        animCtrl.characterType = MapProfessionToCharType(clientId);
+        float delay = slotIndex * characterSequenceStagger;
+        StartCoroutine(PlaySequenceAfterDelay(animCtrl, delay));
     }
 
     /// <summary>
     /// Resolves which prefab to show for a given client.
-    /// Priority: CharacterSelectManager choice → girl prefab for Vengeful Spirit → fallback explorer.
+    /// Priority: CharacterSelectManager choice → fallback explorer.
+    /// NOTE: The Vengeful Spirit / girl is excluded from the lineup in BuildLineup()
+    ///       so this method should never be called with the girl's clientId.
     /// </summary>
     private GameObject ResolveCharacterPrefab(ulong clientId)
     {
-        // Is this client the Vengeful Spirit?
-        bool isVengefulSpirit = CharacterSelectManager.Instance != null &&
-                                CharacterSelectManager.Instance.vengefulSpiritClientId.Value == clientId;
-
-        if (isVengefulSpirit)
-        {
-            // Vengeful Spirit shown as their girl model (or first explorer as fallback)
-            if (GameManager.Instance != null && GameManager.Instance.girlPrefab != null)
-                return GameManager.Instance.girlPrefab;
-        }
-        else if (CharacterSelectManager.Instance != null)
+        if (CharacterSelectManager.Instance != null)
         {
             int charIdx = CharacterSelectManager.Instance.GetSelectedCharacterIndex(clientId);
             GameObject selected = CharacterSelectManager.Instance.GetInvestigatorPrefab(charIdx);
@@ -193,6 +230,42 @@ public class SquadLineupDisplay : MonoBehaviour
 
         // Fallback: any explorer prefab
         return GameManager.Instance != null ? GameManager.Instance.GetRandomExplorerPrefab() : null;
+    }
+
+    // =========================================================================
+    //  Animation Helpers
+    // =========================================================================
+
+    private System.Collections.IEnumerator PlaySequenceAfterDelay(
+        CharacterAnimationController ctrl, float delay)
+    {
+        if (delay > 0f) yield return new WaitForSecondsRealtime(delay);
+        if (ctrl != null) ctrl.PlayCinematicSequence(startGestureLoopAfter: true);
+    }
+
+    /// <summary>
+    /// Maps an investigator's selected profession to the animation character type
+    /// so the correct built-in cinematic sequence plays.
+    /// </summary>
+    private CharacterAnimationController.CharacterType MapProfessionToCharType(ulong clientId)
+    {
+        if (CharacterSelectManager.Instance == null)
+            return CharacterAnimationController.CharacterType.Adventurer;
+
+        int idx = CharacterSelectManager.Instance.GetSelectedCharacterIndex(clientId);
+        var chars = CharacterSelectManager.Instance.availableCharacters;
+        if (chars == null || idx < 0 || idx >= chars.Count)
+            return CharacterAnimationController.CharacterType.Adventurer;
+
+        switch (chars[idx].profession)
+        {
+            case InvestigatorProfession.CursedPriest:    return CharacterAnimationController.CharacterType.Priest;
+            case InvestigatorProfession.MineWorker:       return CharacterAnimationController.CharacterType.Miner;
+            case InvestigatorProfession.FieldMedic:       return CharacterAnimationController.CharacterType.Medic;
+            case InvestigatorProfession.HazardSpecialist: return CharacterAnimationController.CharacterType.Protector;
+            case InvestigatorProfession.Explorer:         return CharacterAnimationController.CharacterType.Adventurer;
+            default:                                      return CharacterAnimationController.CharacterType.Adventurer;
+        }
     }
 
     /// <summary>Instantiates a name card UI tag for the given slot.</summary>
