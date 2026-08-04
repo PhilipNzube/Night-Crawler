@@ -45,6 +45,9 @@ public class GameMusicManager : MonoBehaviour
     //  Inspector — Intense / Chase Layer
     // -------------------------------------------------------------------------
     [Header("Intense / Chase Music")]
+    [Tooltip("The audio clip for the intense/chase music. This is what plays when the demon is near.")]
+    public AudioClip intenseTrack;
+
     [Tooltip("The AudioSource that plays the intense chase/horror sting. Set it to loop in the Inspector.")]
     public AudioSource intenseAudioSource;
 
@@ -83,6 +86,10 @@ public class GameMusicManager : MonoBehaviour
 
     void Start()
     {
+        // Auto-assign the intense clip to its AudioSource if provided
+        if (intenseAudioSource != null && intenseTrack != null)
+            intenseAudioSource.clip = intenseTrack;
+
         ValidateAudioSources();
         StartBackgroundLoop();
     }
@@ -257,6 +264,9 @@ public class GameMusicManager : MonoBehaviour
 
         if (intenseAudioSource == null)
             Debug.LogWarning("[GameMusicManager] 'intenseAudioSource' is not assigned. Intense mode will be skipped.");
+
+        if (intenseTrack == null)
+            Debug.LogWarning("[GameMusicManager] 'intenseTrack' clip is not assigned. Intense mode will be silent.");
 
         if (backgroundTracks == null || backgroundTracks.Length == 0)
             Debug.LogWarning("[GameMusicManager] No background tracks assigned. Music will not play.");
