@@ -94,8 +94,8 @@ public class MatchResultOverlay : MonoBehaviour
             bool isGirl = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject.name.Contains("Girl");
             
             // Check if our team won based on the message
-            bool demonWon = msg.Contains("Demon Wins");
-            bool explorersWon = msg.Contains("Explorers Win") || msg.Contains("Survived");
+            bool demonWon = msg.Contains("Vengeful Spirit Wins") || msg.Contains("Demon Wins");
+            bool explorersWon = msg.Contains("Investigators Win") || msg.Contains("Explorers Win") || msg.Contains("Survived");
 
             if ((isGirl && demonWon) || (!isGirl && explorersWon)) outcome = "VICTORY";
             else if ((isGirl && explorersWon) || (!isGirl && demonWon)) outcome = "DEFEAT";

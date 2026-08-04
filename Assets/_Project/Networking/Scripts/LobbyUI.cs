@@ -68,8 +68,15 @@ public class LobbyUI : MonoBehaviour
     public Button disconnectButton;
 
     // -------------------------------------------------------------------------
-    //  Inspector — Shared / Cosmetic
+    //  Inspector — Shared / Cosmetic / Match
     // -------------------------------------------------------------------------
+    [Header("Match & Scene Settings")]
+    [Tooltip("Minimum connected players required to enable 'START MATCH'. Set to 1 for solo testing, or 2+ for multiplayer builds.")]
+    public int minPlayers = 1;
+
+    [Tooltip("The name of the Game Scene containing GameManager and map spawn points.")]
+    public string gameSceneName = "GameScene";
+
     [Header("Shared")]
     [Tooltip("Optional animated background element (e.g. a pulsing vignette image).")]
     public GameObject animatedBackground;
@@ -133,12 +140,28 @@ public class LobbyUI : MonoBehaviour
     // =========================================================================
     private void OnStartMatch()
     {
-        GameManager gm = GameManager.Instance;
-        if (gm == null || gm.HasGameStarted) return;
-        if (gm.CurrentPlayerCount < gm.minPlayers) return;
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer) return;
+        int currentCount = NetworkManager.Singleton.ConnectedClientsIds.Count;
+        if (currentCount < minPlayers) return;
 
-        gm.StartGame();
-        HideLobbyUI(); // Hide lobby — game canvas takes over
+        // Hide lobby UI
+        HideLobbyUI();
+
+        // 1. If Netcode SceneManagement is enabled on NetworkManager:
+        if (NetworkManager.Singleton.SceneManager != null)
+        {
+            NetworkManager.Singleton.SceneManager.LoadScene(gameSceneName, UnityEngine.SceneManagement.LoadSceneMode.Single);
+        }
+        // 2. Fallback to LoadingScreen if available:
+        else if (LoadingScreen.Instance != null)
+        {
+            LoadingScreen.Instance.LoadScene(gameSceneName);
+        }
+        // 3. Fallback standard scene load:
+        else
+        {
+            UnityEngine.SceneManagement.SceneManager.LoadScene(gameSceneName);
+        }
     }
 
     private void OnDisconnect()
@@ -152,13 +175,12 @@ public class LobbyUI : MonoBehaviour
     // =========================================================================
     private void RefreshLobbyPanel()
     {
-        GameManager gm = GameManager.Instance;
-        if (gm == null) return;
+        if (NetworkManager.Singleton == null) return;
 
-        int  current   = gm.CurrentPlayerCount;
-        int  required  = gm.minPlayers;
-        bool isServer  = NetworkManager.Singleton.IsServer;
-        bool canStart  = isServer && current >= required && !gm.HasGameStarted;
+        int  current  = NetworkManager.Singleton.ConnectedClientsIds.Count;
+        int  required = minPlayers;
+        bool isServer = NetworkManager.Singleton.IsServer;
+        bool canStart = isServer && current >= required;
 
         // Player count text
         if (playerCountText != null)
@@ -167,9 +189,7 @@ public class LobbyUI : MonoBehaviour
         // Status text
         if (statusText != null)
         {
-            if (gm.HasGameStarted)
-                statusText.text = "Match in progress...";
-            else if (isServer)
+            if (isServer)
                 statusText.text = canStart ? "All players connected — ready to start!" : $"Waiting for {required - current} more player(s)...";
             else
                 statusText.text = "Waiting for the host to start the match...";
@@ -177,7 +197,7 @@ public class LobbyUI : MonoBehaviour
 
         // Host-only elements
         if (hostOnlyElements != null)
-            hostOnlyElements.SetActive(isServer && !gm.HasGameStarted);
+            hostOnlyElements.SetActive(isServer);
 
         // Start button interactability
         if (startMatchButton != null)

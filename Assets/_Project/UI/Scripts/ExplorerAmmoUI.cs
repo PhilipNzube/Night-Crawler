@@ -4,7 +4,7 @@ using UnityEngine.UI;
 using Unity.Netcode;
 
 /// <summary>
-/// SOLID — SRP: Handles only ammo/weapon UI display for the local Explorer player.
+/// SOLID — SRP: Handles only ammo/weapon UI display for the local Investigator player.
 /// 
 /// DIP: Caches the reference once on Start via the network layer.
 /// No per-frame searching — removes the expensive FindObjectOfType pattern.

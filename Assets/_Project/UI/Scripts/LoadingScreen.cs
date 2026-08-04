@@ -5,28 +5,18 @@ using TMPro;
 using System.Collections;
 
 /// <summary>
-/// SOLID — SRP: Manages the loading screen UI only.
+/// SOLID — SRP: Manages loading screen display, tips, progress bar, and scene transitions.
 ///
 /// Handles two cases:
-///   1. Initial boot — shown automatically when the game first launches.
-///   2. Scene transitions — call LoadingScreen.Instance.LoadScene("SceneName")
-///      to fade in the loading screen and async-load the target scene.
+///   1. Initial boot — automatically triggers in scene index 0 / BootScene, showing tips
+///      for a set duration before transitioning to the Lobby scene.
+///   2. Scene transitions — call LoadingScreen.Instance.LoadScene("GameScene")
+///      to fade in the loading screen and load the target scene.
 ///
 /// Setup:
-///   1. Create a Canvas in your first (boot/splash) scene.
-///   2. Build the hierarchy below and drag fields into the Inspector.
-///   3. Add this script to the Canvas root.
-///   4. The Canvas will DontDestroyOnLoad so it persists across scenes.
-///
-/// Hierarchy:
-///   LoadingCanvas
-///   └── LoadingRoot  (this script lives here)
-///       ├── Background       (full-screen dark Image)
-///       ├── LogoImage        (optional game logo)
-///       ├── ProgressBarBG    (Image — bar background)
-///       │   └── ProgressFill (Image — fill, set to Filled / Horizontal)
-///       ├── ProgressText     (TMP — "Loading... 72%")
-///       └── TipText          (TMP — rotating gameplay tips)
+///   1. Place LoadingCanvas in your first (Boot) scene.
+///   2. Add scenes to File -> Build Settings (Index 0: Boot, Index 1: Lobby, Index 2: Game).
+///   3. Wire up Inspector fields below.
 /// </summary>
 public class LoadingScreen : MonoBehaviour
 {
@@ -39,7 +29,7 @@ public class LoadingScreen : MonoBehaviour
     //  Inspector — Panels
     // -------------------------------------------------------------------------
     [Header("Panels")]
-    [Tooltip("The root GameObject of the loading screen. This is shown/hidden as needed.")]
+    [Tooltip("The root GameObject of the loading screen. Shown/hidden as needed.")]
     public GameObject loadingRoot;
 
     // -------------------------------------------------------------------------
@@ -55,41 +45,54 @@ public class LoadingScreen : MonoBehaviour
     [Tooltip("Displays loading progress, e.g. 'Loading...  72%'.")]
     public TextMeshProUGUI progressText;
 
-    [Tooltip("Rotating tip text shown during loading (optional).")]
+    [Tooltip("Rotating tip text shown during loading.")]
     public TextMeshProUGUI tipText;
 
     [Tooltip("Overlay CanvasGroup used for fade in/out transitions.")]
     public CanvasGroup fadeCanvasGroup;
 
     // -------------------------------------------------------------------------
-    //  Inspector — Settings
+    //  Inspector — Boot & Timing Settings
     // -------------------------------------------------------------------------
-    [Header("Settings")]
+    [Header("Boot & Timing Settings")]
+    [Tooltip("If true, automatically loads the target scene on Start when in the Boot scene.")]
+    public bool autoLoadOnStart = true;
+
+    [Tooltip("The name of the scene to load on initial boot (e.g. 'LobbyScene'). If blank, uses targetSceneIndex.")]
+    public string targetSceneName = "LobbyScene";
+
+    [Tooltip("The build index of the scene to load if targetSceneName is blank or not found.")]
+    public int targetSceneIndex = 1;
+
+    [Tooltip("Minimum time (in seconds) the loading screen stays visible on initial boot so tips can be read.")]
+    [Range(1f, 10f)]
+    public float initialBootMinDuration = 3.5f;
+
+    [Tooltip("Minimum time (in seconds) the loading screen stays visible during in-game scene transitions.")]
+    [Range(0.2f, 5f)]
+    public float sceneTransitionMinDuration = 1.0f;
+
     [Tooltip("How long to hold the loading screen after reaching 100% (visual polish).")]
-    [Range(0.2f, 2f)]
+    [Range(0.1f, 2f)]
     public float holdAfterComplete = 0.5f;
 
-    [Tooltip("Duration of the fade-in and fade-out animations.")]
+    [Tooltip("Duration of fade-in and fade-out animations.")]
     [Range(0.1f, 1.5f)]
     public float fadeDuration = 0.4f;
 
-    [Tooltip("Minimum time the loading screen stays visible (prevents a flash for fast loads).")]
-    [Range(0.5f, 5f)]
-    public float minimumDisplayTime = 1.5f;
-
     // -------------------------------------------------------------------------
-    //  Inspector — Tips
+    //  Inspector — Loading Tips
     // -------------------------------------------------------------------------
-    [Header("Loading Tips (optional)")]
+    [Header("Loading Tips")]
     [Tooltip("Gameplay tips displayed randomly during loading.")]
     [TextArea(2, 4)]
     public string[] tips = new string[]
     {
-        "The demon can vanish from sight — listen for footsteps.",
-        "Explorers: stick together. Alone, you are easy prey.",
+        "The Vengeful Spirit can vanish from sight — listen for footsteps.",
+        "Investigators: stick together. Alone, you are easy prey.",
         "Watch your ammo. Every shot counts.",
-        "The demon grows stronger the longer the match goes on.",
-        "Avoid dark corners — the demon thrives in the shadows."
+        "The Vengeful Spirit grows stronger the longer the match goes on.",
+        "Avoid dark corners — the Vengeful Spirit thrives in the shadows."
     };
 
     // -------------------------------------------------------------------------
@@ -107,15 +110,22 @@ public class LoadingScreen : MonoBehaviour
         Instance = this;
         DontDestroyOnLoad(gameObject);
 
-        // Start hidden
-        if (loadingRoot != null) loadingRoot.SetActive(false);
-        if (fadeCanvasGroup != null) fadeCanvasGroup.alpha = 0f;
+        // If launching from the boot scene, keep loadingRoot ACTIVE so it shows immediately!
+        if (IsBootScene())
+        {
+            if (loadingRoot != null) loadingRoot.SetActive(true);
+            if (fadeCanvasGroup != null) fadeCanvasGroup.alpha = 1f;
+        }
+        else
+        {
+            // If launching directly into Lobby or Game scene (e.g. Editor testing), start hidden
+            if (loadingRoot != null) loadingRoot.SetActive(false);
+            if (fadeCanvasGroup != null) fadeCanvasGroup.alpha = 0f;
+        }
     }
 
     void Start()
     {
-        // If this is the first scene, show the loading screen immediately
-        // and load the actual game/lobby scene
         ShowInitialLoadScreen();
     }
 
@@ -124,18 +134,27 @@ public class LoadingScreen : MonoBehaviour
     // =========================================================================
 
     /// <summary>
-    /// Async-loads a scene by name with a full loading screen transition.
-    /// Safe to call from any script: LoadingScreen.Instance.LoadScene("GameScene");
+    /// Async-loads a scene by name with a loading screen transition.
+    /// Example: LoadingScreen.Instance.LoadScene("GameScene");
     /// </summary>
     public void LoadScene(string sceneName)
     {
         if (_isLoading) return;
-        StartCoroutine(LoadSceneRoutine(sceneName));
+        StartCoroutine(LoadSceneRoutineInternal(sceneName, -1, isInitialBoot: false));
     }
 
     /// <summary>
-    /// Shows the loading screen for an initial boot or manual use without a scene load.
-    /// Call HideLoadingScreen() manually when ready.
+    /// Async-loads a scene by build index with a loading screen transition.
+    /// Example: LoadingScreen.Instance.LoadScene(2);
+    /// </summary>
+    public void LoadScene(int sceneIndex)
+    {
+        if (_isLoading) return;
+        StartCoroutine(LoadSceneRoutineInternal(null, sceneIndex, isInitialBoot: false));
+    }
+
+    /// <summary>
+    /// Manual show function for custom loading states.
     /// </summary>
     public void ShowLoadingScreen()
     {
@@ -143,7 +162,7 @@ public class LoadingScreen : MonoBehaviour
     }
 
     /// <summary>
-    /// Fades out and hides the loading screen.
+    /// Manual hide function for custom loading states.
     /// </summary>
     public void HideLoadingScreen()
     {
@@ -151,26 +170,27 @@ public class LoadingScreen : MonoBehaviour
     }
 
     // =========================================================================
-    //  Initial Load
+    //  Initial Boot Handling
     // =========================================================================
+    private bool IsBootScene()
+    {
+        string activeName = SceneManager.GetActiveScene().name;
+        return SceneManager.GetActiveScene().buildIndex == 0 ||
+               activeName.Equals("BootScene", System.StringComparison.OrdinalIgnoreCase) ||
+               activeName.Equals("Boot", System.StringComparison.OrdinalIgnoreCase);
+    }
 
-    /// <summary>
-    /// Called on Start in the boot scene. Shows the loading screen and waits
-    /// for scene subscriptions (or a minimum time) before hiding.
-    /// </summary>
     private void ShowInitialLoadScreen()
     {
-        // Only trigger if we're in scene index 0 (the boot/loading scene)
-        if (SceneManager.GetActiveScene().buildIndex != 0) return;
+        if (!autoLoadOnStart || !IsBootScene()) return;
 
-        // We assume scene index 1 is your Lobby / Main Menu scene
-        StartCoroutine(LoadSceneRoutine(1));
+        StartCoroutine(LoadSceneRoutineInternal(targetSceneName, targetSceneIndex, isInitialBoot: true));
     }
 
     // =========================================================================
-    //  Scene Load Routine
+    //  Unified Scene Load Routine
     // =========================================================================
-    private IEnumerator LoadSceneRoutine(string sceneName)
+    private IEnumerator LoadSceneRoutineInternal(string sceneName, int sceneIndex, bool isInitialBoot)
     {
         _isLoading = true;
 
@@ -178,65 +198,59 @@ public class LoadingScreen : MonoBehaviour
         ShowRandomTip();
         SetProgress(0f);
 
+        float minDuration = isInitialBoot ? initialBootMinDuration : sceneTransitionMinDuration;
         float startTime = Time.realtimeSinceStartup;
+        float currentDisplayedProgress = 0f;
 
-        AsyncOperation op = SceneManager.LoadSceneAsync(sceneName);
-        op.allowSceneActivation = false;
+        AsyncOperation op = null;
 
-        while (!op.isDone)
+        if (!string.IsNullOrEmpty(sceneName) && Application.CanStreamedLevelBeLoaded(sceneName))
         {
-            // Unity reports 0–0.9 during load, then jumps to 1.0 on activation
-            float progress = Mathf.Clamp01(op.progress / 0.9f);
-            SetProgress(progress);
+            op = SceneManager.LoadSceneAsync(sceneName);
+        }
+        else if (sceneIndex >= 0 && sceneIndex < SceneManager.sceneCountInBuildSettings)
+        {
+            op = SceneManager.LoadSceneAsync(sceneIndex);
+        }
+        else
+        {
+            Debug.LogWarning($"[LoadingScreen] Target scene '{sceneName}' (index {sceneIndex}) could not be found or loaded! " +
+                             "Please check File -> Build Settings and make sure your scenes are added to the build list.");
 
-            if (op.progress >= 0.9f)
+            // Simulated progress bar fallback so UI doesn't freeze in Editor when scenes aren't added to Build Settings yet
+            while (currentDisplayedProgress < 1f)
             {
-                // Enforce minimum display time
                 float elapsed = Time.realtimeSinceStartup - startTime;
-                if (elapsed < minimumDisplayTime)
-                    yield return new WaitForSeconds(minimumDisplayTime - elapsed);
-
-                SetProgress(1f);
-                yield return new WaitForSeconds(holdAfterComplete);
-                op.allowSceneActivation = true;
+                currentDisplayedProgress = Mathf.Clamp01(elapsed / minDuration);
+                SetProgress(currentDisplayedProgress);
+                yield return null;
             }
 
-            yield return null;
+            yield return new WaitForSeconds(holdAfterComplete);
+            yield return StartCoroutine(FadeOut());
+            _isLoading = false;
+            yield break;
         }
 
-        yield return StartCoroutine(FadeOut());
-        _isLoading = false;
-    }
-
-    private IEnumerator LoadSceneRoutine(int sceneIndex)
-    {
-        _isLoading = true;
-
-        yield return StartCoroutine(FadeIn());
-        ShowRandomTip();
-        SetProgress(0f);
-
-        float startTime = Time.realtimeSinceStartup;
-
-        AsyncOperation op = SceneManager.LoadSceneAsync(sceneIndex);
         op.allowSceneActivation = false;
 
         while (!op.isDone)
         {
-            float progress = Mathf.Clamp01(op.progress / 0.9f);
-            SetProgress(progress);
+            float targetProgress = Mathf.Clamp01(op.progress / 0.9f);
+            float elapsed = Time.realtimeSinceStartup - startTime;
+            float timeProgress = Mathf.Clamp01(elapsed / minDuration);
 
-            if (op.progress >= 0.9f)
+            // Smoothly progress according to both time and background loading
+            currentDisplayedProgress = (op.progress >= 0.9f) ? timeProgress : Mathf.Min(targetProgress, timeProgress);
+
+            if (op.progress >= 0.9f && elapsed >= minDuration)
             {
-                float elapsed = Time.realtimeSinceStartup - startTime;
-                if (elapsed < minimumDisplayTime)
-                    yield return new WaitForSeconds(minimumDisplayTime - elapsed);
-
                 SetProgress(1f);
                 yield return new WaitForSeconds(holdAfterComplete);
                 op.allowSceneActivation = true;
             }
 
+            SetProgress(currentDisplayedProgress);
             yield return null;
         }
 
@@ -245,7 +259,7 @@ public class LoadingScreen : MonoBehaviour
     }
 
     // =========================================================================
-    //  Helpers
+    //  UI Helpers & Animations
     // =========================================================================
     private void SetProgress(float fraction)
     {
@@ -268,8 +282,8 @@ public class LoadingScreen : MonoBehaviour
 
         if (fadeCanvasGroup != null)
         {
-            float t = 0f;
-            fadeCanvasGroup.alpha = 0f;
+            float startAlpha = fadeCanvasGroup.alpha;
+            float t = startAlpha * fadeDuration;
             while (t < fadeDuration)
             {
                 t += Time.deltaTime;

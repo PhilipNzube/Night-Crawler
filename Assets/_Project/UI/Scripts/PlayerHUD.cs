@@ -37,14 +37,14 @@ public class PlayerHUD : MonoBehaviour
     //  Inspector — Role
     // -------------------------------------------------------------------------
     [Header("Role")]
-    [Tooltip("Displays the player's role: DEMON or EXPLORER.")]
+    [Tooltip("Displays the player's role: VENGEFUL SPIRIT or INVESTIGATOR.")]
     public TextMeshProUGUI roleLabel;
 
     // -------------------------------------------------------------------------
-    //  Inspector — Explorer-Only Panel
+    //  Inspector — Investigator-Only Panel
     // -------------------------------------------------------------------------
-    [Header("Explorer Panel (hidden for Demon)")]
-    [Tooltip("Root GameObject for the Explorer weapon/ammo UI. Hidden for the Demon.")]
+    [Header("Investigator Panel (hidden for Vengeful Spirit)")]
+    [Tooltip("Root GameObject for the Investigator weapon/ammo UI. Hidden for the Vengeful Spirit.")]
     public GameObject explorerPanel;
 
     [Tooltip("Displays current ammo count.")]
@@ -54,10 +54,10 @@ public class PlayerHUD : MonoBehaviour
     public TextMeshProUGUI weaponText;
 
     // -------------------------------------------------------------------------
-    //  Inspector — Demon-Only Panel
+    //  Inspector — Vengeful Spirit-Only Panel
     // -------------------------------------------------------------------------
-    [Header("Demon Panel (hidden for Explorer)")]
-    [Tooltip("Root GameObject for Demon-specific UI (stealth prompt, taunt prompt, etc). Hidden for Explorers.")]
+    [Header("Vengeful Spirit Panel (hidden for Investigator)")]
+    [Tooltip("Root GameObject for Vengeful Spirit-specific UI (stealth prompt, taunt prompt, etc). Hidden for Investigators.")]
     public GameObject demonPanel;
 
     [Tooltip("Radial fill image that shows the stealth ability cooldown (0 = ready, 1 = on cooldown).")]
@@ -134,10 +134,10 @@ public class PlayerHUD : MonoBehaviour
         // Set role label
         if (roleLabel != null)
         {
-            roleLabel.text  = _isDemon ? "DEMON" : "EXPLORER";
+            roleLabel.text  = _isDemon ? "VENGEFUL SPIRIT" : "INVESTIGATOR";
             roleLabel.color = _isDemon
-                ? new Color(0.7f, 0.1f, 1f)   // Demon purple
-                : new Color(0.2f, 0.8f, 1f);   // Explorer cyan
+                ? new Color(0.7f, 0.1f, 1f)   // Vengeful Spirit purple
+                : new Color(0.2f, 0.8f, 1f);   // Investigator cyan
         }
 
         _isBound = true;

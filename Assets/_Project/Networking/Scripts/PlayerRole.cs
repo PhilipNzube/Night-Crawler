@@ -1,5 +1,5 @@
 public enum PlayerRole
 {
-    Explorer,
-    Demon
+    Investigator,
+    VengefulSpirit
 }

@@ -26,17 +26,18 @@ public class GameManager : NetworkBehaviour
     //  Inspector Fields — Spawn Points
     // -------------------------------------------------------------------------
     [Header("Spawn Points")]
-    [Tooltip("Drag SpawnPoint GameObjects here for the Girl / Demon player.")]
+    [Tooltip("Drag SpawnPoint GameObjects here for the Girl / Vengeful Spirit player.")]
     public List<Transform> girlSpawnPoints = new List<Transform>();
 
-    [Tooltip("Drag SpawnPoint GameObjects here for Explorer players.")]
+    [Tooltip("Drag SpawnPoint GameObjects here for Investigator players.")]
     public List<Transform> explorerSpawnPoints = new List<Transform>();
 
     // -------------------------------------------------------------------------
     //  Inspector Fields — Match Settings
     // -------------------------------------------------------------------------
     [Header("Match Settings")]
-    public int minPlayers = 2;
+    [Tooltip("Minimum connected players required to start. Set to 1 for solo testing, or 2+ for multiplayer builds.")]
+    public int minPlayers = 1;
     public float spawnHeight = 50f;
 
     // -------------------------------------------------------------------------
@@ -73,8 +74,8 @@ public class GameManager : NetworkBehaviour
     // OCP: Extend win messages here without touching EndMatch logic.
     private static readonly Dictionary<WinReason, string> WinMessages = new Dictionary<WinReason, string>
     {
-        { WinReason.TeamWipe,   "Demon Wins! (No Survivors)"   },
-        { WinReason.DemonSlain, "Explorers Win! (Demon Slain)" },
+        { WinReason.TeamWipe,   "Vengeful Spirit Wins! (No Survivors)"   },
+        { WinReason.DemonSlain, "Investigators Win! (Vengeful Spirit Slain)" },
     };
 
     // -------------------------------------------------------------------------
@@ -83,7 +84,7 @@ public class GameManager : NetworkBehaviour
     public enum WinReason { TeamWipe, DemonSlain }
 
     // =========================================================================
-    //  Unity Lifecycle
+    //  Unity & Network Lifecycle
     // =========================================================================
     void Awake()
     {
@@ -92,6 +93,57 @@ public class GameManager : NetworkBehaviour
 
         // Pre-cache overlay so EndMatch doesn't need a scene search
         _cachedOverlay = FindFirstObjectByType<MatchResultOverlay>(FindObjectsInactive.Include);
+    }
+
+    public override void OnNetworkSpawn()
+    {
+        base.OnNetworkSpawn();
+        if (IsServer && !_gameHasStarted)
+        {
+            AutoDiscoverSpawnPoints();
+            StartGame();
+        }
+    }
+
+    void Start()
+    {
+        // Auto-discover spawn points in current Game Scene if empty
+        AutoDiscoverSpawnPoints();
+
+        // Fallback start if NetworkManager is active as Server and OnNetworkSpawn hasn't fired yet
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer && !_gameHasStarted)
+        {
+            StartGame();
+        }
+    }
+
+    /// <summary>
+    /// Searches the current scene for SpawnPoint components if spawn point lists are empty.
+    /// </summary>
+    public void AutoDiscoverSpawnPoints()
+    {
+        if ((girlSpawnPoints == null || girlSpawnPoints.Count == 0) ||
+            (explorerSpawnPoints == null || explorerSpawnPoints.Count == 0))
+        {
+            SpawnPoint[] foundPoints = FindObjectsByType<SpawnPoint>(FindObjectsSortMode.None);
+            if (girlSpawnPoints == null) girlSpawnPoints = new List<Transform>();
+            if (explorerSpawnPoints == null) explorerSpawnPoints = new List<Transform>();
+
+            foreach (var sp in foundPoints)
+            {
+                if (sp == null) continue;
+                if (sp.spawnType == SpawnPointType.VengefulSpirit)
+                {
+                    if (!girlSpawnPoints.Contains(sp.transform))
+                        girlSpawnPoints.Add(sp.transform);
+                }
+                else
+                {
+                    if (!explorerSpawnPoints.Contains(sp.transform))
+                        explorerSpawnPoints.Add(sp.transform);
+                }
+            }
+        }
     }
 
     // =========================================================================
@@ -126,17 +178,23 @@ public class GameManager : NetworkBehaviour
     //  Match Start
     // =========================================================================
 
-    /// <summary>The Host calls this via the Lobby UI when the lobby is ready.</summary>
+    /// <summary>Triggers player spawning when the Game Scene loads for all connected clients.</summary>
     public void StartGame()
     {
-        if (!IsServer || _gameHasStarted) return;
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer || _gameHasStarted) return;
 
         List<ulong> clientIds = new List<ulong>(NetworkManager.Singleton.ConnectedClientsIds);
-        if (clientIds.Count < minPlayers) return;
+        int required = Mathf.Max(1, minPlayers);
+        if (clientIds.Count < required)
+        {
+            Debug.LogWarning($"[GameManager] Cannot start match: Connected players ({clientIds.Count}) < Required ({required}). Change 'Min Players' in Inspector if you want solo testing.");
+            return;
+        }
 
         _gameHasStarted = true;
+        AutoDiscoverSpawnPoints();
 
-        // Pick a random client to be the Girl / Demon
+        // Pick a random client to be the Girl / Vengeful Spirit
         int  randomGirlIndex = Random.Range(0, clientIds.Count);
         ulong girlClientId   = clientIds[randomGirlIndex];
 
@@ -144,9 +202,6 @@ public class GameManager : NetworkBehaviour
         {
             SpawnPlayerRole(clientId, clientId == girlClientId);
         }
-
-        // NOTE: Monster spawning has been intentionally disabled.
-        // To re-enable, attach a separate MonsterSpawner component to the scene.
     }
 
     // =========================================================================
