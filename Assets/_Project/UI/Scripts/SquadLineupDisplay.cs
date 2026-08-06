@@ -196,10 +196,10 @@ public class SquadLineupDisplay : MonoBehaviour
         GameObject instance = Instantiate(prefab, pivot.position, pivot.rotation, pivot);
         _modelInstances.Add(instance);
 
-        // Disable all MonoBehaviours except Animator and CharacterAnimationController
+        // Disable all MonoBehaviours except CharacterAnimationController
         foreach (MonoBehaviour mb in instance.GetComponentsInChildren<MonoBehaviour>())
         {
-            if (mb is Animator || mb is CharacterAnimationController) continue;
+            if (mb is CharacterAnimationController) continue;
             mb.enabled = false;
         }
 

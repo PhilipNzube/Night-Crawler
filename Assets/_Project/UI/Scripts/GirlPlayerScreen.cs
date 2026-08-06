@@ -170,10 +170,10 @@ public class GirlPlayerScreen : MonoBehaviour
 
         _modelInstance = Instantiate(prefab, modelPivot.position, modelPivot.rotation, modelPivot);
 
-        // Disable gameplay components — only keep Animator and CharacterAnimationController
+        // Disable gameplay components — only keep CharacterAnimationController
         foreach (MonoBehaviour mb in _modelInstance.GetComponentsInChildren<MonoBehaviour>())
         {
-            if (mb is Animator || mb is CharacterAnimationController) continue;
+            if (mb is CharacterAnimationController) continue;
             mb.enabled = false;
         }
 
@@ -214,8 +214,18 @@ public class GirlPlayerScreen : MonoBehaviour
 
     private void SetScreenVisible(bool visible)
     {
-        if (girlScreenPanel  != null) girlScreenPanel.SetActive(visible);
-        if (girlScreenCamera != null) girlScreenCamera.enabled = visible;
+        if (girlScreenPanel != null)
+        {
+            girlScreenPanel.SetActive(visible);
+        }
+        else if (visible)
+        {
+            Debug.LogWarning("[GirlPlayerScreen] WARNING: 'girlScreenPanel' is NOT assigned in the Inspector! " +
+                             "Drag the UI panel for the Girl Player Screen into this field.");
+        }
+
+        if (girlScreenCamera != null)
+            girlScreenCamera.enabled = visible;
     }
 
     private void DestroyModel()

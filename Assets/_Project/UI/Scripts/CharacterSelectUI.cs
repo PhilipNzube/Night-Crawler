@@ -151,7 +151,7 @@ public class CharacterSelectUI : MonoBehaviour
             // preview model stands cleanly in place
             foreach (var script in _currentPreviewInstance.GetComponentsInChildren<MonoBehaviour>())
             {
-                if (script is Animator || script is CharacterAnimationController) continue;
+                if (script is CharacterAnimationController) continue;
                 script.enabled = false;
             }
 

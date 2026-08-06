@@ -46,6 +46,11 @@ public class GirlRevealManager : NetworkBehaviour
              "Disabled initially; enabled for the girl player after reveal.")]
     public GameObject girlFlow;
 
+    [Header("Testing & Debugging")]
+    [Tooltip("If true, the slot-machine spin UI runs even when testing alone (1 player connected). " +
+             "Set to false if you want solo testing to jump straight to the screen.")]
+    public bool enableSlotSpinInSoloTest = true;
+
     // -------------------------------------------------------------------------
     //  Network State
     // -------------------------------------------------------------------------
@@ -107,8 +112,8 @@ public class GirlRevealManager : NetworkBehaviour
 
         Debug.Log($"[GirlRevealManager] Beginning reveal. Girl: {girlClientId}. Expecting {_expectedInvestigators} investigator(s).");
 
-        // Solo edge-case: only 1 player, skip the spin
-        if (clientIds.Count <= 1)
+        // Solo testing handling
+        if (clientIds.Count <= 1 && !enableSlotSpinInSoloTest)
         {
             _expectedInvestigators = 0;
             RoutePlayersRpc(girlClientId);
@@ -192,12 +197,28 @@ public class GirlRevealManager : NetworkBehaviour
         if (isGirl)
         {
             Debug.Log("[GirlRevealManager] Local client is the Vengeful Spirit → showing girl screen.");
-            if (girlFlow != null) girlFlow.SetActive(true);
+            if (girlFlow != null)
+            {
+                girlFlow.SetActive(true);
+            }
+            else
+            {
+                Debug.LogWarning("[GirlRevealManager] WARNING: 'girlFlow' GameObject is NOT assigned in the Inspector on GirlRevealManager! " +
+                                 "Drag your GirlPlayerScreen / GirlFlow panel into this slot.");
+            }
         }
         else
         {
             Debug.Log("[GirlRevealManager] Local client is an investigator → showing character select.");
-            if (investigatorFlow != null) investigatorFlow.SetActive(true);
+            if (investigatorFlow != null)
+            {
+                investigatorFlow.SetActive(true);
+            }
+            else
+            {
+                Debug.LogWarning("[GirlRevealManager] WARNING: 'investigatorFlow' GameObject is NOT assigned in the Inspector on GirlRevealManager! " +
+                                 "Drag your CharacterSelectUI / InvestigatorFlow panel into this slot.");
+            }
         }
     }
 

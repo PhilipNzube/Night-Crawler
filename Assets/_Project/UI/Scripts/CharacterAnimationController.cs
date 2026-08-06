@@ -3,25 +3,16 @@ using System.Collections;
 using System.Collections.Generic;
 
 /// <summary>
-/// SOLID — SRP: Drives character preview animations for the lobby screens.
+/// SOLID — SRP & OCP: Drives character preview animations for the lobby screens.
 ///
 /// Responsibilities:
 ///   1. Play a one-shot cinematic intro sequence per character type, then return to idle.
 ///   2. Run a natural, non-synchronized idle gesture loop with randomized delays.
-///   3. Loop the dance animation for the girl's exclusive screen.
+///   3. Loop dance routine sequence for the girl's exclusive screen.
 ///
-/// OCP: New character types only need a new case in BuildDefaultSequence().
+/// OCP: Zero-code modification! You can change state names, add 3rd/4th states, or change
+///      timings directly in the Inspector or via CharacterAnimPresetSO assets without touching code.
 /// DIP: Talks only to the Animator component — no coupling to gameplay scripts.
-///
-/// ─── SETUP ────────────────────────────────────────────────────────────────────
-///  • Add this component to the root of each character preview prefab, OR
-///    let the spawning script (CharacterSelectUI / SquadLineupDisplay) add it
-///    at runtime via AddComponent().
-///  • Set CharacterType in the Inspector or via code before calling Play methods.
-///  • Animation State names (idleStateName, gestureStateNames, custom sequence
-///    steps) must EXACTLY match states in the character's Animator Controller.
-///  • The built-in default sequences use the state names listed in the guide.
-///    Override them via customCinematicSequence in the Inspector.
 /// </summary>
 public class CharacterAnimationController : MonoBehaviour
 {
@@ -29,10 +20,10 @@ public class CharacterAnimationController : MonoBehaviour
     //  Enums & Data Structs
     // =========================================================================
 
-    /// <summary>Maps each lobby role to its animation behaviour.</summary>
+    /// <summary>Maps each lobby role to its default animation behaviour.</summary>
     public enum CharacterType { Priest, Miner, Medic, Protector, Adventurer, Girl }
 
-    /// <summary>One step in a cinematic animation sequence.</summary>
+    /// <summary>One step in a cinematic or dance animation sequence.</summary>
     [System.Serializable]
     public class AnimSequenceStep
     {
@@ -43,15 +34,19 @@ public class CharacterAnimationController : MonoBehaviour
         public float blendTime = 0.25f;
 
         [Tooltip("How many seconds to hold in this state before proceeding.")]
-        public float holdTime = 2f;
+        public float holdTime = 2.5f;
     }
 
     // =========================================================================
     //  Inspector Fields
     // =========================================================================
 
+    [Header("Preset Asset (Optional - Overrides Inspector Settings)")]
+    [Tooltip("Drag a CharacterAnimPresetSO asset here for shared reusable presets across prefabs.")]
+    public CharacterAnimPresetSO preset;
+
     [Header("Character Identity")]
-    [Tooltip("Determines which built-in cinematic sequence and defaults to use.")]
+    [Tooltip("Determines which built-in default sequence to use if no custom steps are defined.")]
     public CharacterType characterType = CharacterType.Adventurer;
 
     [Header("Core State Names")]
@@ -59,13 +54,17 @@ public class CharacterAnimationController : MonoBehaviour
     public string idleStateName = "Idle";
 
     [Header("Cinematic Intro Sequence")]
-    [Tooltip("Leave empty to use the built-in default sequence for this CharacterType. " +
-             "Populate with custom steps to fully override the sequence.")]
+    [Tooltip("Populate with custom steps to fully override the intro sequence in Inspector. " +
+             "Leave empty to use built-in defaults or preset.")]
     public List<AnimSequenceStep> customCinematicSequence = new List<AnimSequenceStep>();
 
+    [Header("Dance Routine Sequence")]
+    [Tooltip("Populate with dance steps (e.g. Dance_01, Dance_02) for the girl or showcase screen. " +
+             "Leave empty to use built-in defaults or preset.")]
+    public List<AnimSequenceStep> customDanceSequence = new List<AnimSequenceStep>();
+
     [Header("Gesture Loop (Natural Idle Behaviour)")]
-    [Tooltip("State names played at random while the character is lingering idle. " +
-             "Leave empty to skip the gesture loop entirely.")]
+    [Tooltip("State names played at random while the character is lingering idle.")]
     public List<string> gestureStateNames = new List<string>();
 
     [Tooltip("Minimum idle seconds before a gesture is triggered.")]
@@ -82,19 +81,12 @@ public class CharacterAnimationController : MonoBehaviour
     [Tooltip("Crossfade blend time entering and exiting gesture states.")]
     public float gestureBlendTime = 0.3f;
 
-    [Header("Girl Dance")]
-    [Tooltip("Animator state used for the girl's dance on her exclusive screen.")]
-    public string danceStateName = "Dance";
-
-    [Tooltip("How long the dance animation lasts in seconds before returning to idle. " +
-             "Match this to the actual length of your Dance animation clip.")]
-    public float danceDuration = 4.5f;
-
-    [Tooltip("Minimum idle seconds between dance repetitions.")]
+    [Header("Dance Routine Repeat Timing")]
+    [Tooltip("Minimum idle seconds between dance sequence repetitions.")]
     [Range(2f, 20f)]
     public float minDanceRepeatDelay = 5f;
 
-    [Tooltip("Maximum idle seconds between dance repetitions.")]
+    [Tooltip("Maximum idle seconds between dance sequence repetitions.")]
     [Range(3f, 40f)]
     public float maxDanceRepeatDelay = 12f;
 
@@ -131,11 +123,6 @@ public class CharacterAnimationController : MonoBehaviour
     /// optionally starts the natural gesture loop while the player lingers.
     /// Safe to call multiple times — stops any in-progress sequence first.
     /// </summary>
-    /// <param name="startGestureLoopAfter">
-    ///   If true, the gesture loop begins automatically after the sequence ends.
-    ///   Pass false if you want manual control (e.g. squad screen where timing
-    ///   is staggered externally).
-    /// </param>
     public void PlayCinematicSequence(bool startGestureLoopAfter = true)
     {
         StopAllRoutines();
@@ -144,23 +131,21 @@ public class CharacterAnimationController : MonoBehaviour
 
     /// <summary>
     /// Starts the natural idle gesture loop immediately, skipping the cinematic intro.
-    /// Useful when the character should already be settled and only gesture occasionally.
     /// </summary>
     public void StartNaturalGestureLoop()
     {
         StopAllRoutines();
-        CrossFadeTo(idleStateName, 0.3f);
-        if (gestureStateNames.Count > 0)
+        CrossFadeTo(GetActiveIdleState(), 0.3f);
+        if (GetActiveGestureStates().Count > 0)
             _gestureCoroutine = StartCoroutine(RunGestureLoop());
     }
 
     /// <summary>
-    /// Plays the dance once, returns to idle, then after a random delay dances
-    /// again — indefinitely. This is the natural, non-loopy behaviour for the
-    /// girl's exclusive screen: she dances, rests, dances again organically.
+    /// Plays the dance sequence (e.g. Dance_01 -> Dance_02), returns to idle,
+    /// then after a random delay dances again — repeating indefinitely.
     ///
-    /// The dance animation clip itself should NOT be set to Loop Time in the
-    /// Animator — the script manages the repetition timing via danceDuration.
+    /// Do NOT set "Loop Time" to true on the Dance clips inside Unity Animator —
+    /// this script manages the sequence transitions and delay timing cleanly.
     /// </summary>
     public void PlayDanceLoop()
     {
@@ -169,24 +154,23 @@ public class CharacterAnimationController : MonoBehaviour
     }
 
     /// <summary>
-    /// Plays the dance state once without returning to idle or repeating.
-    /// Useful for quick previews or when you need manual control.
-    /// For the girl's screen, prefer PlayDanceLoop().
+    /// Plays the first dance state once without returning to idle or repeating.
     /// </summary>
     public void PlayDance()
     {
         StopAllRoutines();
-        CrossFadeTo(danceStateName, 0.5f);
+        List<AnimSequenceStep> danceSteps = GetActiveDanceSequence();
+        if (danceSteps.Count > 0)
+            CrossFadeTo(danceSteps[0].stateName, danceSteps[0].blendTime);
     }
 
     /// <summary>
     /// Stops all animation routines and smoothly returns to idle.
-    /// Call this when the screen is hidden or the character is deselected.
     /// </summary>
     public void ReturnToIdle()
     {
         StopAllRoutines();
-        CrossFadeTo(idleStateName, 0.35f);
+        CrossFadeTo(GetActiveIdleState(), 0.35f);
     }
 
     // =========================================================================
@@ -197,7 +181,7 @@ public class CharacterAnimationController : MonoBehaviour
     {
         if (_animator == null) yield break;
 
-        List<AnimSequenceStep> sequence = GetActiveSequence();
+        List<AnimSequenceStep> sequence = GetActiveIntroSequence();
 
         foreach (AnimSequenceStep step in sequence)
         {
@@ -207,58 +191,59 @@ public class CharacterAnimationController : MonoBehaviour
         }
 
         // Settle back into idle
-        CrossFadeTo(idleStateName, 0.4f);
+        CrossFadeTo(GetActiveIdleState(), 0.4f);
         _cinematicCoroutine = null;
 
-        if (loopGesturesAfter && gestureStateNames.Count > 0)
+        List<string> gestures = GetActiveGestureStates();
+        if (loopGesturesAfter && gestures.Count > 0)
             _gestureCoroutine = StartCoroutine(RunGestureLoop());
     }
 
     private IEnumerator RunGestureLoop()
     {
-        if (_animator == null || gestureStateNames.Count == 0) yield break;
+        if (_animator == null) yield break;
+        List<string> gestures = GetActiveGestureStates();
+        if (gestures.Count == 0) yield break;
+
+        float minDelay = preset != null ? preset.minGestureDelay : minGestureDelay;
+        float maxDelay = preset != null ? preset.maxGestureDelay : maxGestureDelay;
+        string idleName = GetActiveIdleState();
 
         while (true)
         {
-            // Randomized idle pause — this is what makes gestures feel organic.
-            // Each character instance has its own independent timer, so they
-            // never sync up across the squad lineup.
-            float delay = Random.Range(minGestureDelay, maxGestureDelay);
+            float delay = Random.Range(minDelay, maxDelay);
             yield return new WaitForSecondsRealtime(delay);
 
-            // Pick and play a random gesture
-            string gesture = gestureStateNames[Random.Range(0, gestureStateNames.Count)];
+            string gesture = gestures[Random.Range(0, gestures.Count)];
             if (!string.IsNullOrEmpty(gesture))
             {
                 CrossFadeTo(gesture, gestureBlendTime);
                 yield return new WaitForSecondsRealtime(gestureDuration);
-                CrossFadeTo(idleStateName, gestureBlendTime);
-                // Brief buffer so the return-to-idle crossfade settles
+                CrossFadeTo(idleName, gestureBlendTime);
                 yield return new WaitForSecondsRealtime(0.5f);
             }
         }
     }
 
-    /// <summary>
-    /// Dance-loop coroutine: plays the dance once, returns to idle, waits a random
-    /// delay, then dances again — repeating indefinitely.
-    ///
-    /// This is the "natural" dance behaviour for the girl's exclusive screen.
-    /// The timing is randomized so it never feels mechanical or predictable.
-    /// </summary>
     private IEnumerator RunDanceLoop()
     {
         if (_animator == null) yield break;
 
-        // ── First dance (plays immediately on Show) ──────────────────────────
-        CrossFadeTo(danceStateName, 0.5f);
-        yield return new WaitForSecondsRealtime(danceDuration);
+        List<AnimSequenceStep> danceSteps = GetActiveDanceSequence();
+        string idleName = GetActiveIdleState();
+
+        foreach (AnimSequenceStep step in danceSteps)
+        {
+            if (string.IsNullOrEmpty(step.stateName)) continue;
+            CrossFadeTo(step.stateName, step.blendTime);
+            yield return new WaitForSecondsRealtime(step.holdTime);
+        }
 
         // Return to idle naturally
-        CrossFadeTo(idleStateName, 0.45f);
+        CrossFadeTo(idleName, 0.45f);
         _cinematicCoroutine = null;
 
-        // ── Repeat loop with random idle gaps ────────────────────────────────
+        // Repeat loop with random idle gaps
         _gestureCoroutine = StartCoroutine(RunDanceRepeatLoop());
     }
 
@@ -266,25 +251,30 @@ public class CharacterAnimationController : MonoBehaviour
     {
         if (_animator == null) yield break;
 
+        float minDelay = preset != null ? preset.minDanceRepeatDelay : minDanceRepeatDelay;
+        float maxDelay = preset != null ? preset.maxDanceRepeatDelay : maxDanceRepeatDelay;
+        string idleName = GetActiveIdleState();
+
         while (true)
         {
-            // Wait a random idle period — gives her a natural resting moment
-            float delay = Random.Range(minDanceRepeatDelay, maxDanceRepeatDelay);
+            float delay = Random.Range(minDelay, maxDelay);
             yield return new WaitForSecondsRealtime(delay);
 
-            // Dance again
-            CrossFadeTo(danceStateName, 0.4f);
-            yield return new WaitForSecondsRealtime(danceDuration);
+            List<AnimSequenceStep> danceSteps = GetActiveDanceSequence();
+            foreach (AnimSequenceStep step in danceSteps)
+            {
+                if (string.IsNullOrEmpty(step.stateName)) continue;
+                CrossFadeTo(step.stateName, step.blendTime);
+                yield return new WaitForSecondsRealtime(step.holdTime);
+            }
 
-            // Back to idle
-            CrossFadeTo(idleStateName, 0.45f);
-            // Brief settle buffer
+            CrossFadeTo(idleName, 0.45f);
             yield return new WaitForSecondsRealtime(0.6f);
         }
     }
 
     // =========================================================================
-    //  Private Helpers
+    //  Private Helpers & Resolution
     // =========================================================================
 
     private void CrossFadeTo(string stateName, float blendTime)
@@ -299,16 +289,40 @@ public class CharacterAnimationController : MonoBehaviour
         if (_gestureCoroutine   != null) { StopCoroutine(_gestureCoroutine);   _gestureCoroutine   = null; }
     }
 
-    /// <summary>
-    /// Returns the Inspector-defined sequence if provided, otherwise falls back
-    /// to the built-in default sequence for this CharacterType.
-    /// </summary>
-    private List<AnimSequenceStep> GetActiveSequence()
+    private string GetActiveIdleState()
     {
+        if (preset != null && !string.IsNullOrEmpty(preset.idleStateName))
+            return preset.idleStateName;
+        return string.IsNullOrEmpty(idleStateName) ? "Idle" : idleStateName;
+    }
+
+    private List<string> GetActiveGestureStates()
+    {
+        if (preset != null && preset.gestureStateNames != null && preset.gestureStateNames.Count > 0)
+            return preset.gestureStateNames;
+        return gestureStateNames;
+    }
+
+    private List<AnimSequenceStep> GetActiveIntroSequence()
+    {
+        if (preset != null && preset.introSequence != null && preset.introSequence.Count > 0)
+            return preset.introSequence;
+
         if (customCinematicSequence != null && customCinematicSequence.Count > 0)
             return customCinematicSequence;
 
-        return BuildDefaultSequence(characterType);
+        return BuildDefaultIntroSequence(characterType);
+    }
+
+    private List<AnimSequenceStep> GetActiveDanceSequence()
+    {
+        if (preset != null && preset.danceSequence != null && preset.danceSequence.Count > 0)
+            return preset.danceSequence;
+
+        if (customDanceSequence != null && customDanceSequence.Count > 0)
+            return customDanceSequence;
+
+        return BuildDefaultDanceSequence(characterType);
     }
 
     // =========================================================================
@@ -316,80 +330,68 @@ public class CharacterAnimationController : MonoBehaviour
     // =========================================================================
 
     /// <summary>
-    /// OCP: Built-in default cinematic sequences per character type.
-    /// Adding a new character type only requires a new case here — no other
-    /// class changes needed.
-    ///
-    /// ─── STATE NAME GUIDE ─────────────────────────────────────────────────
-    ///  Priest    → "Pray_Kneel", "Stand_Rise", "Pray_Standing", "Idle"
-    ///  Miner     → "Squat", "Stand_Rise", "Idle"
-    ///  Medic     → "Inspect_Hands", "Kick_Ground", "Idle"
-    ///  Protector → "Point_Forward", "Idle"
-    ///  Adventurer→ "LookAround_L", "LookAround_R", "Idle"
-    ///  Girl      → "Dance", "Idle"
-    ///
-    /// These names must match states in each character's Animator Controller.
-    /// Use the Inspector's customCinematicSequence to override with your actual
-    /// state names if they differ.
+    /// Built-in default intro sequences per character type.
+    /// Matches exact user specs:
+    ///   Adventurer:         Idle -> Look_Around
+    ///   Priest:             Idle -> Pray_Kneel -> Pray_Standing
+    ///   Hazard Specialist:  Idle -> Point
+    ///   Medic:              Idle -> Inspect_Hands -> Kick_Ground
+    ///   Miner:              Idle -> Squat -> Standing
+    ///   Girl:               Idle -> Dance_01 -> Dance_02
     /// </summary>
-    private static List<AnimSequenceStep> BuildDefaultSequence(CharacterType type)
+    private static List<AnimSequenceStep> BuildDefaultIntroSequence(CharacterType type)
     {
         switch (type)
         {
             case CharacterType.Priest:
-                // Kneels and prays → stands → both-hands prayer → idle
                 return new List<AnimSequenceStep>
                 {
                     new AnimSequenceStep { stateName = "Pray_Kneel",    blendTime = 0.4f, holdTime = 2.5f },
-                    new AnimSequenceStep { stateName = "Stand_Rise",    blendTime = 0.5f, holdTime = 1.2f },
                     new AnimSequenceStep { stateName = "Pray_Standing", blendTime = 0.4f, holdTime = 2.2f },
-                    new AnimSequenceStep { stateName = "Idle",          blendTime = 0.5f, holdTime = 0.1f },
                 };
 
             case CharacterType.Miner:
-                // Squats → stands → idle
                 return new List<AnimSequenceStep>
                 {
-                    new AnimSequenceStep { stateName = "Squat",      blendTime = 0.35f, holdTime = 1.8f },
-                    new AnimSequenceStep { stateName = "Stand_Rise", blendTime = 0.4f,  holdTime = 1.0f },
-                    new AnimSequenceStep { stateName = "Idle",       blendTime = 0.4f,  holdTime = 0.1f },
+                    new AnimSequenceStep { stateName = "Squat",    blendTime = 0.35f, holdTime = 1.8f },
+                    new AnimSequenceStep { stateName = "Standing", blendTime = 0.4f,  holdTime = 1.2f },
                 };
 
             case CharacterType.Medic:
-                // Inspects hands → kicks ground → idle
                 return new List<AnimSequenceStep>
                 {
                     new AnimSequenceStep { stateName = "Inspect_Hands", blendTime = 0.35f, holdTime = 2.2f },
                     new AnimSequenceStep { stateName = "Kick_Ground",   blendTime = 0.30f, holdTime = 1.5f },
-                    new AnimSequenceStep { stateName = "Idle",          blendTime = 0.50f, holdTime = 0.1f },
                 };
 
             case CharacterType.Protector:
-                // Points forward → idle
                 return new List<AnimSequenceStep>
                 {
-                    new AnimSequenceStep { stateName = "Point_Forward", blendTime = 0.30f, holdTime = 2.0f },
-                    new AnimSequenceStep { stateName = "Idle",          blendTime = 0.50f, holdTime = 0.1f },
+                    new AnimSequenceStep { stateName = "Point", blendTime = 0.30f, holdTime = 2.0f },
                 };
 
             case CharacterType.Adventurer:
-                // Looks left → looks right → idle
                 return new List<AnimSequenceStep>
                 {
-                    new AnimSequenceStep { stateName = "LookAround_L", blendTime = 0.30f, holdTime = 1.5f },
-                    new AnimSequenceStep { stateName = "LookAround_R", blendTime = 0.30f, holdTime = 1.5f },
-                    new AnimSequenceStep { stateName = "Idle",         blendTime = 0.40f, holdTime = 0.1f },
+                    new AnimSequenceStep { stateName = "Look_Around", blendTime = 0.30f, holdTime = 2.0f },
                 };
 
             case CharacterType.Girl:
             default:
-                // Dance loop entry then settle to idle (used only in cinematic mode;
-                // PlayDance() keeps it looping for the girl's exclusive screen)
                 return new List<AnimSequenceStep>
                 {
-                    new AnimSequenceStep { stateName = "Dance", blendTime = 0.5f, holdTime = 4.0f },
-                    new AnimSequenceStep { stateName = "Idle",  blendTime = 0.5f, holdTime = 0.1f },
+                    new AnimSequenceStep { stateName = "Dance_01", blendTime = 0.4f, holdTime = 3.5f },
+                    new AnimSequenceStep { stateName = "Dance_02", blendTime = 0.4f, holdTime = 3.5f },
                 };
         }
+    }
+
+    private static List<AnimSequenceStep> BuildDefaultDanceSequence(CharacterType type)
+    {
+        return new List<AnimSequenceStep>
+        {
+            new AnimSequenceStep { stateName = "Dance_01", blendTime = 0.4f, holdTime = 3.5f },
+            new AnimSequenceStep { stateName = "Dance_02", blendTime = 0.4f, holdTime = 3.5f },
+        };
     }
 }
