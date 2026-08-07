@@ -97,12 +97,80 @@ public class GirlRevealUI : MonoBehaviour
     private Coroutine     _spinCoroutine;
     private Action<ulong> _onComplete;
 
+    void Awake()
+    {
+        AutoWireReferences();
+    }
+
+    void OnValidate()
+    {
+        AutoWireReferences();
+    }
+
+    private void AutoWireReferences()
+    {
+        if (revealPanel == null)
+            revealPanel = gameObject;
+
+        if (headerTitleText == null)
+        {
+            Transform t = transform.Find("HeaderTitleText");
+            if (t != null) headerTitleText = t.GetComponent<TextMeshProUGUI>();
+        }
+
+        if (aboveNameText == null)
+        {
+            Transform t = transform.Find("SlotMachineContainer/AboveNameText");
+            if (t != null) aboveNameText = t.GetComponent<TextMeshProUGUI>();
+        }
+
+        if (focusNameText == null)
+        {
+            Transform t = transform.Find("SlotMachineContainer/FocusNameText");
+            if (t != null) focusNameText = t.GetComponent<TextMeshProUGUI>();
+        }
+
+        if (belowNameText == null)
+        {
+            Transform t = transform.Find("SlotMachineContainer/BelowNameText");
+            if (t != null) belowNameText = t.GetComponent<TextMeshProUGUI>();
+        }
+
+        if (winnerPanel == null)
+        {
+            Transform t = transform.Find("WinnerPanel");
+            if (t != null) winnerPanel = t.gameObject;
+        }
+
+        if (winnerPanel != null)
+        {
+            if (winnerNameText == null)
+            {
+                Transform t = winnerPanel.transform.Find("WinnerNameText");
+                if (t != null) winnerNameText = t.GetComponent<TextMeshProUGUI>();
+            }
+
+            if (winnerSubtitleText == null)
+            {
+                Transform t = winnerPanel.transform.Find("WinnerSubtitleText");
+                if (t != null) winnerSubtitleText = t.GetComponent<TextMeshProUGUI>();
+            }
+        }
+
+        if (backgroundPulse == null)
+        {
+            Transform t = transform.Find("DarkOverlay");
+            if (t != null) backgroundPulse = t.GetComponent<Image>();
+        }
+    }
+
     // =========================================================================
     //  Public API
     // =========================================================================
 
     public void StartSpin(ulong girlClientId, string[] playerNames, ulong[] clientIds, Action<ulong> onComplete)
     {
+        AutoWireReferences();
         _girlClientId = girlClientId;
         _playerNames  = playerNames;
         _clientIds    = clientIds;

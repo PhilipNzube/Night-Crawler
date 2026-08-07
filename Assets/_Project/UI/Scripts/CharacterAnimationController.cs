@@ -355,11 +355,8 @@ public class CharacterAnimationController : MonoBehaviour
 
             // Trigger turn animation based on turning direction
             float angleDelta = Vector3.SignedAngle(transform.forward, targetRotation * Vector3.forward, Vector3.up);
-            string turnAnim = angleDelta < 0f ? GetActiveTurnLeftState() : GetActiveTurnRightState();
-            if (!string.IsNullOrEmpty(turnAnim) && _animator != null && _animator.HasState(0, Animator.StringToHash(turnAnim)))
-            {
-                CrossFadeTo(turnAnim, 0.25f);
-            }
+            bool isTurningLeft = angleDelta < 0f;
+            TryCrossFadeTurnState(isTurningLeft, 0.25f);
 
             // Smoothly lerp rotation to target angle
             float elapsed = 0f;
@@ -409,19 +406,8 @@ public class CharacterAnimationController : MonoBehaviour
     {
         if (_animator == null) yield break;
 
-        string leftAnim = GetActiveTurnLeftState();
-        string rightAnim = GetActiveTurnRightState();
-
         bool isTurnLeft = Random.value < 0.5f;
-        string turnAnim = isTurnLeft ? leftAnim : rightAnim;
-
-        int animHash = Animator.StringToHash(turnAnim);
-        bool hasTurnAnim = !string.IsNullOrEmpty(turnAnim) && _animator.HasState(0, animHash);
-
-        if (hasTurnAnim)
-        {
-            CrossFadeTo(turnAnim, 0.2f);
-        }
+        TryCrossFadeTurnState(isTurnLeft, 0.2f);
 
         if (!_pivotCaptured) CaptureInitialPivot();
 
@@ -440,6 +426,23 @@ public class CharacterAnimationController : MonoBehaviour
             elapsed += Time.deltaTime;
             transform.rotation = Quaternion.Slerp(startRot, targetRot, (elapsed / duration) * turnSmoothSpeed);
             yield return null;
+        }
+    }
+
+    private void TryCrossFadeTurnState(bool isLeft, float blendTime)
+    {
+        if (_animator == null) return;
+
+        string configured = isLeft ? GetActiveTurnLeftState() : GetActiveTurnRightState();
+        string[] candidates = isLeft 
+            ? new string[] { configured, "Turn_Left", "Turn Left", "TurnLeft" }
+            : new string[] { configured, "Turn_Right", "Turn Right", "TurnRight" };
+
+        foreach (string candidate in candidates)
+        {
+            if (string.IsNullOrEmpty(candidate)) continue;
+            _animator.CrossFadeInFixedTime(candidate, blendTime);
+            return;
         }
     }
 
@@ -505,23 +508,8 @@ public class CharacterAnimationController : MonoBehaviour
     {
         if (_animator == null || string.IsNullOrEmpty(stateName)) return;
 
-        int stateHash = Animator.StringToHash(stateName);
-        if (_animator.HasState(0, stateHash))
-        {
-            _animator.CrossFadeInFixedTime(stateName, blendTime);
-        }
-        else
-        {
-            int fallbackHash = Animator.StringToHash("Dance");
-            if (stateName.StartsWith("Dance") && _animator.HasState(0, fallbackHash))
-            {
-                _animator.CrossFadeInFixedTime("Dance", blendTime);
-                return;
-            }
-
-            Debug.LogWarning($"[CharacterAnimationController] State '{stateName}' not found in Animator Controller on '{_animator.gameObject.name}'. " +
-                             $"Ensure your Animator Controller contains a state named '{stateName}'.");
-        }
+        // Directly trigger crossfade so Unity Animator resolves state by name or layer
+        _animator.CrossFadeInFixedTime(stateName, blendTime);
     }
 
     private void StopAllRoutines()
