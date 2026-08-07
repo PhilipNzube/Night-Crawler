@@ -6,22 +6,6 @@ using System.Collections;
 /// <summary>
 /// SOLID — SRP: The exclusive cinematic screen shown only to the player chosen
 ///              as the Vengeful Spirit / "Girl".
-///
-/// This player is separated from the investigator flow entirely.
-/// While investigators choose characters and view the squad lineup, the girl
-/// player sees this screen with her character dancing and a READY button.
-/// 
-/// The game scene only loads once BOTH this player presses READY and all
-/// investigators complete the squad countdown (tracked by GirlRevealManager).
-///
-/// ─── SETUP ────────────────────────────────────────────────────────────────────
-///  1. Create a full-screen Canvas panel (girlScreenPanel).
-///  2. Add a Camera dedicated to this screen (girlScreenCamera).
-///  3. Place a Transform pivot in the scene at the desired model position (modelPivot).
-///  4. Wire all fields below.
-///  5. Keep girlScreenPanel and girlScreenCamera disabled initially.
-///  6. The girlFlow root GameObject (in GirlRevealManager) should reference this
-///     object's root — enabling it will call OnEnable which calls Show().
 /// </summary>
 public class GirlPlayerScreen : MonoBehaviour
 {
@@ -32,8 +16,7 @@ public class GirlPlayerScreen : MonoBehaviour
     [Tooltip("Root panel of this screen. Enabled only for the girl player after reveal.")]
     public GameObject girlScreenPanel;
 
-    [Tooltip("Camera that looks at the girl's character model on this screen. " +
-             "Enabled when screen is active; disabled otherwise.")]
+    [Tooltip("Camera that looks at the girl's character model on this screen.")]
     public Camera girlScreenCamera;
 
     // -------------------------------------------------------------------------
@@ -42,6 +25,9 @@ public class GirlPlayerScreen : MonoBehaviour
     [Header("Character Model")]
     [Tooltip("Transform pivot in the scene where the girl's model is spawned.")]
     public Transform modelPivot;
+
+    [Tooltip("Direct prefab override for the girl model. Used if GameManager.girlPrefab is null.")]
+    public GameObject girlPrefabOverride;
 
     // -------------------------------------------------------------------------
     //  Inspector — UI Text
@@ -63,17 +49,16 @@ public class GirlPlayerScreen : MonoBehaviour
     [Tooltip("Button the girl presses when she is ready for the game to start.")]
     public Button readyButton;
 
-    [Tooltip("Seconds after Show() before the READY button appears. " +
-             "Prevents accidental instant presses.")]
+    [Tooltip("Seconds after Show() before the READY button appears.")]
     public float readyButtonDelay = 3.5f;
 
     // -------------------------------------------------------------------------
     //  Private State
     // -------------------------------------------------------------------------
-    private GameObject                  _modelInstance;
+    private GameObject                   _modelInstance;
     private CharacterAnimationController _animController;
-    private Coroutine                   _readyDelayCoroutine;
-    private bool                        _readySent = false;
+    private Coroutine                    _readyDelayCoroutine;
+    private bool                         _readySent = false;
 
     // =========================================================================
     //  Unity Lifecycle
@@ -81,18 +66,19 @@ public class GirlPlayerScreen : MonoBehaviour
 
     void Awake()
     {
-        SetScreenVisible(false);
+        // Safe check: default girlScreenPanel to this gameObject if unassigned
+        if (girlScreenPanel == null)
+            girlScreenPanel = gameObject;
 
         if (readyButton != null)
         {
+            readyButton.onClick.RemoveAllListeners();
             readyButton.onClick.AddListener(OnReadyPressed);
-            readyButton.gameObject.SetActive(false);
         }
     }
 
     void OnEnable()
     {
-        // Called when GirlRevealManager activates the girlFlow root
         Show();
     }
 
@@ -105,7 +91,6 @@ public class GirlPlayerScreen : MonoBehaviour
     //  Public API
     // =========================================================================
 
-    /// <summary>Activates the girl screen, spawns her model with dance animation.</summary>
     public void Show()
     {
         _readySent = false;
@@ -113,7 +98,6 @@ public class GirlPlayerScreen : MonoBehaviour
         PopulateTexts();
         SpawnGirlModel();
 
-        // Switch to the girl's dedicated Cinemachine camera
         if (LobbyCameraController.Instance != null)
             LobbyCameraController.Instance.SetPhase(LobbyCameraController.CameraPhase.GirlScreen);
 
@@ -121,7 +105,6 @@ public class GirlPlayerScreen : MonoBehaviour
         _readyDelayCoroutine = StartCoroutine(EnableReadyButtonAfterDelay());
     }
 
-    /// <summary>Hides the screen and cleans up the spawned model.</summary>
     public void Hide()
     {
         SetScreenVisible(false);
@@ -158,17 +141,30 @@ public class GirlPlayerScreen : MonoBehaviour
     private void SpawnGirlModel()
     {
         DestroyModel();
-        if (modelPivot == null) return;
 
-        GameObject prefab = GameManager.Instance != null ? GameManager.Instance.girlPrefab : null;
+        // 1. Resolve Pivot
+        Transform pivot = modelPivot;
+        if (pivot == null)
+        {
+            Transform childPivot = transform.Find("ModelPivot");
+            pivot = childPivot != null ? childPivot : transform;
+            Debug.Log($"[GirlPlayerScreen] modelPivot unassigned — using fallback: {pivot.name}");
+        }
+
+        // 2. Resolve Prefab
+        GameObject prefab = girlPrefabOverride;
+        if (prefab == null && GameManager.Instance != null)
+            prefab = GameManager.Instance.girlPrefab;
+
         if (prefab == null)
         {
-            Debug.LogWarning("[GirlPlayerScreen] No girl prefab found on GameManager. " +
-                             "Assign girlPrefab in the Inspector.");
+            Debug.LogWarning("[GirlPlayerScreen] CRITICAL: No Girl Prefab assigned! " +
+                             "Assign 'girlPrefabOverride' on GirlPlayerScreen or 'girlPrefab' on GameManager.");
             return;
         }
 
-        _modelInstance = Instantiate(prefab, modelPivot.position, modelPivot.rotation, modelPivot);
+        Debug.Log($"[GirlPlayerScreen] Spawning Girl Model: {prefab.name} at pivot {pivot.name}");
+        _modelInstance = Instantiate(prefab, pivot.position, pivot.rotation, pivot);
 
         // Disable gameplay components — only keep CharacterAnimationController
         foreach (MonoBehaviour mb in _modelInstance.GetComponentsInChildren<MonoBehaviour>())
@@ -177,13 +173,12 @@ public class GirlPlayerScreen : MonoBehaviour
             mb.enabled = false;
         }
 
-        // Ensure CharacterAnimationController is present
+        // Ensure CharacterAnimationController is present and set to Girl
         _animController = _modelInstance.GetComponent<CharacterAnimationController>();
         if (_animController == null)
             _animController = _modelInstance.AddComponent<CharacterAnimationController>();
 
         _animController.characterType = CharacterAnimationController.CharacterType.Girl;
-        // Dance plays once on entry, then she idles, then dances again naturally
         _animController.PlayDanceLoop();
     }
 
@@ -191,7 +186,11 @@ public class GirlPlayerScreen : MonoBehaviour
     {
         if (readyButton != null) readyButton.gameObject.SetActive(false);
         yield return new WaitForSecondsRealtime(readyButtonDelay);
-        if (readyButton != null) readyButton.gameObject.SetActive(true);
+        if (readyButton != null)
+        {
+            readyButton.gameObject.SetActive(true);
+            readyButton.interactable = true;
+        }
         _readyDelayCoroutine = null;
     }
 
@@ -205,7 +204,6 @@ public class GirlPlayerScreen : MonoBehaviour
         if (waitingText != null)
             waitingText.text = "Ready! Waiting for the investigators to finish...";
 
-        // Signal the server that the girl player is ready
         if (GirlRevealManager.Instance != null)
             GirlRevealManager.Instance.ReportGirlReadyServerRpc();
         else
@@ -214,15 +212,8 @@ public class GirlPlayerScreen : MonoBehaviour
 
     private void SetScreenVisible(bool visible)
     {
-        if (girlScreenPanel != null)
-        {
+        if (girlScreenPanel != null && girlScreenPanel != gameObject)
             girlScreenPanel.SetActive(visible);
-        }
-        else if (visible)
-        {
-            Debug.LogWarning("[GirlPlayerScreen] WARNING: 'girlScreenPanel' is NOT assigned in the Inspector! " +
-                             "Drag the UI panel for the Girl Player Screen into this field.");
-        }
 
         if (girlScreenCamera != null)
             girlScreenCamera.enabled = visible;
