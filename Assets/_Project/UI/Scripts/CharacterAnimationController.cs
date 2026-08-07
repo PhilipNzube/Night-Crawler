@@ -29,8 +29,8 @@ public class CharacterAnimationController : MonoBehaviour
         [Tooltip("Crossfade blend duration in seconds when entering this state.")]
         public float blendTime = 0.25f;
 
-        [Tooltip("How many seconds to hold in this state before proceeding.")]
-        public float holdTime = 2.5f;
+        [Tooltip("How many seconds to hold in this state before proceeding. Leave at 3.5s or 0 for auto-detect clip duration.")]
+        public float holdTime = 3.5f;
     }
 
     // =========================================================================
@@ -59,6 +59,24 @@ public class CharacterAnimationController : MonoBehaviour
 
     [Header("Dance Routine Sequence")]
     public List<AnimSequenceStep> customDanceSequence = new List<AnimSequenceStep>();
+
+    [Header("Turning Animations")]
+    [Tooltip("Exact state name for turning left before or during dance.")]
+    public string turnLeftStateName = "Turn_Left";
+
+    [Tooltip("Exact state name for turning right before or during dance.")]
+    public string turnRightStateName = "Turn_Right";
+
+    [Tooltip("Chance (0 to 1) to execute a left or right turn animation before starting a dance.")]
+    [Range(0f, 1f)]
+    public float turnBeforeDanceChance = 0.6f;
+
+    [Tooltip("Duration in seconds to execute the turn state and rotation before starting dance.")]
+    public float turnDuration = 1.0f;
+
+    [Header("Dance Sequence Fallbacks")]
+    [Tooltip("Default hold time (seconds) if a dance step's holdTime in Inspector is left at 0.")]
+    public float defaultDanceHoldTime = 3.5f;
 
     [Header("Dance Random Rotation & Organic Movement")]
     [Tooltip("If true, character smoothly turns to random facing angles while dancing, keeping movement organic.")]
@@ -100,6 +118,7 @@ public class CharacterAnimationController : MonoBehaviour
     private Vector3    _initialPosition;
     private Quaternion _initialRotation;
     private bool       _pivotCaptured = false;
+    private int        _lastDanceIndex = -1;
 
     // =========================================================================
     //  Unity Lifecycle
@@ -170,8 +189,9 @@ public class CharacterAnimationController : MonoBehaviour
         StopAllRoutines();
         ApplyRootMotionSettings();
         List<AnimSequenceStep> danceSteps = GetActiveDanceSequence();
-        if (danceSteps.Count > 0)
-            CrossFadeTo(danceSteps[0].stateName, danceSteps[0].blendTime);
+        AnimSequenceStep step = GetNextRandomDanceStep(danceSteps);
+        if (step != null && !string.IsNullOrEmpty(step.stateName))
+            CrossFadeTo(step.stateName, step.blendTime);
     }
 
     public void ReturnToIdle()
@@ -194,7 +214,7 @@ public class CharacterAnimationController : MonoBehaviour
         {
             if (string.IsNullOrEmpty(step.stateName)) continue;
             CrossFadeTo(step.stateName, step.blendTime);
-            yield return new WaitForSecondsRealtime(step.holdTime);
+            yield return StartCoroutine(WaitStepHoldTime(step));
         }
 
         CrossFadeTo(GetActiveIdleState(), 0.4f);
@@ -236,13 +256,23 @@ public class CharacterAnimationController : MonoBehaviour
         if (_animator == null) yield break;
 
         List<AnimSequenceStep> danceSteps = GetActiveDanceSequence();
-        string idleName = GetActiveIdleState();
+        if (danceSteps == null || danceSteps.Count == 0) yield break;
 
-        foreach (AnimSequenceStep step in danceSteps)
+        string idleName = GetActiveIdleState();
+        int dancesToPlay = Mathf.Max(danceSteps.Count, 3);
+
+        for (int i = 0; i < dancesToPlay; i++)
         {
-            if (string.IsNullOrEmpty(step.stateName)) continue;
+            AnimSequenceStep step = GetNextRandomDanceStep(danceSteps);
+            if (step == null || string.IsNullOrEmpty(step.stateName)) continue;
+
+            if (Random.value < GetActiveTurnBeforeDanceChance())
+            {
+                yield return StartCoroutine(PerformTurnBeforeDance());
+            }
+
             CrossFadeTo(step.stateName, step.blendTime);
-            yield return new WaitForSecondsRealtime(step.holdTime);
+            yield return StartCoroutine(WaitStepHoldTime(step));
         }
 
         CrossFadeTo(idleName, 0.45f);
@@ -265,20 +295,32 @@ public class CharacterAnimationController : MonoBehaviour
             yield return new WaitForSecondsRealtime(delay);
 
             List<AnimSequenceStep> danceSteps = GetActiveDanceSequence();
-            foreach (AnimSequenceStep step in danceSteps)
+            if (danceSteps != null && danceSteps.Count > 0)
             {
-                if (string.IsNullOrEmpty(step.stateName)) continue;
-                CrossFadeTo(step.stateName, step.blendTime);
-                yield return new WaitForSecondsRealtime(step.holdTime);
-            }
+                int dancesToPlay = Mathf.Max(danceSteps.Count, 3);
+                for (int i = 0; i < dancesToPlay; i++)
+                {
+                    AnimSequenceStep step = GetNextRandomDanceStep(danceSteps);
+                    if (step == null || string.IsNullOrEmpty(step.stateName)) continue;
 
-            CrossFadeTo(idleName, 0.45f);
-            yield return new WaitForSecondsRealtime(0.6f);
+                    if (Random.value < GetActiveTurnBeforeDanceChance())
+                    {
+                        yield return StartCoroutine(PerformTurnBeforeDance());
+                    }
+
+                    CrossFadeTo(step.stateName, step.blendTime);
+                    yield return StartCoroutine(WaitStepHoldTime(step));
+                }
+
+                CrossFadeTo(idleName, 0.45f);
+                yield return new WaitForSecondsRealtime(0.6f);
+            }
         }
     }
 
     /// <summary>
     /// Smoothly turns the character to random facing angles while dancing.
+    /// Uses Turn_Left or Turn_Right animations when available.
     /// If root motion moves her too far from origin, turns back toward pivot center.
     /// </summary>
     private IEnumerator RunRandomRotationLoop()
@@ -311,15 +353,24 @@ public class CharacterAnimationController : MonoBehaviour
                 targetRotation = _initialRotation * Quaternion.Euler(0f, randomOffsetAngle, 0f);
             }
 
+            // Trigger turn animation based on turning direction
+            float angleDelta = Vector3.SignedAngle(transform.forward, targetRotation * Vector3.forward, Vector3.up);
+            string turnAnim = angleDelta < 0f ? GetActiveTurnLeftState() : GetActiveTurnRightState();
+            if (!string.IsNullOrEmpty(turnAnim) && _animator != null && _animator.HasState(0, Animator.StringToHash(turnAnim)))
+            {
+                CrossFadeTo(turnAnim, 0.25f);
+            }
+
             // Smoothly lerp rotation to target angle
             float elapsed = 0f;
-            float turnDuration = 1.2f;
+            float turnDurationVal = preset != null ? preset.turnDuration : turnDuration;
+            if (turnDurationVal <= 0.1f) turnDurationVal = 1.2f;
             Quaternion startRotation = transform.rotation;
 
-            while (elapsed < turnDuration)
+            while (elapsed < turnDurationVal)
             {
                 elapsed += Time.deltaTime;
-                transform.rotation = Quaternion.Slerp(startRotation, targetRotation, (elapsed / turnDuration) * turnSmoothSpeed);
+                transform.rotation = Quaternion.Slerp(startRotation, targetRotation, (elapsed / turnDurationVal) * turnSmoothSpeed);
                 yield return null;
             }
 
@@ -330,6 +381,115 @@ public class CharacterAnimationController : MonoBehaviour
     // =========================================================================
     //  Private Helpers & Resolution
     // =========================================================================
+
+    private AnimSequenceStep GetNextRandomDanceStep(List<AnimSequenceStep> danceSteps)
+    {
+        if (danceSteps == null || danceSteps.Count == 0) return null;
+
+        if (danceSteps.Count == 1)
+        {
+            _lastDanceIndex = 0;
+            return danceSteps[0];
+        }
+
+        int randomIndex;
+        int maxAttempts = 10;
+        int attempts = 0;
+        do
+        {
+            randomIndex = Random.Range(0, danceSteps.Count);
+            attempts++;
+        } while (randomIndex == _lastDanceIndex && attempts < maxAttempts);
+
+        _lastDanceIndex = randomIndex;
+        return danceSteps[randomIndex];
+    }
+
+    private IEnumerator PerformTurnBeforeDance()
+    {
+        if (_animator == null) yield break;
+
+        string leftAnim = GetActiveTurnLeftState();
+        string rightAnim = GetActiveTurnRightState();
+
+        bool isTurnLeft = Random.value < 0.5f;
+        string turnAnim = isTurnLeft ? leftAnim : rightAnim;
+
+        int animHash = Animator.StringToHash(turnAnim);
+        bool hasTurnAnim = !string.IsNullOrEmpty(turnAnim) && _animator.HasState(0, animHash);
+
+        if (hasTurnAnim)
+        {
+            CrossFadeTo(turnAnim, 0.2f);
+        }
+
+        if (!_pivotCaptured) CaptureInitialPivot();
+
+        float maxAngle = preset != null ? preset.maxTurnAngle : maxTurnAngle;
+        float turnAngle = isTurnLeft ? Random.Range(-maxAngle, -25f) : Random.Range(25f, maxAngle);
+
+        Quaternion startRot = transform.rotation;
+        Quaternion targetRot = _initialRotation * Quaternion.Euler(0f, turnAngle, 0f);
+
+        float duration = preset != null ? preset.turnDuration : turnDuration;
+        if (duration <= 0.1f) duration = 1.0f;
+
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            transform.rotation = Quaternion.Slerp(startRot, targetRot, (elapsed / duration) * turnSmoothSpeed);
+            yield return null;
+        }
+    }
+
+    private IEnumerator WaitStepHoldTime(AnimSequenceStep step)
+    {
+        float hold = step.holdTime;
+
+        if (hold <= 0.05f)
+        {
+            yield return null;
+
+            if (_animator != null)
+            {
+                AnimatorStateInfo stateInfo = _animator.GetCurrentAnimatorStateInfo(0);
+                if (stateInfo.length > 0.1f)
+                {
+                    hold = stateInfo.length;
+                }
+            }
+
+            if (hold <= 0.05f)
+            {
+                hold = preset != null ? preset.defaultDanceHoldTime : defaultDanceHoldTime;
+                if (hold <= 0.05f) hold = 3.5f;
+            }
+        }
+
+        yield return new WaitForSecondsRealtime(hold);
+    }
+
+    private string GetActiveTurnLeftState()
+    {
+        if (preset != null && !string.IsNullOrEmpty(preset.turnLeftStateName))
+            return preset.turnLeftStateName;
+        return string.IsNullOrEmpty(turnLeftStateName) ? "Turn_Left" : turnLeftStateName;
+    }
+
+    private string GetActiveTurnRightState()
+    {
+        if (preset != null && !string.IsNullOrEmpty(preset.turnRightStateName))
+            return preset.turnRightStateName;
+        return string.IsNullOrEmpty(turnRightStateName) ? "Turn_Right" : turnRightStateName;
+    }
+
+    private float GetActiveTurnBeforeDanceChance()
+    {
+        if (preset != null)
+            return preset.turnBeforeDanceChance;
+        return turnBeforeDanceChance;
+    }
 
     private void CaptureInitialPivot()
     {
