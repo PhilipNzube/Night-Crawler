@@ -95,10 +95,16 @@ public class CharacterAnimationController : MonoBehaviour
     public float turnSmoothSpeed = 2.5f;
 
     [Header("Gesture Loop (Natural Idle Behaviour)")]
+    [Tooltip("Simple list of state names — gesture plays for 'gestureDuration' seconds then returns to idle.")]
     public List<string> gestureStateNames = new List<string>();
+
+    [Tooltip("Typed gesture steps with custom hold times per gesture — used instead of gestureStateNames if populated. " +
+             "Works exactly like customDanceSequence: drag in state names and set hold time per entry.")]
+    public List<AnimSequenceStep> idleGestureSteps = new List<AnimSequenceStep>();
 
     [Range(2f, 30f)] public float minGestureDelay = 5f;
     [Range(3f, 60f)] public float maxGestureDelay = 15f;
+    [Tooltip("Hold duration (seconds) used for simple gestureStateNames entries. Ignored when idleGestureSteps is used.")]
     public float gestureDuration = 2.5f;
     public float gestureBlendTime = 0.3f;
 
@@ -228,25 +234,49 @@ public class CharacterAnimationController : MonoBehaviour
     private IEnumerator RunGestureLoop()
     {
         if (_animator == null) yield break;
-        List<string> gestures = GetActiveGestureStates();
-        if (gestures.Count == 0) yield break;
 
-        float minDelay = preset != null ? preset.minGestureDelay : minGestureDelay;
-        float maxDelay = preset != null ? preset.maxGestureDelay : maxGestureDelay;
+        float minDelay  = preset != null ? preset.minGestureDelay : minGestureDelay;
+        float maxDelay  = preset != null ? preset.maxGestureDelay : maxGestureDelay;
         string idleName = GetActiveIdleState();
 
-        while (true)
+        // Prefer typed idleGestureSteps (with per-entry hold times) over simple name list
+        List<AnimSequenceStep> typedGestures = GetActiveIdleGestureSteps();
+        if (typedGestures != null && typedGestures.Count > 0)
         {
-            float delay = Random.Range(minDelay, maxDelay);
-            yield return new WaitForSecondsRealtime(delay);
-
-            string gesture = gestures[Random.Range(0, gestures.Count)];
-            if (!string.IsNullOrEmpty(gesture))
+            // Typed gesture loop
+            while (true)
             {
-                CrossFadeTo(gesture, gestureBlendTime);
-                yield return new WaitForSecondsRealtime(gestureDuration);
+                float delay = Random.Range(minDelay, maxDelay);
+                yield return new WaitForSecondsRealtime(delay);
+
+                AnimSequenceStep step = typedGestures[Random.Range(0, typedGestures.Count)];
+                if (step == null || string.IsNullOrEmpty(step.stateName)) continue;
+
+                CrossFadeTo(step.stateName, step.blendTime > 0f ? step.blendTime : gestureBlendTime);
+                yield return StartCoroutine(WaitStepHoldTime(step));
                 CrossFadeTo(idleName, gestureBlendTime);
-                yield return new WaitForSecondsRealtime(0.5f);
+                yield return new WaitForSecondsRealtime(0.4f);
+            }
+        }
+        else
+        {
+            // Simple name list gesture loop (legacy)
+            List<string> gestures = GetActiveGestureStates();
+            if (gestures.Count == 0) yield break;
+
+            while (true)
+            {
+                float delay = Random.Range(minDelay, maxDelay);
+                yield return new WaitForSecondsRealtime(delay);
+
+                string gesture = gestures[Random.Range(0, gestures.Count)];
+                if (!string.IsNullOrEmpty(gesture))
+                {
+                    CrossFadeTo(gesture, gestureBlendTime);
+                    yield return new WaitForSecondsRealtime(gestureDuration);
+                    CrossFadeTo(idleName, gestureBlendTime);
+                    yield return new WaitForSecondsRealtime(0.5f);
+                }
             }
         }
     }
@@ -434,16 +464,30 @@ public class CharacterAnimationController : MonoBehaviour
         if (_animator == null) return;
 
         string configured = isLeft ? GetActiveTurnLeftState() : GetActiveTurnRightState();
-        string[] candidates = isLeft 
+        string[] candidates = isLeft
             ? new string[] { configured, "Turn_Left", "Turn Left", "TurnLeft" }
             : new string[] { configured, "Turn_Right", "Turn Right", "TurnRight" };
 
+        // Check each candidate against every animator layer before calling CrossFade.
+        // CrossFadeInFixedTime(name, blend) without a layer index crashes with
+        // "Invalid Layer Index '-1'" when the state doesn't exist anywhere.
+        // Using HasState(layer, hash) lets us skip safely.
+        int layerCount = _animator.layerCount;
         foreach (string candidate in candidates)
         {
             if (string.IsNullOrEmpty(candidate)) continue;
-            _animator.CrossFadeInFixedTime(candidate, blendTime);
-            return;
+
+            int hash = Animator.StringToHash(candidate);
+            for (int layer = 0; layer < layerCount; layer++)
+            {
+                if (_animator.HasState(layer, hash))
+                {
+                    _animator.CrossFadeInFixedTime(candidate, blendTime, layer);
+                    return;
+                }
+            }
         }
+        // No matching state found — silently skip (no crash, no log spam).
     }
 
     private IEnumerator WaitStepHoldTime(AnimSequenceStep step)
@@ -530,7 +574,19 @@ public class CharacterAnimationController : MonoBehaviour
     {
         if (preset != null && preset.gestureStateNames != null && preset.gestureStateNames.Count > 0)
             return preset.gestureStateNames;
-        return gestureStateNames;
+        return gestureStateNames ?? new List<string>();
+    }
+
+    /// <summary>
+    /// Returns typed gesture steps (with per-entry hold times) if any are configured.
+    /// Preset takes priority. Falls back to the inspector idleGestureSteps list.
+    /// Returns null/empty when none — caller falls back to the simple name list.
+    /// </summary>
+    private List<AnimSequenceStep> GetActiveIdleGestureSteps()
+    {
+        if (preset != null && preset.idleGestureSteps != null && preset.idleGestureSteps.Count > 0)
+            return preset.idleGestureSteps;
+        return idleGestureSteps;
     }
 
     private List<AnimSequenceStep> GetActiveIntroSequence()

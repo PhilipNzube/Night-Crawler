@@ -10,16 +10,21 @@ public static class PlayerNameManager
     public static event Action<string> OnNameChanged;
 
     /// <summary>
-    /// Gets the saved player name, or generates a default if none exists.
+    /// Returns true if the player has already saved a non-empty name.
+    /// Use this to gate the lobby — require a name before allowing connection.
+    /// </summary>
+    public static bool HasSavedName()
+    {
+        return PlayerPrefs.HasKey(PREF_KEY) && !string.IsNullOrWhiteSpace(PlayerPrefs.GetString(PREF_KEY));
+    }
+
+    /// <summary>
+    /// Gets the saved player name. Returns empty string if no name has been set yet.
+    /// Check HasSavedName() first if you need to gate on a name being present.
     /// </summary>
     public static string GetPlayerName()
     {
-        if (!PlayerPrefs.HasKey(PREF_KEY) || string.IsNullOrWhiteSpace(PlayerPrefs.GetString(PREF_KEY)))
-        {
-            string defaultName = "Investigator_" + UnityEngine.Random.Range(100, 999);
-            PlayerPrefs.SetString(PREF_KEY, defaultName);
-            PlayerPrefs.Save();
-        }
+        if (!HasSavedName()) return string.Empty;
         return PlayerPrefs.GetString(PREF_KEY);
     }
 
@@ -37,5 +42,14 @@ public static class PlayerNameManager
         PlayerPrefs.Save();
 
         OnNameChanged?.Invoke(trimmed);
+    }
+
+    /// <summary>
+    /// Clears the saved player name. Useful for testing.
+    /// </summary>
+    public static void ClearPlayerName()
+    {
+        PlayerPrefs.DeleteKey(PREF_KEY);
+        PlayerPrefs.Save();
     }
 }

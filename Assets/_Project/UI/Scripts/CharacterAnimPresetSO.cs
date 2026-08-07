@@ -49,14 +49,20 @@ public class CharacterAnimPresetSO : ScriptableObject
     public float turnDuration = 1.0f;
 
     [Header("Idle Gesture Loop")]
-    [Tooltip("List of random gesture states played during linger idle.")]
+    [Tooltip("Simple list of state names — gesture plays for 'gestureDuration' seconds then returns to idle.")]
     public List<string> gestureStateNames = new List<string>();
+
+    [Tooltip("Typed gesture steps with custom hold times — takes priority over gestureStateNames if populated. " +
+             "Works exactly like danceSequence: drag in state names and set hold time per entry.")]
+    public List<CharacterAnimationController.AnimSequenceStep> idleGestureSteps = new List<CharacterAnimationController.AnimSequenceStep>();
 
     [Header("Timing Configuration")]
     [Tooltip("Default hold time in seconds if holdTime on a dance step is 0.")]
     public float defaultDanceHoldTime = 3.5f;
     [Range(2f, 30f)] public float minGestureDelay = 5f;
     [Range(3f, 60f)] public float maxGestureDelay = 15f;
+    public float gestureDuration = 2.5f;
     [Range(2f, 20f)] public float minDanceRepeatDelay = 5f;
     [Range(3f, 40f)] public float maxDanceRepeatDelay = 12f;
+    public float turnSmoothSpeed = 2.5f;
 }

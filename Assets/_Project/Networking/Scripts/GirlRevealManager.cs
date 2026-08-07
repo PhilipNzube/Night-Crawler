@@ -51,6 +51,11 @@ public class GirlRevealManager : NetworkBehaviour
              "Set to false if you want solo testing to jump straight to the screen.")]
     public bool enableSlotSpinInSoloTest = true;
 
+    [Tooltip("DEV ONLY: When true, this client is always routed to the INVESTIGATOR flow " +
+             "(Character Select screen) regardless of who is picked as the girl. " +
+             "Use this to test character selection without needing a second player.")]
+    public bool forceInvestigatorMode = false;
+
     // -------------------------------------------------------------------------
     //  Network State
     // -------------------------------------------------------------------------
@@ -193,6 +198,17 @@ public class GirlRevealManager : NetworkBehaviour
     {
         bool isGirl = NetworkManager.Singleton != null &&
                       NetworkManager.Singleton.LocalClientId == girlClientId;
+
+        // Dev override: always go to investigator flow for testing character select
+        if (forceInvestigatorMode)
+        {
+            Debug.Log("[GirlRevealManager] forceInvestigatorMode = true → routing to investigator flow regardless of girl selection.");
+            if (investigatorFlow != null)
+                investigatorFlow.SetActive(true);
+            else
+                Debug.LogWarning("[GirlRevealManager] 'investigatorFlow' not assigned in Inspector.");
+            return;
+        }
 
         if (isGirl)
         {

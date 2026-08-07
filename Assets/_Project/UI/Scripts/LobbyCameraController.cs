@@ -87,7 +87,33 @@ public class LobbyCameraController : MonoBehaviour
     //  Inspector — Squad Spline Dolly Pan
     // =========================================================================
 
-    [Header("Squad — Dolly Pan")]
+    [Header("Squad — Orbital Camera (recommended)")]
+    [Tooltip("Transform at the center of the squad formation. The squad camera will orbit around this point. " +
+             "Create an empty 'SquadOrbitTarget' positioned between all your squad pivots and drag it here. " +
+             "When assigned, the orbital camera is used instead of the dolly pan.")]
+    public Transform orbitalTarget;
+
+    [Tooltip("How many degrees the camera sweeps around the target per second during the squad showcase.")]
+    [Range(5f, 60f)]
+    public float squadOrbitalSpeed = 18f;
+
+    [Tooltip("Radius (world units) of the orbit arc around the squad center.")]
+    public float squadOrbitalRadius = 6f;
+
+    [Tooltip("Starting angle offset in degrees. 0 = camera starts behind the squad.")]
+    public float squadOrbitalStartAngle = -30f;
+
+    [Tooltip("Vertical height of the camera above the squad pivot during the orbit.")]
+    public float squadOrbitalHeight = 2.2f;
+
+    [Tooltip("Amplitude of a subtle vertical sine-wave breathe on the orbital height (0 = none).")]
+    [Range(0f, 2f)]
+    public float squadOrbitalElevationBreath = 0.4f;
+
+    [Tooltip("Speed of the vertical breathe cycle.")]
+    public float squadOrbitalBreathSpeed = 0.5f;
+
+    [Header("Squad — Dolly Pan (fallback when no OrbitalTarget set)")]
     [Tooltip("Optional CinemachineSplineDolly component on the squad VCam. " +
              "Automatically drives position along spline from 0 to 1 to pan across the lineup.")]
     public CinemachineSplineDolly squadDollyComp;
@@ -194,9 +220,14 @@ public class LobbyCameraController : MonoBehaviour
 
             case CameraPhase.Squad:
                 BlendTo(squadCam, squadBlendTime);
-                // Reset dolly to start then pan
-                if (squadDollyComp != null) squadDollyComp.CameraPosition = 0f;
-                _dollyCoroutine = StartCoroutine(RunDollyPan());
+                // Prefer orbital if a target is assigned, otherwise fall back to dolly
+                if (orbitalTarget != null)
+                    _dollyCoroutine = StartCoroutine(RunSquadOrbitalCamera());
+                else
+                {
+                    if (squadDollyComp != null) squadDollyComp.CameraPosition = 0f;
+                    _dollyCoroutine = StartCoroutine(RunDollyPan());
+                }
                 break;
 
             case CameraPhase.GirlScreen:
@@ -273,6 +304,39 @@ public class LobbyCameraController : MonoBehaviour
         {
             t += Time.deltaTime * charSelectSwaySpeed;
             orbital.HorizontalAxis.Value = Mathf.Sin(t) * charSelectSwayAmplitude;
+            yield return null;
+        }
+    }
+
+    // =========================================================================
+    //  Private — Squad Orbital Camera
+    // =========================================================================
+
+    private IEnumerator RunSquadOrbitalCamera()
+    {
+        if (orbitalTarget == null || squadCam == null) yield break;
+
+        float angle = squadOrbitalStartAngle;
+        float t     = 0f;
+
+        while (true)
+        {
+            angle += squadOrbitalSpeed * Time.deltaTime;
+            t     += squadOrbitalBreathSpeed * Time.deltaTime;
+
+            float rad = angle * Mathf.Deg2Rad;
+
+            // Orbit position around the squad center
+            Vector3 orbitPos = orbitalTarget.position
+                + new Vector3(
+                    Mathf.Sin(rad) * squadOrbitalRadius,
+                    squadOrbitalHeight + Mathf.Sin(t * Mathf.PI * 2f) * squadOrbitalElevationBreath,
+                    Mathf.Cos(rad) * squadOrbitalRadius);
+
+            // Move the VCam transform directly — Cinemachine body will follow
+            squadCam.transform.position = orbitPos;
+            squadCam.transform.LookAt(orbitalTarget.position + Vector3.up * 0.9f);
+
             yield return null;
         }
     }

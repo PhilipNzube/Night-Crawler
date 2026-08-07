@@ -66,9 +66,6 @@ public class GirlPlayerScreen : MonoBehaviour
 
     void Awake()
     {
-        // Auto-wire any unassigned inspector slots from children hierarchy
-        AutoWireReferences();
-
         if (girlScreenPanel == null)
             girlScreenPanel = gameObject;
 
@@ -76,45 +73,6 @@ public class GirlPlayerScreen : MonoBehaviour
         {
             readyButton.onClick.RemoveAllListeners();
             readyButton.onClick.AddListener(OnReadyPressed);
-        }
-    }
-
-    void OnValidate()
-    {
-        AutoWireReferences();
-    }
-
-    /// <summary>
-    /// Auto-discovers child components if left unassigned in the Unity Inspector.
-    /// </summary>
-    private void AutoWireReferences()
-    {
-        if (girlScreenPanel == null)
-            girlScreenPanel = gameObject;
-
-        if (roleTitleText == null)
-        {
-            Transform t = transform.Find("LoreCardPanel/RoleTitleText") ?? transform.Find("TopTitle");
-            if (t != null) roleTitleText = t.GetComponent<TextMeshProUGUI>();
-        }
-
-        if (flavourText == null)
-        {
-            Transform t = transform.Find("LoreCardPanel/FlavourText") ?? transform.Find("FlavourText");
-            if (t != null) flavourText = t.GetComponent<TextMeshProUGUI>();
-        }
-
-        if (waitingText == null)
-        {
-            Transform t = transform.Find("BottomBarPanel/WaitingText") ?? transform.Find("WaitingText");
-            if (t != null) waitingText = t.GetComponent<TextMeshProUGUI>();
-        }
-
-        if (readyButton == null)
-        {
-            Transform t = transform.Find("BottomBarPanel/ReadyButton") ?? transform.Find("ReadyButton");
-            if (t == null) readyButton = GetComponentInChildren<Button>();
-            else readyButton = t.GetComponent<Button>();
         }
     }
 

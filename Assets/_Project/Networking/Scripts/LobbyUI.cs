@@ -6,31 +6,49 @@ using TMPro;
 /// <summary>
 /// SOLID — SRP: Manages only the pre-game lobby UI flow.
 ///
-/// Replaces the legacy OnGUI buttons in NetworkUI with a proper full-screen
-/// Canvas-based lobby that matches the game's dark aesthetic.
-///
-/// Panels:
-///   • Connection Panel  — shown before host/client is chosen
-///   • Lobby Panel       — shown after connecting, while waiting for players
-///
-/// The host sees a "START MATCH" button once enough players are ready.
-/// Clients see a "Waiting for host..." indicator.
+/// Flow:
+///   1. Name Entry Panel — shown first if no player name is saved.
+///      Player types a name and presses CONFIRM. Saved to PlayerPrefs.
+///   2. Connection Panel — shown after name is confirmed. Host or Client choice.
+///   3. Lobby Panel      — shown after connecting, while waiting for players.
 ///
 /// Setup:
 ///   1. Create a Canvas (Screen Space – Overlay, Sort Order 10).
-///   2. Build two child panels: Connection Panel and Lobby Panel.
+///   2. Build three child panels: Name Entry Panel, Connection Panel, Lobby Panel.
 ///   3. Drag this script onto the Canvas root and wire all fields below.
-///   4. Disable NetworkUI.OnGUI (done — see NetworkUI.cs).
 /// </summary>
 public class LobbyUI : MonoBehaviour
 {
     // -------------------------------------------------------------------------
+    //  Inspector — Name Entry Panel
+    //  Shown FIRST if no player name is saved yet
+    // -------------------------------------------------------------------------
+    [Header("Name Entry Panel  ← Shown first if no name saved")]
+    [Tooltip("Root panel for name entry. Shown before Connection Panel if player has no saved name.")]
+    public GameObject nameEntryPanel;
+
+    [Tooltip("Input field where the player types their name.")]
+    public TMP_InputField nameEntryInputField;
+
+    [Tooltip("Placeholder text inside the input field (e.g. 'Enter your name...')")]
+    public TextMeshProUGUI nameEntryPlaceholder;
+
+    [Tooltip("Error/hint label shown when the player tries to confirm with an empty name.")]
+    public TextMeshProUGUI nameEntryErrorText;
+
+    [Tooltip("Button that confirms the entered name and advances to the Connection Panel.")]
+    public Button nameConfirmButton;
+
+    // -------------------------------------------------------------------------
     //  Inspector — Connection Panel
-    //  Shown before the player has connected as Host or Client
+    //  Shown after name is confirmed, before Host / Client choice
     // -------------------------------------------------------------------------
     [Header("Connection Panel")]
     [Tooltip("Root panel shown before a connection is made (Host / Client choice screen).")]
     public GameObject connectionPanel;
+
+    [Tooltip("Displays the currently saved player name on the connection screen (optional).")]
+    public TextMeshProUGUI connectionPlayerNameLabel;
 
     [Tooltip("Button that starts a Host session.")]
     public Button startHostButton;
@@ -93,7 +111,19 @@ public class LobbyUI : MonoBehaviour
     void Start()
     {
         WireButtonListeners();
-        ShowConnectionPanel();
+
+        // Populate name field with saved name if one exists
+        if (nameEntryInputField != null)
+            nameEntryInputField.text = PlayerNameManager.GetPlayerName();
+
+        if (nameEntryErrorText != null)
+            nameEntryErrorText.gameObject.SetActive(false);
+
+        // If player already has a saved name, skip straight to the connection screen
+        if (PlayerNameManager.HasSavedName())
+            ShowConnectionPanel();
+        else
+            ShowNameEntryPanel();
     }
 
     void Update()
@@ -114,10 +144,37 @@ public class LobbyUI : MonoBehaviour
     // =========================================================================
     private void WireButtonListeners()
     {
-        if (startHostButton   != null) startHostButton.onClick.AddListener(OnStartHost);
-        if (startClientButton != null) startClientButton.onClick.AddListener(OnStartClient);
-        if (startMatchButton  != null) startMatchButton.onClick.AddListener(OnStartMatch);
-        if (disconnectButton  != null) disconnectButton.onClick.AddListener(OnDisconnect);
+        if (nameConfirmButton  != null) nameConfirmButton.onClick.AddListener(OnConfirmName);
+        if (startHostButton    != null) startHostButton.onClick.AddListener(OnStartHost);
+        if (startClientButton  != null) startClientButton.onClick.AddListener(OnStartClient);
+        if (startMatchButton   != null) startMatchButton.onClick.AddListener(OnStartMatch);
+        if (disconnectButton   != null) disconnectButton.onClick.AddListener(OnDisconnect);
+    }
+
+    // =========================================================================
+    //  Name Entry Actions
+    // =========================================================================
+    private void OnConfirmName()
+    {
+        string enteredName = nameEntryInputField != null ? nameEntryInputField.text.Trim() : string.Empty;
+
+        if (string.IsNullOrWhiteSpace(enteredName))
+        {
+            // Show error — don't proceed
+            if (nameEntryErrorText != null)
+            {
+                nameEntryErrorText.text = "Please enter a name before continuing.";
+                nameEntryErrorText.gameObject.SetActive(true);
+            }
+            return;
+        }
+
+        PlayerNameManager.SetPlayerName(enteredName);
+
+        if (nameEntryErrorText != null)
+            nameEntryErrorText.gameObject.SetActive(false);
+
+        ShowConnectionPanel();
     }
 
     // =========================================================================
@@ -157,7 +214,6 @@ public class LobbyUI : MonoBehaviour
         else
         {
             // Fallback: GirlRevealManager not present — load scene directly
-            // (preserves original behaviour for legacy scene setups)
             Debug.LogWarning("[LobbyUI] GirlRevealManager not found. Loading game scene directly.");
             LoadGameSceneFallback();
         }
@@ -165,21 +221,17 @@ public class LobbyUI : MonoBehaviour
 
     /// <summary>
     /// Legacy direct scene load — used only when GirlRevealManager is absent.
-    /// GirlRevealManager handles scene loading in the normal flow.
     /// </summary>
     private void LoadGameSceneFallback()
     {
-        // 1. If Netcode SceneManagement is enabled on NetworkManager:
         if (NetworkManager.Singleton.SceneManager != null)
         {
             NetworkManager.Singleton.SceneManager.LoadScene(gameSceneName, UnityEngine.SceneManagement.LoadSceneMode.Single);
         }
-        // 2. Fallback to LoadingScreen if available:
         else if (LoadingScreen.Instance != null)
         {
             LoadingScreen.Instance.LoadScene(gameSceneName);
         }
-        // 3. Standard scene load:
         else
         {
             UnityEngine.SceneManagement.SceneManager.LoadScene(gameSceneName);
@@ -204,11 +256,9 @@ public class LobbyUI : MonoBehaviour
         bool isServer = NetworkManager.Singleton.IsServer;
         bool canStart = isServer && current >= required;
 
-        // Player count text
         if (playerCountText != null)
             playerCountText.text = $"{current}  /  {required}  players";
 
-        // Status text
         if (statusText != null)
         {
             if (isServer)
@@ -217,11 +267,9 @@ public class LobbyUI : MonoBehaviour
                 statusText.text = "Waiting for the host to start the match...";
         }
 
-        // Host-only elements
         if (hostOnlyElements != null)
             hostOnlyElements.SetActive(isServer);
 
-        // Start button interactability
         if (startMatchButton != null)
             startMatchButton.interactable = canStart;
     }
@@ -229,26 +277,40 @@ public class LobbyUI : MonoBehaviour
     // =========================================================================
     //  Panel Visibility Helpers
     // =========================================================================
+    private void ShowNameEntryPanel()
+    {
+        SetPanel(nameEntryPanel,   true);
+        SetPanel(connectionPanel,  false);
+        SetPanel(lobbyPanel,       false);
+        UnlockCursor();
+    }
+
     private void ShowConnectionPanel()
     {
-        SetPanel(connectionPanel, true);
-        SetPanel(lobbyPanel,      false);
+        SetPanel(nameEntryPanel,   false);
+        SetPanel(connectionPanel,  true);
+        SetPanel(lobbyPanel,       false);
         UnlockCursor();
+
+        // Update the connection panel's name label with the confirmed name
+        if (connectionPlayerNameLabel != null)
+            connectionPlayerNameLabel.text = PlayerNameManager.GetPlayerName();
     }
 
     private void ShowLobbyPanel()
     {
-        SetPanel(connectionPanel, false);
-        SetPanel(lobbyPanel,      true);
+        SetPanel(nameEntryPanel,   false);
+        SetPanel(connectionPanel,  false);
+        SetPanel(lobbyPanel,       true);
         UnlockCursor();
     }
 
     /// <summary>Called when the match begins — hides the entire lobby UI.</summary>
     public void HideLobbyUI()
     {
-        SetPanel(connectionPanel, false);
-        SetPanel(lobbyPanel,      false);
-        // Cursor will be locked by NetworkPlayer when the player spawns
+        SetPanel(nameEntryPanel,   false);
+        SetPanel(connectionPanel,  false);
+        SetPanel(lobbyPanel,       false);
     }
 
     private static void SetPanel(GameObject panel, bool visible)

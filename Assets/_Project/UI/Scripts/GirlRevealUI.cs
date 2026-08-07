@@ -99,69 +99,7 @@ public class GirlRevealUI : MonoBehaviour
 
     void Awake()
     {
-        AutoWireReferences();
-    }
-
-    void OnValidate()
-    {
-        AutoWireReferences();
-    }
-
-    private void AutoWireReferences()
-    {
-        if (revealPanel == null)
-            revealPanel = gameObject;
-
-        if (headerTitleText == null)
-        {
-            Transform t = transform.Find("HeaderTitleText");
-            if (t != null) headerTitleText = t.GetComponent<TextMeshProUGUI>();
-        }
-
-        if (aboveNameText == null)
-        {
-            Transform t = transform.Find("SlotMachineContainer/AboveNameText");
-            if (t != null) aboveNameText = t.GetComponent<TextMeshProUGUI>();
-        }
-
-        if (focusNameText == null)
-        {
-            Transform t = transform.Find("SlotMachineContainer/FocusNameText");
-            if (t != null) focusNameText = t.GetComponent<TextMeshProUGUI>();
-        }
-
-        if (belowNameText == null)
-        {
-            Transform t = transform.Find("SlotMachineContainer/BelowNameText");
-            if (t != null) belowNameText = t.GetComponent<TextMeshProUGUI>();
-        }
-
-        if (winnerPanel == null)
-        {
-            Transform t = transform.Find("WinnerPanel");
-            if (t != null) winnerPanel = t.gameObject;
-        }
-
-        if (winnerPanel != null)
-        {
-            if (winnerNameText == null)
-            {
-                Transform t = winnerPanel.transform.Find("WinnerNameText");
-                if (t != null) winnerNameText = t.GetComponent<TextMeshProUGUI>();
-            }
-
-            if (winnerSubtitleText == null)
-            {
-                Transform t = winnerPanel.transform.Find("WinnerSubtitleText");
-                if (t != null) winnerSubtitleText = t.GetComponent<TextMeshProUGUI>();
-            }
-        }
-
-        if (backgroundPulse == null)
-        {
-            Transform t = transform.Find("DarkOverlay");
-            if (t != null) backgroundPulse = t.GetComponent<Image>();
-        }
+        // Nothing auto-wired — all references dragged in Inspector.
     }
 
     // =========================================================================
@@ -170,7 +108,6 @@ public class GirlRevealUI : MonoBehaviour
 
     public void StartSpin(ulong girlClientId, string[] playerNames, ulong[] clientIds, Action<ulong> onComplete)
     {
-        AutoWireReferences();
         _girlClientId = girlClientId;
         _playerNames  = playerNames;
         _clientIds    = clientIds;
@@ -314,25 +251,37 @@ public class GirlRevealUI : MonoBehaviour
         int count = _playerNames.Length;
         if (count == 0) return;
 
+        // With 1-2 players the above/below slots look broken (same names cycling),
+        // so we hide them and only show the single focus reel row.
+        bool useOuterRows = count >= 3;
+
         int prevIndex = (focusIndex - 1 + count) % count;
         int nextIndex = (focusIndex + 1) % count;
 
         if (focusNameText != null)
         {
-            focusNameText.text = _playerNames[focusIndex];
+            focusNameText.text  = _playerNames[focusIndex];
             focusNameText.color = focusColor;
         }
 
         if (aboveNameText != null)
         {
-            aboveNameText.text = _playerNames[prevIndex];
-            aboveNameText.color = outerNameColor;
+            aboveNameText.gameObject.SetActive(useOuterRows);
+            if (useOuterRows)
+            {
+                aboveNameText.text  = _playerNames[prevIndex];
+                aboveNameText.color = outerNameColor;
+            }
         }
 
         if (belowNameText != null)
         {
-            belowNameText.text = _playerNames[nextIndex];
-            belowNameText.color = outerNameColor;
+            belowNameText.gameObject.SetActive(useOuterRows);
+            if (useOuterRows)
+            {
+                belowNameText.text  = _playerNames[nextIndex];
+                belowNameText.color = outerNameColor;
+            }
         }
     }
 

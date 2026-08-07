@@ -26,9 +26,16 @@ public class CharacterSelectUI : MonoBehaviour
     public TextMeshProUGUI detailsAbilitiesText;
     public Image detailsIconImage;
 
-    [Header("3D Model Preview")]
-    [Tooltip("Transform pivot in the scene where 3D character models spawn for preview.")]
+    [Header("3D Model Preview (Single Slot — used if no Carousel)")]
+    [Tooltip("Transform pivot in the scene where a single 3D character model spawns for preview. " +
+             "Only used when Carousel is not assigned.")]
     public Transform modelPreviewPivot;
+
+    [Header("Character Carousel (3D Ring — recommended)")]
+    [Tooltip("Drag the CharacterCarousel component here. " +
+             "When assigned, the carousel handles all character model display. " +
+             "modelPreviewPivot is ignored.")]
+    public CharacterCarousel carousel;
 
     [Header("Buttons")]
     public Button confirmButton;
@@ -121,11 +128,13 @@ public class CharacterSelectUI : MonoBehaviour
                 detailsIconImage.enabled = (data.characterIcon != null);
             }
 
-            // Spawn 3D character preview model if assigned
-            UpdateModelPreview(data.characterPrefab);
+            // Only spawn a single preview model if there is no carousel.
+            // When the carousel is active, it handles all models itself.
+            if (carousel == null)
+                UpdateModelPreview(data.characterPrefab);
         }
 
-        // Reset idle gesture timer — user is actively browsing characters
+        // Reset idle gesture timer
         if (CharacterSceneController.Instance != null)
             CharacterSceneController.Instance.ResetIdleTimer();
     }
@@ -219,11 +228,15 @@ public class CharacterSelectUI : MonoBehaviour
 
     private void OnConfirmSelection()
     {
+        // If carousel is active, use its focused index as the confirmed selection
+        int confirmedIndex = carousel != null ? carousel.GetFocusedIndex() : _selectedIndex;
+
         if (!_isVengefulSpirit && CharacterSelectManager.Instance != null)
         {
-            CharacterSelectManager.Instance.RequestSelectCharacterServerRpc(_selectedIndex);
+            CharacterSelectManager.Instance.RequestSelectCharacterServerRpc(confirmedIndex);
         }
 
+        // Clean up single preview model (if used — no-op when carousel is active)
         if (_currentPreviewInstance != null)
         {
             Destroy(_currentPreviewInstance);
