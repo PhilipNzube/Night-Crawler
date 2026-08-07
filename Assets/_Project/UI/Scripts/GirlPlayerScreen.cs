@@ -124,7 +124,7 @@ public class GirlPlayerScreen : MonoBehaviour
     private void PopulateTexts()
     {
         if (roleTitleText != null)
-            roleTitleText.text = "✦  VENGEFUL SPIRIT  ✦";
+            roleTitleText.text = "VENGEFUL SPIRIT";
 
         if (flavourText != null)
             flavourText.text =

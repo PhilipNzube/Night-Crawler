@@ -125,7 +125,7 @@ public class GirlRevealUI : MonoBehaviour
         if (focusNameText != null) focusNameText.transform.localScale = Vector3.one;
 
         if (headerTitleText != null)
-            headerTitleText.text = "✦  SELECTING VENGEFUL SPIRIT  ✦";
+            headerTitleText.text = "SELECTING VENGEFUL SPIRIT";
 
         if (LobbyCameraController.Instance != null)
             LobbyCameraController.Instance.SetPhase(LobbyCameraController.CameraPhase.Reveal);
@@ -208,7 +208,7 @@ public class GirlRevealUI : MonoBehaviour
         SetBgColor(bgColorWinner);
 
         if (headerTitleText != null)
-            headerTitleText.text = "✦  VENGEFUL SPIRIT REVEALED  ✦";
+            headerTitleText.text = "VENGEFUL SPIRIT REVEALED";
 
         PlaySound(winnerLockSound, 1.0f);
 

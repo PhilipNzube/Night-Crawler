@@ -3,16 +3,14 @@ using System.Collections;
 using System.Collections.Generic;
 
 /// <summary>
-/// SOLID — SRP & OCP: Drives character preview animations for the lobby screens.
+/// SOLID — SRP & OCP: Drives character preview animations for lobby screens.
 ///
-/// Responsibilities:
-///   1. Play a one-shot cinematic intro sequence per character type, then return to idle.
-///   2. Run a natural, non-synchronized idle gesture loop with randomized delays.
-///   3. Loop dance routine sequence for the girl's exclusive screen.
-///
-/// OCP: Zero-code modification! You can change state names, add 3rd/4th states, or change
-///      timings directly in the Inspector or via CharacterAnimPresetSO assets without touching code.
-/// DIP: Talks only to the Animator component — no coupling to gameplay scripts.
+/// Features:
+///   1. Cinematic Intro Sequences & Natural Linger Gesture Loops.
+///   2. Multi-step Dance Routines for Vengeful Spirit / Girl.
+///   3. Root Motion Control: Toggle `enableRootMotionInPreview` per character or preset.
+///   4. Dance Random Rotation: Smoothly turns character to random facing angles while dancing,
+///      keeping root motion movement organic and centered on the preview pivot.
 /// </summary>
 public class CharacterAnimationController : MonoBehaviour
 {
@@ -20,10 +18,8 @@ public class CharacterAnimationController : MonoBehaviour
     //  Enums & Data Structs
     // =========================================================================
 
-    /// <summary>Maps each lobby role to its default animation behaviour.</summary>
     public enum CharacterType { Priest, Miner, Medic, Protector, Adventurer, Girl }
 
-    /// <summary>One step in a cinematic or dance animation sequence.</summary>
     [System.Serializable]
     public class AnimSequenceStep
     {
@@ -45,6 +41,11 @@ public class CharacterAnimationController : MonoBehaviour
     [Tooltip("Drag a CharacterAnimPresetSO asset here for shared reusable presets across prefabs.")]
     public CharacterAnimPresetSO preset;
 
+    [Header("Root Motion Configuration")]
+    [Tooltip("If true, Animator.applyRootMotion is enabled on this preview character. " +
+             "Toggle this boolean in Inspector or Preset to enable/disable root motion for this character.")]
+    public bool enableRootMotionInPreview = true;
+
     [Header("Character Identity")]
     [Tooltip("Determines which built-in default sequence to use if no custom steps are defined.")]
     public CharacterType characterType = CharacterType.Adventurer;
@@ -54,49 +55,51 @@ public class CharacterAnimationController : MonoBehaviour
     public string idleStateName = "Idle";
 
     [Header("Cinematic Intro Sequence")]
-    [Tooltip("Populate with custom steps to fully override the intro sequence in Inspector. " +
-             "Leave empty to use built-in defaults or preset.")]
     public List<AnimSequenceStep> customCinematicSequence = new List<AnimSequenceStep>();
 
     [Header("Dance Routine Sequence")]
-    [Tooltip("Populate with dance steps (e.g. Dance_01, Dance_02) for the girl or showcase screen. " +
-             "Leave empty to use built-in defaults or preset.")]
     public List<AnimSequenceStep> customDanceSequence = new List<AnimSequenceStep>();
 
+    [Header("Dance Random Rotation & Organic Movement")]
+    [Tooltip("If true, character smoothly turns to random facing angles while dancing, keeping movement organic.")]
+    public bool enableRandomRotationOnDance = true;
+
+    [Tooltip("Minimum seconds between picking a new dance facing angle.")]
+    public float minTurnInterval = 1.5f;
+
+    [Tooltip("Maximum seconds between picking a new dance facing angle.")]
+    public float maxTurnInterval = 4.0f;
+
+    [Tooltip("Maximum rotation angle variation (in degrees) relative to initial spawn facing.")]
+    public float maxTurnAngle = 70f;
+
+    [Tooltip("Smooth rotation lerp speed.")]
+    public float turnSmoothSpeed = 2.5f;
+
     [Header("Gesture Loop (Natural Idle Behaviour)")]
-    [Tooltip("State names played at random while the character is lingering idle.")]
     public List<string> gestureStateNames = new List<string>();
 
-    [Tooltip("Minimum idle seconds before a gesture is triggered.")]
-    [Range(2f, 30f)]
-    public float minGestureDelay = 5f;
-
-    [Tooltip("Maximum idle seconds before a gesture is triggered.")]
-    [Range(3f, 60f)]
-    public float maxGestureDelay = 15f;
-
-    [Tooltip("How long each gesture plays before returning to idle.")]
+    [Range(2f, 30f)] public float minGestureDelay = 5f;
+    [Range(3f, 60f)] public float maxGestureDelay = 15f;
     public float gestureDuration = 2.5f;
-
-    [Tooltip("Crossfade blend time entering and exiting gesture states.")]
     public float gestureBlendTime = 0.3f;
 
     [Header("Dance Routine Repeat Timing")]
-    [Tooltip("Minimum idle seconds between dance sequence repetitions.")]
-    [Range(2f, 20f)]
-    public float minDanceRepeatDelay = 5f;
-
-    [Tooltip("Maximum idle seconds between dance sequence repetitions.")]
-    [Range(3f, 40f)]
-    public float maxDanceRepeatDelay = 12f;
+    [Range(2f, 20f)] public float minDanceRepeatDelay = 5f;
+    [Range(3f, 40f)] public float maxDanceRepeatDelay = 12f;
 
     // =========================================================================
     //  Private State
     // =========================================================================
 
-    private Animator  _animator;
-    private Coroutine _cinematicCoroutine;
-    private Coroutine _gestureCoroutine;
+    private Animator   _animator;
+    private Coroutine  _cinematicCoroutine;
+    private Coroutine  _gestureCoroutine;
+    private Coroutine  _rotationCoroutine;
+
+    private Vector3    _initialPosition;
+    private Quaternion _initialRotation;
+    private bool       _pivotCaptured = false;
 
     // =========================================================================
     //  Unity Lifecycle
@@ -107,6 +110,15 @@ public class CharacterAnimationController : MonoBehaviour
         _animator = GetComponentInChildren<Animator>();
         if (_animator == null)
             _animator = GetComponent<Animator>();
+
+        CaptureInitialPivot();
+        ApplyRootMotionSettings();
+    }
+
+    void OnEnable()
+    {
+        CaptureInitialPivot();
+        ApplyRootMotionSettings();
     }
 
     void OnDisable()
@@ -118,55 +130,50 @@ public class CharacterAnimationController : MonoBehaviour
     //  Public API
     // =========================================================================
 
-    /// <summary>
-    /// Plays the character's cinematic intro sequence once (non-looping), then
-    /// optionally starts the natural gesture loop while the player lingers.
-    /// Safe to call multiple times — stops any in-progress sequence first.
-    /// </summary>
+    /// <summary>Applies root motion setting to Animator according to Inspector or Preset.</summary>
+    public void ApplyRootMotionSettings()
+    {
+        if (_animator == null) return;
+        bool useRootMotion = preset != null ? preset.enableRootMotionInPreview : enableRootMotionInPreview;
+        _animator.applyRootMotion = useRootMotion;
+    }
+
     public void PlayCinematicSequence(bool startGestureLoopAfter = true)
     {
         StopAllRoutines();
+        ApplyRootMotionSettings();
         _cinematicCoroutine = StartCoroutine(RunCinematicSequence(startGestureLoopAfter));
     }
 
-    /// <summary>
-    /// Starts the natural idle gesture loop immediately, skipping the cinematic intro.
-    /// </summary>
     public void StartNaturalGestureLoop()
     {
         StopAllRoutines();
+        ApplyRootMotionSettings();
         CrossFadeTo(GetActiveIdleState(), 0.3f);
         if (GetActiveGestureStates().Count > 0)
             _gestureCoroutine = StartCoroutine(RunGestureLoop());
     }
 
-    /// <summary>
-    /// Plays the dance sequence (e.g. Dance_01 -> Dance_02), returns to idle,
-    /// then after a random delay dances again — repeating indefinitely.
-    ///
-    /// Do NOT set "Loop Time" to true on the Dance clips inside Unity Animator —
-    /// this script manages the sequence transitions and delay timing cleanly.
-    /// </summary>
     public void PlayDanceLoop()
     {
         StopAllRoutines();
+        ApplyRootMotionSettings();
         _cinematicCoroutine = StartCoroutine(RunDanceLoop());
+
+        bool useRotation = preset != null ? preset.enableRandomRotationOnDance : enableRandomRotationOnDance;
+        if (useRotation)
+            _rotationCoroutine = StartCoroutine(RunRandomRotationLoop());
     }
 
-    /// <summary>
-    /// Plays the first dance state once without returning to idle or repeating.
-    /// </summary>
     public void PlayDance()
     {
         StopAllRoutines();
+        ApplyRootMotionSettings();
         List<AnimSequenceStep> danceSteps = GetActiveDanceSequence();
         if (danceSteps.Count > 0)
             CrossFadeTo(danceSteps[0].stateName, danceSteps[0].blendTime);
     }
 
-    /// <summary>
-    /// Stops all animation routines and smoothly returns to idle.
-    /// </summary>
     public void ReturnToIdle()
     {
         StopAllRoutines();
@@ -190,7 +197,6 @@ public class CharacterAnimationController : MonoBehaviour
             yield return new WaitForSecondsRealtime(step.holdTime);
         }
 
-        // Settle back into idle
         CrossFadeTo(GetActiveIdleState(), 0.4f);
         _cinematicCoroutine = null;
 
@@ -239,11 +245,9 @@ public class CharacterAnimationController : MonoBehaviour
             yield return new WaitForSecondsRealtime(step.holdTime);
         }
 
-        // Return to idle naturally
         CrossFadeTo(idleName, 0.45f);
         _cinematicCoroutine = null;
 
-        // Repeat loop with random idle gaps
         _gestureCoroutine = StartCoroutine(RunDanceRepeatLoop());
     }
 
@@ -273,20 +277,98 @@ public class CharacterAnimationController : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Smoothly turns the character to random facing angles while dancing.
+    /// If root motion moves her too far from origin, turns back toward pivot center.
+    /// </summary>
+    private IEnumerator RunRandomRotationLoop()
+    {
+        if (!_pivotCaptured) CaptureInitialPivot();
+
+        float minInterval = preset != null ? preset.minTurnInterval : minTurnInterval;
+        float maxInterval = preset != null ? preset.maxTurnInterval : maxTurnInterval;
+        float maxAngle    = preset != null ? preset.maxTurnAngle    : maxTurnAngle;
+
+        while (true)
+        {
+            float waitTime = Random.Range(minInterval, maxInterval);
+
+            // Determine target facing angle
+            Quaternion targetRotation;
+            float distanceFromPivot = Vector3.Distance(transform.position, _initialPosition);
+
+            if (distanceFromPivot > 1.8f)
+            {
+                // Drifted away — face back toward center pivot
+                Vector3 directionToCenter = (_initialPosition - transform.position).normalized;
+                directionToCenter.y = 0f;
+                targetRotation = Quaternion.LookRotation(directionToCenter, Vector3.up);
+            }
+            else
+            {
+                // Pick a random organic angle relative to initial spawn facing
+                float randomOffsetAngle = Random.Range(-maxAngle, maxAngle);
+                targetRotation = _initialRotation * Quaternion.Euler(0f, randomOffsetAngle, 0f);
+            }
+
+            // Smoothly lerp rotation to target angle
+            float elapsed = 0f;
+            float turnDuration = 1.2f;
+            Quaternion startRotation = transform.rotation;
+
+            while (elapsed < turnDuration)
+            {
+                elapsed += Time.deltaTime;
+                transform.rotation = Quaternion.Slerp(startRotation, targetRotation, (elapsed / turnDuration) * turnSmoothSpeed);
+                yield return null;
+            }
+
+            yield return new WaitForSecondsRealtime(waitTime);
+        }
+    }
+
     // =========================================================================
     //  Private Helpers & Resolution
     // =========================================================================
 
+    private void CaptureInitialPivot()
+    {
+        if (!_pivotCaptured)
+        {
+            _initialPosition = transform.position;
+            _initialRotation = transform.rotation;
+            _pivotCaptured   = true;
+        }
+    }
+
     private void CrossFadeTo(string stateName, float blendTime)
     {
-        if (_animator != null && !string.IsNullOrEmpty(stateName))
+        if (_animator == null || string.IsNullOrEmpty(stateName)) return;
+
+        int stateHash = Animator.StringToHash(stateName);
+        if (_animator.HasState(0, stateHash))
+        {
             _animator.CrossFadeInFixedTime(stateName, blendTime);
+        }
+        else
+        {
+            int fallbackHash = Animator.StringToHash("Dance");
+            if (stateName.StartsWith("Dance") && _animator.HasState(0, fallbackHash))
+            {
+                _animator.CrossFadeInFixedTime("Dance", blendTime);
+                return;
+            }
+
+            Debug.LogWarning($"[CharacterAnimationController] State '{stateName}' not found in Animator Controller on '{_animator.gameObject.name}'. " +
+                             $"Ensure your Animator Controller contains a state named '{stateName}'.");
+        }
     }
 
     private void StopAllRoutines()
     {
         if (_cinematicCoroutine != null) { StopCoroutine(_cinematicCoroutine); _cinematicCoroutine = null; }
         if (_gestureCoroutine   != null) { StopCoroutine(_gestureCoroutine);   _gestureCoroutine   = null; }
+        if (_rotationCoroutine  != null) { StopCoroutine(_rotationCoroutine);  _rotationCoroutine  = null; }
     }
 
     private string GetActiveIdleState()
@@ -329,16 +411,6 @@ public class CharacterAnimationController : MonoBehaviour
     //  Default Sequences
     // =========================================================================
 
-    /// <summary>
-    /// Built-in default intro sequences per character type.
-    /// Matches exact user specs:
-    ///   Adventurer:         Idle -> Look_Around
-    ///   Priest:             Idle -> Pray_Kneel -> Pray_Standing
-    ///   Hazard Specialist:  Idle -> Point
-    ///   Medic:              Idle -> Inspect_Hands -> Kick_Ground
-    ///   Miner:              Idle -> Squat -> Standing
-    ///   Girl:               Idle -> Dance_01 -> Dance_02
-    /// </summary>
     private static List<AnimSequenceStep> BuildDefaultIntroSequence(CharacterType type)
     {
         switch (type)

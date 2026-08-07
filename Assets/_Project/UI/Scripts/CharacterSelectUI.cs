@@ -200,7 +200,7 @@ public class CharacterSelectUI : MonoBehaviour
 
             if (vengefulSpiritText != null)
             {
-                vengefulSpiritText.text = "YOU ARE THE VENGEFUL SPIRIT 💀\n\n" +
+                vengefulSpiritText.text = "YOU ARE THE VENGEFUL SPIRIT\n\n" +
                     "Seep into the shadows, manipulate lights, whisper lies, and turn the investigators against each other.";
             }
 
