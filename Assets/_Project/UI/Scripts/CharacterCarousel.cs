@@ -174,6 +174,8 @@ public class CharacterCarousel : MonoBehaviour
     {
         ClearCarousel();
 
+        ResolvePrefabsIfEmpty();
+
         int count = characterPrefabs.Count;
         if (count == 0) return;
 
@@ -221,6 +223,40 @@ public class CharacterCarousel : MonoBehaviour
 
         RefreshHighlight();
         NotifySelectionChanged(focusSlotIndex);
+
+        // Trigger entrance stance for initial focus character
+        if (focusSlotIndex >= 0 && focusSlotIndex < _animCtrls.Count && _animCtrls[focusSlotIndex] != null)
+        {
+            _animCtrls[focusSlotIndex].PlayCinematicSequence(startGestureLoopAfter: true);
+        }
+    }
+
+    private void ResolvePrefabsIfEmpty()
+    {
+        if (characterPrefabs != null && characterPrefabs.Count > 0) return;
+
+        characterPrefabs = new List<GameObject>();
+
+        if (characterSelectUI != null && characterSelectUI.characterDataList != null)
+        {
+            for (int i = 0; i < characterSelectUI.characterDataList.Count; i++)
+            {
+                var data = characterSelectUI.characterDataList[i];
+                GameObject prefab = (data != null) ? data.characterPrefab : null;
+                characterPrefabs.Add(prefab);
+            }
+        }
+
+        if (characterPrefabs.Count == 0 && CharacterSelectManager.Instance != null &&
+            CharacterSelectManager.Instance.availableCharacters != null)
+        {
+            for (int i = 0; i < CharacterSelectManager.Instance.availableCharacters.Count; i++)
+            {
+                var data = CharacterSelectManager.Instance.availableCharacters[i];
+                GameObject prefab = (data != null) ? data.characterPrefab : null;
+                characterPrefabs.Add(prefab);
+            }
+        }
     }
 
     private void ClearCarousel()
@@ -278,6 +314,12 @@ public class CharacterCarousel : MonoBehaviour
         RefreshScales();
         RefreshHighlight();
         NotifySelectionChanged(focusSlotIndex);
+
+        // Trigger focus entrance stance for the newly selected character that arrived in front
+        if (focusSlotIndex >= 0 && focusSlotIndex < _animCtrls.Count && _animCtrls[focusSlotIndex] != null)
+        {
+            _animCtrls[focusSlotIndex].PlayCinematicSequence(startGestureLoopAfter: true);
+        }
 
         _isRotating      = false;
         _rotateCoroutine = null;
@@ -357,22 +399,31 @@ public class CharacterCarousel : MonoBehaviour
     }
 
     // =========================================================================
-    //  Click Handler
+    //  Click Handler — attaches proxy to ALL colliders on model instance
     // =========================================================================
 
     private void AddClickHandler(GameObject inst, int index)
     {
-        // Ensure the model is raycastable
-        if (inst.GetComponentInChildren<Collider>() == null)
+        if (inst == null) return;
+
+        Collider[] colliders = inst.GetComponentsInChildren<Collider>(true);
+        if (colliders.Length == 0)
         {
             CapsuleCollider cap = inst.AddComponent<CapsuleCollider>();
             cap.height = 1.8f;
             cap.radius = 0.4f;
             cap.center = new Vector3(0f, 0.9f, 0f);
+            colliders = new Collider[] { cap };
         }
 
-        CarouselClickProxy proxy = inst.AddComponent<CarouselClickProxy>();
-        proxy.Init(this, index);
+        foreach (Collider col in colliders)
+        {
+            if (col == null) continue;
+            CarouselClickProxy proxy = col.gameObject.GetComponent<CarouselClickProxy>();
+            if (proxy == null)
+                proxy = col.gameObject.AddComponent<CarouselClickProxy>();
+            proxy.Init(this, index);
+        }
     }
 
     // =========================================================================
@@ -387,13 +438,12 @@ public class CharacterCarousel : MonoBehaviour
 }
 
 // =============================================================================
-//  CarouselClickProxy — sits on each carousel model instance
+//  CarouselClickProxy — sits on each collider of a carousel model instance
 // =============================================================================
 
 /// <summary>
-/// Lightweight proxy added to each carousel model. Forwards OnMouseDown clicks
-/// to CharacterCarousel.ScrollToIndex so players can tap any model to focus it.
-/// Requires a Collider on the model (CharacterCarousel adds one if missing).
+/// Lightweight proxy added to every collider on a carousel model. Forwards OnMouseDown clicks
+/// to CharacterCarousel.ScrollToIndex so players can tap anywhere on any character model to focus it.
 /// </summary>
 public class CarouselClickProxy : MonoBehaviour
 {

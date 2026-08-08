@@ -51,12 +51,12 @@ public class SquadLineupDisplay : MonoBehaviour
     // -------------------------------------------------------------------------
     //  Inspector — Timing
     // -------------------------------------------------------------------------
-    [Header("Timing")]
-    [Tooltip("Total seconds to display the squad before the scene loads.")]
-    public float showcaseDuration = 5f;
+    [Header("Timing (Customizable in Inspector)")]
+    [Tooltip("Seconds to wait and display 'SQUAD ASSEMBLED' before starting the countdown.")]
+    public float initialHoldBeforeCountdown = 3.0f;
 
-    [Tooltip("Seconds before scene load to begin the countdown header.")]
-    public float countdownFrom = 3f;
+    [Tooltip("Starting number in seconds for the countdown header (e.g. 10).")]
+    public int countdownFrom = 10;
 
     // -------------------------------------------------------------------------
     //  Inspector — Cinematic Animation
@@ -90,8 +90,7 @@ public class SquadLineupDisplay : MonoBehaviour
 
     /// <summary>
     /// Activates the squad environment, builds the 3D lineup, plays cinematic
-    /// sequences per character, then after <see cref="showcaseDuration"/> calls
-    /// <paramref name="onComplete"/> (e.g. to trigger scene load).
+    /// sequences per character, then after countdown finishes calls onComplete.
     /// Safe to call when prefabs or pivots are not yet wired.
     /// </summary>
     public void ShowSquadLineup(System.Action onComplete = null)
@@ -123,11 +122,11 @@ public class SquadLineupDisplay : MonoBehaviour
         if (headerText != null)
             headerText.text = "SQUAD ASSEMBLED";
 
-        float holdTime = Mathf.Max(0f, showcaseDuration - countdownFrom);
-        yield return new WaitForSecondsRealtime(holdTime);
+        // Initial hold before starting countdown
+        yield return new WaitForSecondsRealtime(Mathf.Max(0f, initialHoldBeforeCountdown));
 
-        // Countdown
-        for (int i = Mathf.RoundToInt(countdownFrom); i >= 1; i--)
+        // Countdown header
+        for (int i = countdownFrom; i >= 1; i--)
         {
             if (headerText != null)
                 headerText.text = $"ENTERING THE MINE IN {i}...";
@@ -149,6 +148,10 @@ public class SquadLineupDisplay : MonoBehaviour
         _showcaseRoutine = null;
     }
 
+    [Header("Fallback Prefabs (used if no prefab resolved)")]
+    [Tooltip("Drag character prefabs here as a guarantee that squad models will spawn even in solo/offline testing.")]
+    public List<GameObject> fallbackSquadPrefabs = new List<GameObject>();
+
     // =========================================================================
     //  Lineup Construction — SOLID (SRP each step is its own method)
     // =========================================================================
@@ -156,42 +159,90 @@ public class SquadLineupDisplay : MonoBehaviour
     {
         ClearLineup();
 
-        if (NetworkManager.Singleton == null) return;
+        // Resolve pivots — if squadPivots is unassigned or empty, generate auto-pivots in front of camera
+        List<Transform> activePivots = GetActivePivots();
+        if (activePivots == null || activePivots.Count == 0) return;
 
-        // The Vengeful Spirit is excluded from the squad display entirely —
-        // she has her own dedicated GirlPlayerScreen during this phase.
-        ulong girlClientId = CharacterSelectManager.Instance != null
-            ? CharacterSelectManager.Instance.vengefulSpiritClientId.Value
-            : ulong.MaxValue;
+        // Resolve client IDs — if offline or solo test, create 1-4 dummy slots
+        List<ulong> clientIds = ResolveActiveClientIds();
 
-        List<ulong> clientIds = new List<ulong>(NetworkManager.Singleton.ConnectedClientsIds);
-        // Remove the girl client so she doesn't get a squad slot
-        clientIds.RemoveAll(id => id == girlClientId);
-
-        int slots     = Mathf.Min(clientIds.Count, squadPivots != null ? squadPivots.Count : 0);
-        int slotIndex = 0;
-
+        int slots = Mathf.Min(clientIds.Count, activePivots.Count);
         for (int i = 0; i < slots; i++)
         {
             ulong     clientId = clientIds[i];
-            Transform pivot    = squadPivots[slotIndex];
-            if (pivot == null) { slotIndex++; continue; }
+            Transform pivot    = activePivots[i];
+            if (pivot == null) continue;
 
-            SpawnModelAtPivot(clientId, pivot, slotIndex);
-            PlaceNameTag(clientId, slotIndex);
-            slotIndex++;
+            SpawnModelAtPivot(clientId, pivot, i);
+            PlaceNameTag(clientId, i);
         }
+    }
+
+    private List<Transform> GetActivePivots()
+    {
+        if (squadPivots != null && squadPivots.Count > 0)
+        {
+            List<Transform> valid = squadPivots.FindAll(p => p != null);
+            if (valid.Count > 0) return valid;
+        }
+
+        // Auto-generate 4 fallback pivots in front of lineupCamera if squadPivots is empty
+        Transform refCam = lineupCamera != null ? lineupCamera.transform : transform;
+        List<Transform> generated = new List<Transform>();
+
+        float[] xOffsets = new float[] { -1.8f, -0.6f, 0.6f, 1.8f };
+        GameObject pivotParent = new GameObject("AutoGeneratedSquadPivots");
+        pivotParent.transform.SetParent(transform);
+        _modelInstances.Add(pivotParent); // track for cleanup
+
+        for (int i = 0; i < xOffsets.Length; i++)
+        {
+            GameObject pObj = new GameObject($"AutoPivot_{i}");
+            pObj.transform.SetParent(pivotParent.transform);
+            pObj.transform.position = refCam.position + refCam.forward * 4.5f + refCam.right * xOffsets[i] - refCam.up * 0.8f;
+            pObj.transform.rotation = Quaternion.LookRotation(-refCam.forward, Vector3.up);
+            generated.Add(pObj.transform);
+        }
+
+        return generated;
+    }
+
+    private List<ulong> ResolveActiveClientIds()
+    {
+        ulong girlClientId = ulong.MaxValue;
+        if (CharacterSelectManager.Instance != null)
+            girlClientId = CharacterSelectManager.Instance.vengefulSpiritClientId.Value;
+
+        List<ulong> clientIds = new List<ulong>();
+
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening && NetworkManager.Singleton.ConnectedClientsIds.Count > 0)
+        {
+            clientIds.AddRange(NetworkManager.Singleton.ConnectedClientsIds);
+            clientIds.RemoveAll(id => id == girlClientId);
+        }
+
+        // Offline / Solo test fallback: if no clients connected, spawn 1 to 4 test slots
+        if (clientIds.Count == 0)
+        {
+            clientIds.Add(0); // Local player slot
+        }
+
+        return clientIds;
     }
 
     /// <summary>
     /// Instantiates the correct character model at the given pivot, then
-    /// attaches a CharacterAnimationController and queues its cinematic sequence
-    /// with a per-slot stagger delay so characters animate one after another.
+    /// attaches a CharacterAnimationController and queues its cinematic sequence.
     /// </summary>
     private void SpawnModelAtPivot(ulong clientId, Transform pivot, int slotIndex)
     {
-        GameObject prefab = ResolveCharacterPrefab(clientId);
-        if (prefab == null) return;
+        GameObject prefab = ResolveCharacterPrefab(clientId, slotIndex);
+        if (prefab == null)
+        {
+            Debug.LogWarning($"[SquadLineupDisplay] Could not resolve character prefab for slot {slotIndex}. " +
+                             "Assign characterPrefabs on CharacterCarousel or fallbackSquadPrefabs on SquadLineupDisplay.");
+            return;
+        }
 
         GameObject instance = Instantiate(prefab, pivot.position, pivot.rotation, pivot);
         _modelInstances.Add(instance);
@@ -214,22 +265,61 @@ public class SquadLineupDisplay : MonoBehaviour
     }
 
     /// <summary>
-    /// Resolves which prefab to show for a given client.
-    /// Priority: CharacterSelectManager choice → fallback explorer.
-    /// NOTE: The Vengeful Spirit / girl is excluded from the lineup in BuildLineup()
-    ///       so this method should never be called with the girl's clientId.
+    /// Multi-stage resolution for character prefabs to guarantee models always spawn in squad room.
+    /// Uses PersistentCharacterSelection for local player.
     /// </summary>
-    private GameObject ResolveCharacterPrefab(ulong clientId)
+    private GameObject ResolveCharacterPrefab(ulong clientId, int slotIndex)
     {
+        int targetCharIndex = PersistentCharacterSelection.GetSelectedCharacterIndex();
+
+        // 1. Check CharacterSelectManager choice
         if (CharacterSelectManager.Instance != null)
         {
-            int charIdx = CharacterSelectManager.Instance.GetSelectedCharacterIndex(clientId);
+            int charIdx = (NetworkManager.Singleton != null && clientId != NetworkManager.Singleton.LocalClientId)
+                ? CharacterSelectManager.Instance.GetSelectedCharacterIndex(clientId)
+                : targetCharIndex;
             GameObject selected = CharacterSelectManager.Instance.GetInvestigatorPrefab(charIdx);
             if (selected != null) return selected;
         }
 
-        // Fallback: any explorer prefab
-        return GameManager.Instance != null ? GameManager.Instance.GetRandomExplorerPrefab() : null;
+        // 2. Check CharacterSelectUI inspector data list
+        CharacterSelectUI selectUI = FindFirstObjectByType<CharacterSelectUI>();
+        if (selectUI != null && selectUI.characterDataList != null && selectUI.characterDataList.Count > 0)
+        {
+            int idx = (slotIndex == 0)
+                ? Mathf.Clamp(targetCharIndex, 0, selectUI.characterDataList.Count - 1)
+                : Mathf.Clamp(slotIndex, 0, selectUI.characterDataList.Count - 1);
+            if (selectUI.characterDataList[idx] != null && selectUI.characterDataList[idx].characterPrefab != null)
+                return selectUI.characterDataList[idx].characterPrefab;
+        }
+
+        // 3. Check CharacterCarousel list
+        CharacterCarousel carousel = FindFirstObjectByType<CharacterCarousel>();
+        if (carousel != null && carousel.characterPrefabs != null && carousel.characterPrefabs.Count > 0)
+        {
+            int idx = (slotIndex == 0)
+                ? Mathf.Clamp(targetCharIndex, 0, carousel.characterPrefabs.Count - 1)
+                : Mathf.Clamp(slotIndex, 0, carousel.characterPrefabs.Count - 1);
+            if (carousel.characterPrefabs[idx] != null)
+                return carousel.characterPrefabs[idx];
+        }
+
+        // 4. Check fallbackSquadPrefabs on this component
+        if (fallbackSquadPrefabs != null && fallbackSquadPrefabs.Count > 0)
+        {
+            int idx = Mathf.Clamp(slotIndex, 0, fallbackSquadPrefabs.Count - 1);
+            if (fallbackSquadPrefabs[idx] != null)
+                return fallbackSquadPrefabs[idx];
+        }
+
+        // 5. Check GameManager fallback
+        if (GameManager.Instance != null)
+        {
+            GameObject explorer = GameManager.Instance.GetRandomExplorerPrefab();
+            if (explorer != null) return explorer;
+        }
+
+        return null;
     }
 
     // =========================================================================
@@ -301,17 +391,18 @@ public class SquadLineupDisplay : MonoBehaviour
     private string ResolvePlayerName(ulong clientId)
     {
         if (NetworkManager.Singleton != null &&
+            NetworkManager.Singleton.SpawnManager != null &&
             NetworkManager.Singleton.SpawnManager.GetPlayerNetworkObject(clientId) is NetworkObject netObj &&
             netObj != null)
         {
             NetworkPlayerName nameComp = netObj.GetComponent<NetworkPlayerName>();
-            if (nameComp != null)
+            if (nameComp != null && !string.IsNullOrEmpty(nameComp.playerName.Value.ToString()))
                 return nameComp.playerName.Value.ToString();
         }
 
         // Local player fallback
-        if (NetworkManager.Singleton != null && clientId == NetworkManager.Singleton.LocalClientId)
-            return PlayerNameManager.GetPlayerName();
+        string savedName = PlayerNameManager.GetPlayerName();
+        if (!string.IsNullOrEmpty(savedName)) return savedName;
 
         return $"Investigator_{clientId % 1000}";
     }
@@ -319,15 +410,25 @@ public class SquadLineupDisplay : MonoBehaviour
     /// <summary>Returns the profession name for a client's selected character, or "Investigator".</summary>
     private string ResolveProfessionName(ulong clientId)
     {
-        if (CharacterSelectManager.Instance == null) return "Investigator";
+        if (CharacterSelectManager.Instance != null)
+        {
+            bool isVengefulSpirit = CharacterSelectManager.Instance.vengefulSpiritClientId.Value == clientId;
+            if (isVengefulSpirit) return "Investigator"; // Disguised — role hidden
 
-        bool isVengefulSpirit = CharacterSelectManager.Instance.vengefulSpiritClientId.Value == clientId;
-        if (isVengefulSpirit) return "Investigator"; // Disguised — role hidden
+            int idx = CharacterSelectManager.Instance.GetSelectedCharacterIndex(clientId);
+            var chars = CharacterSelectManager.Instance.availableCharacters;
+            if (chars != null && idx >= 0 && idx < chars.Count)
+                return chars[idx].characterName;
+        }
 
-        int idx = CharacterSelectManager.Instance.GetSelectedCharacterIndex(clientId);
-        var chars = CharacterSelectManager.Instance.availableCharacters;
-        if (chars != null && idx >= 0 && idx < chars.Count)
-            return chars[idx].characterName;
+        // Check CharacterSelectUI fallback
+        CharacterSelectUI selectUI = FindFirstObjectByType<CharacterSelectUI>();
+        if (selectUI != null && selectUI.characterDataList != null && selectUI.characterDataList.Count > 0)
+        {
+            int carouselIdx = selectUI.carousel != null ? selectUI.carousel.GetFocusedIndex() : 0;
+            if (carouselIdx >= 0 && carouselIdx < selectUI.characterDataList.Count)
+                return selectUI.characterDataList[carouselIdx].characterName;
+        }
 
         return "Investigator";
     }
