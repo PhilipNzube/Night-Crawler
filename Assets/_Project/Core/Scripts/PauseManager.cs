@@ -6,6 +6,7 @@ using Unity.Netcode;
 /// <summary>
 /// SOLID — SRP: Handles pause state toggling for the local player.
 /// Multiplayer-friendly: Shows UI overlay and unlocks cursor without altering Time.timeScale.
+/// Handles nested escape key navigation for SlimUI panels (Exit Dialog -> Settings -> Pause Menu -> Resumed).
 /// </summary>
 public class PauseManager : MonoBehaviour
 {
@@ -20,26 +21,51 @@ public class PauseManager : MonoBehaviour
     private StarterAssetsInputs   _inputs;
     private ThirdPersonController _controller;
 
+    public bool IsPaused => _isPaused;
+
     // =========================================================================
     //  Unity Lifecycle
     // =========================================================================
-    void Start()
+    private void Start()
     {
         if (pauseUI == null)
             pauseUI = FindFirstObjectByType<PauseUI>();
     }
 
-    void Update()
+    private void Update()
     {
         if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
         {
-            TogglePause();
+            HandleEscapePress();
         }
     }
 
     // =========================================================================
     //  Public API
     // =========================================================================
+    public void HandleEscapePress()
+    {
+        if (pauseUI != null)
+        {
+            // 1. If Exit Dialog pop-up is active, close it first
+            if (pauseUI.IsExitDialogOpen)
+            {
+                pauseUI.CloseExitDialog();
+                return;
+            }
+
+            // 2. If Settings panel is active, close it back to pause menu
+            if (pauseUI.IsSettingsOpen)
+            {
+                pauseUI.CloseSettings();
+                return;
+            }
+        }
+
+        // 3. Otherwise toggle pause state
+        TogglePause();
+    }
+
     public void TogglePause()
     {
         SetPaused(!_isPaused);

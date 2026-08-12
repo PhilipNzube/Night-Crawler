@@ -26,7 +26,7 @@ public class GirlMovement : NetworkBehaviour
     {
         if (Mouse.current == null || stats == null) return;
 
-        float mouseX = Mouse.current.delta.x.ReadValue() * stats.lookSensitivity;
+        float mouseX = Mouse.current.delta.x.ReadValue() * stats.lookSensitivity * GameSettingsManager.MouseSens;
         transform.Rotate(Vector3.up * mouseX);
     }
 

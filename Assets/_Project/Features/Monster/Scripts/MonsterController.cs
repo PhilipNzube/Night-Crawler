@@ -62,8 +62,10 @@ public class MonsterController : MonoBehaviour, IPossessable
 
         // Camera Look Logic (Mouse)
         Vector2 mouseDelta = Mouse.current.delta.ReadValue();
-        _yaw += mouseDelta.x * (stats.lookSensitivity * 0.1f);
-        _pitch -= mouseDelta.y * (stats.lookSensitivity * 0.1f);
+        float sens = GameSettingsManager.MouseSens;
+        float invert = GameSettingsManager.InvertY ? -1.0f : 1.0f;
+        _yaw += mouseDelta.x * (stats.lookSensitivity * sens * 0.1f);
+        _pitch -= mouseDelta.y * (stats.lookSensitivity * sens * 0.1f) * invert;
         _pitch = Mathf.Clamp(_pitch, -30f, 60f);
 
         // Rotate the camera target anchor

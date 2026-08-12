@@ -3,27 +3,46 @@ using UnityEngine.UI;
 using Unity.Netcode;
 
 /// <summary>
-/// SOLID — SRP: Controls the In-Game Pause UI menu bindings (Resume, Settings, Disconnect).
+/// SOLID — SRP: Controls the In-Game Pause UI menu bindings (Resume, Settings, Disconnect/Quit).
+/// Adapted to work directly with SlimUI Modern Menu prefab structures (main menu, exit confirmation dialog, SFX).
 /// Multiplayer-friendly: UI overlay with cursor unlock without breaking network time.
 /// </summary>
 public class PauseUI : MonoBehaviour
 {
     [Header("Pause UI Panels")]
-    [Tooltip("The main root panel for the pause overlay.")]
+    [Tooltip("The main root canvas or panel for the pause overlay.")]
     public GameObject pausePanel;
+
+    [Tooltip("The main button menu panel (Resume, Settings, Quit).")]
+    public GameObject firstMenuPanel;
+
+    [Tooltip("The exit/disconnect confirmation pop-up panel.")]
+    public GameObject exitMenuPanel;
 
     [Tooltip("Reference to the SettingsUI component for opening settings from pause menu.")]
     public SettingsUI settingsUI;
 
-    [Header("Buttons")]
+    [Header("Main Pause Buttons")]
     [Tooltip("Button to resume game.")]
     public Button resumeButton;
 
     [Tooltip("Button to open settings.")]
     public Button settingsButton;
 
-    [Tooltip("Button to disconnect/quit back to lobby or main menu.")]
+    [Tooltip("Button to disconnect/quit back to lobby.")]
     public Button disconnectButton;
+
+    [Header("Exit Dialog Confirmation Buttons (Optional)")]
+    public Button confirmDisconnectButton;
+    public Button cancelDisconnectButton;
+
+    [Header("SlimUI Audio SFX (Optional)")]
+    public AudioSource hoverSound;
+    public AudioSource swooshSound;
+
+    // Helper properties to check sub-panel state
+    public bool IsSettingsOpen => settingsUI != null && settingsUI.IsSettingsOpen;
+    public bool IsExitDialogOpen => exitMenuPanel != null && exitMenuPanel.activeSelf;
 
     // -------------------------------------------------------------------------
     //  Private State
@@ -33,7 +52,7 @@ public class PauseUI : MonoBehaviour
     // =========================================================================
     //  Unity Lifecycle
     // =========================================================================
-    void Start()
+    private void Start()
     {
         _pauseManager = FindFirstObjectByType<PauseManager>();
 
@@ -46,27 +65,51 @@ public class PauseUI : MonoBehaviour
         if (disconnectButton != null)
             disconnectButton.onClick.AddListener(OnDisconnectPressed);
 
+        if (confirmDisconnectButton != null)
+            confirmDisconnectButton.onClick.AddListener(ConfirmDisconnect);
+
+        if (cancelDisconnectButton != null)
+            cancelDisconnectButton.onClick.AddListener(CloseExitDialog);
+
         HidePauseMenu();
     }
 
     // =========================================================================
-    //  Public API
+    //  Public API & Navigation
     // =========================================================================
     public void ShowPauseMenu()
     {
         if (pausePanel != null) pausePanel.SetActive(true);
+        if (firstMenuPanel != null) firstMenuPanel.SetActive(true);
+        if (exitMenuPanel != null) exitMenuPanel.SetActive(false);
+        if (settingsUI != null) settingsUI.HideSettings();
     }
 
     public void HidePauseMenu()
     {
         if (pausePanel != null) pausePanel.SetActive(false);
+        if (firstMenuPanel != null) firstMenuPanel.SetActive(false);
+        if (exitMenuPanel != null) exitMenuPanel.SetActive(false);
         if (settingsUI != null) settingsUI.HideSettings();
     }
 
+    public void CloseSettings()
+    {
+        if (settingsUI != null) settingsUI.HideSettings();
+        if (firstMenuPanel != null) firstMenuPanel.SetActive(true);
+        PlaySwooshSFX();
+    }
+
+    public void CloseExitDialog()
+    {
+        if (exitMenuPanel != null) exitMenuPanel.SetActive(false);
+        if (firstMenuPanel != null) firstMenuPanel.SetActive(true);
+    }
+
     // =========================================================================
-    //  Button Actions
+    //  Button Actions (Callable by SlimUI UI Buttons)
     // =========================================================================
-    private void OnResumePressed()
+    public void OnResumePressed()
     {
         if (_pauseManager != null)
             _pauseManager.ResumeGame();
@@ -74,13 +117,29 @@ public class PauseUI : MonoBehaviour
             HidePauseMenu();
     }
 
-    private void OnSettingsPressed()
+    public void OnSettingsPressed()
     {
-        if (settingsUI != null)
-            settingsUI.ShowSettings();
+        PlaySwooshSFX();
+        if (firstMenuPanel != null) firstMenuPanel.SetActive(false);
+        if (settingsUI != null) settingsUI.ShowSettings();
     }
 
-    private void OnDisconnectPressed()
+    public void OnDisconnectPressed()
+    {
+        PlayHoverSFX();
+        // If an exit dialog is assigned, show confirmation first; otherwise directly disconnect
+        if (exitMenuPanel != null)
+        {
+            if (firstMenuPanel != null) firstMenuPanel.SetActive(false);
+            exitMenuPanel.SetActive(true);
+        }
+        else
+        {
+            ConfirmDisconnect();
+        }
+    }
+
+    public void ConfirmDisconnect()
     {
         if (NetworkManager.Singleton != null)
             NetworkManager.Singleton.Shutdown();
@@ -89,5 +148,16 @@ public class PauseUI : MonoBehaviour
             LoadingScreen.Instance.LoadScene("LobbyScene");
         else
             UnityEngine.SceneManagement.SceneManager.LoadScene("LobbyScene");
+    }
+
+    // SFX Helpers
+    public void PlayHoverSFX()
+    {
+        if (hoverSound != null) hoverSound.Play();
+    }
+
+    public void PlaySwooshSFX()
+    {
+        if (swooshSound != null) swooshSound.Play();
     }
 }
