@@ -3,50 +3,83 @@ using UnityEngine.UI;
 using Unity.Netcode;
 
 /// <summary>
-/// SOLID — SRP: Controls the In-Game Pause UI menu bindings (Resume, Settings, Disconnect/Quit).
-/// Adapted to work directly with SlimUI Modern Menu prefab structures (main menu, exit confirmation dialog, SFX).
-/// Multiplayer-friendly: UI overlay with cursor unlock without breaking network time.
+/// SOLID — SRP: Controls the In-Game Pause UI using the SlimUI Modern Menu prefab.
+///
+/// HOW THIS MAPS TO SLIMUI:
+///   pauseRootPanel    = the root Canvas / CanvasGroup of the SlimUI prefab (the whole thing)
+///   mainMenu          = SlimUI's "mainMenu" GameObject (holds all panels)
+///   firstMenu         = SlimUI's "firstMenu" (the first button list: Resume / Settings / Quit)
+///   exitMenu          = SlimUI's "exitMenu" (the "Are You Sure?" quit confirmation dialog)
+///   settingsMenuCanvas = The GameObject that holds SettingsUI (outside SlimUI's mainMenu)
+///   slimUIAnimator    = The Animator on the SlimUI root that drives "Animate" float (camera anim)
+///   hoverSound        = SlimUI's AudioSource for hover SFX
+///   swooshSound       = SlimUI's AudioSource for swoosh SFX when switching to Settings
+///
+/// FIELDS REMOVED FROM PREVIOUS VERSION that don't exist in SlimUI:
+///   - pausePanel (replaced by pauseRootPanel)
+///   - firstMenuPanel (replaced by firstMenu — matches SlimUI exactly)
+///   - exitMenuPanel  (replaced by exitMenu — matches SlimUI exactly)
+///   confirmDisconnectButton and cancelDisconnectButton remain — they ARE buttons
+///   that exist inside SlimUI's exitMenu panel.
 /// </summary>
 public class PauseUI : MonoBehaviour
 {
-    [Header("Pause UI Panels")]
-    [Tooltip("The main root canvas or panel for the pause overlay.")]
-    public GameObject pausePanel;
+    [Header("SlimUI Root (the whole prefab)")]
+    [Tooltip("The root GameObject of your SlimUI Canvas_DefaultTemplate1 prefab. " +
+             "This entire object is enabled/disabled when pausing.")]
+    public GameObject pauseRootPanel;
 
-    [Tooltip("The main button menu panel (Resume, Settings, Quit).")]
-    public GameObject firstMenuPanel;
+    [Header("SlimUI Menu GameObjects — match names exactly from the prefab hierarchy")]
+    [Tooltip("SlimUI 'mainMenu' — the parent that wraps all button panels.")]
+    public GameObject mainMenu;
 
-    [Tooltip("The exit/disconnect confirmation pop-up panel.")]
-    public GameObject exitMenuPanel;
+    [Tooltip("SlimUI 'firstMenu' — the initial list of buttons (Resume, Settings, Exit).")]
+    public GameObject firstMenu;
 
-    [Tooltip("Reference to the SettingsUI component for opening settings from pause menu.")]
+    [Tooltip("SlimUI 'exitMenu' — the Are You Sure quit/disconnect confirmation popup.")]
+    public GameObject exitMenu;
+
+    [Header("Settings Panel (our SettingsUI — not SlimUI's native settings)")]
+    [Tooltip("A separate GameObject in the scene that holds the SettingsUI component. " +
+             "It is shown/hidden independently of SlimUI panels.")]
     public SettingsUI settingsUI;
 
-    [Header("Main Pause Buttons")]
-    [Tooltip("Button to resume game.")]
+    [Header("SlimUI Camera Animator")]
+    [Tooltip("The Animator component on the SlimUI Canvas root. " +
+             "SlimUI uses SetFloat('Animate', 1) to move the camera to position 2 (Settings). " +
+             "We reuse this same animation to move to the pause camera view.")]
+    public Animator slimUIAnimator;
+
+    [Header("Pause Buttons — wire to SlimUI button OnClick events")]
+    [Tooltip("Resume button — drag SlimUI's Resume/Play button here.")]
     public Button resumeButton;
 
-    [Tooltip("Button to open settings.")]
+    [Tooltip("Settings button — drag SlimUI's Settings button here.")]
     public Button settingsButton;
 
-    [Tooltip("Button to disconnect/quit back to lobby.")]
+    [Tooltip("Exit/Disconnect button — drag SlimUI's Exit button here.")]
     public Button disconnectButton;
 
-    [Header("Exit Dialog Confirmation Buttons (Optional)")]
+    [Header("Exit Dialog Buttons — inside SlimUI's exitMenu panel")]
+    [Tooltip("'Yes' button inside exitMenu.")]
     public Button confirmDisconnectButton;
+
+    [Tooltip("'No' button inside exitMenu.")]
     public Button cancelDisconnectButton;
 
-    [Header("SlimUI Audio SFX (Optional)")]
+    [Header("SlimUI Audio SFX")]
+    [Tooltip("AudioSource for hover SFX — found on SlimUI Manager as 'hoverSound'.")]
     public AudioSource hoverSound;
+
+    [Tooltip("AudioSource for swoosh SFX — found on SlimUI Manager as 'swooshSound'.")]
     public AudioSource swooshSound;
 
-    // Helper properties to check sub-panel state
-    public bool IsSettingsOpen => settingsUI != null && settingsUI.IsSettingsOpen;
-    public bool IsExitDialogOpen => exitMenuPanel != null && exitMenuPanel.activeSelf;
+    // -------------------------------------------------------------------------
+    //  State helpers for PauseManager ESC navigation
+    // -------------------------------------------------------------------------
+    public bool IsSettingsOpen    => settingsUI != null && settingsUI.IsSettingsOpen;
+    public bool IsExitDialogOpen  => exitMenu   != null && exitMenu.activeSelf;
 
-    // -------------------------------------------------------------------------
-    //  Private State
-    // -------------------------------------------------------------------------
     private PauseManager _pauseManager;
 
     // =========================================================================
@@ -71,43 +104,56 @@ public class PauseUI : MonoBehaviour
         if (cancelDisconnectButton != null)
             cancelDisconnectButton.onClick.AddListener(CloseExitDialog);
 
+        // Start hidden
         HidePauseMenu();
     }
 
     // =========================================================================
-    //  Public API & Navigation
+    //  Public API
     // =========================================================================
     public void ShowPauseMenu()
     {
-        if (pausePanel != null) pausePanel.SetActive(true);
-        if (firstMenuPanel != null) firstMenuPanel.SetActive(true);
-        if (exitMenuPanel != null) exitMenuPanel.SetActive(false);
+        if (pauseRootPanel != null) pauseRootPanel.SetActive(true);
+        if (mainMenu != null)  mainMenu.SetActive(true);
+        if (firstMenu != null) firstMenu.SetActive(true);
+        if (exitMenu  != null) exitMenu.SetActive(false);
+
         if (settingsUI != null) settingsUI.HideSettings();
+
+        // Trigger the SlimUI camera animation to move to position 1 (main menu / pause view)
+        if (slimUIAnimator != null)
+            slimUIAnimator.SetFloat("Animate", 0f);
     }
 
     public void HidePauseMenu()
     {
-        if (pausePanel != null) pausePanel.SetActive(false);
-        if (firstMenuPanel != null) firstMenuPanel.SetActive(false);
-        if (exitMenuPanel != null) exitMenuPanel.SetActive(false);
+        if (pauseRootPanel != null) pauseRootPanel.SetActive(false);
+        if (mainMenu  != null) mainMenu.SetActive(false);
+        if (firstMenu != null) firstMenu.SetActive(false);
+        if (exitMenu  != null) exitMenu.SetActive(false);
+
         if (settingsUI != null) settingsUI.HideSettings();
     }
 
     public void CloseSettings()
     {
         if (settingsUI != null) settingsUI.HideSettings();
-        if (firstMenuPanel != null) firstMenuPanel.SetActive(true);
+        if (firstMenu  != null) firstMenu.SetActive(true);
         PlaySwooshSFX();
+
+        // Return SlimUI camera to the main button list position
+        if (slimUIAnimator != null)
+            slimUIAnimator.SetFloat("Animate", 0f);
     }
 
     public void CloseExitDialog()
     {
-        if (exitMenuPanel != null) exitMenuPanel.SetActive(false);
-        if (firstMenuPanel != null) firstMenuPanel.SetActive(true);
+        if (exitMenu  != null) exitMenu.SetActive(false);
+        if (firstMenu != null) firstMenu.SetActive(true);
     }
 
     // =========================================================================
-    //  Button Actions (Callable by SlimUI UI Buttons)
+    //  Button Handlers (wire to SlimUI button OnClick events in Inspector)
     // =========================================================================
     public void OnResumePressed()
     {
@@ -120,18 +166,22 @@ public class PauseUI : MonoBehaviour
     public void OnSettingsPressed()
     {
         PlaySwooshSFX();
-        if (firstMenuPanel != null) firstMenuPanel.SetActive(false);
+        if (firstMenu != null) firstMenu.SetActive(false);
+
+        // Trigger SlimUI camera anim — same "Animate" = 1 SlimUI uses for settings camera swing
+        if (slimUIAnimator != null)
+            slimUIAnimator.SetFloat("Animate", 1f);
+
         if (settingsUI != null) settingsUI.ShowSettings();
     }
 
     public void OnDisconnectPressed()
     {
         PlayHoverSFX();
-        // If an exit dialog is assigned, show confirmation first; otherwise directly disconnect
-        if (exitMenuPanel != null)
+        if (exitMenu  != null)
         {
-            if (firstMenuPanel != null) firstMenuPanel.SetActive(false);
-            exitMenuPanel.SetActive(true);
+            if (firstMenu != null) firstMenu.SetActive(false);
+            exitMenu.SetActive(true);
         }
         else
         {
@@ -150,7 +200,9 @@ public class PauseUI : MonoBehaviour
             UnityEngine.SceneManagement.SceneManager.LoadScene("LobbyScene");
     }
 
-    // SFX Helpers
+    // =========================================================================
+    //  SFX
+    // =========================================================================
     public void PlayHoverSFX()
     {
         if (hoverSound != null) hoverSound.Play();

@@ -4,15 +4,22 @@ using StarterAssets;
 using Unity.Netcode;
 
 /// <summary>
-/// SOLID — SRP: Handles pause state toggling for the local player.
-/// Multiplayer-friendly: Shows UI overlay and unlocks cursor without altering Time.timeScale.
-/// Handles nested escape key navigation for SlimUI panels (Exit Dialog -> Settings -> Pause Menu -> Resumed).
+/// SOLID — SRP: Reusable Pause System for any Unity PC game with Netcode for GameObjects.
+/// Handles pause state, cursor lock, player input disabling, nested ESC navigation,
+/// and optional Cinemachine camera transition via PauseCameraSystem.
+///
+/// Usage: Add to a persistent Manager GameObject in your game scene.
+/// Wire pauseUI in Inspector or it auto-finds PauseUI in the scene.
 /// </summary>
 public class PauseManager : MonoBehaviour
 {
     [Header("Pause UI Reference")]
     [Tooltip("Optional reference to PauseUI component. Automatically found if unassigned.")]
     public PauseUI pauseUI;
+
+    [Header("Pause Camera System (Optional)")]
+    [Tooltip("If assigned, triggers a Cinemachine camera blend when pausing/unpausing.")]
+    public PauseCameraSystem pauseCameraSystem;
 
     // -------------------------------------------------------------------------
     //  Private State
@@ -30,6 +37,9 @@ public class PauseManager : MonoBehaviour
     {
         if (pauseUI == null)
             pauseUI = FindFirstObjectByType<PauseUI>();
+
+        if (pauseCameraSystem == null)
+            pauseCameraSystem = FindFirstObjectByType<PauseCameraSystem>();
     }
 
     private void Update()
@@ -96,11 +106,15 @@ public class PauseManager : MonoBehaviour
         if (_controller != null)
             _controller.enabled = !_isPaused;
 
+        // Cinemachine camera blend to/from pause menu view
+        if (pauseCameraSystem != null)
+            pauseCameraSystem.SetPauseCameraActive(_isPaused);
+
         // UI Panel visibility
         if (pauseUI != null)
         {
             if (_isPaused) pauseUI.ShowPauseMenu();
-            else pauseUI.HidePauseMenu();
+            else           pauseUI.HidePauseMenu();
         }
 
         Debug.Log($"[PauseManager] Game {(_isPaused ? "PAUSED" : "RESUMED")}");
