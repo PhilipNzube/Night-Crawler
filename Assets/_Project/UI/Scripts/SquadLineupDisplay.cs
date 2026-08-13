@@ -282,27 +282,35 @@ public class SquadLineupDisplay : MonoBehaviour
             if (selected != null) return selected;
         }
 
-        // 2. Check CharacterSelectUI inspector data list
-        CharacterSelectUI selectUI = FindFirstObjectByType<CharacterSelectUI>();
-        if (selectUI != null && selectUI.characterDataList != null && selectUI.characterDataList.Count > 0)
+        // 2. Check CharacterSelectUI inspector data list (SO or inline, including inactive)
+        CharacterSelectUI selectUI = FindFirstObjectByType<CharacterSelectUI>(FindObjectsInactive.Include);
+        if (selectUI != null)
         {
             int idx = (slotIndex == 0)
-                ? Mathf.Clamp(targetCharIndex, 0, selectUI.characterDataList.Count - 1)
-                : Mathf.Clamp(slotIndex, 0, selectUI.characterDataList.Count - 1);
-            if (selectUI.characterDataList[idx] != null && selectUI.characterDataList[idx].characterPrefab != null)
-                return selectUI.characterDataList[idx].characterPrefab;
+                ? Mathf.Clamp(targetCharIndex, 0, selectUI.GetTotalCharacterCount() - 1)
+                : Mathf.Clamp(slotIndex, 0, selectUI.GetTotalCharacterCount() - 1);
+
+            if (selectUI.characterDefinitions != null && idx < selectUI.characterDefinitions.Count && selectUI.characterDefinitions[idx] != null)
+            {
+                if (selectUI.characterDefinitions[idx].characterPrefab != null)
+                    return selectUI.characterDefinitions[idx].characterPrefab;
+            }
+
+            if (selectUI.characterDataList != null && idx < selectUI.characterDataList.Count && selectUI.characterDataList[idx] != null)
+            {
+                if (selectUI.characterDataList[idx].characterPrefab != null)
+                    return selectUI.characterDataList[idx].characterPrefab;
+            }
         }
 
-        // 3. Check CharacterCarousel list
-        CharacterCarousel carousel = FindFirstObjectByType<CharacterCarousel>();
-        if (carousel != null && carousel.characterPrefabs != null && carousel.characterPrefabs.Count > 0)
+        // 3. Check GameManager explorerPrefabs by index
+        if (GameManager.Instance != null && GameManager.Instance.explorerPrefabs != null && GameManager.Instance.explorerPrefabs.Count > 0)
         {
-            int idx = (slotIndex == 0)
-                ? Mathf.Clamp(targetCharIndex, 0, carousel.characterPrefabs.Count - 1)
-                : Mathf.Clamp(slotIndex, 0, carousel.characterPrefabs.Count - 1);
-            if (carousel.characterPrefabs[idx] != null)
-                return carousel.characterPrefabs[idx];
+            int idx = Mathf.Clamp(targetCharIndex, 0, GameManager.Instance.explorerPrefabs.Count - 1);
+            if (GameManager.Instance.explorerPrefabs[idx] != null)
+                return GameManager.Instance.explorerPrefabs[idx];
         }
+
 
         // 4. Check fallbackSquadPrefabs on this component
         if (fallbackSquadPrefabs != null && fallbackSquadPrefabs.Count > 0)
@@ -423,11 +431,21 @@ public class SquadLineupDisplay : MonoBehaviour
 
         // Check CharacterSelectUI fallback
         CharacterSelectUI selectUI = FindFirstObjectByType<CharacterSelectUI>();
-        if (selectUI != null && selectUI.characterDataList != null && selectUI.characterDataList.Count > 0)
+        if (selectUI != null)
         {
-            int carouselIdx = selectUI.carousel != null ? selectUI.carousel.GetFocusedIndex() : 0;
-            if (carouselIdx >= 0 && carouselIdx < selectUI.characterDataList.Count)
-                return selectUI.characterDataList[carouselIdx].characterName;
+            int savedIdx = PersistentCharacterSelection.GetSelectedCharacterIndex();
+
+            if (selectUI.characterDefinitions != null && savedIdx >= 0 && savedIdx < selectUI.characterDefinitions.Count)
+            {
+                if (selectUI.characterDefinitions[savedIdx] != null)
+                    return selectUI.characterDefinitions[savedIdx].characterName;
+            }
+
+            if (selectUI.characterDataList != null && savedIdx >= 0 && savedIdx < selectUI.characterDataList.Count)
+            {
+                if (selectUI.characterDataList[savedIdx] != null)
+                    return selectUI.characterDataList[savedIdx].characterName;
+            }
         }
 
         return "Investigator";

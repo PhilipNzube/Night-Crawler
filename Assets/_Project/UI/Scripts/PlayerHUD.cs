@@ -21,8 +21,13 @@ using Unity.Netcode;
 public class PlayerHUD : MonoBehaviour
 {
     // -------------------------------------------------------------------------
-    //  Inspector — Health
+    //  Inspector — HUD Root
     // -------------------------------------------------------------------------
+    [Header("HUD Root")]
+    [Tooltip("The root GameObject of the entire HUD canvas. " +
+             "Assign the Canvas or the root panel here — it will be hidden when paused.")]
+    public GameObject hudRoot;
+
     [Header("Health")]
     [Tooltip("Slider that displays the player's current health.")]
     public Slider healthSlider;
@@ -76,12 +81,13 @@ public class PlayerHUD : MonoBehaviour
     // -------------------------------------------------------------------------
     //  Private State
     // -------------------------------------------------------------------------
-    private TargetHealth      _localHealth;
-    private ExplorerCombatNet _localCombat;
-    private GirlStealth       _localStealth;
-    private bool              _isBound = false;
-    private bool              _isDemon = false;
-    private float             _maxHealth = 100f;
+    private TargetHealth          _localHealth;
+    private HealthSystem          _localHealthSys;
+    private InvestigatorCombatNet _localCombat;
+    private GirlStealth           _localStealth;
+    private bool                  _isBound    = false;
+    private bool                  _isDemon    = false;
+    private float                 _maxHealth  = 100f;
 
     // =========================================================================
     //  Unity Lifecycle
@@ -90,6 +96,19 @@ public class PlayerHUD : MonoBehaviour
     {
         // Keep waiting overlay hidden when match starts
         SetWaitingState(false);
+
+        // If hudRoot is not assigned, fall back to this GameObject
+        if (hudRoot == null) hudRoot = gameObject;
+    }
+
+    void OnEnable()
+    {
+        PauseManager.OnPauseStateChanged += SetHUDVisible;
+    }
+
+    void OnDisable()
+    {
+        PauseManager.OnPauseStateChanged -= SetHUDVisible;
     }
 
     void Update()
@@ -122,10 +141,21 @@ public class PlayerHUD : MonoBehaviour
         _isDemon = localPlayer.TryGetComponent<GirlStealth>(out _localStealth);
 
         localPlayer.TryGetComponent<TargetHealth>(out _localHealth);
-        localPlayer.TryGetComponent<ExplorerCombatNet>(out _localCombat);
+        localPlayer.TryGetComponent<HealthSystem>(out _localHealthSys);
+        localPlayer.TryGetComponent<InvestigatorCombatNet>(out _localCombat);
 
         if (_localHealth != null)
-            _maxHealth = _localHealth.stats != null ? _localHealth.stats.maxHealth : 100f;
+        {
+            _maxHealth = (_localHealth.stats != null && _localHealth.stats.maxHealth > 0)
+                ? _localHealth.stats.maxHealth
+                : 100f;
+            _localHealth.currentHealth.OnValueChanged += OnTargetHealthChanged;
+        }
+        else if (_localHealthSys != null)
+        {
+            _maxHealth = _localHealthSys.MaxHealth > 0 ? _localHealthSys.MaxHealth : 100f;
+            _localHealthSys.OnHealthChanged += OnHealthSysChanged;
+        }
 
         // Configure role-specific panels
         if (explorerPanel != null) explorerPanel.SetActive(!_isDemon);
@@ -142,6 +172,29 @@ public class PlayerHUD : MonoBehaviour
 
         _isBound = true;
         SetWaitingState(false);
+
+        // Immediately initialize health bar UI
+        RefreshHealth();
+    }
+
+    private void OnDestroy()
+    {
+        if (_localHealth != null)
+            _localHealth.currentHealth.OnValueChanged -= OnTargetHealthChanged;
+
+        if (_localHealthSys != null)
+            _localHealthSys.OnHealthChanged -= OnHealthSysChanged;
+    }
+
+    private void OnTargetHealthChanged(float previous, float current)
+    {
+        RefreshHealth();
+    }
+
+    private void OnHealthSysChanged(float current, float max)
+    {
+        _maxHealth = max > 0 ? max : 100f;
+        RefreshHealth();
     }
 
     // =========================================================================
@@ -161,13 +214,25 @@ public class PlayerHUD : MonoBehaviour
 
     private void RefreshHealth()
     {
-        if (_localHealth == null) return;
+        float current = _maxHealth;
 
-        float current  = _localHealth.currentHealth.Value;
+        if (_localHealth != null)
+        {
+            current = _localHealth.currentHealth.Value;
+        }
+        else if (_localHealthSys != null)
+        {
+            current = _localHealthSys.CurrentHealth;
+        }
+
         float fraction = Mathf.Clamp01(current / _maxHealth);
 
         if (healthSlider != null)
-            healthSlider.value = fraction;
+        {
+            healthSlider.minValue = 0f;
+            healthSlider.maxValue = 1f;
+            healthSlider.value    = fraction;
+        }
 
         if (healthText != null)
             healthText.text = $"{Mathf.CeilToInt(current)} / {Mathf.CeilToInt(_maxHealth)}";
@@ -224,5 +289,17 @@ public class PlayerHUD : MonoBehaviour
     private void SetWaitingState(bool waiting)
     {
         if (waitingOverlay != null) waitingOverlay.SetActive(waiting);
+    }
+
+    /// <summary>
+    /// Shows or hides the entire HUD. Called automatically when PauseManager
+    /// raises the OnPauseStateChanged event.
+    /// • paused = true  → HUD hides (health bar, ammo, etc.)
+    /// • paused = false → HUD shows again
+    /// </summary>
+    public void SetHUDVisible(bool isPaused)
+    {
+        if (hudRoot != null)
+            hudRoot.SetActive(!isPaused);
     }
 }

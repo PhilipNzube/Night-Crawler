@@ -194,13 +194,20 @@ public class GameManager : NetworkBehaviour
         _gameHasStarted = true;
         AutoDiscoverSpawnPoints();
 
-        // Pick a random client to be the Girl / Vengeful Spirit
-        int  randomGirlIndex = Random.Range(0, clientIds.Count);
-        ulong girlClientId   = clientIds[randomGirlIndex];
+        // 1. Check synced Netcode role selection from lobby
+        ulong girlClientId = 999;
+        if (CharacterSelectManager.Instance != null && CharacterSelectManager.Instance.roleSelectionDone.Value)
+        {
+            girlClientId = CharacterSelectManager.Instance.vengefulSpiritClientId.Value;
+        }
+
+        // 2. Check forceInvestigatorMode override (for dev testing)
+        bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
 
         foreach (ulong clientId in clientIds)
         {
-            SpawnPlayerRole(clientId, clientId == girlClientId);
+            bool isGirl = (clientId == girlClientId) && !forceInvestigator;
+            SpawnPlayerRole(clientId, isGirl);
         }
     }
 
@@ -209,11 +216,21 @@ public class GameManager : NetworkBehaviour
     // =========================================================================
     private void SpawnPlayerRole(ulong clientId, bool isGirl)
     {
-        GameObject prefabToSpawn = isGirl ? girlPrefab : GetRandomExplorerPrefab();
+        GameObject prefabToSpawn = isGirl ? girlPrefab : GetInvestigatorPrefabForClient(clientId);
         if (prefabToSpawn == null) return;
 
-        Vector3 spawnPos = GetSpawnPosition(isGirl);
-        GameObject playerInstance = Instantiate(prefabToSpawn, spawnPos, Quaternion.identity);
+        GetSpawnTransform(isGirl, out Vector3 spawnPos, out Quaternion spawnRot);
+
+        GameObject playerInstance = Instantiate(prefabToSpawn, spawnPos, spawnRot);
+
+        // Ensure CharacterController (if attached) doesn't override the exact spawn position/rotation
+        if (playerInstance.TryGetComponent<CharacterController>(out var cc))
+        {
+            cc.enabled = false;
+            playerInstance.transform.position = spawnPos;
+            playerInstance.transform.rotation = spawnRot;
+            cc.enabled = true;
+        }
 
         NetworkObject netObj = playerInstance.GetComponent<NetworkObject>();
         if (netObj != null)
@@ -223,21 +240,56 @@ public class GameManager : NetworkBehaviour
         }
     }
 
+    private GameObject GetInvestigatorPrefabForClient(ulong clientId)
+    {
+        int selectedIndex = 0;
+        if (CharacterSelectManager.Instance != null)
+            selectedIndex = CharacterSelectManager.Instance.GetSelectedCharacterIndex(clientId);
+
+        if (NetworkManager.Singleton != null && clientId == NetworkManager.Singleton.LocalClientId)
+        {
+            int localSaved = PersistentCharacterSelection.GetSelectedCharacterIndex();
+            if (localSaved >= 0) selectedIndex = localSaved;
+        }
+
+        // 1. Try explorerPrefabs by index
+        if (explorerPrefabs != null && selectedIndex >= 0 && selectedIndex < explorerPrefabs.Count && explorerPrefabs[selectedIndex] != null)
+            return explorerPrefabs[selectedIndex];
+
+        // 2. Try CharacterSelectManager availableCharacters
+        if (CharacterSelectManager.Instance != null)
+        {
+            GameObject mgrPrefab = CharacterSelectManager.Instance.GetInvestigatorPrefab(selectedIndex);
+            if (mgrPrefab != null) return mgrPrefab;
+        }
+
+        // 3. Fallback
+        return GetRandomExplorerPrefab();
+    }
+
     /// <summary>
-    /// Returns a world-space spawn position.
-    /// Girl: random pick from girlSpawnPoints (fallback: origin + spawnHeight).
-    /// Explorer: random pick from explorerSpawnPoints (fallback: random XZ offset).
+    /// Returns the exact world-space position and rotation of a spawn point.
+    /// Girl: pick from girlSpawnPoints (fallback: origin + spawnHeight).
+    /// Investigator: pick from explorerSpawnPoints.
     /// </summary>
-    private Vector3 GetSpawnPosition(bool isGirl)
+    private void GetSpawnTransform(bool isGirl, out Vector3 position, out Quaternion rotation)
     {
         if (isGirl)
         {
             if (girlSpawnPoints != null && girlSpawnPoints.Count > 0)
             {
-                Transform pt = girlSpawnPoints[Random.Range(0, girlSpawnPoints.Count)];
-                if (pt != null) return pt.position;
+                List<Transform> available = new List<Transform>(girlSpawnPoints);
+                available.RemoveAll(t => t == null);
+                if (available.Count > 0)
+                {
+                    Transform pt = available[Random.Range(0, available.Count)];
+                    position = pt.position;
+                    rotation = pt.rotation;
+                    return;
+                }
             }
-            return new Vector3(0f, spawnHeight, 0f);
+            position = new Vector3(0f, spawnHeight, 0f);
+            rotation = Quaternion.identity;
         }
         else
         {
@@ -246,9 +298,15 @@ public class GameManager : NetworkBehaviour
                 List<Transform> available = new List<Transform>(explorerSpawnPoints);
                 available.RemoveAll(t => t == null);
                 if (available.Count > 0)
-                    return available[Random.Range(0, available.Count)].position;
+                {
+                    Transform chosenPoint = available[Random.Range(0, available.Count)];
+                    position = chosenPoint.position;
+                    rotation = chosenPoint.rotation;
+                    return;
+                }
             }
-            return new Vector3(Random.Range(-10f, 10f), spawnHeight, Random.Range(-10f, 10f));
+            position = new Vector3(Random.Range(-5f, 5f), 1f, Random.Range(-5f, 5f));
+            rotation = Quaternion.identity;
         }
     }
 

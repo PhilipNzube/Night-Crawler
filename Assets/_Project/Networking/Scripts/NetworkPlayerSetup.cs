@@ -1,18 +1,8 @@
-using System.Collections;
-using System.Collections.Generic;
 using UnityEngine;
 
-public class PlayerSetup : MonoBehaviour
+namespace NightCrawler.Networking
 {
-    // Start is called before the first frame update
-    void Start()
+    public class PlayerSetup : MonoBehaviour
     {
-        
-    }
-
-    // Update is called once per frame
-    void Update()
-    {
-        
     }
 }

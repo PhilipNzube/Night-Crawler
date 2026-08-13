@@ -47,24 +47,24 @@ public class GameSettingsManager : MonoBehaviour
     //  Public Settings State
     // =========================================================================
     [Header("Audio Settings")]
-    public float masterVolume = 1.0f;
-    public float musicVolume  = 0.8f;
-    public float sfxVolume    = 1.0f;
+    public float masterVolume = 1.0f;   // Full master volume
+    public float musicVolume  = 0.75f;  // Slightly under full so SFX doesn't compete
+    public float sfxVolume    = 1.0f;   // Full SFX
 
     [Header("Video / Display Settings")]
     public int resolutionWidth  = 1920;
     public int resolutionHeight = 1080;
     public int refreshRate      = 60;
-    public int displayMode      = 0; // 0 = Fullscreen Windowed, 1 = Exclusive Fullscreen, 2 = Windowed
-    public int vSync            = 1; // 0 = Off, 1 = On
-    public int targetFPS        = -1; // -1 = Unlimited, 30, 60, 120, 144, 240
+    public int displayMode      = 0;    // 0 = Fullscreen Windowed (best for alt-tab)
+    public int vSync            = 1;    // On by default — prevents tearing
+    public int targetFPS        = -1;   // Unlimited (VSync controls it)
 
     [Header("Graphics Quality Settings")]
-    public int qualityLevel         = 2; // Medium/High default depending on system
-    public int shadowQuality        = 2; // 0 = Disabled, 1 = Hard Only, 2 = All
-    public int antiAliasing         = 4; // 0 = Off, 2 = 2x, 4 = 4x, 8 = 8x
-    public int textureQuality        = 0; // 0 = Full, 1 = Half, 2 = Quarter, 3 = Eighth
-    public int anisotropicFiltering = 2; // 0 = Disabled, 1 = Enable, 2 = ForceEnable
+    public int qualityLevel         = 5; // Ultra (highest preset, index depends on project Quality settings)
+    public int shadowQuality        = 2; // All shadows (Hard + Soft)
+    public int antiAliasing         = 4; // 4× MSAA — good quality/perf balance
+    public int textureQuality        = 0; // Full resolution textures
+    public int anisotropicFiltering = 2; // Force Enable — best texture sharpness at angles
 
     [Header("Controls Settings")]
     public float mouseSensitivity = 1.0f;

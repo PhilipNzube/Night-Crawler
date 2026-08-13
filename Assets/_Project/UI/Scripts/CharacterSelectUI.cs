@@ -2,14 +2,25 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using Unity.Netcode;
+using System.Collections;
 using System.Collections.Generic;
 
 /// <summary>
-/// SOLID — SRP: Manages Character Selection UI view, secret Vengeful Spirit role notification,
-/// and Investigator profession side-panel details.
+/// SOLID — SRP: Manages Character Selection UI view inside the InvestigatorFlow panel.
+/// Now features Naruto/FighterZ-style Slot Card selection (horizontal card row + featured 3D model).
+///
+/// Fully integrated with:
+///   • GirlRevealManager (post-reveal routing)
+///   • CharacterSceneController (white room environment setup & camera)
+///   • CharacterSelectManager (server RPC sync & role selection)
+///   • SquadLineupDisplay (transitions to Squad Screen on confirm)
 /// </summary>
 public class CharacterSelectUI : MonoBehaviour
 {
+    // =========================================================================
+    //  Inspector — Root Panels
+    // =========================================================================
+
     [Header("Root Panel")]
     public GameObject characterSelectPanel;
 
@@ -20,55 +31,95 @@ public class CharacterSelectUI : MonoBehaviour
     [Header("Investigator View")]
     public GameObject investigatorPanel;
 
+    // =========================================================================
+    //  Inspector — Featured 3D Model Stage
+    // =========================================================================
+
+    [Header("3D Featured Model Stage")]
+    [Tooltip("Transform pivot in the scene where the featured 3D character model spawns. " +
+             "Position this centered in front of the character select camera.")]
+    public Transform modelPreviewPivot;
+
+    [Tooltip("Duration in seconds to animate model swap (fade/scale).")]
+    public float modelSwapDuration = 0.35f;
+
+    // =========================================================================
+    //  Inspector — Naruto-Style 2D Slot Card Row
+    // =========================================================================
+
+    [Header("Naruto-Style Slot Cards (2D Card Row)")]
+    [Tooltip("Parent Transform under which character slot cards are spawned. " +
+             "Use a UI GameObject with a Horizontal Layout Group component.")]
+    public Transform slotCardContainer;
+
+    [Tooltip("Prefab for a single slot card (UI Button with Image child for icon and TMP_Text child for name).")]
+    public GameObject slotCardPrefab;
+
+    [Tooltip("Color applied to the frame/border of the selected slot card.")]
+    public Color selectedCardHighlightColor = new Color(1f, 0.85f, 0.2f);
+
+    [Tooltip("Color applied to unselected slot cards.")]
+    public Color unselectedCardColor = Color.white;
+
+    // =========================================================================
+    //  Inspector — Info & Stats Panel
+    // =========================================================================
+
     [Header("Side Details Panel")]
     public TextMeshProUGUI detailsTitleText;
     public TextMeshProUGUI detailsDescriptionText;
     public TextMeshProUGUI detailsAbilitiesText;
     public Image detailsIconImage;
 
-    [Header("3D Model Preview (Single Slot — used if no Carousel)")]
-    [Tooltip("Transform pivot in the scene where a single 3D character model spawns for preview. " +
-             "Only used when Carousel is not assigned.")]
-    public Transform modelPreviewPivot;
+    [Header("Stats Bars (Optional)")]
+    public Slider speedBar;
+    public Slider strengthBar;
+    public Slider stealthBar;
 
-    [Header("Character Carousel (3D Ring — recommended)")]
-    [Tooltip("Drag the CharacterCarousel component here. " +
-             "When assigned, the carousel handles all character model display. " +
-             "modelPreviewPivot is ignored.")]
-    public CharacterCarousel carousel;
+    // =========================================================================
+    //  Inspector — Navigation & Action Buttons
+    // =========================================================================
 
-    [Header("Character Data (Inspector Editable)")]
-    [Tooltip("List of character definitions exposed in the Inspector. " +
-             "You can edit names, descriptions, abilities, icons, and prefabs directly here. " +
-             "Add or remove entries to add/remove characters.")]
-    public List<InvestigatorCharacterData> characterDataList = new List<InvestigatorCharacterData>();
+    [Header("Navigation Buttons")]
+    public Button arrowLeft;
+    public Button arrowRight;
 
-    [Header("2D Image Selection (Optional Thumbnail Buttons)")]
-    [Tooltip("List of 2D Image buttons for selecting characters via UI icons. " +
-             "Clicking button [i] selects character index [i] and rotates the 3D carousel to it.")]
-    public List<Button> thumbnailButtons = new List<Button>();
-
-    [Header("Buttons")]
+    [Header("Action Buttons")]
     public Button confirmButton;
+
+    // =========================================================================
+    //  Inspector — Character Data (ScriptableObjects & Inline List)
+    // =========================================================================
+
+    [Header("Character Roster (ScriptableObjects — Recommended)")]
+    [Tooltip("Drag your CharacterDefinitionSO assets here. " +
+             "Create them via: Right-click → Create → Night Crawler → Character Definition.")]
+    public List<CharacterDefinitionSO> characterDefinitions = new List<CharacterDefinitionSO>();
+
+    [Header("Inline Character Data (Fallback / Inspector Editable)")]
+    [Tooltip("Used if characterDefinitions SO list above is empty.")]
+    public List<InvestigatorCharacterData> characterDataList = new List<InvestigatorCharacterData>();
 
     // -------------------------------------------------------------------------
     //  Private State
     // -------------------------------------------------------------------------
-    private int         _selectedIndex             = 0;
-    private bool        _isVengefulSpirit          = false;
-    private GameObject  _currentPreviewInstance;
-    private bool        _initialized               = false; // prevents double setup
+
+    private int                  _selectedIndex          = 0;
+    private bool                 _isVengefulSpirit       = false;
+    private GameObject           _currentPreviewInstance;
+    private bool                 _initialized            = false;
+    private readonly List<Button> _slotCardButtons       = new List<Button>();
+    private readonly List<Image>  _slotCardFrames        = new List<Image>();
+    private Coroutine            _swapCoroutine;
 
     // =========================================================================
     //  Unity Lifecycle
     // =========================================================================
+
     void Start()
     {
         EnsureDefaultCharacterData();
 
-        // If the panel is disabled at start (normal case — GirlRevealManager
-        // enables it after the reveal), skip initial setup. OnEnable will
-        // handle setup when the panel is first shown.
         if (characterSelectPanel != null && !characterSelectPanel.activeInHierarchy) return;
 
         InitialSetup();
@@ -78,18 +129,18 @@ public class CharacterSelectUI : MonoBehaviour
     {
         EnsureDefaultCharacterData();
 
-        // Activate the white room environment whenever this panel is shown
         if (CharacterSceneController.Instance != null)
             CharacterSceneController.Instance.EnableCharacterSelectEnvironment();
 
-        // If Start() skipped setup (panel was inactive), run it now
         if (!_initialized)
             InitialSetup();
+
+        // Refresh UI state when enabled
+        SelectProfession(_selectedIndex);
     }
 
     void OnDisable()
     {
-        // Deactivate the white room when the panel is hidden or destroyed
         if (CharacterSceneController.Instance != null)
             CharacterSceneController.Instance.DisableCharacterSelectEnvironment();
     }
@@ -100,7 +151,14 @@ public class CharacterSelectUI : MonoBehaviour
         {
             CharacterSelectManager.Instance.roleSelectionDone.OnValueChanged -= OnRoleSelectionChanged;
         }
+
+        if (_currentPreviewInstance != null)
+            Destroy(_currentPreviewInstance);
     }
+
+    // =========================================================================
+    //  Initialization
+    // =========================================================================
 
     private void InitialSetup()
     {
@@ -110,8 +168,8 @@ public class CharacterSelectUI : MonoBehaviour
         if (confirmButton != null)
             confirmButton.onClick.AddListener(OnConfirmSelection);
 
-        // Wire 2D image thumbnail buttons
-        WireThumbnailButtons();
+        if (arrowLeft  != null) arrowLeft.onClick.AddListener(SelectPrevious);
+        if (arrowRight != null) arrowRight.onClick.AddListener(SelectNext);
 
         if (CharacterSelectManager.Instance != null)
         {
@@ -119,71 +177,98 @@ public class CharacterSelectUI : MonoBehaviour
         }
 
         CheckLocalRole();
+        BuildSlotCards();
 
-        // Restore last selected character index
         int savedIndex = PersistentCharacterSelection.GetSelectedCharacterIndex();
         SelectProfession(savedIndex);
     }
 
-    private void WireThumbnailButtons()
+    // =========================================================================
+    //  Public API & Slot Navigation
+    // =========================================================================
+
+    public void SelectNext()
     {
-        if (thumbnailButtons == null) return;
-        for (int i = 0; i < thumbnailButtons.Count; i++)
-        {
-            int index = i;
-            if (thumbnailButtons[i] != null)
-            {
-                thumbnailButtons[i].onClick.RemoveAllListeners();
-                thumbnailButtons[i].onClick.AddListener(() => OnThumbnailClicked(index));
-            }
-        }
+        int count = GetTotalCharacterCount();
+        if (count == 0) return;
+        SelectProfession((_selectedIndex + 1) % count);
     }
 
-    private void OnThumbnailClicked(int index)
+    public void SelectPrevious()
     {
-        SelectProfession(index);
-        if (carousel != null)
-            carousel.ScrollToIndex(index);
+        int count = GetTotalCharacterCount();
+        if (count == 0) return;
+        SelectProfession((_selectedIndex - 1 + count) % count);
     }
 
-    // =========================================================================
-    //  Public API
-    // =========================================================================
+    public int GetTotalCharacterCount()
+    {
+        if (characterDefinitions != null && characterDefinitions.Count > 0)
+            return characterDefinitions.Count;
+        return characterDataList != null ? characterDataList.Count : 0;
+    }
+
     public void SelectProfession(int index)
     {
-        _selectedIndex = index;
-        EnsureDefaultCharacterData();
+        int count = GetTotalCharacterCount();
+        if (count == 0) return;
+        _selectedIndex = Mathf.Clamp(index, 0, count - 1);
 
-        // Save persistent selection
-        PersistentCharacterSelection.SetSelectedCharacterIndex(index);
+        PersistentCharacterSelection.SetSelectedCharacterIndex(_selectedIndex);
 
-        InvestigatorCharacterData data = GetCharacterData(index);
-        if (data != null)
+        // 1. Check ScriptableObjects list first
+        if (characterDefinitions != null && _selectedIndex < characterDefinitions.Count && characterDefinitions[_selectedIndex] != null)
         {
-            if (detailsTitleText       != null) detailsTitleText.text       = data.characterName;
-            if (detailsDescriptionText != null) detailsDescriptionText.text = data.description;
-            if (detailsAbilitiesText   != null) detailsAbilitiesText.text   = data.specialAbilities;
+            CharacterDefinitionSO so = characterDefinitions[_selectedIndex];
+
+            if (detailsTitleText       != null) detailsTitleText.text       = so.characterName;
+            if (detailsDescriptionText != null) detailsDescriptionText.text = so.description;
+            if (detailsAbilitiesText   != null) detailsAbilitiesText.text   = so.abilityDescriptions;
 
             if (detailsIconImage != null)
             {
-                detailsIconImage.sprite  = data.characterIcon;
-                detailsIconImage.enabled = (data.characterIcon != null);
+                detailsIconImage.sprite  = so.portrait;
+                detailsIconImage.enabled = (so.portrait != null);
             }
 
-            // Only spawn a single preview model if there is no carousel.
-            // When the carousel is active, it handles all models itself.
-            if (carousel == null && data.characterPrefab != null)
-                UpdateModelPreview(data.characterPrefab);
+            if (speedBar    != null) speedBar.value    = so.speed / 10f;
+            if (strengthBar != null) strengthBar.value = so.strength / 10f;
+            if (stealthBar  != null) stealthBar.value  = so.stealth / 10f;
+
+            if (so.characterPrefab != null)
+                SwapFeaturedModel(so.characterPrefab);
+        }
+        else
+        {
+            // 2. Fallback to inline characterDataList
+            InvestigatorCharacterData data = GetCharacterData(_selectedIndex);
+            if (data != null)
+            {
+                if (detailsTitleText       != null) detailsTitleText.text       = data.characterName;
+                if (detailsDescriptionText != null) detailsDescriptionText.text = data.description;
+                if (detailsAbilitiesText   != null) detailsAbilitiesText.text   = data.specialAbilities;
+
+                if (detailsIconImage != null)
+                {
+                    detailsIconImage.sprite  = data.characterIcon;
+                    detailsIconImage.enabled = (data.characterIcon != null);
+                }
+
+                if (speedBar    != null) speedBar.value    = 0.7f;
+                if (strengthBar != null) strengthBar.value = 0.6f;
+                if (stealthBar  != null) stealthBar.value  = 0.5f;
+
+                if (data.characterPrefab != null)
+                    SwapFeaturedModel(data.characterPrefab);
+            }
         }
 
-        // Reset idle gesture timer
+        UpdateSlotCardHighlights();
+
         if (CharacterSceneController.Instance != null)
             CharacterSceneController.Instance.ResetIdleTimer();
     }
 
-    /// <summary>
-    /// Gets character data by index from characterDataList (Inspector) or CharacterSelectManager.
-    /// </summary>
     public InvestigatorCharacterData GetCharacterData(int index)
     {
         if (characterDataList != null && index >= 0 && index < characterDataList.Count)
@@ -200,9 +285,89 @@ public class CharacterSelectUI : MonoBehaviour
     }
 
     // =========================================================================
-    //  3D Preview Spawning
+    //  Naruto-Style Slot Cards Building
     // =========================================================================
-    private void UpdateModelPreview(GameObject prefabToSpawn)
+
+    private void BuildSlotCards()
+    {
+        if (slotCardContainer == null || slotCardPrefab == null) return;
+
+        foreach (Transform child in slotCardContainer)
+            Destroy(child.gameObject);
+
+        _slotCardButtons.Clear();
+        _slotCardFrames.Clear();
+
+        bool useSO = characterDefinitions != null && characterDefinitions.Count > 0;
+        int count = GetTotalCharacterCount();
+
+        for (int i = 0; i < count; i++)
+        {
+            int capturedIndex = i;
+            string charName = "";
+            Sprite portrait = null;
+
+            if (useSO && i < characterDefinitions.Count && characterDefinitions[i] != null)
+            {
+                charName = characterDefinitions[i].characterName;
+                portrait = characterDefinitions[i].portrait;
+            }
+            else
+            {
+                InvestigatorCharacterData data = GetCharacterData(i);
+                if (data != null)
+                {
+                    charName = data.characterName;
+                    portrait = data.characterIcon;
+                }
+            }
+
+            GameObject card = Instantiate(slotCardPrefab, slotCardContainer);
+            card.name = $"SlotCard_{charName}";
+
+            // Set icon sprite
+            Image portraitImg = card.GetComponentInChildren<Image>();
+            if (portraitImg != null && portrait != null)
+                portraitImg.sprite = portrait;
+
+            // Set name label
+            TMP_Text nameLabel = card.GetComponentInChildren<TMP_Text>();
+            if (nameLabel != null)
+                nameLabel.text = charName;
+
+            // Wire button click
+            Button btn = card.GetComponent<Button>();
+            if (btn != null)
+            {
+                btn.onClick.AddListener(() => SelectProfession(capturedIndex));
+                _slotCardButtons.Add(btn);
+                _slotCardFrames.Add(btn.GetComponent<Image>());
+            }
+        }
+
+        UpdateSlotCardHighlights();
+    }
+
+    private void UpdateSlotCardHighlights()
+    {
+        for (int i = 0; i < _slotCardFrames.Count; i++)
+        {
+            if (_slotCardFrames[i] != null)
+                _slotCardFrames[i].color = (i == _selectedIndex) ? selectedCardHighlightColor : unselectedCardColor;
+        }
+    }
+
+    // =========================================================================
+    //  Featured 3D Model Swap
+    // =========================================================================
+
+    private void SwapFeaturedModel(GameObject prefabToSpawn)
+    {
+        if (_swapCoroutine != null) StopCoroutine(_swapCoroutine);
+        _swapCoroutine = StartCoroutine(SwapModelRoutine(prefabToSpawn));
+    }
+
+    private IEnumerator SwapModelRoutine(GameObject prefabToSpawn)
     {
         if (_currentPreviewInstance != null)
         {
@@ -210,44 +375,36 @@ public class CharacterSelectUI : MonoBehaviour
             _currentPreviewInstance = null;
         }
 
-        if (modelPreviewPivot != null && prefabToSpawn != null)
+        if (modelPreviewPivot == null || prefabToSpawn == null) yield break;
+
+        _currentPreviewInstance = Instantiate(
+            prefabToSpawn, modelPreviewPivot.position,
+            modelPreviewPivot.rotation, modelPreviewPivot);
+
+        // Disable player control scripts on the preview instance
+        foreach (var script in _currentPreviewInstance.GetComponentsInChildren<MonoBehaviour>())
         {
-            _currentPreviewInstance = Instantiate(
-                prefabToSpawn, modelPreviewPivot.position,
-                modelPreviewPivot.rotation, modelPreviewPivot);
-
-            // Disable player control scripts on the preview instance so the
-            // preview model stands cleanly in place
-            foreach (var script in _currentPreviewInstance.GetComponentsInChildren<MonoBehaviour>())
-            {
-                if (script is CharacterAnimationController) continue;
-                script.enabled = false;
-            }
-
-            // Attach animation controller and start idle
-            CharacterAnimationController animCtrl =
-                _currentPreviewInstance.GetComponent<CharacterAnimationController>();
-            if (animCtrl == null)
-                animCtrl = _currentPreviewInstance.AddComponent<CharacterAnimationController>();
-
-            // Character type will be set per-selection; default to Adventurer idle
-            animCtrl.characterType = CharacterAnimationController.CharacterType.Adventurer;
-
-            // Inform CharacterSceneController so it can manage the gesture delay timer
-            if (CharacterSceneController.Instance != null)
-                CharacterSceneController.Instance.NotifyPreviewModelChanged(animCtrl);
+            if (script is CharacterAnimationController || script is CharacterAnimationSystem) continue;
+            script.enabled = false;
         }
-        else
-        {
-            // No model — clear the gesture timer reference
-            if (CharacterSceneController.Instance != null)
-                CharacterSceneController.Instance.NotifyPreviewModelChanged(null);
-        }
+
+        CharacterAnimationController animCtrl =
+            _currentPreviewInstance.GetComponent<CharacterAnimationController>();
+        if (animCtrl == null)
+            animCtrl = _currentPreviewInstance.AddComponent<CharacterAnimationController>();
+
+        animCtrl.characterType = CharacterAnimationController.CharacterType.Adventurer;
+
+        if (CharacterSceneController.Instance != null)
+            CharacterSceneController.Instance.NotifyPreviewModelChanged(animCtrl);
+
+        yield return null;
     }
 
     // =========================================================================
-    //  Helpers & Handlers
+    //  Role Handling & Confirmation
     // =========================================================================
+
     private void OnRoleSelectionChanged(bool prev, bool current)
     {
         if (current) CheckLocalRole();
@@ -265,7 +422,7 @@ public class CharacterSelectUI : MonoBehaviour
         if (_isVengefulSpirit)
         {
             if (vengefulSpiritPanel != null) vengefulSpiritPanel.SetActive(true);
-            if (investigatorPanel != null) investigatorPanel.SetActive(false);
+            if (investigatorPanel != null)     investigatorPanel.SetActive(false);
 
             if (vengefulSpiritText != null)
             {
@@ -273,43 +430,46 @@ public class CharacterSelectUI : MonoBehaviour
                     "Seep into the shadows, manipulate lights, whisper lies, and turn the investigators against each other.";
             }
 
-            // If Vengeful Spirit has a prefab configured on GameManager, preview it
             if (GameManager.Instance != null && GameManager.Instance.girlPrefab != null)
             {
-                UpdateModelPreview(GameManager.Instance.girlPrefab);
+                SwapFeaturedModel(GameManager.Instance.girlPrefab);
             }
         }
         else
         {
             if (vengefulSpiritPanel != null) vengefulSpiritPanel.SetActive(false);
-            if (investigatorPanel != null) investigatorPanel.SetActive(true);
+            if (investigatorPanel != null)     investigatorPanel.SetActive(true);
         }
     }
 
     private void OnConfirmSelection()
     {
-        // If carousel is active, use its focused index as the confirmed selection
-        int confirmedIndex = carousel != null ? carousel.GetFocusedIndex() : _selectedIndex;
-
-        // Save selection persistently across scenes
-        PersistentCharacterSelection.SetSelectedCharacterIndex(confirmedIndex);
+        PersistentCharacterSelection.SetSelectedCharacterIndex(_selectedIndex);
 
         if (!_isVengefulSpirit && CharacterSelectManager.Instance != null)
         {
-            CharacterSelectManager.Instance.RequestSelectCharacterServerRpc(confirmedIndex);
+            CharacterSelectManager.Instance.RequestSelectCharacterServerRpc(_selectedIndex);
         }
 
-        // Clean up single preview model (if used — no-op when carousel is active)
         if (_currentPreviewInstance != null)
         {
             Destroy(_currentPreviewInstance);
             _currentPreviewInstance = null;
         }
 
+        // Hide slot cards, arrow buttons, and confirm button explicitly
+        if (slotCardContainer != null) slotCardContainer.gameObject.SetActive(false);
+        if (arrowLeft  != null)        arrowLeft.gameObject.SetActive(false);
+        if (arrowRight != null)        arrowRight.gameObject.SetActive(false);
+        if (confirmButton != null)     confirmButton.gameObject.SetActive(false);
+
+        if (investigatorPanel != null)
+            investigatorPanel.SetActive(false);
+
         if (characterSelectPanel != null)
             characterSelectPanel.SetActive(false);
 
-        // Show Call of Duty style squad lineup showcase
+        // Transition to Squad Lineup Screen
         if (SquadLineupDisplay.Instance != null)
         {
             SquadLineupDisplay.Instance.ShowSquadLineup();
@@ -348,16 +508,8 @@ public class CharacterSelectUI : MonoBehaviour
                 characterName = "Cursed Priest",
                 profession = InvestigatorProfession.CursedPriest,
                 description = "Supernatural specialist whose unsettling presence makes the team wonder why he joined.",
-                specialAbilities = "• Occult Sensing\n• Ward Placement\n• Presence Detection"
-            },
-            new InvestigatorCharacterData
-            {
-                characterName = "Field Medic",
-                profession = InvestigatorProfession.FieldMedic,
-                description = "Examines injuries, heals teammates, and determines if deaths were caused by accidents or violence.",
-                specialAbilities = "• First Aid Healing\n• Autopsy Examination\n• Revive Assistance"
+                specialAbilities = "• Ward Aura\n• Curse Detection\n• Holy Blessing"
             }
         };
     }
 }
-

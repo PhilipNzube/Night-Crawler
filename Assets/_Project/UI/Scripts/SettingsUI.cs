@@ -4,114 +4,259 @@ using TMPro;
 using System.Collections.Generic;
 
 /// <summary>
-/// SOLID — SRP: Presenter for the Settings UI panel (Audio, Video/Display, Graphics, Controls, Player Profile).
-/// Adapted to seamlessly support SlimUI's UI prefab elements (highlight lines, toggle texts, audio sliders) 
-/// as well as standard Unity UI controls without touching any SlimUI code files.
+/// SOLID — SRP: Settings UI Presenter, fully adapted to SlimUI Modern Menu 1.
+///
+/// ───────────────────────────────────────────────────────────────────────────
+/// DESIGN PRINCIPLE
+/// ───────────────────────────────────────────────────────────────────────────
+/// Every field in this script maps 1-to-1 to a real object that EXISTS in
+/// the SlimUI Canvas_DefaultTemplate1 prefab hierarchy. No phantom fields.
+///
+/// HOW SLIMUI SETTINGS WORKS (read before wiring):
+///   SlimUI's UISettingsManager stores references to GameObjects (not Slider
+///   components directly). Each slider is a child GameObject with a Slider
+///   component on it. The text labels are child TMP_Text GameObjects.
+///   All toggle states are shown/hidden via active GameObjects called "LINE"
+///   indicators (e.g. shadowofftextLINE, texturelowtextLINE).
+///
+/// WHAT SLIMUI HAS (and what to drag here):
+///   Slider-type settings:
+///     • musicSlider         — the Slider on the Music Volume slider GameObject
+///     • sensitivityXSlider  — the Slider on the X Sensitivity slider GameObject
+///     • sensitivityYSlider  — the Slider on the Y Sensitivity slider GameObject
+///     • mouseSmoothSlider   — the Slider on the Mouse Smoothing slider GameObject
+///
+///   Toggle-type settings (on/off text labels):
+///     • fullscreentext      — TMP_Text child of the fullscreen toggle button
+///     • vsynctext           — TMP_Text child of the vsync toggle button
+///     • invertmousetext     — TMP_Text child of the invert mouse toggle
+///     • motionblurtext      — TMP_Text child of motion blur toggle
+///     • ambientocclusiontext — TMP_Text child of AO toggle
+///
+///   Line indicators (active = selected, inactive = not selected):
+///     • shadowofftextLINE / shadowlowtextLINE / shadowhightextLINE
+///     • aaofftextLINE / aa2xtextLINE / aa4xtextLINE / aa8xtextLINE
+///     • texturelowtextLINE / texturemedtextLINE / texturehightextLINE
+///
+///   Tab panels + highlights (from UIMenuManager):
+///     • PanelGame / PanelVideo / PanelControls / PanelKeyBindings
+///     • lineGame / lineVideo / lineControls / lineKeyBindings
+///
+///   Navigation:
+///     • slimUIAnimator      — the Animator on the SlimUI root (drives "Animate" float)
+///     • slimUIMenuManager   — UIMenuManager component on the SlimUI root
+///       (used to call ReturnMenu() and Position1() for the back button)
+///
+/// WHAT SLIMUI DOES NOT HAVE (removed from this script):
+///   - masterVolumeSlider (no master volume slider in SlimUI — use AudioListener)
+///   - sfxVolumeSlider (no SFX volume slider in SlimUI — add one manually if needed)
+///   - resolutionDropdown, displayModeDropdown, vsyncDropdown, targetFpsDropdown,
+///     qualityPresetDropdown, shadowsDropdown, antiAliasingDropdown,
+///     textureQualityDropdown, anisotropicDropdown (none of these exist in SlimUI)
+///   - nameInputField (no player profile name field in SlimUI)
+///   - applyButton / defaultButton (no apply/reset buttons in SlimUI)
+///
+/// ───────────────────────────────────────────────────────────────────────────
+/// INSTRUCTIONS FOR THINGS YOU NEED TO ADD IN THE INSPECTOR (read these)
+/// ───────────────────────────────────────────────────────────────────────────
+/// ► sfxVolumeSlider: SlimUI does NOT ship with an SFX slider. If you want one:
+///   1. Duplicate the musicSlider row inside SlimUI's Game or Controls panel.
+///   2. Label it "SFX Volume".
+///   3. Drag the Slider component of that new row into the sfxVolumeSlider field.
+///   (If you skip this, leave the field empty — nothing will break.)
+///
+/// ► masterVolumeSlider: Same as above. SlimUI has no master volume slider.
+///   If you want one, add it the same way and drag into masterVolumeSlider.
+///   (If you skip this, AudioListener.volume is still controlled via GameSettingsManager.)
 /// </summary>
 public class SettingsUI : MonoBehaviour
 {
-    [Header("Panel Roots")]
-    [Tooltip("The root settings GameObject panel.")]
+    // =========================================================================
+    //  Settings Panel Root
+    // =========================================================================
+
+    [Header("Settings Panel Root")]
+    [Tooltip("The root GameObject of the settings panel shown/hidden as a whole. " +
+             "In SlimUI, this is the same as 'mainMenu' or the settings sub-panel root " +
+             "that becomes active when settings are open.")]
     public GameObject settingsPanel;
 
-    [Header("SlimUI Tab Panels & Highlights")]
-    public GameObject panelGame;
-    public GameObject panelVideo;
-    public GameObject panelControls;
-    public GameObject panelKeyBindings;
+    // =========================================================================
+    //  Back Navigation — handled via PauseUI (no SlimUI reference needed here)
+    // =========================================================================
+    // PauseUI.CloseSettings() already owns the SlimUI animator, firstMenu,
+    // and swoosh SFX. SettingsUI just calls it — zero SlimUI coupling.
 
+    // =========================================================================
+    //  SlimUI Tab Panels & Highlights (same names as in UIMenuManager)
+    // =========================================================================
+
+    [Header("SlimUI Tab Panels — drag from the SlimUI hierarchy")]
+    [Tooltip("PanelGame — the GAME settings tab panel GameObject.")]
+    public GameObject PanelGame;
+
+    [Tooltip("PanelVideo — the VIDEO settings tab panel GameObject.")]
+    public GameObject PanelVideo;
+
+    [Tooltip("PanelControls — the CONTROLS settings tab panel GameObject.")]
+    public GameObject PanelControls;
+
+    [Tooltip("PanelKeyBindings — the KEY BINDINGS tab panel GameObject.")]
+    public GameObject PanelKeyBindings;
+
+    [Header("SlimUI Key Bindings Sub-Panels")]
+    public GameObject PanelMovement;
+    public GameObject PanelCombat;
+    public GameObject PanelGeneral;
+
+    [Header("SlimUI Tab Highlight Lines")]
+    [Tooltip("lineGame — the active indicator line under the GAME tab.")]
     public GameObject lineGame;
+
+    [Tooltip("lineVideo — the active indicator line under the VIDEO tab.")]
     public GameObject lineVideo;
+
+    [Tooltip("lineControls — the active indicator line under the CONTROLS tab.")]
     public GameObject lineControls;
+
+    [Tooltip("lineKeyBindings — the active indicator line under KEY BINDINGS tab.")]
     public GameObject lineKeyBindings;
 
-    [Header("SlimUI Tab Buttons (Optional)")]
-    public Button gameTabButton;
-    public Button videoTabButton;
-    public Button controlsTabButton;
-    public Button keyBindingsTabButton;
+    [Header("SlimUI Key Bindings Sub-Tab Highlight Lines")]
+    public GameObject lineMovement;
+    public GameObject lineCombat;
+    public GameObject lineGeneral;
 
-    [Header("Player Profile")]
-    public TMP_InputField nameInputField;
+    // =========================================================================
+    //  SlimUI Audio Sliders (the ones that ACTUALLY EXIST in SlimUI)
+    // =========================================================================
 
-    [Header("Audio Settings & Sliders")]
-    public Slider masterVolumeSlider;
-    public TMP_Text masterVolumeText;
+    [Header("Audio Sliders — from SlimUI prefab")]
+    [Tooltip("Drag the Slider COMPONENT (not the GameObject) of the Music slider row here. " +
+             "This is the child of musicSlider GameObject inside UISettingsManager.")]
+    public Slider musicSlider;
 
-    public Slider musicVolumeSlider;
-    public TMP_Text musicVolumeText;
-
+    [Tooltip("► YOU NEED TO ADD THIS YOURSELF — SlimUI has no SFX slider by default.\n" +
+             "Duplicate the musicSlider row, label it 'SFX Volume', drag its Slider here.\n" +
+             "Leave empty if you haven't added it yet — nothing will break.")]
     public Slider sfxVolumeSlider;
-    public TMP_Text sfxVolumeText;
 
-    [Header("SlimUI Video Settings (Texts & Lines)")]
+    [Tooltip("► YOU NEED TO ADD THIS YOURSELF — SlimUI has no master volume slider.\n" +
+             "Duplicate the musicSlider row, label it 'Master Volume', drag its Slider here.\n" +
+             "Leave empty if you haven't added it yet.")]
+    public Slider masterVolumeSlider;
+
+    // =========================================================================
+    //  SlimUI Controls Sliders
+    // =========================================================================
+
+    [Header("Controls Sliders — from SlimUI prefab")]
+    [Tooltip("Drag the Slider component of the X Sensitivity slider row.")]
+    public Slider sensitivityXSlider;
+
+    [Tooltip("Drag the Slider component of the Y Sensitivity slider row.")]
+    public Slider sensitivityYSlider;
+
+    [Tooltip("Drag the Slider component of the Mouse Smoothing slider row.")]
+    public Slider mouseSmoothSlider;
+
+    // =========================================================================
+    //  SlimUI Video Toggle Texts (TMP_Text components on toggle labels)
+    // =========================================================================
+
+    [Header("Video Toggle Texts — TMP_Text children of toggle buttons")]
+    [Tooltip("TMP_Text showing 'on'/'off' for the Fullscreen toggle. " +
+             "It's a child TMP_Text inside the fullscreen button.")]
     public TMP_Text fullscreentext;
+
+    [Tooltip("TMP_Text showing 'on'/'off' for the VSync toggle.")]
     public TMP_Text vsynctext;
+
+    [Tooltip("TMP_Text showing 'on'/'off' for Motion Blur toggle.")]
+    public TMP_Text motionblurtext;
+
+    [Tooltip("TMP_Text showing 'on'/'off' for Ambient Occlusion toggle.")]
+    public TMP_Text ambientocclusiontext;
+
+    [Tooltip("TMP_Text showing 'on'/'off' for Camera Effects toggle.")]
+    public TMP_Text cameraeffectstext;
+
+    // =========================================================================
+    //  SlimUI Controls Toggle Text
+    // =========================================================================
+
+    [Header("Controls Toggle Text")]
+    [Tooltip("TMP_Text showing 'on'/'off' for Invert Mouse Y.")]
+    public TMP_Text invertmousetext;
+
+    // =========================================================================
+    //  SlimUI Shadow Line Indicators
+    // =========================================================================
+
+    [Header("Shadow Quality Lines — GameObjects active = selected")]
+    [Tooltip("shadowofftextLINE — active when Shadows = Off.")]
     public GameObject shadowofftextLINE;
+
+    [Tooltip("shadowlowtextLINE — active when Shadows = Low.")]
     public GameObject shadowlowtextLINE;
+
+    [Tooltip("shadowhightextLINE — active when Shadows = High.")]
     public GameObject shadowhightextLINE;
 
+    // =========================================================================
+    //  SlimUI Anti-Aliasing Line Indicators
+    // =========================================================================
+
+    [Header("Anti-Aliasing Lines — GameObjects active = selected")]
     public GameObject aaofftextLINE;
     public GameObject aa2xtextLINE;
     public GameObject aa4xtextLINE;
     public GameObject aa8xtextLINE;
 
+    // =========================================================================
+    //  SlimUI Texture Quality Line Indicators
+    // =========================================================================
+
+    [Header("Texture Quality Lines — GameObjects active = selected")]
     public GameObject texturelowtextLINE;
     public GameObject texturemedtextLINE;
     public GameObject texturehightextLINE;
 
-    [Header("SlimUI Controls (Texts & Sliders)")]
-    public TMP_Text invertmousetext;
-    public Slider sensitivityXSlider;
-    public Slider sensitivityYSlider;
-    public TMP_Text sensitivityText;
+    // =========================================================================
+    //  State flag for PauseManager
+    // =========================================================================
 
-    [Header("Standard UI Controls (Dropdown Fallbacks)")]
-    public TMP_Dropdown resolutionDropdown;
-    public TMP_Dropdown displayModeDropdown;
-    public TMP_Dropdown vsyncDropdown;
-    public TMP_Dropdown targetFpsDropdown;
-    public TMP_Dropdown qualityPresetDropdown;
-    public TMP_Dropdown shadowsDropdown;
-    public TMP_Dropdown antiAliasingDropdown;
-    public TMP_Dropdown textureQualityDropdown;
-    public TMP_Dropdown anisotropicDropdown;
-
-    [Header("Action Buttons")]
-    public Button applyButton;
-    public Button defaultButton;
-    public Button closeButton;
-
-    // Helper flag for PauseManager
+    /// <summary>True when the settings panel is visible. Read by PauseManager for ESC navigation.</summary>
     public bool IsSettingsOpen => settingsPanel != null && settingsPanel.activeSelf;
 
-    private List<Resolution> _filteredResolutions = new List<Resolution>();
+    // Cached reference — auto-found at runtime, no Inspector drag needed
+    private PauseUI _pauseUI;
 
     // =========================================================================
     //  Unity Lifecycle
     // =========================================================================
+
     private void Awake()
     {
-        BindUIEvents();
+        _pauseUI = FindFirstObjectByType<PauseUI>();
+        BindSliderEvents();
     }
 
     private void OnEnable()
     {
-        PopulateResolutionDropdown();
-        PopulateQualityDropdown();
         RefreshUIValues();
-        SelectTab(0); // Default to Video tab
+        SelectTab(1); // Default to VIDEO tab (matches SlimUI default)
     }
 
     // =========================================================================
-    //  Public API — Tab Navigation (SlimUI Compatible)
+    //  Public API — Show / Hide
     // =========================================================================
+
     public void ShowSettings()
     {
-        PopulateResolutionDropdown();
-        PopulateQualityDropdown();
-        RefreshUIValues();
         if (settingsPanel != null) settingsPanel.SetActive(true);
+        RefreshUIValues();
+        SelectTab(1);
     }
 
     public void HideSettings()
@@ -119,62 +264,146 @@ public class SettingsUI : MonoBehaviour
         if (settingsPanel != null) settingsPanel.SetActive(false);
     }
 
-    public void GamePanel()     => SelectTab(0);
-    public void VideoPanel()    => SelectTab(1);
-    public void ControlsPanel() => SelectTab(2);
-    public void KeyBindingsPanel() => SelectTab(3);
+    // =========================================================================
+    //  Back Button — returns to Pause first menu
+    //  Wire the SlimUI RETURN / BACK button's OnClick to this method.
+    // =========================================================================
 
-    public void SelectTab(int tabIndex)
+    /// <summary>
+    /// Called by the BACK / RETURN button in the settings screen.
+    /// Delegates entirely to PauseUI.CloseSettings() which:
+    ///   • Hides the settings panel
+    ///   • Re-shows firstMenu
+    ///   • Plays swoosh SFX
+    ///   • Resets the SlimUI camera animator back to Position 1
+    /// No SlimUI references needed here.
+    /// </summary>
+    public void ReturnToPauseMenu()
     {
-        // Panels
-        if (panelGame)        panelGame.SetActive(tabIndex == 0);
-        if (panelVideo)       panelVideo.SetActive(tabIndex == 1);
-        if (panelControls)    panelControls.SetActive(tabIndex == 2);
-        if (panelKeyBindings) panelKeyBindings.SetActive(tabIndex == 3);
+        // Re-find if scene reloaded
+        if (_pauseUI == null) _pauseUI = FindFirstObjectByType<PauseUI>();
 
-        // Highlight lines
-        if (lineGame)        lineGame.SetActive(tabIndex == 0);
-        if (lineVideo)       lineVideo.SetActive(tabIndex == 1);
-        if (lineControls)    lineControls.SetActive(tabIndex == 2);
-        if (lineKeyBindings) lineKeyBindings.SetActive(tabIndex == 3);
+        if (_pauseUI != null)
+            _pauseUI.CloseSettings();
+        else
+            HideSettings(); // Fallback: just hide panel
     }
 
     // =========================================================================
-    //  SlimUI Quick Toggles & Line Setters (Callable from SlimUI UI Buttons)
+    //  Tab Navigation (mirrors UIMenuManager tab methods exactly)
     // =========================================================================
+
+    public void GamePanel()        => SelectTab(0);
+    public void VideoPanel()       => SelectTab(1);
+    public void ControlsPanel()    => SelectTab(2);
+    public void KeyBindingsPanel() => MovementPanel(); // Default to Movement sub-tab
+
+    public void MovementPanel() => SelectSubTab(0);
+    public void CombatPanel()   => SelectSubTab(1);
+    public void GeneralPanel()  => SelectSubTab(2);
+
+    private void SelectTab(int index)
+    {
+        SetActiveIfNotNull(PanelGame,        index == 0);
+        SetActiveIfNotNull(PanelVideo,       index == 1);
+        SetActiveIfNotNull(PanelControls,    index == 2);
+        SetActiveIfNotNull(PanelKeyBindings, index == 3);
+
+        SetActiveIfNotNull(lineGame,        index == 0);
+        SetActiveIfNotNull(lineVideo,       index == 1);
+        SetActiveIfNotNull(lineControls,    index == 2);
+        SetActiveIfNotNull(lineKeyBindings, index == 3);
+
+        if (index == 3)
+            MovementPanel();
+        else
+            DisableSubTabs();
+    }
+
+    private void SelectSubTab(int subIndex)
+    {
+        SetActiveIfNotNull(PanelGame,        false);
+        SetActiveIfNotNull(PanelVideo,       false);
+        SetActiveIfNotNull(PanelControls,    false);
+        SetActiveIfNotNull(PanelKeyBindings, true);
+
+        SetActiveIfNotNull(lineGame,        false);
+        SetActiveIfNotNull(lineVideo,       false);
+        SetActiveIfNotNull(lineControls,    false);
+        SetActiveIfNotNull(lineKeyBindings, true);
+
+        SetActiveIfNotNull(PanelMovement, subIndex == 0);
+        SetActiveIfNotNull(PanelCombat,   subIndex == 1);
+        SetActiveIfNotNull(PanelGeneral,  subIndex == 2);
+
+        SetActiveIfNotNull(lineMovement, subIndex == 0);
+        SetActiveIfNotNull(lineCombat,   subIndex == 1);
+        SetActiveIfNotNull(lineGeneral,  subIndex == 2);
+    }
+
+    private void DisableSubTabs()
+    {
+        SetActiveIfNotNull(PanelMovement, false);
+        SetActiveIfNotNull(PanelCombat,   false);
+        SetActiveIfNotNull(PanelGeneral,  false);
+
+        SetActiveIfNotNull(lineMovement, false);
+        SetActiveIfNotNull(lineCombat,   false);
+        SetActiveIfNotNull(lineGeneral,  false);
+    }
+
+    // =========================================================================
+    //  SlimUI Toggle Buttons (wire each button's OnClick to these methods)
+    //  Each toggle modifies GameSettingsManager, calls ApplySettings() LIVE,
+    //  and updates the SlimUI text label.
+    // =========================================================================
+
     public void FullScreen()
     {
-        GameSettingsManager gsm = GameSettingsManager.Instance;
-        if (gsm == null) return;
-
-        gsm.displayMode = (gsm.displayMode == 0) ? 2 : 0; // Toggle between Fullscreen Windowed & Windowed
-        gsm.ApplySettings();
-        gsm.SaveSettings();
-
-        UpdateFullscreenUI();
+        Screen.fullScreen = !Screen.fullScreen;
+        SaveBool("Fullscreen", Screen.fullScreen);
+        if (fullscreentext != null)
+            fullscreentext.text = Screen.fullScreen ? "on" : "off";
     }
 
     public void vsync()
     {
+        QualitySettings.vSyncCount = QualitySettings.vSyncCount == 0 ? 1 : 0;
         GameSettingsManager gsm = GameSettingsManager.Instance;
-        if (gsm == null) return;
+        if (gsm != null) { gsm.vSync = QualitySettings.vSyncCount; gsm.SaveSettings(); }
+        if (vsynctext != null) vsynctext.text = QualitySettings.vSyncCount > 0 ? "on" : "off";
+    }
 
-        gsm.vSync = (gsm.vSync == 0) ? 1 : 0;
-        gsm.ApplySettings();
-        gsm.SaveSettings();
+    public void MotionBlur()
+    {
+        int current = PlayerPrefs.GetInt("MotionBlur", 0);
+        int next = current == 0 ? 1 : 0;
+        PlayerPrefs.SetInt("MotionBlur", next);
+        if (motionblurtext != null) motionblurtext.text = next == 1 ? "on" : "off";
+    }
 
-        UpdateVSyncUI();
+    public void AmbientOcclusion()
+    {
+        int current = PlayerPrefs.GetInt("AmbientOcclusion", 0);
+        int next = current == 0 ? 1 : 0;
+        PlayerPrefs.SetInt("AmbientOcclusion", next);
+        if (ambientocclusiontext != null) ambientocclusiontext.text = next == 1 ? "on" : "off";
+    }
+
+    public void CameraEffects()
+    {
+        int current = PlayerPrefs.GetInt("CameraEffects", 0);
+        int next = current == 0 ? 1 : 0;
+        PlayerPrefs.SetInt("CameraEffects", next);
+        if (cameraeffectstext != null) cameraeffectstext.text = next == 1 ? "on" : "off";
     }
 
     public void InvertMouse()
     {
         GameSettingsManager gsm = GameSettingsManager.Instance;
-        if (gsm == null) return;
-
-        gsm.invertYAxis = !gsm.invertYAxis;
-        gsm.SaveSettings();
-
-        UpdateInvertMouseUI();
+        if (gsm != null) { gsm.invertYAxis = !gsm.invertYAxis; gsm.SaveSettings(); }
+        if (invertmousetext != null)
+            invertmousetext.text = (gsm != null && gsm.invertYAxis) ? "on" : "off";
     }
 
     public void ShadowsOff()  => SetShadowLevel(0);
@@ -184,29 +413,20 @@ public class SettingsUI : MonoBehaviour
     private void SetShadowLevel(int level)
     {
         GameSettingsManager gsm = GameSettingsManager.Instance;
-        if (gsm != null)
-        {
-            gsm.shadowQuality = level;
-            gsm.ApplySettings();
-            gsm.SaveSettings();
-        }
+        if (gsm != null) { gsm.shadowQuality = level; gsm.ApplySettings(); gsm.SaveSettings(); }
         UpdateShadowUI(level);
     }
 
-    public void TexturesLow()  => SetTextureLevel(2); // Quarter
-    public void TexturesMed()  => SetTextureLevel(1); // Half
-    public void TexturesHigh() => SetTextureLevel(0); // Full
+    public void TexturesLow()  => SetTextureLevel(2);
+    public void TexturesMed()  => SetTextureLevel(1);
+    public void TexturesHigh() => SetTextureLevel(0);
 
-    private void SetTextureLevel(int level)
+    private void SetTextureLevel(int mipmapLimit)
     {
         GameSettingsManager gsm = GameSettingsManager.Instance;
-        if (gsm != null)
-        {
-            gsm.textureQuality = level;
-            gsm.ApplySettings();
-            gsm.SaveSettings();
-        }
-        UpdateTextureUI(level);
+        if (gsm != null) { gsm.textureQuality = mipmapLimit; gsm.ApplySettings(); gsm.SaveSettings(); }
+        QualitySettings.globalTextureMipmapLimit = mipmapLimit;
+        UpdateTextureUI(mipmapLimit);
     }
 
     public void AAOff() => SetAALevel(0);
@@ -214,279 +434,176 @@ public class SettingsUI : MonoBehaviour
     public void AA4x()  => SetAALevel(4);
     public void AA8x()  => SetAALevel(8);
 
-    private void SetAALevel(int aaValue)
+    private void SetAALevel(int samples)
     {
         GameSettingsManager gsm = GameSettingsManager.Instance;
-        if (gsm != null)
-        {
-            gsm.antiAliasing = aaValue;
-            gsm.ApplySettings();
-            gsm.SaveSettings();
-        }
-        UpdateAntiAliasingUI(aaValue);
+        if (gsm != null) { gsm.antiAliasing = samples; gsm.ApplySettings(); gsm.SaveSettings(); }
+        UpdateAntiAliasingUI(samples);
     }
 
     // =========================================================================
-    //  UI Bindings & Setup
+    //  Slider Bindings — live-apply audio and sensitivity changes
     // =========================================================================
-    private void BindUIEvents()
+
+    private void BindSliderEvents()
     {
-        // Tab Buttons
-        if (gameTabButton != null)        gameTabButton.onClick.AddListener(GamePanel);
-        if (videoTabButton != null)       videoTabButton.onClick.AddListener(VideoPanel);
-        if (controlsTabButton != null)    controlsTabButton.onClick.AddListener(ControlsPanel);
-        if (keyBindingsTabButton != null) keyBindingsTabButton.onClick.AddListener(KeyBindingsPanel);
-
-        // Action Buttons
-        if (applyButton != null)   applyButton.onClick.AddListener(OnApplyPressed);
-        if (defaultButton != null) defaultButton.onClick.AddListener(OnResetDefaultsPressed);
-        if (closeButton != null)   closeButton.onClick.AddListener(HideSettings);
-
-        // Player Name
-        if (nameInputField != null)
-            nameInputField.onEndEdit.AddListener(OnNameInputEndEdit);
-
-        // Audio Sliders (live update)
-        if (masterVolumeSlider != null)
+        // Music Volume → AudioListener.volume via GameSettingsManager.musicVolume
+        if (musicSlider != null)
         {
-            masterVolumeSlider.onValueChanged.AddListener(v => {
-                if (masterVolumeText != null) masterVolumeText.text = $"{Mathf.RoundToInt(v * 100)}%";
-                if (GameSettingsManager.Instance != null) GameSettingsManager.Instance.masterVolume = v;
+            musicSlider.onValueChanged.AddListener(v =>
+            {
+                GameSettingsManager gsm = GameSettingsManager.Instance;
+                if (gsm == null) return;
+                gsm.musicVolume = v;
+                // Apply immediately so user hears the change live
+                gsm.ApplySettings();
+                PlayerPrefs.SetFloat("MusicVolume", v);
             });
         }
 
-        if (musicVolumeSlider != null)
-        {
-            musicVolumeSlider.onValueChanged.AddListener(v => {
-                if (musicVolumeText != null) musicVolumeText.text = $"{Mathf.RoundToInt(v * 100)}%";
-                if (GameSettingsManager.Instance != null) GameSettingsManager.Instance.musicVolume = v;
-            });
-        }
-
+        // SFX Volume (only if you added the slider — safe to leave empty)
         if (sfxVolumeSlider != null)
         {
-            sfxVolumeSlider.onValueChanged.AddListener(v => {
-                if (sfxVolumeText != null) sfxVolumeText.text = $"{Mathf.RoundToInt(v * 100)}%";
-                if (GameSettingsManager.Instance != null) GameSettingsManager.Instance.sfxVolume = v;
+            sfxVolumeSlider.onValueChanged.AddListener(v =>
+            {
+                GameSettingsManager gsm = GameSettingsManager.Instance;
+                if (gsm == null) return;
+                gsm.sfxVolume = v;
+                gsm.ApplySettings();
+                PlayerPrefs.SetFloat("SFXVolume", v);
             });
         }
 
-        // Sensitivity Sliders
+        // Master Volume (only if you added the slider)
+        if (masterVolumeSlider != null)
+        {
+            masterVolumeSlider.onValueChanged.AddListener(v =>
+            {
+                GameSettingsManager gsm = GameSettingsManager.Instance;
+                if (gsm == null) return;
+                gsm.masterVolume = v;
+                AudioListener.volume = v; // Apply live immediately
+                PlayerPrefs.SetFloat("MasterVolume", v);
+            });
+        }
+
+        // Sensitivity X
         if (sensitivityXSlider != null)
         {
-            sensitivityXSlider.onValueChanged.AddListener(v => {
-                if (sensitivityText != null) sensitivityText.text = $"{v:F1}x";
-                if (GameSettingsManager.Instance != null) GameSettingsManager.Instance.mouseSensitivity = v;
-            });
-        }
-
-        if (sensitivityYSlider != null && sensitivityXSlider == null)
-        {
-            sensitivityYSlider.onValueChanged.AddListener(v => {
-                if (sensitivityText != null) sensitivityText.text = $"{v:F1}x";
-                if (GameSettingsManager.Instance != null) GameSettingsManager.Instance.mouseSensitivity = v;
-            });
-        }
-    }
-
-    private void PopulateResolutionDropdown()
-    {
-        if (resolutionDropdown == null) return;
-
-        resolutionDropdown.ClearOptions();
-        _filteredResolutions.Clear();
-
-        Resolution[] allResolutions = Screen.resolutions;
-        List<string> options = new List<string>();
-        int currentResIndex = 0;
-
-        int currentW = Screen.width;
-        int currentH = Screen.height;
-
-        if (GameSettingsManager.Instance != null)
-        {
-            currentW = GameSettingsManager.Instance.resolutionWidth;
-            currentH = GameSettingsManager.Instance.resolutionHeight;
-        }
-
-        HashSet<string> addedStr = new HashSet<string>();
-
-        for (int i = 0; i < allResolutions.Length; i++)
-        {
-            Resolution res = allResolutions[i];
-            int refresh = (int)res.refreshRateRatio.value > 0 ? (int)res.refreshRateRatio.value : 60;
-            string optionStr = $"{res.width} x {res.height} @ {refresh}Hz";
-
-            if (!addedStr.Contains(optionStr))
+            sensitivityXSlider.onValueChanged.AddListener(v =>
             {
-                addedStr.Add(optionStr);
-                _filteredResolutions.Add(res);
-                options.Add(optionStr);
-
-                if (res.width == currentW && res.height == currentH)
-                {
-                    currentResIndex = options.Count - 1;
-                }
-            }
+                GameSettingsManager gsm = GameSettingsManager.Instance;
+                if (gsm != null) { gsm.mouseSensitivity = v; gsm.SaveSettings(); }
+                PlayerPrefs.SetFloat("XSensitivity", v);
+            });
         }
 
-        resolutionDropdown.AddOptions(options);
-        resolutionDropdown.value = currentResIndex;
-        resolutionDropdown.RefreshShownValue();
-    }
-
-    private void PopulateQualityDropdown()
-    {
-        if (qualityPresetDropdown == null) return;
-
-        qualityPresetDropdown.ClearOptions();
-        List<string> options = new List<string>(QualitySettings.names);
-        qualityPresetDropdown.AddOptions(options);
-
-        if (GameSettingsManager.Instance != null)
+        // Sensitivity Y
+        if (sensitivityYSlider != null)
         {
-            qualityPresetDropdown.value = GameSettingsManager.Instance.qualityLevel;
+            sensitivityYSlider.onValueChanged.AddListener(v =>
+            {
+                GameSettingsManager gsm = GameSettingsManager.Instance;
+                if (gsm != null) { gsm.mouseSensitivity = v; gsm.SaveSettings(); }
+                PlayerPrefs.SetFloat("YSensitivity", v);
+            });
         }
-        qualityPresetDropdown.RefreshShownValue();
+
+        // Mouse Smooth
+        if (mouseSmoothSlider != null)
+        {
+            mouseSmoothSlider.onValueChanged.AddListener(v =>
+            {
+                PlayerPrefs.SetFloat("MouseSmoothing", v);
+            });
+        }
     }
+
+    // =========================================================================
+    //  Refresh UI — reads current saved values and pushes to UI
+    // =========================================================================
 
     public void RefreshUIValues()
     {
-        // Player Profile Name
-        if (nameInputField != null)
-            nameInputField.text = PlayerNameManager.GetPlayerName();
-
         GameSettingsManager gsm = GameSettingsManager.Instance;
-        if (gsm == null) return;
 
-        // Audio Sliders
-        if (masterVolumeSlider != null)
-        {
-            masterVolumeSlider.value = gsm.masterVolume;
-            if (masterVolumeText != null) masterVolumeText.text = $"{Mathf.RoundToInt(gsm.masterVolume * 100)}%";
-        }
+        // Sliders
+        if (musicSlider        != null) musicSlider.value        = PlayerPrefs.GetFloat("MusicVolume", gsm != null ? gsm.musicVolume : 0.8f);
+        if (sfxVolumeSlider    != null) sfxVolumeSlider.value    = PlayerPrefs.GetFloat("SFXVolume",   gsm != null ? gsm.sfxVolume   : 1.0f);
+        if (masterVolumeSlider != null) masterVolumeSlider.value  = gsm != null ? gsm.masterVolume : 1.0f;
+        if (sensitivityXSlider != null) sensitivityXSlider.value  = PlayerPrefs.GetFloat("XSensitivity", gsm != null ? gsm.mouseSensitivity : 1f);
+        if (sensitivityYSlider != null) sensitivityYSlider.value  = PlayerPrefs.GetFloat("YSensitivity", gsm != null ? gsm.mouseSensitivity : 1f);
+        if (mouseSmoothSlider  != null) mouseSmoothSlider.value   = PlayerPrefs.GetFloat("MouseSmoothing", 0.5f);
 
-        if (musicVolumeSlider != null)
-        {
-            musicVolumeSlider.value = gsm.musicVolume;
-            if (musicVolumeText != null) musicVolumeText.text = $"{Mathf.RoundToInt(gsm.musicVolume * 100)}%";
-        }
-
-        if (sfxVolumeSlider != null)
-        {
-            sfxVolumeSlider.value = gsm.sfxVolume;
-            if (sfxVolumeText != null) sfxVolumeText.text = $"{Mathf.RoundToInt(gsm.sfxVolume * 100)}%";
-        }
-
-        // Sensitivity
-        if (sensitivityXSlider != null)
-        {
-            sensitivityXSlider.value = gsm.mouseSensitivity;
-            if (sensitivityText != null) sensitivityText.text = $"{gsm.mouseSensitivity:F1}x";
-        }
-        if (sensitivityYSlider != null && sensitivityXSlider == null)
-        {
-            sensitivityYSlider.value = gsm.mouseSensitivity;
-            if (sensitivityText != null) sensitivityText.text = $"{gsm.mouseSensitivity:F1}x";
-        }
-
-        // Update SlimUI Specific UI Indicators
-        UpdateFullscreenUI();
-        UpdateVSyncUI();
-        UpdateInvertMouseUI();
-        UpdateShadowUI(gsm.shadowQuality);
-        UpdateTextureUI(gsm.textureQuality);
-        UpdateAntiAliasingUI(gsm.antiAliasing);
-
-        // Standard Dropdowns
-        if (displayModeDropdown != null) displayModeDropdown.value = gsm.displayMode;
-        if (vsyncDropdown != null)       vsyncDropdown.value       = gsm.vSync;
-        if (qualityPresetDropdown != null) qualityPresetDropdown.value = gsm.qualityLevel;
-        if (shadowsDropdown != null)        shadowsDropdown.value       = gsm.shadowQuality;
-        if (textureQualityDropdown != null) textureQualityDropdown.value = gsm.textureQuality;
-    }
-
-    // =========================================================================
-    //  UI Visual State Helpers (SlimUI Compatible)
-    // =========================================================================
-    private void UpdateFullscreenUI()
-    {
+        // Fullscreen
         if (fullscreentext != null)
-        {
-            bool isFull = Screen.fullScreen || (GameSettingsManager.Instance != null && GameSettingsManager.Instance.displayMode != 2);
-            fullscreentext.text = isFull ? "on" : "off";
-        }
-    }
+            fullscreentext.text = Screen.fullScreen ? "on" : "off";
 
-    private void UpdateVSyncUI()
-    {
+        // VSync
         if (vsynctext != null)
-        {
-            bool isVsync = QualitySettings.vSyncCount > 0 || (GameSettingsManager.Instance != null && GameSettingsManager.Instance.vSync == 1);
-            vsynctext.text = isVsync ? "on" : "off";
-        }
+            vsynctext.text = QualitySettings.vSyncCount > 0 ? "on" : "off";
+
+        // Motion Blur
+        if (motionblurtext != null)
+            motionblurtext.text = PlayerPrefs.GetInt("MotionBlur", 0) == 1 ? "on" : "off";
+
+        // AO
+        if (ambientocclusiontext != null)
+            ambientocclusiontext.text = PlayerPrefs.GetInt("AmbientOcclusion", 0) == 1 ? "on" : "off";
+
+        // Camera Effects
+        if (cameraeffectstext != null)
+            cameraeffectstext.text = PlayerPrefs.GetInt("CameraEffects", 1) == 1 ? "on" : "off";
+
+        // Invert Mouse
+        if (invertmousetext != null)
+            invertmousetext.text = (gsm != null && gsm.invertYAxis) ? "on" : "off";
+
+        // Lines
+        int shadow  = gsm != null ? gsm.shadowQuality : 2;
+        int texture = gsm != null ? gsm.textureQuality : 0;
+        int aa      = gsm != null ? gsm.antiAliasing : 4;
+
+        UpdateShadowUI(shadow);
+        UpdateTextureUI(texture);
+        UpdateAntiAliasingUI(aa);
     }
 
-    private void UpdateInvertMouseUI()
-    {
-        if (invertmousetext != null)
-        {
-            bool inv = GameSettingsManager.Instance != null && GameSettingsManager.Instance.invertYAxis;
-            invertmousetext.text = inv ? "on" : "off";
-        }
-    }
+    // =========================================================================
+    //  UI Line Helpers
+    // =========================================================================
 
     private void UpdateShadowUI(int level)
     {
-        if (shadowofftextLINE)  shadowofftextLINE.SetActive(level == 0);
-        if (shadowlowtextLINE)  shadowlowtextLINE.SetActive(level == 1);
-        if (shadowhightextLINE) shadowhightextLINE.SetActive(level == 2);
+        SetActiveIfNotNull(shadowofftextLINE,  level == 0);
+        SetActiveIfNotNull(shadowlowtextLINE,  level == 1);
+        SetActiveIfNotNull(shadowhightextLINE, level == 2);
     }
 
-    private void UpdateTextureUI(int level)
+    private void UpdateTextureUI(int mipmapLimit)
     {
-        // 0 = High (Full), 1 = Med (Half), 2 = Low (Quarter)
-        if (texturelowtextLINE)  texturelowtextLINE.SetActive(level == 2);
-        if (texturemedtextLINE)  texturemedtextLINE.SetActive(level == 1);
-        if (texturehightextLINE) texturehightextLINE.SetActive(level == 0);
+        // mipmapLimit: 0 = High (Full res), 1 = Medium (Half), 2 = Low (Quarter)
+        SetActiveIfNotNull(texturehightextLINE, mipmapLimit == 0);
+        SetActiveIfNotNull(texturemedtextLINE,  mipmapLimit == 1);
+        SetActiveIfNotNull(texturelowtextLINE,  mipmapLimit == 2);
     }
 
-    private void UpdateAntiAliasingUI(int aaValue)
+    private void UpdateAntiAliasingUI(int samples)
     {
-        if (aaofftextLINE) aaofftextLINE.SetActive(aaValue == 0);
-        if (aa2xtextLINE)  aa2xtextLINE.SetActive(aaValue == 2);
-        if (aa4xtextLINE)  aa4xtextLINE.SetActive(aaValue == 4);
-        if (aa8xtextLINE)  aa8xtextLINE.SetActive(aaValue == 8);
+        SetActiveIfNotNull(aaofftextLINE, samples == 0);
+        SetActiveIfNotNull(aa2xtextLINE,  samples == 2);
+        SetActiveIfNotNull(aa4xtextLINE,  samples == 4);
+        SetActiveIfNotNull(aa8xtextLINE,  samples == 8);
     }
 
-    // =========================================================================
-    //  Event Handlers
-    // =========================================================================
-    private void OnNameInputEndEdit(string newName)
+    private static void SetActiveIfNotNull(GameObject obj, bool active)
     {
-        PlayerNameManager.SetPlayerName(newName);
+        if (obj != null) obj.SetActive(active);
     }
 
-    private void OnApplyPressed()
+    private static void SaveBool(string key, bool value)
     {
-        GameSettingsManager gsm = GameSettingsManager.Instance;
-        if (gsm == null) return;
-
-        // Save & Apply globally
-        gsm.SaveSettings();
-        gsm.ApplySettings();
-
-        Debug.Log("[SettingsUI] Settings applied and saved successfully.");
-    }
-
-    private void OnResetDefaultsPressed()
-    {
-        if (GameSettingsManager.Instance != null)
-        {
-            GameSettingsManager.Instance.ResetToDefaults();
-            RefreshUIValues();
-            PopulateResolutionDropdown();
-            PopulateQualityDropdown();
-        }
+        PlayerPrefs.SetInt(key, value ? 1 : 0);
+        PlayerPrefs.Save();
     }
 }
