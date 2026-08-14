@@ -3,15 +3,14 @@ using Unity.Netcode;
 using Unity.Netcode.Components;
 using UnityEngine.InputSystem;
 using System.Collections;
+using System.Collections.Generic;
 
 /// <summary>
 /// SOLID — SRP: Manages combat, weapon switching (Melee/Ranged), ammo, and network sync
 /// for ANY Investigator character (Explorer, Mine Worker, Hazard Specialist, Cursed Priest, etc.).
 ///
-/// Follows SOLID principles:
-///   • SRP: Manages investigator player weapon combat and network synchronization.
-///   • OCP: Weapon stats are ScriptableObjects (WeaponStats) — add new weapons without changing logic.
-///   • DIP: Interacts with health via IDamageReceiver interface.
+/// Cleanly verifies Animator parameters before setting triggers so missing controller parameters
+/// never crash network spawning or freeze character animations.
 /// </summary>
 public class InvestigatorCombatNet : NetworkBehaviour
 {
@@ -31,16 +30,17 @@ public class InvestigatorCombatNet : NetworkBehaviour
     public NetworkVariable<int> currentAmmo = new NetworkVariable<int>(0, 
         NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
 
-    private readonly int _weaponIdHash = Animator.StringToHash("WeaponID");
+    private readonly int _weaponIdHash     = Animator.StringToHash("WeaponID");
     private readonly int _switchWeaponHash = Animator.StringToHash("SwitchWeapon");
-    private readonly int _attackHash = Animator.StringToHash("Attack");
-    private readonly int _reloadHash = Animator.StringToHash("Reload");
+    private readonly int _attackHash       = Animator.StringToHash("Attack");
+    private readonly int _reloadHash       = Animator.StringToHash("Reload");
 
     private float _attackTimer;
     private bool _isReloading;
     private Animator _animator;
     private NetworkAnimator _networkAnimator;
     private AudioSource _audioSource;
+    private HashSet<int> _animatorParameterHashes = new HashSet<int>();
 
     void Awake()
     {
@@ -53,6 +53,8 @@ public class InvestigatorCombatNet : NetworkBehaviour
         _audioSource.maxDistance = 65f;
         _audioSource.rolloffMode = AudioRolloffMode.Linear;
         _audioSource.volume = 1f;
+
+        CacheAnimatorParameters();
     }
 
     public override void OnNetworkSpawn()
@@ -72,17 +74,17 @@ public class InvestigatorCombatNet : NetworkBehaviour
         if (_attackTimer > 0) _attackTimer -= Time.deltaTime;
 
         // Weapon switching (1 = Axe, 2 = Gun)
-        if (Keyboard.current.digit1Key.wasPressedThisFrame) SwitchWeapon(0);
-        if (Keyboard.current.digit2Key.wasPressedThisFrame) SwitchWeapon(1);
+        if (Keyboard.current.digit1Key != null && Keyboard.current.digit1Key.wasPressedThisFrame) SwitchWeapon(0);
+        if (Keyboard.current.digit2Key != null && Keyboard.current.digit2Key.wasPressedThisFrame) SwitchWeapon(1);
 
         // Attack (Left Click)
-        if (Mouse.current.leftButton.wasPressedThisFrame && _attackTimer <= 0 && !_isReloading)
+        if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame && _attackTimer <= 0 && !_isReloading)
         {
             PerformAttack();
         }
 
         // Reload (R - Gun only)
-        if (Keyboard.current.rKey.wasPressedThisFrame && currentWeaponIndex.Value == 1 && !_isReloading)
+        if (Keyboard.current.rKey != null && Keyboard.current.rKey.wasPressedThisFrame && currentWeaponIndex.Value == 1 && !_isReloading)
         {
             StartCoroutine(ReloadRoutine());
         }
@@ -95,12 +97,8 @@ public class InvestigatorCombatNet : NetworkBehaviour
         if (axeVisual != null) axeVisual.SetActive(index == 0);
         if (gunVisual != null) gunVisual.SetActive(index == 1);
 
-        if (_animator != null)
-        {
-            _animator.SetInteger(_weaponIdHash, index);
-            if (_networkAnimator != null)
-                _networkAnimator.SetTrigger(_switchWeaponHash);
-        }
+        SafeSetInteger(_weaponIdHash, index);
+        SafeSetTrigger(_switchWeaponHash);
 
         if (index == 1 && gunStats != null)
         {
@@ -122,8 +120,7 @@ public class InvestigatorCombatNet : NetworkBehaviour
 
         _attackTimer = activeStats.fireRate;
 
-        if (_networkAnimator != null)
-            _networkAnimator.SetTrigger(_attackHash);
+        SafeSetTrigger(_attackHash);
 
         if (activeStats.fireSound != null)
             _audioSource.PlayOneShot(activeStats.fireSound);
@@ -176,8 +173,7 @@ public class InvestigatorCombatNet : NetworkBehaviour
 
         _isReloading = true;
 
-        if (_networkAnimator != null)
-            _networkAnimator.SetTrigger(_reloadHash);
+        SafeSetTrigger(_reloadHash);
 
         if (gunStats.reloadSound != null)
             _audioSource.PlayOneShot(gunStats.reloadSound);
@@ -186,5 +182,47 @@ public class InvestigatorCombatNet : NetworkBehaviour
 
         currentAmmo.Value = gunStats.maxAmmo;
         _isReloading = false;
+    }
+
+    // =========================================================================
+    //  Animator Safety Helpers
+    // =========================================================================
+
+    private void CacheAnimatorParameters()
+    {
+        _animatorParameterHashes.Clear();
+        if (_animator == null)
+            _animator = GetComponentInChildren<Animator>();
+
+        if (_animator != null && _animator.parameterCount > 0)
+        {
+            foreach (var param in _animator.parameters)
+            {
+                _animatorParameterHashes.Add(param.nameHash);
+            }
+        }
+    }
+
+    private void SafeSetInteger(int hash, int value)
+    {
+        if (_animator != null && _animatorParameterHashes.Contains(hash))
+        {
+            _animator.SetInteger(hash, value);
+        }
+    }
+
+    private void SafeSetTrigger(int hash)
+    {
+        if (_animatorParameterHashes.Contains(hash))
+        {
+            if (_networkAnimator != null)
+            {
+                _networkAnimator.SetTrigger(hash);
+            }
+            else if (_animator != null)
+            {
+                _animator.SetTrigger(hash);
+            }
+        }
     }
 }

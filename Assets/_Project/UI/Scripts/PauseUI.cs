@@ -191,6 +191,11 @@ public class PauseUI : MonoBehaviour
 
     public void ConfirmDisconnect()
     {
+        // Unpause game & restore time scale before leaving
+        PauseManager pauseMgr = FindFirstObjectByType<PauseManager>();
+        if (pauseMgr != null)
+            pauseMgr.SetPaused(false);
+
         if (NetworkManager.Singleton != null)
             NetworkManager.Singleton.Shutdown();
 

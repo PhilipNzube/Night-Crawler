@@ -206,7 +206,20 @@ public class GameManager : NetworkBehaviour
 
         foreach (ulong clientId in clientIds)
         {
-            bool isGirl = (clientId == girlClientId) && !forceInvestigator;
+            bool isGirl = false;
+
+            if (!forceInvestigator)
+            {
+                if (clientId == girlClientId && girlClientId != 999)
+                {
+                    isGirl = true;
+                }
+                else if (NetworkManager.Singleton != null && clientId == NetworkManager.Singleton.LocalClientId)
+                {
+                    isGirl = PersistentCharacterSelection.IsVengefulSpirit();
+                }
+            }
+
             SpawnPlayerRole(clientId, isGirl);
         }
     }
@@ -229,7 +242,33 @@ public class GameManager : NetworkBehaviour
             cc.enabled = false;
             playerInstance.transform.position = spawnPos;
             playerInstance.transform.rotation = spawnRot;
+
+            // Zero out any horizontal Center offset on CharacterController
+            Vector3 center = cc.center;
+            if (Mathf.Abs(center.x) > 0.05f)
+            {
+                Debug.LogWarning($"[GameManager] CharacterController on '{playerInstance.name}' had X offset = {center.x}. Resetting Center.x to 0.");
+                center.x = 0f;
+                cc.center = center;
+            }
+
             cc.enabled = true;
+        }
+
+        // Code safeguard: ensure child mesh container is centered at local X=0
+        for (int i = 0; i < playerInstance.transform.childCount; i++)
+        {
+            Transform child = playerInstance.transform.GetChild(i);
+            if (child.name.ToLower().Contains("mesh") || child.name.ToLower().Contains("geo") || child.name.ToLower().Contains("model") || child.name.ToLower().Contains("body"))
+            {
+                if (Mathf.Abs(child.localPosition.x) > 0.05f)
+                {
+                    Debug.LogWarning($"[GameManager] Child '{child.name}' on '{playerInstance.name}' had local X offset = {child.localPosition.x}. Centering to 0.");
+                    Vector3 lp = child.localPosition;
+                    lp.x = 0f;
+                    child.localPosition = lp;
+                }
+            }
         }
 
         NetworkObject netObj = playerInstance.GetComponent<NetworkObject>();

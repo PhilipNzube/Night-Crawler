@@ -215,6 +215,7 @@ public class CharacterSelectUI : MonoBehaviour
         _selectedIndex = Mathf.Clamp(index, 0, count - 1);
 
         PersistentCharacterSelection.SetSelectedCharacterIndex(_selectedIndex);
+        PersistentCharacterSelection.SetIsVengefulSpirit(false);
 
         // 1. Check ScriptableObjects list first
         if (characterDefinitions != null && _selectedIndex < characterDefinitions.Count && characterDefinitions[_selectedIndex] != null)

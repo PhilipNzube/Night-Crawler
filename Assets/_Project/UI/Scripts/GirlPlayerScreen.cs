@@ -93,6 +93,7 @@ public class GirlPlayerScreen : MonoBehaviour
     public void Show()
     {
         _readySent = false;
+        PersistentCharacterSelection.SetIsVengefulSpirit(true);
         SetScreenVisible(true);
         PopulateTexts();
         SpawnGirlModel();
