@@ -3,14 +3,19 @@ using System.Collections;
 using System.Collections.Generic;
 
 /// <summary>
-/// SOLID — SRP & OCP: Drives character preview animations for lobby screens.
+/// SOLID — SRP &amp; OCP: Drives character preview animations for lobby, squad screen, and cinematic screens.
 ///
-/// Features:
-///   1. Cinematic Intro Sequences & Natural Linger Gesture Loops.
-///   2. Multi-step Dance Routines for Vengeful Spirit / Girl.
-///   3. Root Motion Control: Toggle `enableRootMotionInPreview` per character or preset.
-///   4. Dance Random Rotation: Smoothly turns character to random facing angles while dancing,
-///      keeping root motion movement organic and centered on the preview pivot.
+/// ─────────────────────────────────────────────────────────────────
+/// HOW TO USE — SET THE STARTUP MODE IN THE INSPECTOR:
+///
+///   Lobby_LoopIdle    → Loops 'Lobby Idle State' forever. NO gestures, NO dance. Pure idle only.
+///   Squad_Gestures    → Idles with random gestures from 'Squad Gesture Steps' firing periodically.
+///   Squad_DanceLoop   → Plays random dance steps from 'Squad Dance Steps', repeating endlessly.
+///   Cinematic         → Plays 'Cinematic Intro Sequence' in order, then hands off to gestures.
+///   Manual            → Does nothing on Enable. You call the public API yourself.
+///
+/// LEAVE LISTS EMPTY: Empty lists = character stays in idle. Nothing breaks.
+/// ─────────────────────────────────────────────────────────────────
 /// </summary>
 public class CharacterAnimationController : MonoBehaviour
 {
@@ -18,6 +23,25 @@ public class CharacterAnimationController : MonoBehaviour
     //  Enums & Data Structs
     // =========================================================================
 
+    public enum StartupMode
+    {
+        [Tooltip("Loops one animation state endlessly. Gestures NEVER fire. Use for Lobby.")]
+        Lobby_LoopIdle,
+
+        [Tooltip("Idles and randomly plays gestures from 'Squad Gesture Steps'. Use for Squad Screen.")]
+        Squad_Gestures,
+
+        [Tooltip("Plays random dance steps from 'Squad Dance Steps' in a loop. Use for Girl/Squad hype.")]
+        Squad_DanceLoop,
+
+        [Tooltip("Plays 'Cinematic Intro Sequence' then starts gesture loop. Use for character reveal.")]
+        Cinematic,
+
+        [Tooltip("Does nothing on Enable. You control this via public API calls in code.")]
+        Manual
+    }
+
+    /// <summary>Legacy enum kept for backward compatibility with SquadLineupDisplay and other callers.</summary>
     public enum CharacterType { Priest, Miner, Medic, Protector, Adventurer, Girl }
 
     [System.Serializable]
@@ -29,95 +53,154 @@ public class CharacterAnimationController : MonoBehaviour
         [Tooltip("Crossfade blend duration in seconds when entering this state.")]
         public float blendTime = 0.25f;
 
-        [Tooltip("How many seconds to hold in this state before proceeding. Leave at 3.5s or 0 for auto-detect clip duration.")]
+        [Tooltip("How many seconds to hold in this state before proceeding. Leave at 0 to auto-detect clip length.")]
         public float holdTime = 3.5f;
+
+        [Tooltip("If true, this step loops endlessly and NEVER moves to the next step.")]
+        public bool loop = false;
     }
 
     // =========================================================================
     //  Inspector Fields
     // =========================================================================
 
-    [Header("Preset Asset (Optional - Overrides Inspector Settings)")]
+    [Header("Preset Asset (Optional — Overrides All Inspector Fields)")]
     [Tooltip("Drag a CharacterAnimPresetSO asset here for shared reusable presets across prefabs.")]
     public CharacterAnimPresetSO preset;
 
-    [Header("Root Motion Configuration")]
-    [Tooltip("If true, Animator.applyRootMotion is enabled on this preview character. " +
-             "Toggle this boolean in Inspector or Preset to enable/disable root motion for this character.")]
+    [Header("Root Motion")]
+    [Tooltip("Enables Animator.applyRootMotion on this preview character.")]
     public bool enableRootMotionInPreview = true;
 
-    [Header("Character Identity")]
-    [Tooltip("Determines which built-in default sequence to use if no custom steps are defined.")]
-    public CharacterType characterType = CharacterType.Adventurer;
+    // =========================================================================
+    //  STARTUP MODE
+    //  This single dropdown decides what plays automatically when the screen opens.
+    // =========================================================================
 
-    [Header("Core State Names")]
-    [Tooltip("Idle resting state. Used between sequences and after gestures.")]
-    public string idleStateName = "Idle";
+    [Header("══ STARTUP MODE ══════════════════════════════════════")]
+    [Tooltip(
+        "Lobby_LoopIdle  → Pure idle loop, gestures never fire. Set 'Lobby Idle State' below.\n" +
+        "Squad_Gestures  → Idle + random gestures from 'Squad Gesture Steps'.\n" +
+        "Squad_DanceLoop → Looping dance from 'Squad Dance Steps'.\n" +
+        "Cinematic       → Plays intro sequence then gestures.\n" +
+        "Manual          → Does nothing automatically.")]
+    public StartupMode startupMode = StartupMode.Lobby_LoopIdle;
 
-    [Header("Cinematic Intro Sequence")]
-    public List<AnimSequenceStep> customCinematicSequence = new List<AnimSequenceStep>();
+    // =========================================================================
+    //  LOBBY SETTINGS
+    //  Used when startupMode == Lobby_LoopIdle
+    // =========================================================================
 
-    [Header("Dance Routine Sequence")]
-    public List<AnimSequenceStep> customDanceSequence = new List<AnimSequenceStep>();
+    [Header("── Lobby Settings (Startup Mode: Lobby_LoopIdle)")]
+    [Tooltip("Animator state to loop endlessly in the Lobby. Must match Animator Controller exactly.")]
+    public string lobbyIdleState = "Idle";
 
-    [Header("Turning Animations")]
-    [Tooltip("Exact state name for turning left before or during dance.")]
-    public string turnLeftStateName = "Turn_Left";
+    // =========================================================================
+    //  SQUAD SETTINGS
+    //  Used when startupMode == Squad_Gestures or Squad_DanceLoop
+    // =========================================================================
 
-    [Tooltip("Exact state name for turning right before or during dance.")]
-    public string turnRightStateName = "Turn_Right";
+    [Header("── Squad Settings (Startup Mode: Squad_Gestures or Squad_DanceLoop)")]
 
-    [Tooltip("Chance (0 to 1) to execute a left or right turn animation before starting a dance.")]
-    [Range(0f, 1f)]
-    public float turnBeforeDanceChance = 0.6f;
+    [Tooltip("Resting idle state used between gestures/dances in the Squad screen.")]
+    public string squadIdleState = "Idle";
 
-    [Tooltip("Duration in seconds to execute the turn state and rotation before starting dance.")]
-    public float turnDuration = 1.0f;
+    [Tooltip("Random gestures that fire periodically while idling. Used by Squad_Gestures mode.\n" +
+             "Typed version with per-entry hold times. Preferred over 'Squad Simple Gesture Names'.")]
+    public List<AnimSequenceStep> squadGestureSteps = new List<AnimSequenceStep>();
 
-    [Header("Dance Sequence Fallbacks")]
-    [Tooltip("Default hold time (seconds) if a dance step's holdTime in Inspector is left at 0.")]
-    public float defaultDanceHoldTime = 3.5f;
+    [Tooltip("Simple gesture state names (fallback if Gesture Steps above is empty).")]
+    public List<string> squadSimpleGestureNames = new List<string>();
 
-    [Header("Dance Random Rotation & Organic Movement")]
-    [Tooltip("If true, character smoothly turns to random facing angles while dancing, keeping movement organic.")]
+    [Range(2f, 30f)]
+    [Tooltip("Min seconds to wait before firing a gesture.")]
+    public float minGestureDelay = 5f;
+
+    [Range(3f, 60f)]
+    [Tooltip("Max seconds to wait before firing a gesture.")]
+    public float maxGestureDelay = 15f;
+
+    [Tooltip("Hold duration in seconds used for Simple Gesture Names entries (ignored when Gesture Steps are used).")]
+    public float gestureDuration  = 2.5f;
+    public float gestureBlendTime = 0.3f;
+
+    [Tooltip("Dance steps played in random order by Squad_DanceLoop mode.")]
+    public List<AnimSequenceStep> squadDanceSteps = new List<AnimSequenceStep>();
+
+    [Range(2f, 20f)] public float minDanceRepeatDelay = 5f;
+    [Range(3f, 40f)] public float maxDanceRepeatDelay = 12f;
+
+    [Tooltip("If true, character smoothly turns to random facing angles while dancing.")]
     public bool enableRandomRotationOnDance = true;
 
-    [Tooltip("Minimum seconds between picking a new dance facing angle.")]
+    [Tooltip("Min seconds between random facing turns while dancing.")]
     public float minTurnInterval = 1.5f;
 
-    [Tooltip("Maximum seconds between picking a new dance facing angle.")]
+    [Tooltip("Max seconds between random facing turns while dancing.")]
     public float maxTurnInterval = 4.0f;
 
-    [Tooltip("Maximum rotation angle variation (in degrees) relative to initial spawn facing.")]
+    [Tooltip("Max rotation angle variation (degrees) from initial facing while dancing.")]
     public float maxTurnAngle = 70f;
 
     [Tooltip("Smooth rotation lerp speed.")]
     public float turnSmoothSpeed = 2.5f;
 
-    [Header("Gesture Loop (Natural Idle Behaviour)")]
-    [Tooltip("Simple list of state names — gesture plays for 'gestureDuration' seconds then returns to idle.")]
-    public List<string> gestureStateNames = new List<string>();
+    [Tooltip("Animator state name for turning left. Leave blank to skip.")]
+    public string turnLeftStateName = "Turn_Left";
 
-    [Tooltip("Typed gesture steps with custom hold times per gesture — used instead of gestureStateNames if populated. " +
-             "Works exactly like customDanceSequence: drag in state names and set hold time per entry.")]
-    public List<AnimSequenceStep> idleGestureSteps = new List<AnimSequenceStep>();
+    [Tooltip("Animator state name for turning right. Leave blank to skip.")]
+    public string turnRightStateName = "Turn_Right";
 
-    [Range(2f, 30f)] public float minGestureDelay = 5f;
-    [Range(3f, 60f)] public float maxGestureDelay = 15f;
-    [Tooltip("Hold duration (seconds) used for simple gestureStateNames entries. Ignored when idleGestureSteps is used.")]
-    public float gestureDuration = 2.5f;
-    public float gestureBlendTime = 0.3f;
+    [Tooltip("Chance (0–1) to play a turn animation before each dance step.")]
+    [Range(0f, 1f)]
+    public float turnBeforeDanceChance = 0.6f;
 
-    [Header("Dance Routine Repeat Timing")]
-    [Range(2f, 20f)] public float minDanceRepeatDelay = 5f;
-    [Range(3f, 40f)] public float maxDanceRepeatDelay = 12f;
+    [Tooltip("Duration in seconds to execute the turn anim and rotation.")]
+    public float turnDuration = 1.0f;
+
+    [Tooltip("Default hold time (seconds) if a dance step's holdTime is left at 0.")]
+    public float defaultDanceHoldTime = 3.5f;
+
+    // =========================================================================
+    //  CINEMATIC SETTINGS
+    //  Used when startupMode == Cinematic
+    // =========================================================================
+
+    [Header("── Cinematic Settings (Startup Mode: Cinematic)")]
+
+    [Tooltip("Idle resting state used after the cinematic sequence finishes.")]
+    public string cinematicIdleState = "Idle";
+
+    [Tooltip("Ordered sequence of animation states played when startupMode is Cinematic.\n" +
+             "If empty, character immediately enters idle — no crash, no default animations.")]
+    public List<AnimSequenceStep> cinematicIntroSequence = new List<AnimSequenceStep>();
+
+    [Tooltip("If true, random gestures from 'Cinematic Gesture Steps' fire after the intro finishes.")]
+    public bool cinematicStartGesturesAfterIntro = true;
+
+    [Tooltip("Gesture steps that fire after the cinematic intro sequence finishes.")]
+    public List<AnimSequenceStep> cinematicGestureSteps = new List<AnimSequenceStep>();
+
+    [Tooltip("Simple gesture state names (fallback if Cinematic Gesture Steps is empty).")]
+    public List<string> cinematicSimpleGestureNames = new List<string>();
+
+    // =========================================================================
+    //  LEGACY FIELDS (kept for backward compatibility with existing PresetSOs)
+    //  These are still read by the Preset asset resolution helpers.
+    // =========================================================================
+    [HideInInspector] public string idleStateName = "Idle";
+    [HideInInspector] public CharacterType characterType = CharacterType.Adventurer;
+    [HideInInspector] public List<AnimSequenceStep> customCinematicSequence = new List<AnimSequenceStep>();
+    [HideInInspector] public List<AnimSequenceStep> customDanceSequence      = new List<AnimSequenceStep>();
+    [HideInInspector] public List<AnimSequenceStep> idleGestureSteps         = new List<AnimSequenceStep>();
+    [HideInInspector] public List<string>           gestureStateNames        = new List<string>();
 
     // =========================================================================
     //  Private State
     // =========================================================================
 
     private Animator   _animator;
-    private Coroutine  _cinematicCoroutine;
+    private Coroutine  _mainCoroutine;
     private Coroutine  _gestureCoroutine;
     private Coroutine  _rotationCoroutine;
 
@@ -144,6 +227,7 @@ public class CharacterAnimationController : MonoBehaviour
     {
         CaptureInitialPivot();
         ApplyRootMotionSettings();
+        ExecuteStartupMode();
     }
 
     void OnDisable()
@@ -152,10 +236,47 @@ public class CharacterAnimationController : MonoBehaviour
     }
 
     // =========================================================================
+    //  Startup Dispatch
+    // =========================================================================
+
+    private void ExecuteStartupMode()
+    {
+        // Always check for preset override first
+        if (preset != null)
+        {
+            PlayCinematicSequence(true);
+            return;
+        }
+
+        switch (startupMode)
+        {
+            case StartupMode.Lobby_LoopIdle:
+                LoopAnimation(lobbyIdleState);        // Gestures NEVER start in this path
+                break;
+
+            case StartupMode.Squad_Gestures:
+                StartNaturalGestureLoop();
+                break;
+
+            case StartupMode.Squad_DanceLoop:
+                PlayDanceLoop();
+                break;
+
+            case StartupMode.Cinematic:
+                PlayCinematicSequence(cinematicStartGesturesAfterIntro);
+                break;
+
+            case StartupMode.Manual:
+                // Do nothing — caller controls this via public API
+                break;
+        }
+    }
+
+    // =========================================================================
     //  Public API
     // =========================================================================
 
-    /// <summary>Applies root motion setting to Animator according to Inspector or Preset.</summary>
+    /// <summary>Applies root motion setting from Inspector or Preset.</summary>
     public void ApplyRootMotionSettings()
     {
         if (_animator == null) return;
@@ -163,71 +284,113 @@ public class CharacterAnimationController : MonoBehaviour
         _animator.applyRootMotion = useRootMotion;
     }
 
+    /// <summary>
+    /// Loops a specific animation state endlessly.
+    /// Gestures NEVER fire when using this — it is a pure, isolated loop.
+    /// </summary>
+    public void LoopAnimation(string stateName)
+    {
+        StopAllRoutines(); // cancels any gesture or dance coroutines too
+        ApplyRootMotionSettings();
+        if (string.IsNullOrEmpty(stateName)) stateName = GetResolvedIdleState();
+        _mainCoroutine = StartCoroutine(RunSingleAnimationLoop(stateName));
+    }
+
+    /// <summary>Loops the lobby idle state. Shortcut for LoopAnimation(lobbyIdleState).</summary>
+    public void LoopCurrentIdle() => LoopAnimation(GetResolvedIdleState());
+
+    /// <summary>
+    /// Plays the cinematic intro sequence, then optionally starts gestures.
+    /// Uses cinematicIntroSequence (or Preset introSequence if assigned).
+    /// </summary>
     public void PlayCinematicSequence(bool startGestureLoopAfter = true)
     {
         StopAllRoutines();
         ApplyRootMotionSettings();
-        _cinematicCoroutine = StartCoroutine(RunCinematicSequence(startGestureLoopAfter));
+        _mainCoroutine = StartCoroutine(RunCinematicSequence(startGestureLoopAfter));
     }
 
+    /// <summary>
+    /// Starts the idle + gesture loop using Squad gesture settings.
+    /// Gestures fire randomly from squadGestureSteps / squadSimpleGestureNames.
+    /// </summary>
     public void StartNaturalGestureLoop()
     {
         StopAllRoutines();
         ApplyRootMotionSettings();
-        CrossFadeTo(GetActiveIdleState(), 0.3f);
-        if (GetActiveGestureStates().Count > 0)
+        CrossFadeTo(GetResolvedSquadIdleState(), 0.3f);
+
+        bool hasTyped  = squadGestureSteps != null && squadGestureSteps.Count > 0;
+        bool hasSimple = squadSimpleGestureNames != null && squadSimpleGestureNames.Count > 0;
+        if (hasTyped || hasSimple)
             _gestureCoroutine = StartCoroutine(RunGestureLoop());
     }
 
+    /// <summary>
+    /// Plays random dance steps from squadDanceSteps in a loop.
+    /// If the list is empty, character stays in idle.
+    /// </summary>
     public void PlayDanceLoop()
     {
         StopAllRoutines();
         ApplyRootMotionSettings();
-        _cinematicCoroutine = StartCoroutine(RunDanceLoop());
+        _mainCoroutine = StartCoroutine(RunDanceLoop());
 
         bool useRotation = preset != null ? preset.enableRandomRotationOnDance : enableRandomRotationOnDance;
         if (useRotation)
             _rotationCoroutine = StartCoroutine(RunRandomRotationLoop());
     }
 
-    public void PlayDance()
-    {
-        StopAllRoutines();
-        ApplyRootMotionSettings();
-        List<AnimSequenceStep> danceSteps = GetActiveDanceSequence();
-        AnimSequenceStep step = GetNextRandomDanceStep(danceSteps);
-        if (step != null && !string.IsNullOrEmpty(step.stateName))
-            CrossFadeTo(step.stateName, step.blendTime);
-    }
-
     public void ReturnToIdle()
     {
         StopAllRoutines();
-        CrossFadeTo(GetActiveIdleState(), 0.35f);
+        CrossFadeTo(GetResolvedIdleState(), 0.35f);
     }
 
     // =========================================================================
     //  Coroutines
     // =========================================================================
 
-    private IEnumerator RunCinematicSequence(bool loopGesturesAfter)
+    private IEnumerator RunSingleAnimationLoop(string stateName)
+    {
+        if (_animator == null) yield break;
+        CrossFadeTo(stateName, 0.3f);
+        // The Animator loops the clip automatically (clip must be set to Loop in Unity).
+        // This coroutine holds the main slot to prevent anything else starting on top of it.
+        while (true)
+            yield return null;
+    }
+
+    private IEnumerator RunCinematicSequence(bool startGesturesAfter)
     {
         if (_animator == null) yield break;
 
-        List<AnimSequenceStep> sequence = GetActiveIntroSequence();
+        List<AnimSequenceStep> sequence = GetActiveCinematicSequence();
+
+        if (sequence == null || sequence.Count == 0)
+        {
+            CrossFadeTo(GetResolvedCinematicIdleState(), 0.4f);
+            _mainCoroutine = null;
+            yield break;
+        }
 
         foreach (AnimSequenceStep step in sequence)
         {
             if (string.IsNullOrEmpty(step.stateName)) continue;
             CrossFadeTo(step.stateName, step.blendTime);
+
+            if (step.loop)
+            {
+                while (true) yield return null; // hold this step forever
+            }
+
             yield return StartCoroutine(WaitStepHoldTime(step));
         }
 
-        CrossFadeTo(GetActiveIdleState(), 0.4f);
-        _cinematicCoroutine = null;
+        CrossFadeTo(GetResolvedCinematicIdleState(), 0.4f);
+        _mainCoroutine = null;
 
-        List<string> gestures = GetActiveGestureStates();
-        if (loopGesturesAfter && gestures.Count > 0)
+        if (startGesturesAfter && HasAnyCinematicGestures())
             _gestureCoroutine = StartCoroutine(RunGestureLoop());
     }
 
@@ -237,13 +400,12 @@ public class CharacterAnimationController : MonoBehaviour
 
         float minDelay  = preset != null ? preset.minGestureDelay : minGestureDelay;
         float maxDelay  = preset != null ? preset.maxGestureDelay : maxGestureDelay;
-        string idleName = GetActiveIdleState();
+        string idleName = GetResolvedGestureIdleState();
 
-        // Prefer typed idleGestureSteps (with per-entry hold times) over simple name list
-        List<AnimSequenceStep> typedGestures = GetActiveIdleGestureSteps();
+        // Typed gesture steps take priority
+        List<AnimSequenceStep> typedGestures = GetActiveGestureSteps();
         if (typedGestures != null && typedGestures.Count > 0)
         {
-            // Typed gesture loop
             while (true)
             {
                 float delay = Random.Range(minDelay, maxDelay);
@@ -260,16 +422,16 @@ public class CharacterAnimationController : MonoBehaviour
         }
         else
         {
-            // Simple name list gesture loop (legacy)
-            List<string> gestures = GetActiveGestureStates();
-            if (gestures.Count == 0) yield break;
+            // Simple name list
+            List<string> simpleGestures = GetActiveSimpleGestureNames();
+            if (simpleGestures == null || simpleGestures.Count == 0) yield break;
 
             while (true)
             {
                 float delay = Random.Range(minDelay, maxDelay);
                 yield return new WaitForSecondsRealtime(delay);
 
-                string gesture = gestures[Random.Range(0, gestures.Count)];
+                string gesture = simpleGestures[Random.Range(0, simpleGestures.Count)];
                 if (!string.IsNullOrEmpty(gesture))
                 {
                     CrossFadeTo(gesture, gestureBlendTime);
@@ -285,11 +447,15 @@ public class CharacterAnimationController : MonoBehaviour
     {
         if (_animator == null) yield break;
 
-        List<AnimSequenceStep> danceSteps = GetActiveDanceSequence();
-        if (danceSteps == null || danceSteps.Count == 0) yield break;
+        List<AnimSequenceStep> danceSteps = GetActiveDanceSteps();
+        if (danceSteps == null || danceSteps.Count == 0)
+        {
+            CrossFadeTo(GetResolvedSquadIdleState(), 0.4f);
+            yield break;
+        }
 
-        string idleName = GetActiveIdleState();
-        int dancesToPlay = Mathf.Max(danceSteps.Count, 3);
+        string idleName    = GetResolvedSquadIdleState();
+        int dancesToPlay   = Mathf.Max(danceSteps.Count, 3);
 
         for (int i = 0; i < dancesToPlay; i++)
         {
@@ -297,16 +463,20 @@ public class CharacterAnimationController : MonoBehaviour
             if (step == null || string.IsNullOrEmpty(step.stateName)) continue;
 
             if (Random.value < GetActiveTurnBeforeDanceChance())
-            {
                 yield return StartCoroutine(PerformTurnBeforeDance());
-            }
 
             CrossFadeTo(step.stateName, step.blendTime);
+
+            if (step.loop)
+            {
+                while (true) yield return null;
+            }
+
             yield return StartCoroutine(WaitStepHoldTime(step));
         }
 
         CrossFadeTo(idleName, 0.45f);
-        _cinematicCoroutine = null;
+        _mainCoroutine = null;
 
         _gestureCoroutine = StartCoroutine(RunDanceRepeatLoop());
     }
@@ -315,16 +485,16 @@ public class CharacterAnimationController : MonoBehaviour
     {
         if (_animator == null) yield break;
 
-        float minDelay = preset != null ? preset.minDanceRepeatDelay : minDanceRepeatDelay;
-        float maxDelay = preset != null ? preset.maxDanceRepeatDelay : maxDanceRepeatDelay;
-        string idleName = GetActiveIdleState();
+        float minDelay  = preset != null ? preset.minDanceRepeatDelay : minDanceRepeatDelay;
+        float maxDelay  = preset != null ? preset.maxDanceRepeatDelay : maxDanceRepeatDelay;
+        string idleName = GetResolvedSquadIdleState();
 
         while (true)
         {
             float delay = Random.Range(minDelay, maxDelay);
             yield return new WaitForSecondsRealtime(delay);
 
-            List<AnimSequenceStep> danceSteps = GetActiveDanceSequence();
+            List<AnimSequenceStep> danceSteps = GetActiveDanceSteps();
             if (danceSteps != null && danceSteps.Count > 0)
             {
                 int dancesToPlay = Mathf.Max(danceSteps.Count, 3);
@@ -334,9 +504,7 @@ public class CharacterAnimationController : MonoBehaviour
                     if (step == null || string.IsNullOrEmpty(step.stateName)) continue;
 
                     if (Random.value < GetActiveTurnBeforeDanceChance())
-                    {
                         yield return StartCoroutine(PerformTurnBeforeDance());
-                    }
 
                     CrossFadeTo(step.stateName, step.blendTime);
                     yield return StartCoroutine(WaitStepHoldTime(step));
@@ -348,11 +516,6 @@ public class CharacterAnimationController : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Smoothly turns the character to random facing angles while dancing.
-    /// Uses Turn_Left or Turn_Right animations when available.
-    /// If root motion moves her too far from origin, turns back toward pivot center.
-    /// </summary>
     private IEnumerator RunRandomRotationLoop()
     {
         if (!_pivotCaptured) CaptureInitialPivot();
@@ -365,31 +528,26 @@ public class CharacterAnimationController : MonoBehaviour
         {
             float waitTime = Random.Range(minInterval, maxInterval);
 
-            // Determine target facing angle
             Quaternion targetRotation;
             float distanceFromPivot = Vector3.Distance(transform.position, _initialPosition);
 
             if (distanceFromPivot > 1.8f)
             {
-                // Drifted away — face back toward center pivot
                 Vector3 directionToCenter = (_initialPosition - transform.position).normalized;
                 directionToCenter.y = 0f;
                 targetRotation = Quaternion.LookRotation(directionToCenter, Vector3.up);
             }
             else
             {
-                // Pick a random organic angle relative to initial spawn facing
                 float randomOffsetAngle = Random.Range(-maxAngle, maxAngle);
                 targetRotation = _initialRotation * Quaternion.Euler(0f, randomOffsetAngle, 0f);
             }
 
-            // Trigger turn animation based on turning direction
-            float angleDelta = Vector3.SignedAngle(transform.forward, targetRotation * Vector3.forward, Vector3.up);
+            float angleDelta  = Vector3.SignedAngle(transform.forward, targetRotation * Vector3.forward, Vector3.up);
             bool isTurningLeft = angleDelta < 0f;
             TryCrossFadeTurnState(isTurningLeft, 0.25f);
 
-            // Smoothly lerp rotation to target angle
-            float elapsed = 0f;
+            float elapsed        = 0f;
             float turnDurationVal = preset != null ? preset.turnDuration : turnDuration;
             if (turnDurationVal <= 0.1f) turnDurationVal = 1.2f;
             Quaternion startRotation = transform.rotation;
@@ -406,27 +564,18 @@ public class CharacterAnimationController : MonoBehaviour
     }
 
     // =========================================================================
-    //  Private Helpers & Resolution
+    //  Private Helpers
     // =========================================================================
 
     private AnimSequenceStep GetNextRandomDanceStep(List<AnimSequenceStep> danceSteps)
     {
         if (danceSteps == null || danceSteps.Count == 0) return null;
-
-        if (danceSteps.Count == 1)
-        {
-            _lastDanceIndex = 0;
-            return danceSteps[0];
-        }
+        if (danceSteps.Count == 1) { _lastDanceIndex = 0; return danceSteps[0]; }
 
         int randomIndex;
-        int maxAttempts = 10;
         int attempts = 0;
-        do
-        {
-            randomIndex = Random.Range(0, danceSteps.Count);
-            attempts++;
-        } while (randomIndex == _lastDanceIndex && attempts < maxAttempts);
+        do { randomIndex = Random.Range(0, danceSteps.Count); attempts++; }
+        while (randomIndex == _lastDanceIndex && attempts < 10);
 
         _lastDanceIndex = randomIndex;
         return danceSteps[randomIndex];
@@ -438,13 +587,12 @@ public class CharacterAnimationController : MonoBehaviour
 
         bool isTurnLeft = Random.value < 0.5f;
         TryCrossFadeTurnState(isTurnLeft, 0.2f);
-
         if (!_pivotCaptured) CaptureInitialPivot();
 
-        float maxAngle = preset != null ? preset.maxTurnAngle : maxTurnAngle;
+        float maxAngle  = preset != null ? preset.maxTurnAngle : maxTurnAngle;
         float turnAngle = isTurnLeft ? Random.Range(-maxAngle, -25f) : Random.Range(25f, maxAngle);
 
-        Quaternion startRot = transform.rotation;
+        Quaternion startRot  = transform.rotation;
         Quaternion targetRot = _initialRotation * Quaternion.Euler(0f, turnAngle, 0f);
 
         float duration = preset != null ? preset.turnDuration : turnDuration;
@@ -465,18 +613,13 @@ public class CharacterAnimationController : MonoBehaviour
 
         string configured = isLeft ? GetActiveTurnLeftState() : GetActiveTurnRightState();
         string[] candidates = isLeft
-            ? new string[] { configured, "Turn_Left", "Turn Left", "TurnLeft" }
+            ? new string[] { configured, "Turn_Left",  "Turn Left",  "TurnLeft"  }
             : new string[] { configured, "Turn_Right", "Turn Right", "TurnRight" };
 
-        // Check each candidate against every animator layer before calling CrossFade.
-        // CrossFadeInFixedTime(name, blend) without a layer index crashes with
-        // "Invalid Layer Index '-1'" when the state doesn't exist anywhere.
-        // Using HasState(layer, hash) lets us skip safely.
         int layerCount = _animator.layerCount;
         foreach (string candidate in candidates)
         {
             if (string.IsNullOrEmpty(candidate)) continue;
-
             int hash = Animator.StringToHash(candidate);
             for (int layer = 0; layer < layerCount; layer++)
             {
@@ -487,7 +630,6 @@ public class CharacterAnimationController : MonoBehaviour
                 }
             }
         }
-        // No matching state found — silently skip (no crash, no log spam).
     }
 
     private IEnumerator WaitStepHoldTime(AnimSequenceStep step)
@@ -497,16 +639,12 @@ public class CharacterAnimationController : MonoBehaviour
         if (hold <= 0.05f)
         {
             yield return null;
-
             if (_animator != null)
             {
                 AnimatorStateInfo stateInfo = _animator.GetCurrentAnimatorStateInfo(0);
                 if (stateInfo.length > 0.1f)
-                {
                     hold = stateInfo.length;
-                }
             }
-
             if (hold <= 0.05f)
             {
                 hold = preset != null ? preset.defaultDanceHoldTime : defaultDanceHoldTime;
@@ -515,27 +653,6 @@ public class CharacterAnimationController : MonoBehaviour
         }
 
         yield return new WaitForSecondsRealtime(hold);
-    }
-
-    private string GetActiveTurnLeftState()
-    {
-        if (preset != null && !string.IsNullOrEmpty(preset.turnLeftStateName))
-            return preset.turnLeftStateName;
-        return string.IsNullOrEmpty(turnLeftStateName) ? "Turn_Left" : turnLeftStateName;
-    }
-
-    private string GetActiveTurnRightState()
-    {
-        if (preset != null && !string.IsNullOrEmpty(preset.turnRightStateName))
-            return preset.turnRightStateName;
-        return string.IsNullOrEmpty(turnRightStateName) ? "Turn_Right" : turnRightStateName;
-    }
-
-    private float GetActiveTurnBeforeDanceChance()
-    {
-        if (preset != null)
-            return preset.turnBeforeDanceChance;
-        return turnBeforeDanceChance;
     }
 
     private void CaptureInitialPivot()
@@ -551,123 +668,121 @@ public class CharacterAnimationController : MonoBehaviour
     private void CrossFadeTo(string stateName, float blendTime)
     {
         if (_animator == null || string.IsNullOrEmpty(stateName)) return;
-
-        // Directly trigger crossfade so Unity Animator resolves state by name or layer
         _animator.CrossFadeInFixedTime(stateName, blendTime);
     }
 
     private void StopAllRoutines()
     {
-        if (_cinematicCoroutine != null) { StopCoroutine(_cinematicCoroutine); _cinematicCoroutine = null; }
-        if (_gestureCoroutine   != null) { StopCoroutine(_gestureCoroutine);   _gestureCoroutine   = null; }
-        if (_rotationCoroutine  != null) { StopCoroutine(_rotationCoroutine);  _rotationCoroutine  = null; }
+        if (_mainCoroutine     != null) { StopCoroutine(_mainCoroutine);     _mainCoroutine     = null; }
+        if (_gestureCoroutine  != null) { StopCoroutine(_gestureCoroutine);  _gestureCoroutine  = null; }
+        if (_rotationCoroutine != null) { StopCoroutine(_rotationCoroutine); _rotationCoroutine = null; }
     }
 
-    private string GetActiveIdleState()
+    // ─── State Name Resolution ───────────────────────────────────────────────
+
+    private string GetResolvedIdleState()
     {
-        if (preset != null && !string.IsNullOrEmpty(preset.idleStateName))
-            return preset.idleStateName;
-        return string.IsNullOrEmpty(idleStateName) ? "Idle" : idleStateName;
+        if (preset != null && !string.IsNullOrEmpty(preset.idleStateName)) return preset.idleStateName;
+        return !string.IsNullOrEmpty(lobbyIdleState) ? lobbyIdleState : "Idle";
     }
 
-    private List<string> GetActiveGestureStates()
+    private string GetResolvedSquadIdleState()
     {
-        if (preset != null && preset.gestureStateNames != null && preset.gestureStateNames.Count > 0)
-            return preset.gestureStateNames;
-        return gestureStateNames ?? new List<string>();
+        if (preset != null && !string.IsNullOrEmpty(preset.idleStateName)) return preset.idleStateName;
+        return !string.IsNullOrEmpty(squadIdleState) ? squadIdleState : "Idle";
     }
 
-    /// <summary>
-    /// Returns typed gesture steps (with per-entry hold times) if any are configured.
-    /// Preset takes priority. Falls back to the inspector idleGestureSteps list.
-    /// Returns null/empty when none — caller falls back to the simple name list.
-    /// </summary>
-    private List<AnimSequenceStep> GetActiveIdleGestureSteps()
+    private string GetResolvedCinematicIdleState()
     {
-        if (preset != null && preset.idleGestureSteps != null && preset.idleGestureSteps.Count > 0)
-            return preset.idleGestureSteps;
-        return idleGestureSteps;
+        if (preset != null && !string.IsNullOrEmpty(preset.idleStateName)) return preset.idleStateName;
+        return !string.IsNullOrEmpty(cinematicIdleState) ? cinematicIdleState : "Idle";
     }
 
-    private List<AnimSequenceStep> GetActiveIntroSequence()
+    private string GetResolvedGestureIdleState()
+    {
+        // Pick the idle state matching whichever gesture/dance lists are populated
+        if (squadGestureSteps != null && squadGestureSteps.Count > 0)
+            return GetResolvedSquadIdleState();
+        if (squadDanceSteps != null && squadDanceSteps.Count > 0)
+            return GetResolvedSquadIdleState();
+        if (squadSimpleGestureNames != null && squadSimpleGestureNames.Count > 0)
+            return GetResolvedSquadIdleState();
+        return GetResolvedCinematicIdleState();
+    }
+
+    // ─── Sequence Resolution ─────────────────────────────────────────────────
+
+    private List<AnimSequenceStep> GetActiveCinematicSequence()
     {
         if (preset != null && preset.introSequence != null && preset.introSequence.Count > 0)
             return preset.introSequence;
-
-        if (customCinematicSequence != null && customCinematicSequence.Count > 0)
-            return customCinematicSequence;
-
-        return BuildDefaultIntroSequence(characterType);
+        return cinematicIntroSequence ?? new List<AnimSequenceStep>();
     }
 
-    private List<AnimSequenceStep> GetActiveDanceSequence()
+    private List<AnimSequenceStep> GetActiveDanceSteps()
     {
         if (preset != null && preset.danceSequence != null && preset.danceSequence.Count > 0)
             return preset.danceSequence;
-
-        if (customDanceSequence != null && customDanceSequence.Count > 0)
-            return customDanceSequence;
-
-        return BuildDefaultDanceSequence(characterType);
+        // Prefer whichever list is populated — supports both inspector-driven and code-driven callers
+        if (squadDanceSteps != null && squadDanceSteps.Count > 0)
+            return squadDanceSteps;
+        // Legacy alias (customDanceSequence from old presets)
+        return customDanceSequence ?? new List<AnimSequenceStep>();
     }
 
-    // =========================================================================
-    //  Default Sequences
-    // =========================================================================
-
-    private static List<AnimSequenceStep> BuildDefaultIntroSequence(CharacterType type)
+    private List<AnimSequenceStep> GetActiveGestureSteps()
     {
-        switch (type)
+        if (preset != null && preset.idleGestureSteps != null && preset.idleGestureSteps.Count > 0)
+            return preset.idleGestureSteps;
+        // Pick whichever list has entries — external callers may be squad or cinematic
+        if (squadGestureSteps != null && squadGestureSteps.Count > 0)
+            return squadGestureSteps;
+        if (cinematicGestureSteps != null && cinematicGestureSteps.Count > 0)
+            return cinematicGestureSteps;
+        // Legacy alias
+        return idleGestureSteps ?? new List<AnimSequenceStep>();
+    }
+
+    private List<string> GetActiveSimpleGestureNames()
+    {
+        if (preset != null && preset.gestureStateNames != null && preset.gestureStateNames.Count > 0)
+            return preset.gestureStateNames;
+        if (squadSimpleGestureNames != null && squadSimpleGestureNames.Count > 0)
+            return squadSimpleGestureNames;
+        if (cinematicSimpleGestureNames != null && cinematicSimpleGestureNames.Count > 0)
+            return cinematicSimpleGestureNames;
+        // Legacy alias
+        return gestureStateNames ?? new List<string>();
+    }
+
+    private bool HasAnyCinematicGestures()
+    {
+        if (preset != null)
         {
-            case CharacterType.Priest:
-                return new List<AnimSequenceStep>
-                {
-                    new AnimSequenceStep { stateName = "Pray_Kneel",    blendTime = 0.4f, holdTime = 2.5f },
-                    new AnimSequenceStep { stateName = "Pray_Standing", blendTime = 0.4f, holdTime = 2.2f },
-                };
-
-            case CharacterType.Miner:
-                return new List<AnimSequenceStep>
-                {
-                    new AnimSequenceStep { stateName = "Squat",    blendTime = 0.35f, holdTime = 1.8f },
-                    new AnimSequenceStep { stateName = "Standing", blendTime = 0.4f,  holdTime = 1.2f },
-                };
-
-            case CharacterType.Medic:
-                return new List<AnimSequenceStep>
-                {
-                    new AnimSequenceStep { stateName = "Inspect_Hands", blendTime = 0.35f, holdTime = 2.2f },
-                    new AnimSequenceStep { stateName = "Kick_Ground",   blendTime = 0.30f, holdTime = 1.5f },
-                };
-
-            case CharacterType.Protector:
-                return new List<AnimSequenceStep>
-                {
-                    new AnimSequenceStep { stateName = "Point", blendTime = 0.30f, holdTime = 2.0f },
-                };
-
-            case CharacterType.Adventurer:
-                return new List<AnimSequenceStep>
-                {
-                    new AnimSequenceStep { stateName = "Look_Around", blendTime = 0.30f, holdTime = 2.0f },
-                };
-
-            case CharacterType.Girl:
-            default:
-                return new List<AnimSequenceStep>
-                {
-                    new AnimSequenceStep { stateName = "Dance_01", blendTime = 0.4f, holdTime = 3.5f },
-                    new AnimSequenceStep { stateName = "Dance_02", blendTime = 0.4f, holdTime = 3.5f },
-                };
+            bool p1 = preset.idleGestureSteps   != null && preset.idleGestureSteps.Count   > 0;
+            bool p2 = preset.gestureStateNames   != null && preset.gestureStateNames.Count   > 0;
+            return p1 || p2;
         }
+        bool t = cinematicGestureSteps       != null && cinematicGestureSteps.Count       > 0;
+        bool s = cinematicSimpleGestureNames != null && cinematicSimpleGestureNames.Count > 0;
+        return t || s;
     }
 
-    private static List<AnimSequenceStep> BuildDefaultDanceSequence(CharacterType type)
+    private string GetActiveTurnLeftState()
     {
-        return new List<AnimSequenceStep>
-        {
-            new AnimSequenceStep { stateName = "Dance_01", blendTime = 0.4f, holdTime = 3.5f },
-            new AnimSequenceStep { stateName = "Dance_02", blendTime = 0.4f, holdTime = 3.5f },
-        };
+        if (preset != null && !string.IsNullOrEmpty(preset.turnLeftStateName)) return preset.turnLeftStateName;
+        return string.IsNullOrEmpty(turnLeftStateName) ? "Turn_Left" : turnLeftStateName;
+    }
+
+    private string GetActiveTurnRightState()
+    {
+        if (preset != null && !string.IsNullOrEmpty(preset.turnRightStateName)) return preset.turnRightStateName;
+        return string.IsNullOrEmpty(turnRightStateName) ? "Turn_Right" : turnRightStateName;
+    }
+
+    private float GetActiveTurnBeforeDanceChance()
+    {
+        if (preset != null) return preset.turnBeforeDanceChance;
+        return turnBeforeDanceChance;
     }
 }

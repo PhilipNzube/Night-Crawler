@@ -104,13 +104,14 @@ public class CharacterSelectUI : MonoBehaviour
     //  Private State
     // -------------------------------------------------------------------------
 
-    private int                  _selectedIndex          = 0;
-    private bool                 _isVengefulSpirit       = false;
-    private GameObject           _currentPreviewInstance;
-    private bool                 _initialized            = false;
-    private readonly List<Button> _slotCardButtons       = new List<Button>();
-    private readonly List<Image>  _slotCardFrames        = new List<Image>();
-    private Coroutine            _swapCoroutine;
+    private int                       _selectedIndex          = 0;
+    private bool                      _isVengefulSpirit       = false;
+    private GameObject                _currentPreviewInstance;
+    private bool                      _initialized            = false;
+    private readonly List<Button>     _slotCardButtons        = new List<Button>();
+    private readonly List<Image>      _slotCardFrames         = new List<Image>();
+    private readonly List<CharacterSlotCard> _slotCards       = new List<CharacterSlotCard>();
+    private Coroutine                 _swapCoroutine;
 
     // =========================================================================
     //  Unity Lifecycle
@@ -298,6 +299,7 @@ public class CharacterSelectUI : MonoBehaviour
 
         _slotCardButtons.Clear();
         _slotCardFrames.Clear();
+        _slotCards.Clear();
 
         bool useSO = characterDefinitions != null && characterDefinitions.Count > 0;
         int count = GetTotalCharacterCount();
@@ -344,6 +346,10 @@ public class CharacterSelectUI : MonoBehaviour
                 _slotCardButtons.Add(btn);
                 _slotCardFrames.Add(btn.GetComponent<Image>());
             }
+
+            // Register the CharacterSlotCard component (adds hover/select animations)
+            CharacterSlotCard slotCard = card.GetComponent<CharacterSlotCard>();
+            _slotCards.Add(slotCard); // null-safe — UpdateSlotCardHighlights checks for null
         }
 
         UpdateSlotCardHighlights();
@@ -351,8 +357,17 @@ public class CharacterSelectUI : MonoBehaviour
 
     private void UpdateSlotCardHighlights()
     {
+        // CharacterSlotCard (animated version)
+        for (int i = 0; i < _slotCards.Count; i++)
+        {
+            if (_slotCards[i] != null)
+                _slotCards[i].SetSelected(i == _selectedIndex);
+        }
+
+        // Fallback: raw Image tinting for cards that don't have CharacterSlotCard attached
         for (int i = 0; i < _slotCardFrames.Count; i++)
         {
+            if (i < _slotCards.Count && _slotCards[i] != null) continue; // already handled above
             if (_slotCardFrames[i] != null)
                 _slotCardFrames[i].color = (i == _selectedIndex) ? selectedCardHighlightColor : unselectedCardColor;
         }
