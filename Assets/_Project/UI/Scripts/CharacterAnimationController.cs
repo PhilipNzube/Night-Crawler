@@ -8,11 +8,11 @@ using System.Collections.Generic;
 /// ─────────────────────────────────────────────────────────────────
 /// HOW TO USE — SET THE STARTUP MODE IN THE INSPECTOR:
 ///
-///   Lobby_LoopIdle    → Loops 'Lobby Idle State' forever. NO gestures, NO dance. Pure idle only.
-///   Squad_Gestures    → Idles with random gestures from 'Squad Gesture Steps' firing periodically.
-///   Squad_DanceLoop   → Plays random dance steps from 'Squad Dance Steps', repeating endlessly.
-///   Cinematic         → Plays 'Cinematic Intro Sequence' in order, then hands off to gestures.
-///   Manual            → Does nothing on Enable. You call the public API yourself.
+///   Lobby_LoopIdle     → Loops 'Lobby Idle State' forever. NO gestures, NO dance. Pure idle for investigators.
+///   Girl_DanceRoutine  → Plays random dance steps with pauses, organic turns & repeating routines. Perfect for the Girl in the Lobby.
+///   Squad_Gestures     → Idles with random gestures from 'Squad Gesture Steps' firing periodically.
+///   Cinematic          → Plays 'Cinematic Intro Sequence' in order, then hands off to gestures.
+///   Manual             → Does nothing on Enable. You call the public API yourself.
 ///
 /// LEAVE LISTS EMPTY: Empty lists = character stays in idle. Nothing breaks.
 /// ─────────────────────────────────────────────────────────────────
@@ -25,20 +25,23 @@ public class CharacterAnimationController : MonoBehaviour
 
     public enum StartupMode
     {
-        [Tooltip("Loops one animation state endlessly. Gestures NEVER fire. Use for Lobby.")]
-        Lobby_LoopIdle,
+        [Tooltip("Loops one animation state endlessly. Gestures & Dances NEVER fire. Use for normal Investigators in Lobby.")]
+        Lobby_LoopIdle = 0,
 
-        [Tooltip("Idles and randomly plays gestures from 'Squad Gesture Steps'. Use for Squad Screen.")]
-        Squad_Gestures,
+        [Tooltip("Plays a looping dance routine (random dance steps, repeat delay, organic turns). Perfect for the Girl in the Lobby.")]
+        Girl_DanceRoutine = 1,
 
-        [Tooltip("Plays random dance steps from 'Squad Dance Steps' in a loop. Use for Girl/Squad hype.")]
-        Squad_DanceLoop,
+        [Tooltip("Idles and randomly plays gestures from 'Squad Gesture Steps'. Use for Investigators in Squad Screen.")]
+        Squad_Gestures = 2,
 
         [Tooltip("Plays 'Cinematic Intro Sequence' then starts gesture loop. Use for character reveal.")]
-        Cinematic,
+        Cinematic = 3,
 
         [Tooltip("Does nothing on Enable. You control this via public API calls in code.")]
-        Manual
+        Manual = 4,
+
+        [Tooltip("Legacy alias for Girl_DanceRoutine.")]
+        Squad_DanceLoop = Girl_DanceRoutine
     }
 
     /// <summary>Legacy enum kept for backward compatibility with SquadLineupDisplay and other callers.</summary>
@@ -79,30 +82,91 @@ public class CharacterAnimationController : MonoBehaviour
 
     [Header("══ STARTUP MODE ══════════════════════════════════════")]
     [Tooltip(
-        "Lobby_LoopIdle  → Pure idle loop, gestures never fire. Set 'Lobby Idle State' below.\n" +
-        "Squad_Gestures  → Idle + random gestures from 'Squad Gesture Steps'.\n" +
-        "Squad_DanceLoop → Looping dance from 'Squad Dance Steps'.\n" +
-        "Cinematic       → Plays intro sequence then gestures.\n" +
-        "Manual          → Does nothing automatically.")]
+        "Lobby_LoopIdle     → Pure idle loop for investigators. Gestures never fire.\n" +
+        "Girl_DanceRoutine  → Looping dance routine for Girl character in Lobby.\n" +
+        "Squad_Gestures     → Idle + random gestures from 'Squad Gesture Steps'.\n" +
+        "Cinematic          → Plays intro sequence then gestures.\n" +
+        "Manual             → Does nothing automatically.")]
     public StartupMode startupMode = StartupMode.Lobby_LoopIdle;
 
     // =========================================================================
-    //  LOBBY SETTINGS
+    //  LOBBY SETTINGS (Investigators)
     //  Used when startupMode == Lobby_LoopIdle
     // =========================================================================
 
-    [Header("── Lobby Settings (Startup Mode: Lobby_LoopIdle)")]
+    [Header("── Lobby Settings (Investigators - Startup Mode: Lobby_LoopIdle)")]
     [Tooltip("Animator state to loop endlessly in the Lobby. Must match Animator Controller exactly.")]
     public string lobbyIdleState = "Idle";
 
+    [Tooltip("If false (default), gestures are COMPLETELY DISABLED on this controller — nothing can start them.\n" +
+             "Flip to true only when you want gestures, e.g. in Squad or Cinematic modes.\n" +
+             "This is a hard gate: even if an external script calls StartNaturalGestureLoop(), " +
+             "gestures will not play while this is false.")]
+    public bool allowGestures = false;
+
     // =========================================================================
-    //  SQUAD SETTINGS
-    //  Used when startupMode == Squad_Gestures or Squad_DanceLoop
+    //  GIRL & DANCE ROUTINE SETTINGS (Lobby & Girl Screen)
+    //  Used when startupMode == Girl_DanceRoutine or via PlayDanceLoop()
     // =========================================================================
 
-    [Header("── Squad Settings (Startup Mode: Squad_Gestures or Squad_DanceLoop)")]
+    [Header("── Girl / Dance Routine Settings (Startup Mode: Girl_DanceRoutine)")]
 
-    [Tooltip("Resting idle state used between gestures/dances in the Squad screen.")]
+    [Tooltip("Resting idle state used between dance routines.")]
+    public string danceIdleState = "Idle";
+
+    [Tooltip("List of dance animation states for the Girl. Steps are picked at random to create organic variety.")]
+    public List<AnimSequenceStep> danceSteps = new List<AnimSequenceStep>();
+
+    [Tooltip("If true (default), dance routine repeats after a delay. If false, plays through dance steps once then stays in idle.")]
+    public bool allowDanceRepeat = true;
+
+    [Range(2f, 20f)]
+    [Tooltip("Min seconds of idle rest between dance routine repetitions.")]
+    public float minDanceRepeatDelay = 5f;
+
+    [Range(3f, 40f)]
+    [Tooltip("Max seconds of idle rest between dance routine repetitions.")]
+    public float maxDanceRepeatDelay = 12f;
+
+    [Tooltip("If true, character smoothly turns to random facing angles while dancing.")]
+    public bool enableRandomRotationOnDance = true;
+
+    [Tooltip("Min seconds between random facing turns while dancing.")]
+    public float minTurnInterval = 1.5f;
+
+    [Tooltip("Max seconds between random facing turns while dancing.")]
+    public float maxTurnInterval = 4.0f;
+
+    [Tooltip("Max rotation angle variation (degrees) from initial facing while dancing.")]
+    public float maxTurnAngle = 70f;
+
+    [Tooltip("Smooth rotation lerp speed.")]
+    public float turnSmoothSpeed = 2.5f;
+
+    [Tooltip("Animator state name for turning left before dance. Leave blank to skip.")]
+    public string turnLeftStateName = "Turn_Left";
+
+    [Tooltip("Animator state name for turning right before dance. Leave blank to skip.")]
+    public string turnRightStateName = "Turn_Right";
+
+    [Tooltip("Chance (0–1) to play a turn animation before each dance step.")]
+    [Range(0f, 1f)]
+    public float turnBeforeDanceChance = 0.6f;
+
+    [Tooltip("Duration in seconds to execute the turn anim and rotation.")]
+    public float turnDuration = 1.0f;
+
+    [Tooltip("Default hold time (seconds) if a dance step's holdTime is left at 0.")]
+    public float defaultDanceHoldTime = 3.5f;
+
+    // =========================================================================
+    //  SQUAD GESTURE SETTINGS (Investigators)
+    //  Used when startupMode == Squad_Gestures
+    // =========================================================================
+
+    [Header("── Squad Gesture Settings (Investigators - Startup Mode: Squad_Gestures)")]
+
+    [Tooltip("Resting idle state used between gestures in the Squad screen.")]
     public string squadIdleState = "Idle";
 
     [Tooltip("Random gestures that fire periodically while idling. Used by Squad_Gestures mode.\n" +
@@ -123,43 +187,6 @@ public class CharacterAnimationController : MonoBehaviour
     [Tooltip("Hold duration in seconds used for Simple Gesture Names entries (ignored when Gesture Steps are used).")]
     public float gestureDuration  = 2.5f;
     public float gestureBlendTime = 0.3f;
-
-    [Tooltip("Dance steps played in random order by Squad_DanceLoop mode.")]
-    public List<AnimSequenceStep> squadDanceSteps = new List<AnimSequenceStep>();
-
-    [Range(2f, 20f)] public float minDanceRepeatDelay = 5f;
-    [Range(3f, 40f)] public float maxDanceRepeatDelay = 12f;
-
-    [Tooltip("If true, character smoothly turns to random facing angles while dancing.")]
-    public bool enableRandomRotationOnDance = true;
-
-    [Tooltip("Min seconds between random facing turns while dancing.")]
-    public float minTurnInterval = 1.5f;
-
-    [Tooltip("Max seconds between random facing turns while dancing.")]
-    public float maxTurnInterval = 4.0f;
-
-    [Tooltip("Max rotation angle variation (degrees) from initial facing while dancing.")]
-    public float maxTurnAngle = 70f;
-
-    [Tooltip("Smooth rotation lerp speed.")]
-    public float turnSmoothSpeed = 2.5f;
-
-    [Tooltip("Animator state name for turning left. Leave blank to skip.")]
-    public string turnLeftStateName = "Turn_Left";
-
-    [Tooltip("Animator state name for turning right. Leave blank to skip.")]
-    public string turnRightStateName = "Turn_Right";
-
-    [Tooltip("Chance (0–1) to play a turn animation before each dance step.")]
-    [Range(0f, 1f)]
-    public float turnBeforeDanceChance = 0.6f;
-
-    [Tooltip("Duration in seconds to execute the turn anim and rotation.")]
-    public float turnDuration = 1.0f;
-
-    [Tooltip("Default hold time (seconds) if a dance step's holdTime is left at 0.")]
-    public float defaultDanceHoldTime = 3.5f;
 
     // =========================================================================
     //  CINEMATIC SETTINGS
@@ -185,13 +212,13 @@ public class CharacterAnimationController : MonoBehaviour
     public List<string> cinematicSimpleGestureNames = new List<string>();
 
     // =========================================================================
-    //  LEGACY FIELDS (kept for backward compatibility with existing PresetSOs)
-    //  These are still read by the Preset asset resolution helpers.
+    //  LEGACY FIELDS (kept for backward compatibility with existing assets & scripts)
     // =========================================================================
     [HideInInspector] public string idleStateName = "Idle";
     [HideInInspector] public CharacterType characterType = CharacterType.Adventurer;
     [HideInInspector] public List<AnimSequenceStep> customCinematicSequence = new List<AnimSequenceStep>();
     [HideInInspector] public List<AnimSequenceStep> customDanceSequence      = new List<AnimSequenceStep>();
+    [HideInInspector] public List<AnimSequenceStep> squadDanceSteps          = new List<AnimSequenceStep>();
     [HideInInspector] public List<AnimSequenceStep> idleGestureSteps         = new List<AnimSequenceStep>();
     [HideInInspector] public List<string>           gestureStateNames        = new List<string>();
 
@@ -251,15 +278,15 @@ public class CharacterAnimationController : MonoBehaviour
         switch (startupMode)
         {
             case StartupMode.Lobby_LoopIdle:
-                LoopAnimation(lobbyIdleState);        // Gestures NEVER start in this path
+                LoopAnimation(lobbyIdleState);        // Pure idle: Gestures & Dance NEVER start in this path
+                break;
+
+            case StartupMode.Girl_DanceRoutine:
+                PlayDanceLoop();                      // Dances + repeats for the Girl in Lobby
                 break;
 
             case StartupMode.Squad_Gestures:
                 StartNaturalGestureLoop();
-                break;
-
-            case StartupMode.Squad_DanceLoop:
-                PlayDanceLoop();
                 break;
 
             case StartupMode.Cinematic:
@@ -286,7 +313,7 @@ public class CharacterAnimationController : MonoBehaviour
 
     /// <summary>
     /// Loops a specific animation state endlessly.
-    /// Gestures NEVER fire when using this — it is a pure, isolated loop.
+    /// Gestures & Dances NEVER fire when using this — it is a pure, isolated loop.
     /// </summary>
     public void LoopAnimation(string stateName)
     {
@@ -313,12 +340,15 @@ public class CharacterAnimationController : MonoBehaviour
     /// <summary>
     /// Starts the idle + gesture loop using Squad gesture settings.
     /// Gestures fire randomly from squadGestureSteps / squadSimpleGestureNames.
+    /// Has no effect if allowGestures is false.
     /// </summary>
     public void StartNaturalGestureLoop()
     {
         StopAllRoutines();
         ApplyRootMotionSettings();
         CrossFadeTo(GetResolvedSquadIdleState(), 0.3f);
+
+        if (!CanStartGestures()) return;  // hard gate
 
         bool hasTyped  = squadGestureSteps != null && squadGestureSteps.Count > 0;
         bool hasSimple = squadSimpleGestureNames != null && squadSimpleGestureNames.Count > 0;
@@ -327,7 +357,7 @@ public class CharacterAnimationController : MonoBehaviour
     }
 
     /// <summary>
-    /// Plays random dance steps from squadDanceSteps in a loop.
+    /// Plays random dance steps from danceSteps (or squadDanceSteps) in a loop with organic turns.
     /// If the list is empty, character stays in idle.
     /// </summary>
     public void PlayDanceLoop()
@@ -339,6 +369,16 @@ public class CharacterAnimationController : MonoBehaviour
         bool useRotation = preset != null ? preset.enableRandomRotationOnDance : enableRandomRotationOnDance;
         if (useRotation)
             _rotationCoroutine = StartCoroutine(RunRandomRotationLoop());
+    }
+
+    public void PlayDance()
+    {
+        StopAllRoutines();
+        ApplyRootMotionSettings();
+        List<AnimSequenceStep> danceList = GetActiveDanceSteps();
+        AnimSequenceStep step = GetNextRandomDanceStep(danceList);
+        if (step != null && !string.IsNullOrEmpty(step.stateName))
+            CrossFadeTo(step.stateName, step.blendTime);
     }
 
     public void ReturnToIdle()
@@ -355,8 +395,6 @@ public class CharacterAnimationController : MonoBehaviour
     {
         if (_animator == null) yield break;
         CrossFadeTo(stateName, 0.3f);
-        // The Animator loops the clip automatically (clip must be set to Loop in Unity).
-        // This coroutine holds the main slot to prevent anything else starting on top of it.
         while (true)
             yield return null;
     }
@@ -390,7 +428,7 @@ public class CharacterAnimationController : MonoBehaviour
         CrossFadeTo(GetResolvedCinematicIdleState(), 0.4f);
         _mainCoroutine = null;
 
-        if (startGesturesAfter && HasAnyCinematicGestures())
+        if (startGesturesAfter && CanStartGestures() && HasAnyCinematicGestures())
             _gestureCoroutine = StartCoroutine(RunGestureLoop());
     }
 
@@ -447,19 +485,19 @@ public class CharacterAnimationController : MonoBehaviour
     {
         if (_animator == null) yield break;
 
-        List<AnimSequenceStep> danceSteps = GetActiveDanceSteps();
-        if (danceSteps == null || danceSteps.Count == 0)
+        List<AnimSequenceStep> danceList = GetActiveDanceSteps();
+        if (danceList == null || danceList.Count == 0)
         {
-            CrossFadeTo(GetResolvedSquadIdleState(), 0.4f);
+            CrossFadeTo(GetResolvedDanceIdleState(), 0.4f);
             yield break;
         }
 
-        string idleName    = GetResolvedSquadIdleState();
-        int dancesToPlay   = Mathf.Max(danceSteps.Count, 3);
+        string idleName    = GetResolvedDanceIdleState();
+        int dancesToPlay   = Mathf.Max(danceList.Count, 3);
 
         for (int i = 0; i < dancesToPlay; i++)
         {
-            AnimSequenceStep step = GetNextRandomDanceStep(danceSteps);
+            AnimSequenceStep step = GetNextRandomDanceStep(danceList);
             if (step == null || string.IsNullOrEmpty(step.stateName)) continue;
 
             if (Random.value < GetActiveTurnBeforeDanceChance())
@@ -478,7 +516,8 @@ public class CharacterAnimationController : MonoBehaviour
         CrossFadeTo(idleName, 0.45f);
         _mainCoroutine = null;
 
-        _gestureCoroutine = StartCoroutine(RunDanceRepeatLoop());
+        if (allowDanceRepeat)
+            _gestureCoroutine = StartCoroutine(RunDanceRepeatLoop());
     }
 
     private IEnumerator RunDanceRepeatLoop()
@@ -487,20 +526,20 @@ public class CharacterAnimationController : MonoBehaviour
 
         float minDelay  = preset != null ? preset.minDanceRepeatDelay : minDanceRepeatDelay;
         float maxDelay  = preset != null ? preset.maxDanceRepeatDelay : maxDanceRepeatDelay;
-        string idleName = GetResolvedSquadIdleState();
+        string idleName = GetResolvedDanceIdleState();
 
         while (true)
         {
             float delay = Random.Range(minDelay, maxDelay);
             yield return new WaitForSecondsRealtime(delay);
 
-            List<AnimSequenceStep> danceSteps = GetActiveDanceSteps();
-            if (danceSteps != null && danceSteps.Count > 0)
+            List<AnimSequenceStep> danceList = GetActiveDanceSteps();
+            if (danceList != null && danceList.Count > 0)
             {
-                int dancesToPlay = Mathf.Max(danceSteps.Count, 3);
+                int dancesToPlay = Mathf.Max(danceList.Count, 3);
                 for (int i = 0; i < dancesToPlay; i++)
                 {
-                    AnimSequenceStep step = GetNextRandomDanceStep(danceSteps);
+                    AnimSequenceStep step = GetNextRandomDanceStep(danceList);
                     if (step == null || string.IsNullOrEmpty(step.stateName)) continue;
 
                     if (Random.value < GetActiveTurnBeforeDanceChance())
@@ -567,18 +606,18 @@ public class CharacterAnimationController : MonoBehaviour
     //  Private Helpers
     // =========================================================================
 
-    private AnimSequenceStep GetNextRandomDanceStep(List<AnimSequenceStep> danceSteps)
+    private AnimSequenceStep GetNextRandomDanceStep(List<AnimSequenceStep> danceList)
     {
-        if (danceSteps == null || danceSteps.Count == 0) return null;
-        if (danceSteps.Count == 1) { _lastDanceIndex = 0; return danceSteps[0]; }
+        if (danceList == null || danceList.Count == 0) return null;
+        if (danceList.Count == 1) { _lastDanceIndex = 0; return danceList[0]; }
 
         int randomIndex;
         int attempts = 0;
-        do { randomIndex = Random.Range(0, danceSteps.Count); attempts++; }
+        do { randomIndex = Random.Range(0, danceList.Count); attempts++; }
         while (randomIndex == _lastDanceIndex && attempts < 10);
 
         _lastDanceIndex = randomIndex;
-        return danceSteps[randomIndex];
+        return danceList[randomIndex];
     }
 
     private IEnumerator PerformTurnBeforeDance()
@@ -678,11 +717,24 @@ public class CharacterAnimationController : MonoBehaviour
         if (_rotationCoroutine != null) { StopCoroutine(_rotationCoroutine); _rotationCoroutine = null; }
     }
 
+    /// <summary>
+    /// Hard gate for gesture coroutines. Returns false when allowGestures is off,
+    /// ensuring NO gesture can ever start regardless of caller.
+    /// </summary>
+    private bool CanStartGestures() => allowGestures;
+
     // ─── State Name Resolution ───────────────────────────────────────────────
 
     private string GetResolvedIdleState()
     {
         if (preset != null && !string.IsNullOrEmpty(preset.idleStateName)) return preset.idleStateName;
+        return !string.IsNullOrEmpty(lobbyIdleState) ? lobbyIdleState : "Idle";
+    }
+
+    private string GetResolvedDanceIdleState()
+    {
+        if (preset != null && !string.IsNullOrEmpty(preset.idleStateName)) return preset.idleStateName;
+        if (!string.IsNullOrEmpty(danceIdleState)) return danceIdleState;
         return !string.IsNullOrEmpty(lobbyIdleState) ? lobbyIdleState : "Idle";
     }
 
@@ -700,10 +752,7 @@ public class CharacterAnimationController : MonoBehaviour
 
     private string GetResolvedGestureIdleState()
     {
-        // Pick the idle state matching whichever gesture/dance lists are populated
         if (squadGestureSteps != null && squadGestureSteps.Count > 0)
-            return GetResolvedSquadIdleState();
-        if (squadDanceSteps != null && squadDanceSteps.Count > 0)
             return GetResolvedSquadIdleState();
         if (squadSimpleGestureNames != null && squadSimpleGestureNames.Count > 0)
             return GetResolvedSquadIdleState();
@@ -723,10 +772,10 @@ public class CharacterAnimationController : MonoBehaviour
     {
         if (preset != null && preset.danceSequence != null && preset.danceSequence.Count > 0)
             return preset.danceSequence;
-        // Prefer whichever list is populated — supports both inspector-driven and code-driven callers
+        if (danceSteps != null && danceSteps.Count > 0)
+            return danceSteps;
         if (squadDanceSteps != null && squadDanceSteps.Count > 0)
             return squadDanceSteps;
-        // Legacy alias (customDanceSequence from old presets)
         return customDanceSequence ?? new List<AnimSequenceStep>();
     }
 
@@ -734,12 +783,10 @@ public class CharacterAnimationController : MonoBehaviour
     {
         if (preset != null && preset.idleGestureSteps != null && preset.idleGestureSteps.Count > 0)
             return preset.idleGestureSteps;
-        // Pick whichever list has entries — external callers may be squad or cinematic
         if (squadGestureSteps != null && squadGestureSteps.Count > 0)
             return squadGestureSteps;
         if (cinematicGestureSteps != null && cinematicGestureSteps.Count > 0)
             return cinematicGestureSteps;
-        // Legacy alias
         return idleGestureSteps ?? new List<AnimSequenceStep>();
     }
 
@@ -751,7 +798,6 @@ public class CharacterAnimationController : MonoBehaviour
             return squadSimpleGestureNames;
         if (cinematicSimpleGestureNames != null && cinematicSimpleGestureNames.Count > 0)
             return cinematicSimpleGestureNames;
-        // Legacy alias
         return gestureStateNames ?? new List<string>();
     }
 
