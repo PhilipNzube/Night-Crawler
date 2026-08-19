@@ -59,19 +59,25 @@ public class SquadLineupDisplay : MonoBehaviour
     public int countdownFrom = 10;
 
     // -------------------------------------------------------------------------
-    //  Inspector — Cinematic Animation
+    //  Inspector — Cinematic Animation & Gestures
     // -------------------------------------------------------------------------
-    [Header("Cinematic Animation")]
-    [Tooltip("Seconds between each character starting their cinematic sequence. " +
+    [Header("Cinematic Animation & Gestures")]
+    [Tooltip("Seconds after squad lineup appears before character gesture animations start playing.\n" +
+             "Set to 0 to start immediately, or set a delay (e.g. 3.0s) so characters hold idle first.")]
+    public float delayBeforeGesturesStart = 3.0f;
+
+    [Tooltip("Seconds between each character starting their gesture/cinematic sequence. " +
              "Staggers the animations so they don't all fire simultaneously.")]
     public float characterSequenceStagger = 0.6f;
 
     // -------------------------------------------------------------------------
     //  Private State
     // -------------------------------------------------------------------------
-    private readonly List<GameObject> _modelInstances = new List<GameObject>();
-    private readonly List<GameObject> _tagInstances   = new List<GameObject>();
-    private Coroutine                 _showcaseRoutine;
+    private readonly List<GameObject>                  _modelInstances   = new List<GameObject>();
+    private readonly List<GameObject>                  _tagInstances     = new List<GameObject>();
+    private readonly List<CharacterAnimationController> _animControllers = new List<CharacterAnimationController>();
+    private Coroutine                                  _showcaseRoutine;
+    private Coroutine                                  _gestureRoutine;
 
     // =========================================================================
     //  Unity Lifecycle
@@ -107,6 +113,7 @@ public class SquadLineupDisplay : MonoBehaviour
     public void HideSquadLineup()
     {
         if (_showcaseRoutine != null) { StopCoroutine(_showcaseRoutine); _showcaseRoutine = null; }
+        if (_gestureRoutine  != null) { StopCoroutine(_gestureRoutine);  _gestureRoutine  = null; }
         ClearLineup();
         SetPanelVisible(false);
     }
@@ -118,6 +125,10 @@ public class SquadLineupDisplay : MonoBehaviour
     {
         SetPanelVisible(true);
         BuildLineup();
+
+        // Start gesture routine independently based on delayBeforeGesturesStart
+        if (_gestureRoutine != null) StopCoroutine(_gestureRoutine);
+        _gestureRoutine = StartCoroutine(TriggerSquadGesturesAfterDelay());
 
         if (headerText != null)
             headerText.text = "SQUAD ASSEMBLED";
@@ -254,14 +265,15 @@ public class SquadLineupDisplay : MonoBehaviour
             mb.enabled = false;
         }
 
-        // Wire up animation controller and trigger the staggered cinematic sequence
+        // Wire up animation controller — hold in idle during initial hold before countdown
         CharacterAnimationController animCtrl = instance.GetComponent<CharacterAnimationController>();
         if (animCtrl == null)
             animCtrl = instance.AddComponent<CharacterAnimationController>();
 
         animCtrl.characterType = MapProfessionToCharType(clientId);
-        float delay = slotIndex * characterSequenceStagger;
-        StartCoroutine(PlaySequenceAfterDelay(animCtrl, delay));
+        animCtrl.allowGestures = true;
+        animCtrl.ReturnToIdle(); // Start in idle; gestures will trigger when initial countdown hold finishes
+        _animControllers.Add(animCtrl);
     }
 
     /// <summary>
@@ -334,11 +346,44 @@ public class SquadLineupDisplay : MonoBehaviour
     //  Animation Helpers
     // =========================================================================
 
-    private System.Collections.IEnumerator PlaySequenceAfterDelay(
+    /// <summary>
+    /// Waits for delayBeforeGesturesStart, then triggers gesture animations for all squad members.
+    /// </summary>
+    private IEnumerator TriggerSquadGesturesAfterDelay()
+    {
+        if (delayBeforeGesturesStart > 0f)
+            yield return new WaitForSecondsRealtime(delayBeforeGesturesStart);
+
+        for (int i = 0; i < _animControllers.Count; i++)
+        {
+            CharacterAnimationController ctrl = _animControllers[i];
+            if (ctrl == null) continue;
+
+            float delay = i * characterSequenceStagger;
+            StartCoroutine(PlayGestureSequenceAfterDelay(ctrl, delay));
+        }
+
+        _gestureRoutine = null;
+    }
+
+    private System.Collections.IEnumerator PlayGestureSequenceAfterDelay(
         CharacterAnimationController ctrl, float delay)
     {
         if (delay > 0f) yield return new WaitForSecondsRealtime(delay);
-        if (ctrl != null) ctrl.PlayCinematicSequence(startGestureLoopAfter: true);
+        if (ctrl != null)
+        {
+            ctrl.allowGestures = true;
+            // If the character has a custom cinematic intro sequence, play it and transition to gestures;
+            // otherwise directly start the squad gesture loop.
+            if (ctrl.cinematicIntroSequence != null && ctrl.cinematicIntroSequence.Count > 0)
+            {
+                ctrl.PlayCinematicSequence(startGestureLoopAfter: true);
+            }
+            else
+            {
+                ctrl.StartNaturalGestureLoop();
+            }
+        }
     }
 
     /// <summary>
@@ -462,6 +507,8 @@ public class SquadLineupDisplay : MonoBehaviour
 
     private void ClearLineup()
     {
+        if (_gestureRoutine != null) { StopCoroutine(_gestureRoutine); _gestureRoutine = null; }
+
         foreach (GameObject inst in _modelInstances)
             if (inst != null) Destroy(inst);
         _modelInstances.Clear();
@@ -469,5 +516,7 @@ public class SquadLineupDisplay : MonoBehaviour
         foreach (GameObject tag in _tagInstances)
             if (tag != null) Destroy(tag);
         _tagInstances.Clear();
+
+        _animControllers.Clear();
     }
 }
