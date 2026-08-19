@@ -141,8 +141,8 @@ public class CharacterSceneController : MonoBehaviour
 
         if (_currentPreviewAnim != null)
         {
-            Debug.Log("[CharacterSceneController] Idle timeout reached — starting gesture loop.");
-            _currentPreviewAnim.StartNaturalGestureLoop();
+            Debug.Log("[CharacterSceneController] Idle timeout reached — starting preview gesture loop.");
+            _currentPreviewAnim.StartPreviewGestureLoop();
         }
 
         _gestureDelayCoroutine = null;

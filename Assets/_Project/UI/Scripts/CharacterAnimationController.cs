@@ -90,19 +90,24 @@ public class CharacterAnimationController : MonoBehaviour
     public StartupMode startupMode = StartupMode.Lobby_LoopIdle;
 
     // =========================================================================
-    //  LOBBY SETTINGS (Investigators)
-    //  Used when startupMode == Lobby_LoopIdle
+    //  LOBBY & CHARACTER SELECTION (Investigators)
+    //  Used when in the Main Lobby / Character Select screen
     // =========================================================================
 
-    [Header("── Lobby Settings (Investigators - Startup Mode: Lobby_LoopIdle)")]
-    [Tooltip("Animator state to loop endlessly in the Lobby. Must match Animator Controller exactly.")]
+    [Header("── Lobby & Selection (Investigators)")]
+    [Tooltip("Animator state to play during resting idle in the Lobby / Character Select screen.")]
     public string lobbyIdleState = "Idle";
 
-    [Tooltip("If false (default), gestures are COMPLETELY DISABLED on this controller — nothing can start them.\n" +
-             "Flip to true only when you want gestures, e.g. in Squad or Cinematic modes.\n" +
-             "This is a hard gate: even if an external script calls StartNaturalGestureLoop(), " +
-             "gestures will not play while this is false.")]
-    public bool allowGestures = false;
+    [Tooltip("If true (default), allows AFK gestures to play after inactivity in the Lobby / Character Select screen.\n" +
+             "If false, character will only loop the resting idle animation.")]
+    public bool allowLobbyGestures = true;
+
+    [Tooltip("Gestures that play after the inactivity delay in the Lobby / Character Select screen.\n" +
+             "If this list is empty, character will simply continue playing the resting idle animation.")]
+    public List<AnimSequenceStep> lobbyGestureSteps = new List<AnimSequenceStep>();
+
+    [Tooltip("Simple gesture state names for Lobby (fallback if lobbyGestureSteps is empty).")]
+    public List<string> lobbySimpleGestureNames = new List<string>();
 
     // =========================================================================
     //  GIRL & DANCE ROUTINE SETTINGS (Lobby & Girl Screen)
@@ -158,6 +163,8 @@ public class CharacterAnimationController : MonoBehaviour
 
     [Tooltip("Default hold time (seconds) if a dance step's holdTime is left at 0.")]
     public float defaultDanceHoldTime = 3.5f;
+
+
 
     // =========================================================================
     //  SQUAD GESTURE SETTINGS (Investigators)
@@ -215,10 +222,15 @@ public class CharacterAnimationController : MonoBehaviour
     //  LEGACY FIELDS (kept for backward compatibility with existing assets & scripts)
     // =========================================================================
     [HideInInspector] public string idleStateName = "Idle";
+    [HideInInspector] public string previewIdleState = "Idle";
+    [HideInInspector] public bool allowGestures = true;
+    [HideInInspector] public bool allowPreviewGestures = true;
     [HideInInspector] public CharacterType characterType = CharacterType.Adventurer;
     [HideInInspector] public List<AnimSequenceStep> customCinematicSequence = new List<AnimSequenceStep>();
     [HideInInspector] public List<AnimSequenceStep> customDanceSequence      = new List<AnimSequenceStep>();
     [HideInInspector] public List<AnimSequenceStep> squadDanceSteps          = new List<AnimSequenceStep>();
+    [HideInInspector] public List<AnimSequenceStep> previewGestureSteps      = new List<AnimSequenceStep>();
+    [HideInInspector] public List<string>           previewSimpleGestureNames= new List<string>();
     [HideInInspector] public List<AnimSequenceStep> idleGestureSteps         = new List<AnimSequenceStep>();
     [HideInInspector] public List<string>           gestureStateNames        = new List<string>();
 
@@ -357,6 +369,25 @@ public class CharacterAnimationController : MonoBehaviour
     }
 
     /// <summary>
+    /// Starts the idle gesture loop for the Lobby / Character Selection Screen.
+    /// Uses 'lobbyGestureSteps'. If no gestures are assigned or allowLobbyGestures is false,
+    /// holds the resting idle animation.
+    /// </summary>
+    public void StartPreviewGestureLoop()
+    {
+        StopAllRoutines();
+        ApplyRootMotionSettings();
+        CrossFadeTo(GetResolvedIdleState(), 0.3f);
+
+        if (!allowLobbyGestures) return;
+
+        var typed  = GetActiveLobbyGestureSteps();
+        var simple = GetActiveLobbySimpleGestureNames();
+        if ((typed != null && typed.Count > 0) || (simple != null && simple.Count > 0))
+            _gestureCoroutine = StartCoroutine(RunPreviewGestureLoop());
+    }
+
+    /// <summary>
     /// Plays random dance steps from danceSteps (or squadDanceSteps) in a loop with organic turns.
     /// If the list is empty, character stays in idle.
     /// </summary>
@@ -470,6 +501,52 @@ public class CharacterAnimationController : MonoBehaviour
                 yield return new WaitForSecondsRealtime(delay);
 
                 string gesture = simpleGestures[Random.Range(0, simpleGestures.Count)];
+                if (!string.IsNullOrEmpty(gesture))
+                {
+                    CrossFadeTo(gesture, gestureBlendTime);
+                    yield return new WaitForSecondsRealtime(gestureDuration);
+                    CrossFadeTo(idleName, gestureBlendTime);
+                    yield return new WaitForSecondsRealtime(0.5f);
+                }
+            }
+        }
+    }
+
+    private IEnumerator RunPreviewGestureLoop()
+    {
+        if (_animator == null) yield break;
+
+        float minDelay  = preset != null ? preset.minGestureDelay : minGestureDelay;
+        float maxDelay  = preset != null ? preset.maxGestureDelay : maxGestureDelay;
+        string idleName = GetResolvedIdleState();
+
+        var typed  = GetActiveLobbyGestureSteps();
+        var simple = GetActiveLobbySimpleGestureNames();
+
+        if (typed != null && typed.Count > 0)
+        {
+            while (true)
+            {
+                float delay = Random.Range(minDelay, maxDelay);
+                yield return new WaitForSecondsRealtime(delay);
+
+                AnimSequenceStep step = typed[Random.Range(0, typed.Count)];
+                if (step == null || string.IsNullOrEmpty(step.stateName)) continue;
+
+                CrossFadeTo(step.stateName, step.blendTime > 0f ? step.blendTime : gestureBlendTime);
+                yield return StartCoroutine(WaitStepHoldTime(step));
+                CrossFadeTo(idleName, gestureBlendTime);
+                yield return new WaitForSecondsRealtime(0.4f);
+            }
+        }
+        else if (simple != null && simple.Count > 0)
+        {
+            while (true)
+            {
+                float delay = Random.Range(minDelay, maxDelay);
+                yield return new WaitForSecondsRealtime(delay);
+
+                string gesture = simple[Random.Range(0, simple.Count)];
                 if (!string.IsNullOrEmpty(gesture))
                 {
                     CrossFadeTo(gesture, gestureBlendTime);
@@ -725,10 +802,37 @@ public class CharacterAnimationController : MonoBehaviour
 
     // ─── State Name Resolution ───────────────────────────────────────────────
 
+    private List<AnimSequenceStep> GetActiveLobbyGestureSteps()
+    {
+        if (lobbyGestureSteps != null && lobbyGestureSteps.Count > 0)
+            return lobbyGestureSteps;
+        if (previewGestureSteps != null && previewGestureSteps.Count > 0)
+            return previewGestureSteps;
+        return null;
+    }
+
+    private List<string> GetActiveLobbySimpleGestureNames()
+    {
+        if (lobbySimpleGestureNames != null && lobbySimpleGestureNames.Count > 0)
+            return lobbySimpleGestureNames;
+        if (previewSimpleGestureNames != null && previewSimpleGestureNames.Count > 0)
+            return previewSimpleGestureNames;
+        return null;
+    }
+
     private string GetResolvedIdleState()
     {
         if (preset != null && !string.IsNullOrEmpty(preset.idleStateName)) return preset.idleStateName;
-        return !string.IsNullOrEmpty(lobbyIdleState) ? lobbyIdleState : "Idle";
+        if (!string.IsNullOrEmpty(lobbyIdleState)) return lobbyIdleState;
+        return "Idle";
+    }
+
+    private string GetResolvedPreviewIdleState()
+    {
+        if (preset != null && !string.IsNullOrEmpty(preset.idleStateName)) return preset.idleStateName;
+        if (!string.IsNullOrEmpty(previewIdleState)) return previewIdleState;
+        if (!string.IsNullOrEmpty(lobbyIdleState)) return lobbyIdleState;
+        return "Idle";
     }
 
     private string GetResolvedDanceIdleState()
