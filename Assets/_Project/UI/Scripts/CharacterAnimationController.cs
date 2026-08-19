@@ -133,60 +133,33 @@ public class CharacterAnimationController : MonoBehaviour
     [Tooltip("Max seconds of idle rest between dance routine repetitions.")]
     public float maxDanceRepeatDelay = 12f;
 
-    [Tooltip("If true, character smoothly turns to random facing angles while dancing.")]
+    [Tooltip("Seconds to hold in resting idle after a dance move before turning and starting the next move.")]
+    public float idleBetweenDancesDuration = 0.8f;
+
+    [Tooltip("If true, character returns to idle and smoothly turns to a new facing angle before playing the next dance move.")]
     public bool enableRandomRotationOnDance = true;
 
-    [Tooltip("Min seconds between random facing turns while dancing.")]
-    public float minTurnInterval = 1.5f;
-
-    [Tooltip("Max seconds between random facing turns while dancing.")]
-    public float maxTurnInterval = 4.0f;
-
-    [Tooltip("Max rotation angle variation (degrees) from initial facing while dancing.")]
+    [Tooltip("Max rotation angle variation (degrees) from initial facing between dances.")]
     public float maxTurnAngle = 70f;
 
     [Tooltip("Smooth rotation lerp speed.")]
     public float turnSmoothSpeed = 2.5f;
 
-    [Tooltip("Animator state name for turning left before dance. Leave blank to skip.")]
+    [Tooltip("Animator state name for turning left. Leave blank to skip turn anim.")]
     public string turnLeftStateName = "Turn_Left";
 
-    [Tooltip("Animator state name for turning right before dance. Leave blank to skip.")]
+    [Tooltip("Animator state name for turning right. Leave blank to skip turn anim.")]
     public string turnRightStateName = "Turn_Right";
 
-    [Tooltip("Chance (0–1) to play a turn animation before each dance step.")]
+    [Tooltip("Chance (0–1) to turn to a new angle between dance moves.")]
     [Range(0f, 1f)]
-    public float turnBeforeDanceChance = 0.6f;
+    public float turnBeforeDanceChance = 0.8f;
 
     [Tooltip("Duration in seconds to execute the turn anim and rotation.")]
     public float turnDuration = 1.0f;
 
     [Tooltip("Default hold time (seconds) if a dance step's holdTime is left at 0.")]
     public float defaultDanceHoldTime = 3.5f;
-
-    [Header("── Spirit Glitch Effect (Between Dances)")]
-    [Tooltip("If true, plays an eerie spectral glitch transition (strobe emission, mesh jitter, animation time-stutter) seamlessly between dances with zero freezing.")]
-    public bool enableGlitchBetweenDances = true;
-
-    [Range(0.1f, 0.6f)]
-    [Tooltip("Duration in seconds of the glitch burst transition.")]
-    public float glitchDuration = 0.28f;
-
-    [Range(0.1f, 3.0f)]
-    [Tooltip("Intensity of the positional stutter and mesh distortion.")]
-    public float glitchIntensity = 1.2f;
-
-    [Tooltip("Primary spirit emission color during glitch (e.g. Ghost Purple).")]
-    public Color glitchEmissionColor = new Color(0.65f, 0.1f, 1.0f, 1.0f);
-
-    [Tooltip("Secondary spectral strobe color (e.g. Electric Cyan).")]
-    public Color glitchSecondaryColor = new Color(0.0f, 0.9f, 1.0f, 1.0f);
-
-    [Tooltip("If true, flickers renderer visibility rapidly during the glitch for a holographic ghost phase.")]
-    public bool glitchMeshFlicker = true;
-
-    [Tooltip("Optional: specific Animator state name to flash during glitch (e.g. 'Glitch', 'Twitch', 'Hit'). Leave blank for automatic organic frame-twitch.")]
-    public string glitchCustomStateName = "";
 
 
 
@@ -412,18 +385,14 @@ public class CharacterAnimationController : MonoBehaviour
     }
 
     /// <summary>
-    /// Plays random dance steps from danceSteps (or squadDanceSteps) in a loop with organic turns.
-    /// If the list is empty, character stays in idle.
+    /// Plays random dance steps from danceSteps in a loop.
+    /// Each dance finishes, returns to idle, then turns to a new angle before the next dance.
     /// </summary>
     public void PlayDanceLoop()
     {
         StopAllRoutines();
         ApplyRootMotionSettings();
         _mainCoroutine = StartCoroutine(RunDanceLoop());
-
-        bool useRotation = preset != null ? preset.enableRandomRotationOnDance : enableRandomRotationOnDance;
-        if (useRotation)
-            _rotationCoroutine = StartCoroutine(RunRandomRotationLoop());
     }
 
     public void PlayDance()
@@ -601,9 +570,7 @@ public class CharacterAnimationController : MonoBehaviour
             AnimSequenceStep step = GetNextRandomDanceStep(danceList);
             if (step == null || string.IsNullOrEmpty(step.stateName)) continue;
 
-            if (Random.value < GetActiveTurnBeforeDanceChance())
-                yield return StartCoroutine(PerformTurnBeforeDance());
-
+            // 1. Play the dance move (she dances facing her current direction — no rotating while dancing)
             CrossFadeTo(step.stateName, step.blendTime);
 
             if (step.loop)
@@ -611,12 +578,23 @@ public class CharacterAnimationController : MonoBehaviour
                 while (true) yield return null;
             }
 
-            // Determine next state so glitch blends directly into it with zero freeze
-            string nextState = (i < dancesToPlay - 1) ? GetNextDanceStateName(danceList) : idleName;
-            yield return StartCoroutine(PlayDanceStepWithSeamlessGlitch(step, nextState));
+            yield return StartCoroutine(WaitStepHoldTime(step));
+
+            // 2. Revert back to resting idle after the dance move finishes
+            CrossFadeTo(idleName, 0.35f);
+            yield return new WaitForSecondsRealtime(idleBetweenDancesDuration);
+
+            // 3. Now play the turn animation and rotate to face the new angle before next dance
+            bool useRotation = preset != null ? preset.enableRandomRotationOnDance : enableRandomRotationOnDance;
+            if (useRotation && (i < dancesToPlay - 1) && Random.value < GetActiveTurnBeforeDanceChance())
+            {
+                yield return StartCoroutine(PerformTurnToNewAngle());
+                CrossFadeTo(idleName, 0.25f);
+                yield return new WaitForSecondsRealtime(0.2f);
+            }
         }
 
-        CrossFadeTo(idleName, 0.35f);
+        CrossFadeTo(idleName, 0.45f);
         _mainCoroutine = null;
 
         if (allowDanceRepeat)
@@ -642,69 +620,80 @@ public class CharacterAnimationController : MonoBehaviour
                 int dancesToPlay = Mathf.Max(danceList.Count, 3);
                 for (int i = 0; i < dancesToPlay; i++)
                 {
+                    // Turn to a new angle between dances
+                    bool useRotation = preset != null ? preset.enableRandomRotationOnDance : enableRandomRotationOnDance;
+                    if (useRotation && Random.value < GetActiveTurnBeforeDanceChance())
+                    {
+                        yield return StartCoroutine(PerformTurnToNewAngle());
+                        CrossFadeTo(idleName, 0.25f);
+                        yield return new WaitForSecondsRealtime(0.2f);
+                    }
+
                     AnimSequenceStep step = GetNextRandomDanceStep(danceList);
                     if (step == null || string.IsNullOrEmpty(step.stateName)) continue;
 
-                    if (Random.value < GetActiveTurnBeforeDanceChance())
-                        yield return StartCoroutine(PerformTurnBeforeDance());
-
+                    // 1. Play the dance move
                     CrossFadeTo(step.stateName, step.blendTime);
+                    yield return StartCoroutine(WaitStepHoldTime(step));
 
-                    string nextState = (i < dancesToPlay - 1) ? GetNextDanceStateName(danceList) : idleName;
-                    yield return StartCoroutine(PlayDanceStepWithSeamlessGlitch(step, nextState));
+                    // 2. Revert back to resting idle after the dance move finishes
+                    CrossFadeTo(idleName, 0.35f);
+                    yield return new WaitForSecondsRealtime(idleBetweenDancesDuration);
                 }
 
-                CrossFadeTo(idleName, 0.35f);
+                CrossFadeTo(idleName, 0.45f);
                 yield return new WaitForSecondsRealtime(0.6f);
             }
         }
     }
 
-    private IEnumerator RunRandomRotationLoop()
+    private IEnumerator PerformTurnToNewAngle()
     {
+        if (_animator == null) yield break;
         if (!_pivotCaptured) CaptureInitialPivot();
 
-        float minInterval = preset != null ? preset.minTurnInterval : minTurnInterval;
-        float maxInterval = preset != null ? preset.maxTurnInterval : maxTurnInterval;
-        float maxAngle    = preset != null ? preset.maxTurnAngle    : maxTurnAngle;
+        float maxAngle = preset != null ? preset.maxTurnAngle : maxTurnAngle;
 
-        while (true)
+        // Determine target facing angle
+        Quaternion targetRot;
+        float distanceFromPivot = Vector3.Distance(transform.position, _initialPosition);
+
+        if (distanceFromPivot > 1.8f)
         {
-            float waitTime = Random.Range(minInterval, maxInterval);
-
-            Quaternion targetRotation;
-            float distanceFromPivot = Vector3.Distance(transform.position, _initialPosition);
-
-            if (distanceFromPivot > 1.8f)
-            {
-                Vector3 directionToCenter = (_initialPosition - transform.position).normalized;
-                directionToCenter.y = 0f;
-                targetRotation = Quaternion.LookRotation(directionToCenter, Vector3.up);
-            }
-            else
-            {
-                float randomOffsetAngle = Random.Range(-maxAngle, maxAngle);
-                targetRotation = _initialRotation * Quaternion.Euler(0f, randomOffsetAngle, 0f);
-            }
-
-            float angleDelta  = Vector3.SignedAngle(transform.forward, targetRotation * Vector3.forward, Vector3.up);
-            bool isTurningLeft = angleDelta < 0f;
-            TryCrossFadeTurnState(isTurningLeft, 0.25f);
-
-            float elapsed        = 0f;
-            float turnDurationVal = preset != null ? preset.turnDuration : turnDuration;
-            if (turnDurationVal <= 0.1f) turnDurationVal = 1.2f;
-            Quaternion startRotation = transform.rotation;
-
-            while (elapsed < turnDurationVal)
-            {
-                elapsed += Time.deltaTime;
-                transform.rotation = Quaternion.Slerp(startRotation, targetRotation, (elapsed / turnDurationVal) * turnSmoothSpeed);
-                yield return null;
-            }
-
-            yield return new WaitForSecondsRealtime(waitTime);
+            // If drifted away from root motion, face back toward center pivot
+            Vector3 directionToCenter = (_initialPosition - transform.position).normalized;
+            directionToCenter.y = 0f;
+            targetRot = Quaternion.LookRotation(directionToCenter, Vector3.up);
         }
+        else
+        {
+            // Pick a random organic angle relative to initial spawn facing
+            float randomOffsetAngle = Random.Range(-maxAngle, maxAngle);
+            targetRot = _initialRotation * Quaternion.Euler(0f, randomOffsetAngle, 0f);
+        }
+
+        // Determine turning direction and play turn animation
+        float angleDelta = Vector3.SignedAngle(transform.forward, targetRot * Vector3.forward, Vector3.up);
+        if (Mathf.Abs(angleDelta) > 10f)
+        {
+            bool isTurnLeft = angleDelta < 0f;
+            TryCrossFadeTurnState(isTurnLeft, 0.2f);
+        }
+
+        Quaternion startRot = transform.rotation;
+        float duration = preset != null ? preset.turnDuration : turnDuration;
+        if (duration <= 0.1f) duration = 1.0f;
+
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+            transform.rotation = Quaternion.Slerp(startRot, targetRot, t * turnSmoothSpeed);
+            yield return null;
+        }
+
+        transform.rotation = targetRot;
     }
 
     // =========================================================================
@@ -723,207 +712,6 @@ public class CharacterAnimationController : MonoBehaviour
 
         _lastDanceIndex = randomIndex;
         return danceList[randomIndex];
-    }
-
-    private IEnumerator PerformTurnBeforeDance()
-    {
-        if (_animator == null) yield break;
-
-        bool isTurnLeft = Random.value < 0.5f;
-        TryCrossFadeTurnState(isTurnLeft, 0.2f);
-        if (!_pivotCaptured) CaptureInitialPivot();
-
-        float maxAngle  = preset != null ? preset.maxTurnAngle : maxTurnAngle;
-        float turnAngle = isTurnLeft ? Random.Range(-maxAngle, -25f) : Random.Range(25f, maxAngle);
-
-        Quaternion startRot  = transform.rotation;
-        Quaternion targetRot = _initialRotation * Quaternion.Euler(0f, turnAngle, 0f);
-
-        float duration = preset != null ? preset.turnDuration : turnDuration;
-        if (duration <= 0.1f) duration = 1.0f;
-
-        float elapsed = 0f;
-        while (elapsed < duration)
-        {
-            elapsed += Time.deltaTime;
-            transform.rotation = Quaternion.Slerp(startRot, targetRot, (elapsed / duration) * turnSmoothSpeed);
-            yield return null;
-        }
-    }
-
-    /// <summary>
-    /// Plays a dance step, detecting when the clip is near completion, then initiates
-    /// the glitch effect and blends directly into the next state to completely eliminate freezes.
-    /// </summary>
-    private IEnumerator PlayDanceStepWithSeamlessGlitch(AnimSequenceStep step, string nextStateName)
-    {
-        if (_animator == null) yield break;
-
-        float targetHold = step.holdTime;
-
-        if (targetHold <= 0.05f)
-        {
-            yield return null;
-            if (_animator != null)
-            {
-                AnimatorStateInfo info = _animator.GetCurrentAnimatorStateInfo(0);
-                targetHold = info.length > 0.1f ? info.length : defaultDanceHoldTime;
-            }
-            if (targetHold <= 0.05f) targetHold = defaultDanceHoldTime;
-        }
-
-        float glitchLead = enableGlitchBetweenDances ? Mathf.Min(glitchDuration, targetHold * 0.4f) : 0f;
-        float playDurationBeforeGlitch = Mathf.Max(0.1f, targetHold - glitchLead);
-
-        float elapsed = 0f;
-        while (elapsed < playDurationBeforeGlitch)
-        {
-            elapsed += Time.deltaTime;
-
-            // Prevent freezing on last frame if non-looping clip finishes early
-            if (_animator != null)
-            {
-                AnimatorStateInfo curInfo = _animator.GetCurrentAnimatorStateInfo(0);
-                if (!curInfo.loop && curInfo.normalizedTime >= 0.90f)
-                    break;
-            }
-
-            yield return null;
-        }
-
-        if (enableGlitchBetweenDances)
-        {
-            yield return StartCoroutine(PerformSeamlessGlitchTransition(nextStateName));
-        }
-        else
-        {
-            if (!string.IsNullOrEmpty(nextStateName))
-                CrossFadeTo(nextStateName, step.blendTime);
-        }
-    }
-
-    /// <summary>
-    /// Executes a perfected spectral glitch transition: high-frequency 3D micro-jitter,
-    /// scanline distortion, multi-phase spectral strobe (Purple/Cyan/White/Black),
-    /// and initiates the crossfade to nextStateName midway through so motion never stops.
-    /// </summary>
-    private IEnumerator PerformSeamlessGlitchTransition(string nextStateName)
-    {
-        Vector3 originalLocalPos   = transform.localPosition;
-        Vector3 originalLocalScale = transform.localScale;
-
-        Renderer[] renderers = GetComponentsInChildren<Renderer>(true);
-        MaterialPropertyBlock propBlock = new MaterialPropertyBlock();
-
-        float elapsed = 0f;
-        float originalAnimSpeed = _animator != null ? _animator.speed : 1f;
-        bool crossfadeStarted = false;
-
-        // Custom twitch state if configured
-        if (!string.IsNullOrEmpty(glitchCustomStateName))
-        {
-            TryCrossFadeTurnStateByName(glitchCustomStateName, 0.08f);
-        }
-
-        while (elapsed < glitchDuration)
-        {
-            elapsed += Time.unscaledDeltaTime;
-            float progress = elapsed / glitchDuration;
-
-            // Halfway through glitch, blend into next state so character is moving when glitch ends
-            if (!crossfadeStarted && progress >= 0.35f)
-            {
-                crossfadeStarted = true;
-                if (!string.IsNullOrEmpty(nextStateName))
-                    CrossFadeTo(nextStateName, 0.22f);
-            }
-
-            // 1. High-frequency 3D Position Micro-Jitter
-            float jitterX = Random.Range(-0.06f, 0.06f) * glitchIntensity;
-            float jitterY = Random.Range(-0.03f, 0.03f) * glitchIntensity;
-            float jitterZ = Random.Range(-0.06f, 0.06f) * glitchIntensity;
-            transform.localPosition = originalLocalPos + new Vector3(jitterX, jitterY, jitterZ);
-
-            // 2. Scanline Scale Distort
-            float scaleDistortX = 1f + Random.Range(-0.09f, 0.09f) * glitchIntensity;
-            float scaleDistortY = 1f + Random.Range(-0.05f, 0.05f) * glitchIntensity;
-            transform.localScale = new Vector3(originalLocalScale.x * scaleDistortX, originalLocalScale.y * scaleDistortY, originalLocalScale.z / scaleDistortX);
-
-            // 3. Animation Scrub / Twitch
-            if (_animator != null && string.IsNullOrEmpty(glitchCustomStateName) && !crossfadeStarted)
-            {
-                _animator.speed = Random.Range(0.2f, 3.0f);
-            }
-
-            // 4. Multi-Phase Spectral Strobe (Purple, Cyan, White Flash, Silhouette)
-            int colorPhase = Random.Range(0, 4);
-            Color strobeColor = Color.black;
-            switch (colorPhase)
-            {
-                case 0: strobeColor = glitchEmissionColor * Random.Range(2.0f, 4.5f); break;
-                case 1: strobeColor = glitchSecondaryColor * Random.Range(1.8f, 3.5f); break;
-                case 2: strobeColor = Color.white * 3.0f; break;
-                case 3: strobeColor = Color.black; break;
-            }
-
-            bool meshVisible = !glitchMeshFlicker || (Random.value > 0.08f);
-
-            foreach (Renderer r in renderers)
-            {
-                if (r == null) continue;
-                r.enabled = meshVisible;
-
-                if (meshVisible)
-                {
-                    r.GetPropertyBlock(propBlock);
-                    propBlock.SetColor("_EmissionColor", strobeColor);
-                    r.SetPropertyBlock(propBlock);
-                }
-            }
-
-            yield return new WaitForSecondsRealtime(0.03f); // 33fps glitch cadence
-        }
-
-        // Restore clean baseline state
-        transform.localPosition = originalLocalPos;
-        transform.localScale   = originalLocalScale;
-
-        if (_animator != null)
-            _animator.speed = originalAnimSpeed;
-
-        if (!crossfadeStarted && !string.IsNullOrEmpty(nextStateName))
-            CrossFadeTo(nextStateName, 0.25f);
-
-        foreach (Renderer r in renderers)
-        {
-            if (r == null) continue;
-            r.enabled = true;
-            r.GetPropertyBlock(propBlock);
-            propBlock.SetColor("_EmissionColor", Color.black);
-            r.SetPropertyBlock(propBlock);
-        }
-    }
-
-    private string GetNextDanceStateName(List<AnimSequenceStep> danceList)
-    {
-        if (danceList == null || danceList.Count == 0) return GetResolvedDanceIdleState();
-        int idx = Random.Range(0, danceList.Count);
-        return !string.IsNullOrEmpty(danceList[idx].stateName) ? danceList[idx].stateName : GetResolvedDanceIdleState();
-    }
-
-    private void TryCrossFadeTurnStateByName(string stateName, float blendTime)
-    {
-        if (_animator == null || string.IsNullOrEmpty(stateName)) return;
-        int layerCount = _animator.layerCount;
-        int hash = Animator.StringToHash(stateName);
-        for (int layer = 0; layer < layerCount; layer++)
-        {
-            if (_animator.HasState(layer, hash))
-            {
-                _animator.CrossFadeInFixedTime(stateName, blendTime, layer);
-                return;
-            }
-        }
     }
 
     private void TryCrossFadeTurnState(bool isLeft, float blendTime)
