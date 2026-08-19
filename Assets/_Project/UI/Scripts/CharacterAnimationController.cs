@@ -164,6 +164,30 @@ public class CharacterAnimationController : MonoBehaviour
     [Tooltip("Default hold time (seconds) if a dance step's holdTime is left at 0.")]
     public float defaultDanceHoldTime = 3.5f;
 
+    [Header("── Spirit Glitch Effect (Between Dances)")]
+    [Tooltip("If true, plays an eerie spectral glitch transition (strobe emission, mesh jitter, animation time-stutter) seamlessly between dances with zero freezing.")]
+    public bool enableGlitchBetweenDances = true;
+
+    [Range(0.1f, 0.6f)]
+    [Tooltip("Duration in seconds of the glitch burst transition.")]
+    public float glitchDuration = 0.28f;
+
+    [Range(0.1f, 3.0f)]
+    [Tooltip("Intensity of the positional stutter and mesh distortion.")]
+    public float glitchIntensity = 1.2f;
+
+    [Tooltip("Primary spirit emission color during glitch (e.g. Ghost Purple).")]
+    public Color glitchEmissionColor = new Color(0.65f, 0.1f, 1.0f, 1.0f);
+
+    [Tooltip("Secondary spectral strobe color (e.g. Electric Cyan).")]
+    public Color glitchSecondaryColor = new Color(0.0f, 0.9f, 1.0f, 1.0f);
+
+    [Tooltip("If true, flickers renderer visibility rapidly during the glitch for a holographic ghost phase.")]
+    public bool glitchMeshFlicker = true;
+
+    [Tooltip("Optional: specific Animator state name to flash during glitch (e.g. 'Glitch', 'Twitch', 'Hit'). Leave blank for automatic organic frame-twitch.")]
+    public string glitchCustomStateName = "";
+
 
 
     // =========================================================================
@@ -587,10 +611,12 @@ public class CharacterAnimationController : MonoBehaviour
                 while (true) yield return null;
             }
 
-            yield return StartCoroutine(WaitStepHoldTime(step));
+            // Determine next state so glitch blends directly into it with zero freeze
+            string nextState = (i < dancesToPlay - 1) ? GetNextDanceStateName(danceList) : idleName;
+            yield return StartCoroutine(PlayDanceStepWithSeamlessGlitch(step, nextState));
         }
 
-        CrossFadeTo(idleName, 0.45f);
+        CrossFadeTo(idleName, 0.35f);
         _mainCoroutine = null;
 
         if (allowDanceRepeat)
@@ -623,10 +649,12 @@ public class CharacterAnimationController : MonoBehaviour
                         yield return StartCoroutine(PerformTurnBeforeDance());
 
                     CrossFadeTo(step.stateName, step.blendTime);
-                    yield return StartCoroutine(WaitStepHoldTime(step));
+
+                    string nextState = (i < dancesToPlay - 1) ? GetNextDanceStateName(danceList) : idleName;
+                    yield return StartCoroutine(PlayDanceStepWithSeamlessGlitch(step, nextState));
                 }
 
-                CrossFadeTo(idleName, 0.45f);
+                CrossFadeTo(idleName, 0.35f);
                 yield return new WaitForSecondsRealtime(0.6f);
             }
         }
@@ -720,6 +748,181 @@ public class CharacterAnimationController : MonoBehaviour
             elapsed += Time.deltaTime;
             transform.rotation = Quaternion.Slerp(startRot, targetRot, (elapsed / duration) * turnSmoothSpeed);
             yield return null;
+        }
+    }
+
+    /// <summary>
+    /// Plays a dance step, detecting when the clip is near completion, then initiates
+    /// the glitch effect and blends directly into the next state to completely eliminate freezes.
+    /// </summary>
+    private IEnumerator PlayDanceStepWithSeamlessGlitch(AnimSequenceStep step, string nextStateName)
+    {
+        if (_animator == null) yield break;
+
+        float targetHold = step.holdTime;
+
+        if (targetHold <= 0.05f)
+        {
+            yield return null;
+            if (_animator != null)
+            {
+                AnimatorStateInfo info = _animator.GetCurrentAnimatorStateInfo(0);
+                targetHold = info.length > 0.1f ? info.length : defaultDanceHoldTime;
+            }
+            if (targetHold <= 0.05f) targetHold = defaultDanceHoldTime;
+        }
+
+        float glitchLead = enableGlitchBetweenDances ? Mathf.Min(glitchDuration, targetHold * 0.4f) : 0f;
+        float playDurationBeforeGlitch = Mathf.Max(0.1f, targetHold - glitchLead);
+
+        float elapsed = 0f;
+        while (elapsed < playDurationBeforeGlitch)
+        {
+            elapsed += Time.deltaTime;
+
+            // Prevent freezing on last frame if non-looping clip finishes early
+            if (_animator != null)
+            {
+                AnimatorStateInfo curInfo = _animator.GetCurrentAnimatorStateInfo(0);
+                if (!curInfo.loop && curInfo.normalizedTime >= 0.90f)
+                    break;
+            }
+
+            yield return null;
+        }
+
+        if (enableGlitchBetweenDances)
+        {
+            yield return StartCoroutine(PerformSeamlessGlitchTransition(nextStateName));
+        }
+        else
+        {
+            if (!string.IsNullOrEmpty(nextStateName))
+                CrossFadeTo(nextStateName, step.blendTime);
+        }
+    }
+
+    /// <summary>
+    /// Executes a perfected spectral glitch transition: high-frequency 3D micro-jitter,
+    /// scanline distortion, multi-phase spectral strobe (Purple/Cyan/White/Black),
+    /// and initiates the crossfade to nextStateName midway through so motion never stops.
+    /// </summary>
+    private IEnumerator PerformSeamlessGlitchTransition(string nextStateName)
+    {
+        Vector3 originalLocalPos   = transform.localPosition;
+        Vector3 originalLocalScale = transform.localScale;
+
+        Renderer[] renderers = GetComponentsInChildren<Renderer>(true);
+        MaterialPropertyBlock propBlock = new MaterialPropertyBlock();
+
+        float elapsed = 0f;
+        float originalAnimSpeed = _animator != null ? _animator.speed : 1f;
+        bool crossfadeStarted = false;
+
+        // Custom twitch state if configured
+        if (!string.IsNullOrEmpty(glitchCustomStateName))
+        {
+            TryCrossFadeTurnStateByName(glitchCustomStateName, 0.08f);
+        }
+
+        while (elapsed < glitchDuration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            float progress = elapsed / glitchDuration;
+
+            // Halfway through glitch, blend into next state so character is moving when glitch ends
+            if (!crossfadeStarted && progress >= 0.35f)
+            {
+                crossfadeStarted = true;
+                if (!string.IsNullOrEmpty(nextStateName))
+                    CrossFadeTo(nextStateName, 0.22f);
+            }
+
+            // 1. High-frequency 3D Position Micro-Jitter
+            float jitterX = Random.Range(-0.06f, 0.06f) * glitchIntensity;
+            float jitterY = Random.Range(-0.03f, 0.03f) * glitchIntensity;
+            float jitterZ = Random.Range(-0.06f, 0.06f) * glitchIntensity;
+            transform.localPosition = originalLocalPos + new Vector3(jitterX, jitterY, jitterZ);
+
+            // 2. Scanline Scale Distort
+            float scaleDistortX = 1f + Random.Range(-0.09f, 0.09f) * glitchIntensity;
+            float scaleDistortY = 1f + Random.Range(-0.05f, 0.05f) * glitchIntensity;
+            transform.localScale = new Vector3(originalLocalScale.x * scaleDistortX, originalLocalScale.y * scaleDistortY, originalLocalScale.z / scaleDistortX);
+
+            // 3. Animation Scrub / Twitch
+            if (_animator != null && string.IsNullOrEmpty(glitchCustomStateName) && !crossfadeStarted)
+            {
+                _animator.speed = Random.Range(0.2f, 3.0f);
+            }
+
+            // 4. Multi-Phase Spectral Strobe (Purple, Cyan, White Flash, Silhouette)
+            int colorPhase = Random.Range(0, 4);
+            Color strobeColor = Color.black;
+            switch (colorPhase)
+            {
+                case 0: strobeColor = glitchEmissionColor * Random.Range(2.0f, 4.5f); break;
+                case 1: strobeColor = glitchSecondaryColor * Random.Range(1.8f, 3.5f); break;
+                case 2: strobeColor = Color.white * 3.0f; break;
+                case 3: strobeColor = Color.black; break;
+            }
+
+            bool meshVisible = !glitchMeshFlicker || (Random.value > 0.08f);
+
+            foreach (Renderer r in renderers)
+            {
+                if (r == null) continue;
+                r.enabled = meshVisible;
+
+                if (meshVisible)
+                {
+                    r.GetPropertyBlock(propBlock);
+                    propBlock.SetColor("_EmissionColor", strobeColor);
+                    r.SetPropertyBlock(propBlock);
+                }
+            }
+
+            yield return new WaitForSecondsRealtime(0.03f); // 33fps glitch cadence
+        }
+
+        // Restore clean baseline state
+        transform.localPosition = originalLocalPos;
+        transform.localScale   = originalLocalScale;
+
+        if (_animator != null)
+            _animator.speed = originalAnimSpeed;
+
+        if (!crossfadeStarted && !string.IsNullOrEmpty(nextStateName))
+            CrossFadeTo(nextStateName, 0.25f);
+
+        foreach (Renderer r in renderers)
+        {
+            if (r == null) continue;
+            r.enabled = true;
+            r.GetPropertyBlock(propBlock);
+            propBlock.SetColor("_EmissionColor", Color.black);
+            r.SetPropertyBlock(propBlock);
+        }
+    }
+
+    private string GetNextDanceStateName(List<AnimSequenceStep> danceList)
+    {
+        if (danceList == null || danceList.Count == 0) return GetResolvedDanceIdleState();
+        int idx = Random.Range(0, danceList.Count);
+        return !string.IsNullOrEmpty(danceList[idx].stateName) ? danceList[idx].stateName : GetResolvedDanceIdleState();
+    }
+
+    private void TryCrossFadeTurnStateByName(string stateName, float blendTime)
+    {
+        if (_animator == null || string.IsNullOrEmpty(stateName)) return;
+        int layerCount = _animator.layerCount;
+        int hash = Animator.StringToHash(stateName);
+        for (int layer = 0; layer < layerCount; layer++)
+        {
+            if (_animator.HasState(layer, hash))
+            {
+                _animator.CrossFadeInFixedTime(stateName, blendTime, layer);
+                return;
+            }
         }
     }
 
