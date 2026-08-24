@@ -1,5 +1,6 @@
 using Unity.Netcode;
 using UnityEngine;
+using Unity.Cinemachine;
 
 public class PlayerCameraSetup : NetworkBehaviour
 {
@@ -7,11 +8,14 @@ public class PlayerCameraSetup : NetworkBehaviour
     {
         if (IsOwner)
         {
-            var vcam = FindFirstObjectByType<Unity.Cinemachine.CinemachineCamera>();
+            var vcam = GetComponentInChildren<CinemachineCamera>(true);
+            if (vcam == null) vcam = FindFirstObjectByType<CinemachineCamera>();
             if (vcam != null)
             {
-                vcam.Follow = transform;
-                vcam.LookAt = transform;
+                vcam.Priority = 100;
+                vcam.gameObject.SetActive(true);
+                if (vcam.Follow == null) vcam.Follow = transform;
+                if (vcam.LookAt == null) vcam.LookAt = transform;
             }
         }
     }

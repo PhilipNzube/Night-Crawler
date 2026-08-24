@@ -1,6 +1,7 @@
 using UnityEngine;
 using System;
 using Unity.Netcode;
+using Unity.Netcode.Components;
 
 /// <summary>
 /// SOLID — SRP: Reusable Health / Damage System for any entity (Player, NPC, Enemy, Prop).
@@ -45,8 +46,22 @@ public class HealthSystem : NetworkBehaviour, IDamageReceiver
 
     public override void OnNetworkSpawn()
     {
-        _networkHealth.Value = maxHealth;
-        _networkHealth.OnValueChanged += HandleNetworkHealthChanged;
+        if (networked)
+        {
+            if (IsServer)
+                _networkHealth.Value = maxHealth;
+
+            _networkHealth.OnValueChanged += HandleNetworkHealthChanged;
+
+            // Fire an initial event so the HUD bar populates immediately on all clients
+            // even though the value hasn't changed after spawn
+            OnHealthChanged?.Invoke(_networkHealth.Value, maxHealth);
+        }
+        else
+        {
+            _localHealth = maxHealth;
+            OnHealthChanged?.Invoke(_localHealth, maxHealth);
+        }
     }
 
     public override void OnNetworkDespawn()
@@ -111,7 +126,7 @@ public class HealthSystem : NetworkBehaviour, IDamageReceiver
     //  Private Helpers
     // =========================================================================
 
-    [ServerRpc(RequireOwnership = false)]
+    [Rpc(SendTo.Server)]
     private void TakeDamageServerRpc(float amount, bool isSoulAttack)
     {
         ApplyDamageServer(amount, isSoulAttack);

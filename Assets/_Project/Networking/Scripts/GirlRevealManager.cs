@@ -213,6 +213,11 @@ public class GirlRevealManager : NetworkBehaviour
         if (isGirl)
         {
             Debug.Log("[GirlRevealManager] Local client is the Vengeful Spirit → showing girl screen.");
+            PersistentCharacterSelection.SetIsVengefulSpirit(true);
+
+            if (investigatorFlow != null)
+                investigatorFlow.SetActive(false);
+
             if (girlFlow != null)
             {
                 girlFlow.SetActive(true);
@@ -226,6 +231,11 @@ public class GirlRevealManager : NetworkBehaviour
         else
         {
             Debug.Log("[GirlRevealManager] Local client is an investigator → showing character select.");
+            PersistentCharacterSelection.SetIsVengefulSpirit(false);
+
+            if (girlFlow != null)
+                girlFlow.SetActive(false);
+
             if (investigatorFlow != null)
             {
                 investigatorFlow.SetActive(true);

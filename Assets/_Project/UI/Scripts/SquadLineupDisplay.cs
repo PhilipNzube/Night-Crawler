@@ -62,9 +62,17 @@ public class SquadLineupDisplay : MonoBehaviour
     //  Inspector — Cinematic Animation & Gestures
     // -------------------------------------------------------------------------
     [Header("Cinematic Animation & Gestures")]
+    [UnityEngine.Serialization.FormerlySerializedAs("delayBeforeGesturesStart")]
     [Tooltip("Seconds after squad lineup appears before character gesture animations start playing.\n" +
              "Set to 0 to start immediately, or set a delay (e.g. 3.0s) so characters hold idle first.")]
-    public float delayBeforeGesturesStart = 3.0f;
+    public float delayBeforeGestures = 3.0f;
+
+    /// <summary>Backward-compatible property alias for delayBeforeGestures.</summary>
+    public float delayBeforeGesturesStart
+    {
+        get => delayBeforeGestures;
+        set => delayBeforeGestures = value;
+    }
 
     [Tooltip("Seconds between each character starting their gesture/cinematic sequence. " +
              "Staggers the animations so they don't all fire simultaneously.")]
@@ -221,21 +229,26 @@ public class SquadLineupDisplay : MonoBehaviour
     private List<ulong> ResolveActiveClientIds()
     {
         ulong girlClientId = ulong.MaxValue;
-        if (CharacterSelectManager.Instance != null)
+        if (GirlRevealManager.Instance != null && GirlRevealManager.Instance.revealedGirlClientId.Value != 999)
+            girlClientId = GirlRevealManager.Instance.revealedGirlClientId.Value;
+        else if (CharacterSelectManager.Instance != null && CharacterSelectManager.Instance.vengefulSpiritClientId.Value != 999)
             girlClientId = CharacterSelectManager.Instance.vengefulSpiritClientId.Value;
 
         List<ulong> clientIds = new List<ulong>();
 
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening && NetworkManager.Singleton.ConnectedClientsIds.Count > 0)
         {
-            clientIds.AddRange(NetworkManager.Singleton.ConnectedClientsIds);
-            clientIds.RemoveAll(id => id == girlClientId);
+            foreach (ulong id in NetworkManager.Singleton.ConnectedClientsIds)
+            {
+                if (id != girlClientId)
+                    clientIds.Add(id);
+            }
         }
 
-        // Offline / Solo test fallback: if no clients connected, spawn 1 to 4 test slots
-        if (clientIds.Count == 0)
+        // Offline / Solo test fallback: only if no clients or zero investigators found in standalone mode
+        if (clientIds.Count == 0 && (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening))
         {
-            clientIds.Add(0); // Local player slot
+            clientIds.Add(0); // Local player slot for offline scene preview
         }
 
         return clientIds;
@@ -347,12 +360,12 @@ public class SquadLineupDisplay : MonoBehaviour
     // =========================================================================
 
     /// <summary>
-    /// Waits for delayBeforeGesturesStart, then triggers gesture animations for all squad members.
+    /// Waits for delayBeforeGestures, then triggers gesture animations for all squad members.
     /// </summary>
     private IEnumerator TriggerSquadGesturesAfterDelay()
     {
-        if (delayBeforeGesturesStart > 0f)
-            yield return new WaitForSecondsRealtime(delayBeforeGesturesStart);
+        if (delayBeforeGestures > 0f)
+            yield return new WaitForSecondsRealtime(delayBeforeGestures);
 
         for (int i = 0; i < _animControllers.Count; i++)
         {
@@ -374,14 +387,14 @@ public class SquadLineupDisplay : MonoBehaviour
         {
             ctrl.allowGestures = true;
             // If the character has a custom cinematic intro sequence, play it and transition to gestures;
-            // otherwise directly start the squad gesture loop.
+            // otherwise directly start the squad gesture loop immediately.
             if (ctrl.cinematicIntroSequence != null && ctrl.cinematicIntroSequence.Count > 0)
             {
                 ctrl.PlayCinematicSequence(startGestureLoopAfter: true);
             }
             else
             {
-                ctrl.StartNaturalGestureLoop();
+                ctrl.StartNaturalGestureLoop(playImmediateFirst: true);
             }
         }
     }

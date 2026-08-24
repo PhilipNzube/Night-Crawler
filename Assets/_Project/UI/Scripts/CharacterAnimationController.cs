@@ -295,7 +295,7 @@ public class CharacterAnimationController : MonoBehaviour
                 break;
 
             case StartupMode.Squad_Gestures:
-                StartNaturalGestureLoop();
+                StartNaturalGestureLoop(playImmediateFirst: false);
                 break;
 
             case StartupMode.Cinematic:
@@ -348,10 +348,11 @@ public class CharacterAnimationController : MonoBehaviour
 
     /// <summary>
     /// Starts the idle + gesture loop using Squad gesture settings.
+    /// If playImmediateFirst is true (default), the first gesture starts immediately without the random idle delay.
     /// Gestures fire randomly from squadGestureSteps / squadSimpleGestureNames.
     /// Has no effect if allowGestures is false.
     /// </summary>
-    public void StartNaturalGestureLoop()
+    public void StartNaturalGestureLoop(bool playImmediateFirst = true)
     {
         StopAllRoutines();
         ApplyRootMotionSettings();
@@ -359,10 +360,12 @@ public class CharacterAnimationController : MonoBehaviour
 
         if (!CanStartGestures()) return;  // hard gate
 
-        bool hasTyped  = squadGestureSteps != null && squadGestureSteps.Count > 0;
-        bool hasSimple = squadSimpleGestureNames != null && squadSimpleGestureNames.Count > 0;
+        var typed  = GetActiveGestureSteps();
+        var simple = GetActiveSimpleGestureNames();
+        bool hasTyped  = typed != null && typed.Count > 0;
+        bool hasSimple = simple != null && simple.Count > 0;
         if (hasTyped || hasSimple)
-            _gestureCoroutine = StartCoroutine(RunGestureLoop());
+            _gestureCoroutine = StartCoroutine(RunGestureLoop(playImmediateFirst));
     }
 
     /// <summary>
@@ -370,7 +373,7 @@ public class CharacterAnimationController : MonoBehaviour
     /// Uses 'lobbyGestureSteps'. If no gestures are assigned or allowLobbyGestures is false,
     /// holds the resting idle animation.
     /// </summary>
-    public void StartPreviewGestureLoop()
+    public void StartPreviewGestureLoop(bool playImmediateFirst = true)
     {
         StopAllRoutines();
         ApplyRootMotionSettings();
@@ -381,7 +384,7 @@ public class CharacterAnimationController : MonoBehaviour
         var typed  = GetActiveLobbyGestureSteps();
         var simple = GetActiveLobbySimpleGestureNames();
         if ((typed != null && typed.Count > 0) || (simple != null && simple.Count > 0))
-            _gestureCoroutine = StartCoroutine(RunPreviewGestureLoop());
+            _gestureCoroutine = StartCoroutine(RunPreviewGestureLoop(playImmediateFirst));
     }
 
     /// <summary>
@@ -456,13 +459,14 @@ public class CharacterAnimationController : MonoBehaviour
             _gestureCoroutine = StartCoroutine(RunGestureLoop());
     }
 
-    private IEnumerator RunGestureLoop()
+    private IEnumerator RunGestureLoop(bool playImmediateFirst = false)
     {
         if (_animator == null) yield break;
 
         float minDelay  = preset != null ? preset.minGestureDelay : minGestureDelay;
         float maxDelay  = preset != null ? preset.maxGestureDelay : maxGestureDelay;
         string idleName = GetResolvedGestureIdleState();
+        bool isFirst = playImmediateFirst;
 
         // Typed gesture steps take priority
         List<AnimSequenceStep> typedGestures = GetActiveGestureSteps();
@@ -470,8 +474,15 @@ public class CharacterAnimationController : MonoBehaviour
         {
             while (true)
             {
-                float delay = Random.Range(minDelay, maxDelay);
-                yield return new WaitForSecondsRealtime(delay);
+                if (!isFirst)
+                {
+                    float delay = Random.Range(minDelay, maxDelay);
+                    yield return new WaitForSecondsRealtime(delay);
+                }
+                else
+                {
+                    isFirst = false;
+                }
 
                 AnimSequenceStep step = typedGestures[Random.Range(0, typedGestures.Count)];
                 if (step == null || string.IsNullOrEmpty(step.stateName)) continue;
@@ -490,8 +501,15 @@ public class CharacterAnimationController : MonoBehaviour
 
             while (true)
             {
-                float delay = Random.Range(minDelay, maxDelay);
-                yield return new WaitForSecondsRealtime(delay);
+                if (!isFirst)
+                {
+                    float delay = Random.Range(minDelay, maxDelay);
+                    yield return new WaitForSecondsRealtime(delay);
+                }
+                else
+                {
+                    isFirst = false;
+                }
 
                 string gesture = simpleGestures[Random.Range(0, simpleGestures.Count)];
                 if (!string.IsNullOrEmpty(gesture))
@@ -505,13 +523,14 @@ public class CharacterAnimationController : MonoBehaviour
         }
     }
 
-    private IEnumerator RunPreviewGestureLoop()
+    private IEnumerator RunPreviewGestureLoop(bool playImmediateFirst = false)
     {
         if (_animator == null) yield break;
 
         float minDelay  = preset != null ? preset.minGestureDelay : minGestureDelay;
         float maxDelay  = preset != null ? preset.maxGestureDelay : maxGestureDelay;
         string idleName = GetResolvedIdleState();
+        bool isFirst = playImmediateFirst;
 
         var typed  = GetActiveLobbyGestureSteps();
         var simple = GetActiveLobbySimpleGestureNames();
@@ -520,8 +539,15 @@ public class CharacterAnimationController : MonoBehaviour
         {
             while (true)
             {
-                float delay = Random.Range(minDelay, maxDelay);
-                yield return new WaitForSecondsRealtime(delay);
+                if (!isFirst)
+                {
+                    float delay = Random.Range(minDelay, maxDelay);
+                    yield return new WaitForSecondsRealtime(delay);
+                }
+                else
+                {
+                    isFirst = false;
+                }
 
                 AnimSequenceStep step = typed[Random.Range(0, typed.Count)];
                 if (step == null || string.IsNullOrEmpty(step.stateName)) continue;
@@ -536,8 +562,15 @@ public class CharacterAnimationController : MonoBehaviour
         {
             while (true)
             {
-                float delay = Random.Range(minDelay, maxDelay);
-                yield return new WaitForSecondsRealtime(delay);
+                if (!isFirst)
+                {
+                    float delay = Random.Range(minDelay, maxDelay);
+                    yield return new WaitForSecondsRealtime(delay);
+                }
+                else
+                {
+                    isFirst = false;
+                }
 
                 string gesture = simple[Random.Range(0, simple.Count)];
                 if (!string.IsNullOrEmpty(gesture))

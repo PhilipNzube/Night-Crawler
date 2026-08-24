@@ -38,6 +38,8 @@ public class GameManager : NetworkBehaviour
     [Header("Match Settings")]
     [Tooltip("Minimum connected players required to start. Set to 1 for solo testing, or 2+ for multiplayer builds.")]
     public int minPlayers = 1;
+    [Tooltip("Maximum allowed players in the match (e.g. 6: 1 Vengeful Spirit + 5 Investigators).")]
+    public int maxPlayers = 6;
     public float spawnHeight = 50f;
 
     // -------------------------------------------------------------------------

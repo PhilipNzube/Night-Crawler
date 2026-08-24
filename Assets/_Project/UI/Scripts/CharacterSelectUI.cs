@@ -128,6 +128,13 @@ public class CharacterSelectUI : MonoBehaviour
 
     void OnEnable()
     {
+        // If local player is the Vengeful Spirit (Girl), do not show investigator character select UI
+        if (PersistentCharacterSelection.IsVengefulSpirit())
+        {
+            gameObject.SetActive(false);
+            return;
+        }
+
         EnsureDefaultCharacterData();
 
         if (CharacterSceneController.Instance != null)

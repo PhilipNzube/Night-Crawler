@@ -146,9 +146,13 @@ public class PlayerHUD : MonoBehaviour
 
         if (_localHealth != null)
         {
-            _maxHealth = (_localHealth.stats != null && _localHealth.stats.maxHealth > 0)
+            // Prefer stats.maxHealth; fall back to the current NetworkVariable value
+            float statsMax = (_localHealth.stats != null && _localHealth.stats.maxHealth > 0)
                 ? _localHealth.stats.maxHealth
-                : 100f;
+                : 0f;
+            float networkMax = _localHealth.currentHealth.Value;
+            _maxHealth = statsMax > 0 ? statsMax : (networkMax > 0 ? networkMax : 100f);
+
             _localHealth.currentHealth.OnValueChanged += OnTargetHealthChanged;
         }
         else if (_localHealthSys != null)

@@ -92,6 +92,9 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Minimum connected players required to enable 'START MATCH'. Set to 1 for solo testing, or 2+ for multiplayer builds.")]
     public int minPlayers = 1;
 
+    [Tooltip("Maximum allowed players in the lobby (e.g. 6: 1 Vengeful Spirit + 5 Investigators).")]
+    public int maxPlayers = 6;
+
     [Tooltip("The name of the Game Scene containing GameManager and map spawn points.")]
     public string gameSceneName = "GameScene";
 
@@ -253,11 +256,12 @@ public class LobbyUI : MonoBehaviour
 
         int  current  = NetworkManager.Singleton.ConnectedClientsIds.Count;
         int  required = minPlayers;
+        int  max      = Mathf.Max(maxPlayers, required);
         bool isServer = NetworkManager.Singleton.IsServer;
         bool canStart = isServer && current >= required;
 
         if (playerCountText != null)
-            playerCountText.text = $"{current}  /  {required}  players";
+            playerCountText.text = $"{current}  /  {max}  players";
 
         if (statusText != null)
         {

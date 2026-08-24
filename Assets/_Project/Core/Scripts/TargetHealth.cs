@@ -26,6 +26,36 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
         {
             currentHealth.Value = stats.maxHealth;
         }
+        else if (IsServer && stats == null)
+        {
+            // stats not assigned — keep the default value of 100 already set in declaration
+            Debug.LogWarning($"[TargetHealth] No EntityStats assigned on '{gameObject.name}'. Using default 100 HP.");
+        }
+
+        // Subscribe so local client can react to future changes
+        currentHealth.OnValueChanged += OnHealthValueChanged;
+
+        // Notify UI immediately with the current value so health bars populate on spawn
+        // (OnValueChanged doesn't fire if the value didn't change after spawn)
+        StartCoroutine(BroadcastInitialHealth());
+    }
+
+    private System.Collections.IEnumerator BroadcastInitialHealth()
+    {
+        // Wait one frame for HUD / listeners to subscribe first
+        yield return null;
+        OnHealthValueChanged(currentHealth.Value, currentHealth.Value);
+    }
+
+    private void OnHealthValueChanged(float previous, float current)
+    {
+        // Subclasses or HealthBar components can subscribe to currentHealth.OnValueChanged directly,
+        // but if they need a C# event, broadcast via this relay.
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        currentHealth.OnValueChanged -= OnHealthValueChanged;
     }
 
     // This must only be called on the Server

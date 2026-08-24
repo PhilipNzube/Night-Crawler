@@ -94,6 +94,15 @@ public class GirlPlayerScreen : MonoBehaviour
     {
         _readySent = false;
         PersistentCharacterSelection.SetIsVengefulSpirit(true);
+
+        // Ensure CharacterSelectUI and white room are disabled so nothing overlaps the girl screen
+        CharacterSelectUI selectUI = FindFirstObjectByType<CharacterSelectUI>(FindObjectsInactive.Include);
+        if (selectUI != null && selectUI.gameObject.activeSelf)
+            selectUI.gameObject.SetActive(false);
+
+        if (CharacterSceneController.Instance != null)
+            CharacterSceneController.Instance.DisableCharacterSelectEnvironment();
+
         SetScreenVisible(true);
         PopulateTexts();
         SpawnGirlModel();
