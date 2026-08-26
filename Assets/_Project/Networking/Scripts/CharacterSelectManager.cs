@@ -33,6 +33,14 @@ public class CharacterSelectManager : NetworkBehaviour
     // Track selected character index per clientId
     private Dictionary<ulong, int> _playerCharacterChoices = new Dictionary<ulong, int>();
 
+    // Static persistence across scene loads
+    private static readonly Dictionary<ulong, int> s_SavedChoices = new Dictionary<ulong, int>();
+    private static ulong s_SavedVengefulSpirit = 999;
+    private static bool s_SavedRoleSelectionDone = false;
+
+    public static ulong SavedVengefulSpiritClientId => s_SavedVengefulSpirit;
+    public static bool SavedRoleSelectionDone => s_SavedRoleSelectionDone;
+
     // =========================================================================
     //  Unity Lifecycle
     // =========================================================================
@@ -40,6 +48,9 @@ public class CharacterSelectManager : NetworkBehaviour
     {
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
+
+        if (transform.parent == null)
+            DontDestroyOnLoad(gameObject);
 
         PopulateDefaultCharactersIfEmpty();
     }
@@ -68,6 +79,9 @@ public class CharacterSelectManager : NetworkBehaviour
         vengefulSpiritClientId.Value = clientIds[randomIndex];
         roleSelectionDone.Value      = true;
 
+        s_SavedVengefulSpirit    = vengefulSpiritClientId.Value;
+        s_SavedRoleSelectionDone = true;
+
         Debug.Log($"[CharacterSelectManager] {clientIds.Count} players connected. " +
                   $"Client {vengefulSpiritClientId.Value} selected as Vengeful Spirit.");
     }
@@ -80,6 +94,7 @@ public class CharacterSelectManager : NetworkBehaviour
     {
         ulong senderId = rpcParams.Receive.SenderClientId;
         _playerCharacterChoices[senderId] = characterIndex;
+        s_SavedChoices[senderId] = characterIndex;
         Debug.Log($"[CharacterSelectManager] Client {senderId} selected character index {characterIndex}.");
     }
 
@@ -87,6 +102,8 @@ public class CharacterSelectManager : NetworkBehaviour
     {
         if (_playerCharacterChoices.TryGetValue(clientId, out int idx))
             return idx;
+        if (s_SavedChoices.TryGetValue(clientId, out int savedIdx))
+            return savedIdx;
         return 0;
     }
 

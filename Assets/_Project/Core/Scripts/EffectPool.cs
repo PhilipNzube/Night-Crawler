@@ -28,6 +28,18 @@ public class EffectPool : MonoBehaviour
     {
         foreach (var item in poolConfig)
         {
+            if (string.IsNullOrEmpty(item.key))
+            {
+                Debug.LogWarning($"[EffectPool] A PoolItem has an empty key — skipping. Check the EffectPool Inspector.", this);
+                continue;
+            }
+
+            if (_pools.ContainsKey(item.key))
+            {
+                Debug.LogWarning($"[EffectPool] Duplicate key '{item.key}' in poolConfig — skipping duplicate. Check the EffectPool Inspector.", this);
+                continue;
+            }
+
             Queue<GameObject> objectPool = new Queue<GameObject>();
             for (int i = 0; i < item.initialSize; i++)
             {
@@ -38,6 +50,7 @@ public class EffectPool : MonoBehaviour
             _pools.Add(item.key, objectPool);
         }
     }
+    
 
     public GameObject Get(string key, Vector3 position, Quaternion rotation)
     {

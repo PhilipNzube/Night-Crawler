@@ -456,10 +456,22 @@ public class SquadLineupDisplay : MonoBehaviour
     /// </summary>
     private string ResolvePlayerName(ulong clientId)
     {
-        if (NetworkManager.Singleton != null &&
-            NetworkManager.Singleton.SpawnManager != null &&
-            NetworkManager.Singleton.SpawnManager.GetPlayerNetworkObject(clientId) is NetworkObject netObj &&
-            netObj != null)
+        NetworkObject netObj = null;
+
+        // GetPlayerNetworkObject for remote clients only works on the server.
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null)
+        {
+            if (NetworkManager.Singleton.IsServer)
+            {
+                netObj = NetworkManager.Singleton.SpawnManager.GetPlayerNetworkObject(clientId);
+            }
+            else if (clientId == NetworkManager.Singleton.LocalClientId)
+            {
+                netObj = NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
+            }
+        }
+
+        if (netObj != null)
         {
             NetworkPlayerName nameComp = netObj.GetComponent<NetworkPlayerName>();
             if (nameComp != null && !string.IsNullOrEmpty(nameComp.playerName.Value.ToString()))

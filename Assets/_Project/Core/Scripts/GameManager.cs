@@ -202,9 +202,19 @@ public class GameManager : NetworkBehaviour
         {
             girlClientId = CharacterSelectManager.Instance.vengefulSpiritClientId.Value;
         }
+        else if (CharacterSelectManager.SavedRoleSelectionDone && CharacterSelectManager.SavedVengefulSpiritClientId != 999)
+        {
+            girlClientId = CharacterSelectManager.SavedVengefulSpiritClientId;
+        }
+        else if (GirlRevealManager.Instance != null && GirlRevealManager.Instance.revealedGirlClientId.Value != 999)
+        {
+            girlClientId = GirlRevealManager.Instance.revealedGirlClientId.Value;
+        }
 
         // 2. Check forceInvestigatorMode override (for dev testing)
         bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
+
+        Debug.Log($"[GameManager] Starting game. girlClientId={girlClientId}, forceInvestigator={forceInvestigator}, totalClients={clientIds.Count}");
 
         foreach (ulong clientId in clientIds)
         {
@@ -212,9 +222,9 @@ public class GameManager : NetworkBehaviour
 
             if (!forceInvestigator)
             {
-                if (clientId == girlClientId && girlClientId != 999)
+                if (girlClientId != 999)
                 {
-                    isGirl = true;
+                    isGirl = (clientId == girlClientId);
                 }
                 else if (NetworkManager.Singleton != null && clientId == NetworkManager.Singleton.LocalClientId)
                 {
@@ -232,7 +242,13 @@ public class GameManager : NetworkBehaviour
     private void SpawnPlayerRole(ulong clientId, bool isGirl)
     {
         GameObject prefabToSpawn = isGirl ? girlPrefab : GetInvestigatorPrefabForClient(clientId);
-        if (prefabToSpawn == null) return;
+        if (prefabToSpawn == null)
+        {
+            Debug.LogError($"[GameManager] Cannot spawn player for client {clientId}: prefab is null! (isGirl={isGirl})");
+            return;
+        }
+
+        Debug.Log($"[GameManager] Spawning player for Client {clientId} | isGirl: {isGirl} | Prefab: {prefabToSpawn.name}");
 
         GetSpawnTransform(isGirl, out Vector3 spawnPos, out Quaternion spawnRot);
 

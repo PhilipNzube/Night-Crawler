@@ -139,6 +139,12 @@ public class GirlRevealManager : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void StartRevealRpc(ulong girlClientId, ulong[] clientIds)
     {
+        // Hide lobby UI on all clients
+        if (LobbyUI.Instance != null)
+            LobbyUI.Instance.HideLobbyUI();
+        else
+            FindFirstObjectByType<LobbyUI>(FindObjectsInactive.Include)?.HideLobbyUI();
+
         List<string> playerNames = CollectPlayerNames(new List<ulong>(clientIds));
 
         if (revealUI != null)
@@ -159,6 +165,11 @@ public class GirlRevealManager : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void RoutePlayersRpc(ulong girlClientId)
     {
+        if (LobbyUI.Instance != null)
+            LobbyUI.Instance.HideLobbyUI();
+        else
+            FindFirstObjectByType<LobbyUI>(FindObjectsInactive.Include)?.HideLobbyUI();
+
         OnLocalSpinComplete(girlClientId);
     }
 
@@ -203,6 +214,11 @@ public class GirlRevealManager : NetworkBehaviour
         if (forceInvestigatorMode)
         {
             Debug.Log("[GirlRevealManager] forceInvestigatorMode = true → routing to investigator flow regardless of girl selection.");
+            PersistentCharacterSelection.SetIsVengefulSpirit(false);
+
+            if (girlFlow != null)
+                girlFlow.SetActive(false);
+
             if (investigatorFlow != null)
                 investigatorFlow.SetActive(true);
             else
@@ -309,8 +325,23 @@ public class GirlRevealManager : NetworkBehaviour
 
     private string ResolvePlayerName(ulong clientId)
     {
-        if (NetworkManager.Singleton?.SpawnManager.GetPlayerNetworkObject(clientId) is NetworkObject netObj
-            && netObj != null)
+        NetworkObject netObj = null;
+
+        // GetPlayerNetworkObject for remote clients only works on the server.
+        // On clients, we can only safely fetch our own player object.
+        if (NetworkManager.Singleton != null)
+        {
+            if (NetworkManager.Singleton.IsServer)
+            {
+                netObj = NetworkManager.Singleton.SpawnManager.GetPlayerNetworkObject(clientId);
+            }
+            else if (clientId == NetworkManager.Singleton.LocalClientId)
+            {
+                netObj = NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
+            }
+        }
+
+        if (netObj != null)
         {
             NetworkPlayerName nameComp = netObj.GetComponent<NetworkPlayerName>();
             if (nameComp != null) return nameComp.playerName.Value.ToString();

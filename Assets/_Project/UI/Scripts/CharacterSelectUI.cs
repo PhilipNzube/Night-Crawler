@@ -128,8 +128,12 @@ public class CharacterSelectUI : MonoBehaviour
 
     void OnEnable()
     {
-        // If local player is the Vengeful Spirit (Girl), do not show investigator character select UI
-        if (PersistentCharacterSelection.IsVengefulSpirit())
+        bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
+        if (forceInvestigator)
+        {
+            PersistentCharacterSelection.SetIsVengefulSpirit(false);
+        }
+        else if (PersistentCharacterSelection.IsVengefulSpirit())
         {
             gameObject.SetActive(false);
             return;
@@ -142,6 +146,8 @@ public class CharacterSelectUI : MonoBehaviour
 
         if (!_initialized)
             InitialSetup();
+
+        CheckLocalRole();
 
         // Refresh UI state when enabled
         SelectProfession(_selectedIndex);
@@ -435,12 +441,27 @@ public class CharacterSelectUI : MonoBehaviour
 
     private void CheckLocalRole()
     {
-        if (NetworkManager.Singleton == null || CharacterSelectManager.Instance == null) return;
+        bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
+        if (forceInvestigator)
+        {
+            _isVengefulSpirit = false;
+            if (vengefulSpiritPanel != null) vengefulSpiritPanel.SetActive(false);
+            if (investigatorPanel != null)   investigatorPanel.SetActive(true);
+            return;
+        }
+
+        if (NetworkManager.Singleton == null || CharacterSelectManager.Instance == null)
+        {
+            _isVengefulSpirit = false;
+            if (vengefulSpiritPanel != null) vengefulSpiritPanel.SetActive(false);
+            if (investigatorPanel != null)   investigatorPanel.SetActive(true);
+            return;
+        }
 
         ulong localId = NetworkManager.Singleton.LocalClientId;
         ulong vengefulId = CharacterSelectManager.Instance.vengefulSpiritClientId.Value;
 
-        _isVengefulSpirit = (localId == vengefulId);
+        _isVengefulSpirit = (localId == vengefulId && vengefulId != 999);
 
         if (_isVengefulSpirit)
         {

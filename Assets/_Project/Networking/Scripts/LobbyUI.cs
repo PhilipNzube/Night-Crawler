@@ -102,15 +102,23 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Optional animated background element (e.g. a pulsing vignette image).")]
     public GameObject animatedBackground;
 
+    public static LobbyUI Instance { get; private set; }
+
     // -------------------------------------------------------------------------
     //  Private State
     // -------------------------------------------------------------------------
     private float _refreshInterval = 0.5f;
     private float _refreshTimer;
+    private bool  _isHidden = false;
 
     // =========================================================================
     //  Unity Lifecycle
     // =========================================================================
+    void Awake()
+    {
+        Instance = this;
+    }
+
     void Start()
     {
         WireButtonListeners();
@@ -131,6 +139,8 @@ public class LobbyUI : MonoBehaviour
 
     void Update()
     {
+        if (_isHidden) return;
+
         // Only refresh lobby state periodically — not every frame
         _refreshTimer -= Time.deltaTime;
         if (_refreshTimer > 0f) return;
@@ -312,9 +322,11 @@ public class LobbyUI : MonoBehaviour
     /// <summary>Called when the match begins — hides the entire lobby UI.</summary>
     public void HideLobbyUI()
     {
+        _isHidden = true;
         SetPanel(nameEntryPanel,   false);
         SetPanel(connectionPanel,  false);
         SetPanel(lobbyPanel,       false);
+        SetPanel(animatedBackground, false);
     }
 
     private static void SetPanel(GameObject panel, bool visible)
