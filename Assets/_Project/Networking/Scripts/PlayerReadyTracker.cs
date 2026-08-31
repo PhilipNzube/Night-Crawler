@@ -1,4 +1,5 @@
 using System.Collections.Generic;
+using Unity.Collections;
 using Unity.Netcode;
 using UnityEngine;
 
@@ -39,7 +40,7 @@ public class PlayerReadyTracker : NetworkBehaviour
     }
 
     // =========================================================================
-    //  Server API — called by GirlRevealManager.BeginReveal()
+    //  Server API - called by GirlRevealManager.BeginReveal()
     // =========================================================================
     public void StartTracking(ulong girlClientId, List<ulong> allClientIds)
     {
@@ -62,7 +63,7 @@ public class PlayerReadyTracker : NetworkBehaviour
     }
 
     // =========================================================================
-    //  RPCs — Client -> Server
+    //  RPCs - Client -> Server
     // =========================================================================
 
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
@@ -87,15 +88,19 @@ public class PlayerReadyTracker : NetworkBehaviour
     }
 
     // =========================================================================
-    //  RPCs — Server -> All Clients
+    //  RPCs - Server -> All Clients
+    //  NOTE: string[] is not NGO-serializable. Use FixedString64Bytes[] instead.
     // =========================================================================
 
     [Rpc(SendTo.ClientsAndHost)]
-    private void BroadcastReadyStatesClientRpc(ulong[] clientIds, string[] names, bool[] readyFlags)
+    private void BroadcastReadyStatesClientRpc(
+        ulong[] clientIds,
+        FixedString64Bytes[] names,
+        bool[] readyFlags)
     {
         _snapshot.Clear();
         for (int i = 0; i < clientIds.Length; i++)
-            _snapshot[clientIds[i]] = (names[i], readyFlags[i]);
+            _snapshot[clientIds[i]] = (names[i].ToString(), readyFlags[i]);
         OnReadyStatesUpdated?.Invoke(_snapshot);
     }
 
@@ -106,12 +111,14 @@ public class PlayerReadyTracker : NetworkBehaviour
     {
         if (!IsServer) return;
         var idList    = new List<ulong>();
-        var nameList  = new List<string>();
+        var nameList  = new List<FixedString64Bytes>();
         var readyList = new List<bool>();
         foreach (var kvp in _playerNames)
         {
             idList.Add(kvp.Key);
-            nameList.Add(kvp.Value);
+            // Truncate to 63 chars to fit FixedString64Bytes safely
+            string n = kvp.Value.Length > 63 ? kvp.Value.Substring(0, 63) : kvp.Value;
+            nameList.Add(new FixedString64Bytes(n));
             if (kvp.Key == _girlClientId)
                 readyList.Add(_girlReady);
             else
