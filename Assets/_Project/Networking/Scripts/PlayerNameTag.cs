@@ -44,6 +44,8 @@ public class PlayerNameTag : MonoBehaviour
     private bool              _isVengefulSpirit = false;
     private Material          _customOverlayMaterial;
 
+    private NetworkObject     _netObj;
+
     // =========================================================================
     //  Unity Lifecycle
     // =========================================================================
@@ -58,6 +60,7 @@ public class PlayerNameTag : MonoBehaviour
         EnsureNameTextExists();
         ApplyThroughWallsShader();
 
+        _netObj           = GetComponentInParent<NetworkObject>();
         _netName          = GetComponentInParent<NetworkPlayerName>();
         _stealthComponent = GetComponentInParent<GirlStealth>();
         _isVengefulSpirit = _stealthComponent != null;
@@ -88,6 +91,14 @@ public class PlayerNameTag : MonoBehaviour
 
     void LateUpdate()
     {
+        // 0. Ownership check: Never show name tag above the local player's own head
+        if (_netObj == null) _netObj = GetComponentInParent<NetworkObject>();
+        if (_netObj != null && _netObj.IsOwner)
+        {
+            SetVisible(false);
+            return;
+        }
+
         // 1. Resolve camera
         if (_camTransform == null && Camera.main != null)
             _camTransform = Camera.main.transform;
@@ -114,9 +125,11 @@ public class PlayerNameTag : MonoBehaviour
         if (_isVengefulSpirit && _stealthComponent != null)
         {
             bool isStealth = _stealthComponent.IsStealthActive.Value;
-            bool isOwner   = _stealthComponent.IsOwner;
-
-            SetVisible(isOwner || !isStealth);
+            SetVisible(!isStealth);
+        }
+        else
+        {
+            SetVisible(true);
         }
     }
 

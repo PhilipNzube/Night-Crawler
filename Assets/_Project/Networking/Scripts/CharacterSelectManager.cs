@@ -41,6 +41,40 @@ public class CharacterSelectManager : NetworkBehaviour
     public static ulong SavedVengefulSpiritClientId => s_SavedVengefulSpirit;
     public static bool SavedRoleSelectionDone => s_SavedRoleSelectionDone;
 
+    public static void SaveVengefulSpiritRole(ulong clientId)
+    {
+        s_SavedVengefulSpirit = clientId;
+
+        // ulong.MaxValue is the sentinel meaning "no girl / role cleared"
+        if (clientId == ulong.MaxValue)
+        {
+            s_SavedRoleSelectionDone = false;
+            if (Instance != null && Instance.IsServer)
+            {
+                Instance.vengefulSpiritClientId.Value = 999;
+                Instance.roleSelectionDone.Value      = false;
+            }
+            Debug.Log("[CharacterSelectManager] Vengeful Spirit role cleared (forceInvestigator or no selection).");
+        }
+        else
+        {
+            s_SavedRoleSelectionDone = true;
+            if (Instance != null && Instance.IsServer)
+            {
+                Instance.vengefulSpiritClientId.Value = clientId;
+                Instance.roleSelectionDone.Value      = true;
+            }
+            Debug.Log($"[CharacterSelectManager] Persistent Vengeful Spirit role saved for Client {clientId}.");
+        }
+    }
+
+    public static void SetChoiceStatic(ulong clientId, int index)
+    {
+        s_SavedChoices[clientId] = index;
+        if (Instance != null)
+            Instance._playerCharacterChoices[clientId] = index;
+    }
+
     // =========================================================================
     //  Unity Lifecycle
     // =========================================================================
@@ -76,14 +110,15 @@ public class CharacterSelectManager : NetworkBehaviour
         if (clientIds.Count == 0) return;
 
         int randomIndex = Random.Range(0, clientIds.Count);
-        vengefulSpiritClientId.Value = clientIds[randomIndex];
+        ulong chosenId = clientIds[randomIndex];
+        vengefulSpiritClientId.Value = chosenId;
         roleSelectionDone.Value      = true;
 
-        s_SavedVengefulSpirit    = vengefulSpiritClientId.Value;
+        s_SavedVengefulSpirit    = chosenId;
         s_SavedRoleSelectionDone = true;
 
         Debug.Log($"[CharacterSelectManager] {clientIds.Count} players connected. " +
-                  $"Client {vengefulSpiritClientId.Value} selected as Vengeful Spirit.");
+                  $"Client {chosenId} selected as Vengeful Spirit.");
     }
 
     // =========================================================================
@@ -104,6 +139,8 @@ public class CharacterSelectManager : NetworkBehaviour
             return idx;
         if (s_SavedChoices.TryGetValue(clientId, out int savedIdx))
             return savedIdx;
+        if (NetworkManager.Singleton != null && clientId == NetworkManager.Singleton.LocalClientId)
+            return PersistentCharacterSelection.GetSelectedCharacterIndex();
         return 0;
     }
 

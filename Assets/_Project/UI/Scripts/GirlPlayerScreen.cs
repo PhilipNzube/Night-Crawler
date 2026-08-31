@@ -52,6 +52,14 @@ public class GirlPlayerScreen : MonoBehaviour
     [Tooltip("Seconds after Show() before the READY button appears.")]
     public float readyButtonDelay = 3.5f;
 
+    [Header("Player Status Panel (Live Investigator Status)")]
+    [Tooltip("Optional: root panel to show all players' ready status on the girl screen.")]
+    public GameObject playerStatusPanel;
+    [Tooltip("Vertical container inside playerStatusPanel for per-player rows.")]
+    public Transform playerStatusContainer;
+    [Tooltip("Prefab for a single row: must have 2 TMP_Text children — [0]=name, [1]=status.")]
+    public GameObject playerStatusRowPrefab;
+
     // -------------------------------------------------------------------------
     //  Private State
     // -------------------------------------------------------------------------
@@ -59,6 +67,7 @@ public class GirlPlayerScreen : MonoBehaviour
     private CharacterAnimationController _animController;
     private Coroutine                    _readyDelayCoroutine;
     private bool                         _readySent = false;
+    private readonly List<GameObject>    _statusRows = new List<GameObject>();
 
     // =========================================================================
     //  Unity Lifecycle
@@ -112,6 +121,10 @@ public class GirlPlayerScreen : MonoBehaviour
 
         if (_readyDelayCoroutine != null) StopCoroutine(_readyDelayCoroutine);
         _readyDelayCoroutine = StartCoroutine(EnableReadyButtonAfterDelay());
+
+        // Subscribe to live ready-state updates so investigators' status is visible here too
+        if (PlayerReadyTracker.Instance != null)
+            PlayerReadyTracker.Instance.OnReadyStatesUpdated += HandleReadyStatesUpdated;
     }
 
     public void Hide()
@@ -124,6 +137,10 @@ public class GirlPlayerScreen : MonoBehaviour
             StopCoroutine(_readyDelayCoroutine);
             _readyDelayCoroutine = null;
         }
+
+        // Unsubscribe
+        if (PlayerReadyTracker.Instance != null)
+            PlayerReadyTracker.Instance.OnReadyStatesUpdated -= HandleReadyStatesUpdated;
     }
 
     // =========================================================================
@@ -213,10 +230,36 @@ public class GirlPlayerScreen : MonoBehaviour
         if (waitingText != null)
             waitingText.text = "Ready! Waiting for the investigators to finish...";
 
+        // Primary path: PlayerReadyTracker (broadcasts status to all clients)
+        if (PlayerReadyTracker.Instance != null)
+            PlayerReadyTracker.Instance.ReportGirlReadyServerRpc();
+
+        // Legacy fallback: GirlRevealManager (keeps old scene-load logic in sync)
         if (GirlRevealManager.Instance != null)
             GirlRevealManager.Instance.ReportGirlReadyServerRpc();
         else
             Debug.LogWarning("[GirlPlayerScreen] GirlRevealManager.Instance is null — ready signal not sent.");
+    }
+
+    private void HandleReadyStatesUpdated(Dictionary<ulong, (string name, bool ready)> snapshot)
+    {
+        if (playerStatusContainer == null || playerStatusRowPrefab == null) return;
+
+        foreach (var row in _statusRows)
+            if (row != null) Destroy(row);
+        _statusRows.Clear();
+
+        foreach (var kvp in snapshot)
+        {
+            GameObject row = Instantiate(playerStatusRowPrefab, playerStatusContainer);
+            _statusRows.Add(row);
+            var texts = row.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+            if (texts.Length >= 1) texts[0].text = kvp.Value.name;
+            if (texts.Length >= 2) texts[1].text = kvp.Value.ready ? "✓ Ready" : "Selecting...";
+        }
+
+        if (playerStatusPanel != null)
+            playerStatusPanel.SetActive(_statusRows.Count > 0);
     }
 
     private void SetScreenVisible(bool visible)

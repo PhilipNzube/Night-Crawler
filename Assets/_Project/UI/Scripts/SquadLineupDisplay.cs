@@ -228,11 +228,21 @@ public class SquadLineupDisplay : MonoBehaviour
 
     private List<ulong> ResolveActiveClientIds()
     {
+        // When forceInvestigatorMode is active the saved girl ID is cleared to ulong.MaxValue
+        // so every connected client is an investigator — don't exclude anyone.
+        bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
+
         ulong girlClientId = ulong.MaxValue;
-        if (GirlRevealManager.Instance != null && GirlRevealManager.Instance.revealedGirlClientId.Value != 999)
-            girlClientId = GirlRevealManager.Instance.revealedGirlClientId.Value;
-        else if (CharacterSelectManager.Instance != null && CharacterSelectManager.Instance.vengefulSpiritClientId.Value != 999)
-            girlClientId = CharacterSelectManager.Instance.vengefulSpiritClientId.Value;
+        if (!forceInvestigator)
+        {
+            if (GirlRevealManager.Instance != null && GirlRevealManager.Instance.revealedGirlClientId.Value != 999 && GirlRevealManager.Instance.revealedGirlClientId.Value != ulong.MaxValue)
+                girlClientId = GirlRevealManager.Instance.revealedGirlClientId.Value;
+            else if (CharacterSelectManager.Instance != null && CharacterSelectManager.Instance.vengefulSpiritClientId.Value != 999 && CharacterSelectManager.Instance.vengefulSpiritClientId.Value != ulong.MaxValue)
+                girlClientId = CharacterSelectManager.Instance.vengefulSpiritClientId.Value;
+            // Also check static persistence (covers cross-scene case)
+            else if (CharacterSelectManager.SavedRoleSelectionDone && CharacterSelectManager.SavedVengefulSpiritClientId != 999 && CharacterSelectManager.SavedVengefulSpiritClientId != ulong.MaxValue)
+                girlClientId = CharacterSelectManager.SavedVengefulSpiritClientId;
+        }
 
         List<ulong> clientIds = new List<ulong>();
 

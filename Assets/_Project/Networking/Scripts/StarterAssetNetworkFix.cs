@@ -22,14 +22,19 @@ public class StarterAssetNetworkFix : NetworkBehaviour
 
             // 3. Find and disable the Camera and Cinemachine Virtual Camera inside this prefab
             // This stops the "Camera Hijack"
-            var childCameras = GetComponentsInChildren<Camera>();
+            var childCameras = GetComponentsInChildren<Camera>(true);
             foreach (var cam in childCameras) cam.enabled = false;
 
-            var vCam = GetComponentInChildren<Unity.Cinemachine.CinemachineCamera>();
-            if (vCam != null) vCam.enabled = false;
+            var childVCams = GetComponentsInChildren<Unity.Cinemachine.CinemachineCamera>(true);
+            foreach (var vCam in childVCams)
+            {
+                vCam.Priority = 0;
+                vCam.enabled = false;
+                vCam.gameObject.SetActive(false);
+            }
             
             // 4. Disable AudioListener (prevents "Multiple AudioListeners" warning)
-            var listener = GetComponentInChildren<AudioListener>();
+            var listener = GetComponentInChildren<AudioListener>(true);
             if (listener != null) listener.enabled = false;
         }
     }

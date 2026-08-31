@@ -100,6 +100,18 @@ public class CharacterSelectUI : MonoBehaviour
     [Tooltip("Used if characterDefinitions SO list above is empty.")]
     public List<InvestigatorCharacterData> characterDataList = new List<InvestigatorCharacterData>();
 
+    [Header("Player Status Panel (Ready / Waiting)")]
+    [Tooltip("Root panel shown after the player confirms selection. Shows every player's name and ready status.")]
+    public GameObject playerStatusPanel;
+    [Tooltip("Vertical container inside playerStatusPanel where per-player rows are spawned.")]
+    public Transform playerStatusContainer;
+    [Tooltip("Prefab for a single status row: must have two TMP_Text children — [0]=name, [1]=status.")]
+    public GameObject playerStatusRowPrefab;
+    [Tooltip("Text shown in the status row when waiting. E.g. 'Selecting...' ")]
+    public string statusWaitingText = "Selecting...";
+    [Tooltip("Text shown in the status row when ready.")]
+    public string statusReadyText = "✓ Ready";
+
     // -------------------------------------------------------------------------
     //  Private State
     // -------------------------------------------------------------------------
@@ -112,6 +124,8 @@ public class CharacterSelectUI : MonoBehaviour
     private readonly List<Image>      _slotCardFrames         = new List<Image>();
     private readonly List<CharacterSlotCard> _slotCards       = new List<CharacterSlotCard>();
     private Coroutine                 _swapCoroutine;
+    private bool                      _localConfirmed         = false; // waiting for everyone else
+    private readonly List<GameObject> _statusRows             = new List<GameObject>();
 
     // =========================================================================
     //  Unity Lifecycle
@@ -128,6 +142,9 @@ public class CharacterSelectUI : MonoBehaviour
 
     void OnEnable()
     {
+        _localConfirmed = false;
+        if (playerStatusPanel != null) playerStatusPanel.SetActive(false);
+
         bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
         if (forceInvestigator)
         {
@@ -151,12 +168,20 @@ public class CharacterSelectUI : MonoBehaviour
 
         // Refresh UI state when enabled
         SelectProfession(_selectedIndex);
+
+        // Subscribe to live ready-state updates
+        if (PlayerReadyTracker.Instance != null)
+            PlayerReadyTracker.Instance.OnReadyStatesUpdated += HandleReadyStatesUpdated;
     }
 
     void OnDisable()
     {
         if (CharacterSceneController.Instance != null)
             CharacterSceneController.Instance.DisableCharacterSelectEnvironment();
+
+        // Unsubscribe to avoid stale callbacks
+        if (PlayerReadyTracker.Instance != null)
+            PlayerReadyTracker.Instance.OnReadyStatesUpdated -= HandleReadyStatesUpdated;
     }
 
     void OnDestroy()
@@ -280,8 +305,24 @@ public class CharacterSelectUI : MonoBehaviour
 
         UpdateSlotCardHighlights();
 
+        SyncSelectionToServer(_selectedIndex);
+
         if (CharacterSceneController.Instance != null)
             CharacterSceneController.Instance.ResetIdleTimer();
+    }
+
+    private void SyncSelectionToServer(int index)
+    {
+        if (_isVengefulSpirit) return;
+
+        if (NetworkManager.Singleton != null && (NetworkManager.Singleton.IsClient || NetworkManager.Singleton.IsServer))
+        {
+            if (CharacterSelectManager.Instance != null)
+            {
+                CharacterSelectManager.Instance.RequestSelectCharacterServerRpc(index);
+            }
+            CharacterSelectManager.SetChoiceStatic(NetworkManager.Singleton.LocalClientId, index);
+        }
     }
 
     public InvestigatorCharacterData GetCharacterData(int index)
@@ -488,6 +529,9 @@ public class CharacterSelectUI : MonoBehaviour
 
     private void OnConfirmSelection()
     {
+        if (_localConfirmed) return; // don't double-confirm
+        _localConfirmed = true;
+
         PersistentCharacterSelection.SetSelectedCharacterIndex(_selectedIndex);
 
         if (!_isVengefulSpirit && CharacterSelectManager.Instance != null)
@@ -501,23 +545,73 @@ public class CharacterSelectUI : MonoBehaviour
             _currentPreviewInstance = null;
         }
 
-        // Hide slot cards, arrow buttons, and confirm button explicitly
+        // Hide selection controls — player has locked in
         if (slotCardContainer != null) slotCardContainer.gameObject.SetActive(false);
         if (arrowLeft  != null)        arrowLeft.gameObject.SetActive(false);
         if (arrowRight != null)        arrowRight.gameObject.SetActive(false);
         if (confirmButton != null)     confirmButton.gameObject.SetActive(false);
 
-        if (investigatorPanel != null)
-            investigatorPanel.SetActive(false);
+        // Notify the ready tracker (server will tell everyone when all are done)
+        if (PlayerReadyTracker.Instance != null)
+            PlayerReadyTracker.Instance.ReportInvestigatorConfirmedServerRpc();
 
-        if (characterSelectPanel != null)
-            characterSelectPanel.SetActive(false);
+        // Show the waiting-for-others panel immediately
+        if (playerStatusPanel != null)
+            playerStatusPanel.SetActive(true);
 
-        // Transition to Squad Lineup Screen
-        if (SquadLineupDisplay.Instance != null)
+        // If tracker isn't present (solo/offline test), go straight to squad screen
+        if (PlayerReadyTracker.Instance == null)
+            GoToSquadScreen();
+    }
+
+    // Called by PlayerReadyTracker when the ready snapshot changes
+    private void HandleReadyStatesUpdated(Dictionary<ulong, (string name, bool ready)> snapshot)
+    {
+        RefreshStatusRows(snapshot);
+
+        // Only transition once this local player has confirmed too
+        if (!_localConfirmed) return;
+
+        bool allReady = true;
+        foreach (var kvp in snapshot)
+            if (!kvp.Value.ready) { allReady = false; break; }
+
+        if (allReady)
+            GoToSquadScreen();
+    }
+
+    private void RefreshStatusRows(Dictionary<ulong, (string name, bool ready)> snapshot)
+    {
+        if (playerStatusContainer == null || playerStatusRowPrefab == null) return;
+
+        // Destroy old rows
+        foreach (var row in _statusRows)
+            if (row != null) Destroy(row);
+        _statusRows.Clear();
+
+        foreach (var kvp in snapshot)
         {
-            SquadLineupDisplay.Instance.ShowSquadLineup();
+            GameObject row = Instantiate(playerStatusRowPrefab, playerStatusContainer);
+            _statusRows.Add(row);
+
+            var texts = row.GetComponentsInChildren<TextMeshProUGUI>(true);
+            if (texts.Length >= 1) texts[0].text = kvp.Value.name;
+            if (texts.Length >= 2) texts[1].text = kvp.Value.ready ? statusReadyText : statusWaitingText;
         }
+    }
+
+    private void GoToSquadScreen()
+    {
+        // Unsubscribe before switching
+        if (PlayerReadyTracker.Instance != null)
+            PlayerReadyTracker.Instance.OnReadyStatesUpdated -= HandleReadyStatesUpdated;
+
+        if (investigatorPanel != null) investigatorPanel.SetActive(false);
+        if (characterSelectPanel != null) characterSelectPanel.SetActive(false);
+        if (playerStatusPanel != null) playerStatusPanel.SetActive(false);
+
+        if (SquadLineupDisplay.Instance != null)
+            SquadLineupDisplay.Instance.ShowSquadLineup();
     }
 
     private void EnsureDefaultCharacterData()

@@ -197,16 +197,20 @@ public class GameManager : NetworkBehaviour
         AutoDiscoverSpawnPoints();
 
         // 1. Check synced Netcode role selection from lobby
-        ulong girlClientId = 999;
-        if (CharacterSelectManager.Instance != null && CharacterSelectManager.Instance.roleSelectionDone.Value)
-        {
-            girlClientId = CharacterSelectManager.Instance.vengefulSpiritClientId.Value;
-        }
-        else if (CharacterSelectManager.SavedRoleSelectionDone && CharacterSelectManager.SavedVengefulSpiritClientId != 999)
+        ulong girlClientId = ulong.MaxValue;
+        if (CharacterSelectManager.SavedRoleSelectionDone && CharacterSelectManager.SavedVengefulSpiritClientId != 999 && CharacterSelectManager.SavedVengefulSpiritClientId != ulong.MaxValue)
         {
             girlClientId = CharacterSelectManager.SavedVengefulSpiritClientId;
         }
-        else if (GirlRevealManager.Instance != null && GirlRevealManager.Instance.revealedGirlClientId.Value != 999)
+        else if (GirlRevealManager.SavedGirlClientId != 999 && GirlRevealManager.SavedGirlClientId != ulong.MaxValue)
+        {
+            girlClientId = GirlRevealManager.SavedGirlClientId;
+        }
+        else if (CharacterSelectManager.Instance != null && CharacterSelectManager.Instance.roleSelectionDone.Value && CharacterSelectManager.Instance.vengefulSpiritClientId.Value != 999 && CharacterSelectManager.Instance.vengefulSpiritClientId.Value != ulong.MaxValue)
+        {
+            girlClientId = CharacterSelectManager.Instance.vengefulSpiritClientId.Value;
+        }
+        else if (GirlRevealManager.Instance != null && GirlRevealManager.Instance.revealedGirlClientId.Value != 999 && GirlRevealManager.Instance.revealedGirlClientId.Value != ulong.MaxValue)
         {
             girlClientId = GirlRevealManager.Instance.revealedGirlClientId.Value;
         }
@@ -222,7 +226,7 @@ public class GameManager : NetworkBehaviour
 
             if (!forceInvestigator)
             {
-                if (girlClientId != 999)
+                if (girlClientId != 999 && girlClientId != ulong.MaxValue)
                 {
                     isGirl = (clientId == girlClientId);
                 }
@@ -310,8 +314,12 @@ public class GameManager : NetworkBehaviour
         }
 
         // 1. Try explorerPrefabs by index
-        if (explorerPrefabs != null && selectedIndex >= 0 && selectedIndex < explorerPrefabs.Count && explorerPrefabs[selectedIndex] != null)
-            return explorerPrefabs[selectedIndex];
+        if (explorerPrefabs != null && explorerPrefabs.Count > 0)
+        {
+            int clamped = Mathf.Clamp(selectedIndex, 0, explorerPrefabs.Count - 1);
+            if (explorerPrefabs[clamped] != null)
+                return explorerPrefabs[clamped];
+        }
 
         // 2. Try CharacterSelectManager availableCharacters
         if (CharacterSelectManager.Instance != null)

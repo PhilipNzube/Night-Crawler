@@ -26,6 +26,10 @@ public class NetworkPlayer : NetworkBehaviour
         if (playerInput == null)   playerInput = GetComponent<PlayerInput>();
         if (girlMovement == null)  girlMovement = GetComponent<GirlMovement>();
 
+        // NOTE: ClientNetworkTransform must be added to the prefab manually in the Editor,
+        // NOT dynamically here. Adding it at runtime in Awake() before network spawn causes
+        // ThirdPersonController to fight it for rotation authority, breaking camera movement.
+
         // If this is an investigator using ThirdPersonController, attach the motor adapter to fix ground/jump
         if (controller != null && !TryGetComponent<InvestigatorMotorAdapter>(out _))
         {
@@ -44,17 +48,22 @@ public class NetworkPlayer : NetworkBehaviour
             Debug.Log($"[NetworkPlayer] Local player ownership confirmed for {gameObject.name}");
 
             // --- CAMERA SETUP ---
+            // Re-search in case Awake ran before camera child was ready
+            if (virtualCamera == null)
+                virtualCamera = GetComponentInChildren<CinemachineCamera>(true);
+
             if (virtualCamera != null)
             {
                 virtualCamera.Priority = 100;
                 virtualCamera.gameObject.SetActive(true);
+                virtualCamera.enabled = true;
 
-                // If Follow / LookAt are unset, resolve target
+                // Only set Follow/LookAt if not already wired in the prefab
                 if (virtualCamera.Follow == null)
                 {
-                    Transform target = controller != null && controller.CinemachineCameraTarget != null 
-                        ? controller.CinemachineCameraTarget.transform 
-                        : transform;
+                    Transform target = (controller != null && controller.CinemachineCameraTarget != null)
+                        ? controller.CinemachineCameraTarget.transform
+                        : (transform.Find("PlayerCameraRoot") ?? transform);
                     virtualCamera.Follow = target;
                     virtualCamera.LookAt = target;
                 }
@@ -101,6 +110,7 @@ public class NetworkPlayer : NetworkBehaviour
             if (virtualCamera != null)
             {
                 virtualCamera.Priority = 0;
+                virtualCamera.enabled = false;
                 virtualCamera.gameObject.SetActive(false);
             }
 
@@ -111,6 +121,7 @@ public class NetworkPlayer : NetworkBehaviour
             foreach (var vCam in childVCams)
             {
                 vCam.Priority = 0;
+                vCam.enabled = false;
                 vCam.gameObject.SetActive(false);
             }
 

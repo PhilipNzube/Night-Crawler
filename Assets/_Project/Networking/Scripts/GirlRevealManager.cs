@@ -66,6 +66,9 @@ public class GirlRevealManager : NetworkBehaviour
         NetworkVariableReadPermission.Everyone,
         NetworkVariableWritePermission.Server);
 
+    private static ulong s_SavedGirlClientId = ulong.MaxValue;
+    public static ulong SavedGirlClientId => s_SavedGirlClientId;
+
     // -------------------------------------------------------------------------
     //  Private State (Server-Only)
     // -------------------------------------------------------------------------
@@ -107,6 +110,8 @@ public class GirlRevealManager : NetworkBehaviour
 
         ulong girlClientId = GetGirlClientId();
         revealedGirlClientId.Value = girlClientId;
+        s_SavedGirlClientId = girlClientId;
+        CharacterSelectManager.SaveVengefulSpiritRole(girlClientId);
 
         List<ulong> clientIds = new List<ulong>(NetworkManager.Singleton.ConnectedClientsIds);
 
@@ -116,6 +121,10 @@ public class GirlRevealManager : NetworkBehaviour
         _girlReady               = false;
 
         Debug.Log($"[GirlRevealManager] Beginning reveal. Girl: {girlClientId}. Expecting {_expectedInvestigators} investigator(s).");
+
+        // Start centralised ready-tracking so all clients see a live status panel
+        if (PlayerReadyTracker.Instance != null)
+            PlayerReadyTracker.Instance.StartTracking(girlClientId, clientIds);
 
         // Solo testing handling
         if (clientIds.Count <= 1 && !enableSlotSpinInSoloTest)
@@ -180,20 +189,35 @@ public class GirlRevealManager : NetworkBehaviour
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     public void ReportInvestigatorReadyServerRpc()
     {
+        // Legacy path kept for SquadLineupDisplay compatibility.
+        // PlayerReadyTracker.ReportInvestigatorConfirmedServerRpc() is now the
+        // primary ready signal; this just keeps the old count in sync.
         _investigatorsReadyCount++;
         Debug.Log($"[GirlRevealManager] Investigator ready {_investigatorsReadyCount}/{_expectedInvestigators}.");
         CheckAllReady();
     }
 
-    /// <summary>
-    /// Called by the girl client when she presses the READY button on her screen.
-    /// </summary>
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     public void ReportGirlReadyServerRpc()
     {
+        // Redirect to PlayerReadyTracker so the status panel updates too.
+        if (PlayerReadyTracker.Instance != null)
+            PlayerReadyTracker.Instance.ReportGirlReadyServerRpc();
+
         _girlReady = true;
         Debug.Log("[GirlRevealManager] Girl player ready.");
         CheckAllReady();
+    }
+
+    /// <summary>
+    /// Called by PlayerReadyTracker when ALL players (girl + all investigators) are ready.
+    /// This is the definitive trigger for scene loading.
+    /// </summary>
+    public void OnAllTrackerPlayersReady()
+    {
+        if (!IsServer) return;
+        Debug.Log("[GirlRevealManager] PlayerReadyTracker confirmed all ready — loading game scene.");
+        LoadGameScene();
     }
 
     // =========================================================================
@@ -207,6 +231,8 @@ public class GirlRevealManager : NetworkBehaviour
     /// </summary>
     private void OnLocalSpinComplete(ulong girlClientId)
     {
+        s_SavedGirlClientId = girlClientId;
+
         bool isGirl = NetworkManager.Singleton != null &&
                       NetworkManager.Singleton.LocalClientId == girlClientId;
 
@@ -214,6 +240,11 @@ public class GirlRevealManager : NetworkBehaviour
         if (forceInvestigatorMode)
         {
             Debug.Log("[GirlRevealManager] forceInvestigatorMode = true → routing to investigator flow regardless of girl selection.");
+
+            // Clear the saved girl role so GameManager doesn't spawn Demon for this client
+            // and the squad screen doesn't exclude the local player
+            s_SavedGirlClientId = ulong.MaxValue;
+            CharacterSelectManager.SaveVengefulSpiritRole(ulong.MaxValue);
             PersistentCharacterSelection.SetIsVengefulSpirit(false);
 
             if (girlFlow != null)
