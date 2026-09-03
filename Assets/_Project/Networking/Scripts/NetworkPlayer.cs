@@ -13,6 +13,41 @@ public class NetworkPlayer : NetworkBehaviour
     public PlayerInput playerInput;
     public GirlMovement girlMovement;
 
+    // Tracks whether we already cleared the jump input for the current jump arc
+    private bool _jumpInputCleared = false;
+
+    void LateUpdate()
+    {
+        // The root bug: ThirdPersonController.Update() runs JumpAndGravity() BEFORE GroundedCheck().
+        // The frame a jump fires, Grounded is still last-frame's true, the input isn't cleared,
+        // and the next frame jumps again. We detect the jump via velocity.y spiking above the
+        // minimum jump threshold (~6 m/s for JumpHeight=1.2, Gravity=-15) and clear input once.
+        // This works even when moving, where prevVelocityY can be slightly positive from steps.
+        if (IsOwner && inputs != null && controller != null)
+        {
+            var cc = GetComponent<CharacterController>();
+            if (cc != null)
+            {
+                // sqrt(JumpHeight * -2 * Gravity) = sqrt(1.2*30) = ~6 m/s.
+                // 4 m/s is safely above any slope/step climbing but below a real jump.
+                const float jumpVelocityThreshold = 4f;
+                if (cc.velocity.y > jumpVelocityThreshold)
+                {
+                    if (!_jumpInputCleared)
+                    {
+                        inputs.jump = false;
+                        _jumpInputCleared = true;
+                    }
+                }
+                else
+                {
+                    // Reset once the character has landed / velocity returned to normal
+                    _jumpInputCleared = false;
+                }
+            }
+        }
+    }
+
     void Awake()
     {
         ResolveComponents();
