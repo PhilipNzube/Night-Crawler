@@ -33,7 +33,10 @@ public class GirlPlayerScreen : MonoBehaviour
     // -------------------------------------------------------------------------
     //  Inspector — UI Text
     // -------------------------------------------------------------------------
-    [Header("UI — Text")]
+    [Header("UI — Info Section")]
+    [Tooltip("The parent GameObject/panel containing the girl's info, abilities, and lore. Hidden when READY is pressed.")]
+    public GameObject girlInfoSection;
+
     [Tooltip("Large title label. Displays the role name.")]
     public TextMeshProUGUI roleTitleText;
 
@@ -114,6 +117,11 @@ public class GirlPlayerScreen : MonoBehaviour
             CharacterSceneController.Instance.DisableCharacterSelectEnvironment();
 
         SetScreenVisible(true);
+        if (girlInfoSection != null) girlInfoSection.SetActive(true);
+        if (roleTitleText != null) roleTitleText.gameObject.SetActive(true);
+        if (flavourText != null) flavourText.gameObject.SetActive(true);
+        if (playerStatusPanel != null) playerStatusPanel.SetActive(false);
+
         PopulateTexts();
         SpawnGirlModel();
 
@@ -226,20 +234,36 @@ public class GirlPlayerScreen : MonoBehaviour
         if (_readySent) return;
         _readySent = true;
 
-        if (readyButton != null) readyButton.interactable = false;
+        // Hide abilities, info section, flavour text, and READY button so they don't overlap the status panel
+        if (girlInfoSection != null)
+        {
+            girlInfoSection.SetActive(false);
+        }
+        else if (flavourText != null && flavourText.transform.parent != null && flavourText.transform.parent.gameObject != girlScreenPanel && flavourText.transform.parent.gameObject != gameObject)
+        {
+            flavourText.transform.parent.gameObject.SetActive(false);
+        }
+
+        if (readyButton != null) readyButton.gameObject.SetActive(false);
+        if (flavourText != null) flavourText.gameObject.SetActive(false);
+        if (roleTitleText != null) roleTitleText.gameObject.SetActive(false);
 
         if (waitingText != null)
-            waitingText.text = "Ready! Waiting for the investigators to finish...";
+        {
+            waitingText.gameObject.SetActive(true);
+            waitingText.text = "READY! WAITING FOR INVESTIGATORS...";
+        }
+
+        if (playerStatusPanel != null)
+            playerStatusPanel.SetActive(true);
 
         // Primary path: PlayerReadyTracker (broadcasts status to all clients)
         if (PlayerReadyTracker.Instance != null)
-            PlayerReadyTracker.Instance.ReportGirlReadyServerRpc();
+            PlayerReadyTracker.Instance.ReportGirlReady();
 
         // Legacy fallback: GirlRevealManager (keeps old scene-load logic in sync)
         if (GirlRevealManager.Instance != null)
-            GirlRevealManager.Instance.ReportGirlReadyServerRpc();
-        else
-            Debug.LogWarning("[GirlPlayerScreen] GirlRevealManager.Instance is null — ready signal not sent.");
+            GirlRevealManager.Instance.ReportGirlReady();
     }
 
     private void HandleReadyStatesUpdated(Dictionary<ulong, (string name, bool ready)> snapshot)
@@ -256,11 +280,18 @@ public class GirlPlayerScreen : MonoBehaviour
             _statusRows.Add(row);
             var texts = row.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
             if (texts.Length >= 1) texts[0].text = kvp.Value.name;
-            if (texts.Length >= 2) texts[1].text = kvp.Value.ready ? "✓ Ready" : "Selecting...";
+            if (texts.Length >= 2)
+            {
+                texts[1].text = kvp.Value.ready ? "READY" : "NOT READY";
+                texts[1].color = kvp.Value.ready
+                    ? new Color(0.18f, 0.80f, 0.44f)  // Bright Emerald Green
+                    : new Color(0.91f, 0.30f, 0.24f); // Vibrant Crimson Red
+            }
         }
 
+        // Only show status panel after the girl has pressed READY
         if (playerStatusPanel != null)
-            playerStatusPanel.SetActive(_statusRows.Count > 0);
+            playerStatusPanel.SetActive(_readySent && _statusRows.Count > 0);
     }
 
     private void SetScreenVisible(bool visible)

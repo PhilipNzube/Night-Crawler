@@ -68,9 +68,11 @@ public class LoadingScreen : MonoBehaviour
     };
 
     // -------------------------------------------------------------------------
-    //  Private State
+    //  Private & Static State
     // -------------------------------------------------------------------------
+    public static string TargetSceneToLoad = null;
     private bool _isLoading = false;
+    private bool _netcodeSubscribed = false;
 
     // =========================================================================
     //  Unity Lifecycle
@@ -108,6 +110,15 @@ public class LoadingScreen : MonoBehaviour
     void Start()
     {
         ShowInitialLoadScreen();
+    }
+
+    void Update()
+    {
+        if (!_netcodeSubscribed && NetworkManager.Singleton != null && NetworkManager.Singleton.SceneManager != null)
+        {
+            NetworkManager.Singleton.SceneManager.OnSceneEvent += OnNetcodeSceneEvent;
+            _netcodeSubscribed = true;
+        }
     }
 
     // =========================================================================
@@ -206,6 +217,7 @@ public class LoadingScreen : MonoBehaviour
     {
         string activeName = SceneManager.GetActiveScene().name;
         return SceneManager.GetActiveScene().buildIndex == 0 ||
+               activeName.Equals("LoadingScene", System.StringComparison.OrdinalIgnoreCase) ||
                activeName.Equals("BootScene", System.StringComparison.OrdinalIgnoreCase) ||
                activeName.Equals("Boot", System.StringComparison.OrdinalIgnoreCase);
     }
@@ -213,7 +225,9 @@ public class LoadingScreen : MonoBehaviour
     private void ShowInitialLoadScreen()
     {
         if (!autoLoadOnStart || !IsBootScene()) return;
-        StartCoroutine(LoadSceneRoutineInternal(targetSceneName, targetSceneIndex, isInitialBoot: true));
+        string sceneToLoad = !string.IsNullOrEmpty(TargetSceneToLoad) ? TargetSceneToLoad : targetSceneName;
+        TargetSceneToLoad = null;
+        StartCoroutine(LoadSceneRoutineInternal(sceneToLoad, targetSceneIndex, isInitialBoot: true));
     }
 
     // =========================================================================

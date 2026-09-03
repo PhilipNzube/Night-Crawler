@@ -197,12 +197,21 @@ public class PauseUI : MonoBehaviour
             pauseMgr.SetPaused(false);
 
         if (NetworkManager.Singleton != null)
+        {
+            GameObject netObj = NetworkManager.Singleton.gameObject;
             NetworkManager.Singleton.Shutdown();
+            Destroy(netObj);
+        }
 
         if (LoadingScreen.Instance != null)
+        {
             LoadingScreen.Instance.LoadScene("LobbyScene");
+        }
         else
-            UnityEngine.SceneManagement.SceneManager.LoadScene("LobbyScene");
+        {
+            LoadingScreen.TargetSceneToLoad = "LobbyScene";
+            UnityEngine.SceneManagement.SceneManager.LoadScene("LoadingScene");
+        }
     }
 
     // =========================================================================

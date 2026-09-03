@@ -26,15 +26,7 @@ public class NetworkPlayer : NetworkBehaviour
         if (playerInput == null)   playerInput = GetComponent<PlayerInput>();
         if (girlMovement == null)  girlMovement = GetComponent<GirlMovement>();
 
-        // NOTE: ClientNetworkTransform must be added to the prefab manually in the Editor,
-        // NOT dynamically here. Adding it at runtime in Awake() before network spawn causes
-        // ThirdPersonController to fight it for rotation authority, breaking camera movement.
-
-        // If this is an investigator using ThirdPersonController, attach the motor adapter to fix ground/jump
-        if (controller != null && !TryGetComponent<InvestigatorMotorAdapter>(out _))
-        {
-            gameObject.AddComponent<InvestigatorMotorAdapter>();
-        }
+        // NOTE: ClientNetworkTransform must be added to the prefab manually in the Editor.
     }
 
     public override void OnNetworkSpawn()
@@ -47,30 +39,35 @@ public class NetworkPlayer : NetworkBehaviour
         {
             Debug.Log($"[NetworkPlayer] Local player ownership confirmed for {gameObject.name}");
 
-            // --- CAMERA SETUP ---
-            // Re-search in case Awake ran before camera child was ready
+            // --- RESOLVE CAMERA TARGET ---
+            Transform target = (controller != null && controller.CinemachineCameraTarget != null)
+                ? controller.CinemachineCameraTarget.transform
+                : (transform.Find("PlayerCameraRoot") ?? transform);
+
+            // --- CAMERA SETUP FOR OWNER ---
+            // Find the character's existing child PlayerFollowCamera
+            if (virtualCamera == null)
+            {
+                Transform camChild = transform.Find("PlayerFollowCamera");
+                if (camChild != null)
+                    virtualCamera = camChild.GetComponent<CinemachineCamera>();
+            }
+
             if (virtualCamera == null)
                 virtualCamera = GetComponentInChildren<CinemachineCamera>(true);
 
             if (virtualCamera != null)
             {
+                // Unparent from character body so WASD turning does not spin the camera
+                virtualCamera.transform.SetParent(null);
+
                 virtualCamera.Priority = 100;
+                virtualCamera.Follow = target;
                 virtualCamera.gameObject.SetActive(true);
                 virtualCamera.enabled = true;
-
-                // Only set Follow/LookAt if not already wired in the prefab
-                if (virtualCamera.Follow == null)
-                {
-                    Transform target = (controller != null && controller.CinemachineCameraTarget != null)
-                        ? controller.CinemachineCameraTarget.transform
-                        : (transform.Find("PlayerCameraRoot") ?? transform);
-                    virtualCamera.Follow = target;
-                    virtualCamera.LookAt = target;
-                }
             }
 
             // --- CONTROLLERS & INPUTS ---
-            if (controller != null) controller.enabled = true;
             if (girlMovement != null) girlMovement.enabled = true;
 
             if (inputs != null)
@@ -86,13 +83,16 @@ public class NetworkPlayer : NetworkBehaviour
                 playerInput.ActivateInput();
             }
 
-            if (TryGetComponent<CharacterController>(out CharacterController cc))
-            {
-                cc.enabled = true;
-            }
+            // Clear any stale jump input that the Input System may have flushed on activation
+            // ThirdPersonController only clears _input.jump when NOT grounded, so a stale
+            // "pressed" state can cause infinite jumping immediately on spawn.
+            if (inputs != null) inputs.jump = false;
 
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
+
+            // Ground Snap & Physics Warmup routine (prevents falling through floor on spawn)
+            StartCoroutine(GroundSnapAndPhysicsWarmup());
 
             // --- AUDIO LISTENER ---
             AudioListener listener = GetComponentInChildren<AudioListener>(true);
@@ -144,6 +144,45 @@ public class NetworkPlayer : NetworkBehaviour
 
             AudioListener listener = GetComponentInChildren<AudioListener>(true);
             if (listener != null) listener.enabled = false;
+        }
+    }
+
+    private System.Collections.IEnumerator GroundSnapAndPhysicsWarmup()
+    {
+        CharacterController cc = GetComponent<CharacterController>();
+        if (cc != null) cc.enabled = false;
+        if (controller != null) controller.enabled = false;
+
+        // Raycast down from above the spawn point to find exact ground surface
+        if (Physics.Raycast(transform.position + Vector3.up * 2.5f, Vector3.down, out RaycastHit hit, 20f, ~0, QueryTriggerInteraction.Ignore))
+        {
+            if (!hit.transform.IsChildOf(transform) && hit.transform != transform)
+            {
+                transform.position = hit.point + Vector3.up * 0.05f;
+            }
+        }
+
+        // Wait 2 fixed updates for physics colliders to initialize
+        yield return new WaitForFixedUpdate();
+        yield return new WaitForFixedUpdate();
+
+        if (IsOwner)
+        {
+            if (cc != null) cc.enabled = true;
+            if (controller != null)
+            {
+                controller.enabled = true;
+                controller.Grounded = true;
+            }
+        }
+    }
+
+    public override void OnDestroy()
+    {
+        base.OnDestroy();
+        if (IsOwner && virtualCamera != null && virtualCamera.transform.parent == null)
+        {
+            Destroy(virtualCamera.gameObject);
         }
     }
 }

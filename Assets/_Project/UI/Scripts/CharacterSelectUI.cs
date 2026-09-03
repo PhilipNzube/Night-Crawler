@@ -107,10 +107,10 @@ public class CharacterSelectUI : MonoBehaviour
     public Transform playerStatusContainer;
     [Tooltip("Prefab for a single status row: must have two TMP_Text children — [0]=name, [1]=status.")]
     public GameObject playerStatusRowPrefab;
-    [Tooltip("Text shown in the status row when waiting. E.g. 'Selecting...' ")]
-    public string statusWaitingText = "Selecting...";
+    [Tooltip("Text shown in the status row when waiting / not ready.")]
+    public string statusWaitingText = "NOT READY";
     [Tooltip("Text shown in the status row when ready.")]
-    public string statusReadyText = "✓ Ready";
+    public string statusReadyText = "READY";
 
     // -------------------------------------------------------------------------
     //  Private State
@@ -553,14 +553,15 @@ public class CharacterSelectUI : MonoBehaviour
 
         // Notify the ready tracker (server will tell everyone when all are done)
         if (PlayerReadyTracker.Instance != null)
-            PlayerReadyTracker.Instance.ReportInvestigatorConfirmedServerRpc();
+            PlayerReadyTracker.Instance.ReportInvestigatorConfirmed(NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0);
 
         // Show the waiting-for-others panel immediately
         if (playerStatusPanel != null)
             playerStatusPanel.SetActive(true);
 
-        // If tracker isn't present (solo/offline test), go straight to squad screen
-        if (PlayerReadyTracker.Instance == null)
+        // If forceInvestigatorMode is active or tracker is null, auto-continue straight to squad screen
+        bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
+        if (forceInvestigator || PlayerReadyTracker.Instance == null)
             GoToSquadScreen();
     }
 
@@ -572,11 +573,12 @@ public class CharacterSelectUI : MonoBehaviour
         // Only transition once this local player has confirmed too
         if (!_localConfirmed) return;
 
+        bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
         bool allReady = true;
         foreach (var kvp in snapshot)
             if (!kvp.Value.ready) { allReady = false; break; }
 
-        if (allReady)
+        if (allReady || forceInvestigator)
             GoToSquadScreen();
     }
 
@@ -596,7 +598,13 @@ public class CharacterSelectUI : MonoBehaviour
 
             var texts = row.GetComponentsInChildren<TextMeshProUGUI>(true);
             if (texts.Length >= 1) texts[0].text = kvp.Value.name;
-            if (texts.Length >= 2) texts[1].text = kvp.Value.ready ? statusReadyText : statusWaitingText;
+            if (texts.Length >= 2)
+            {
+                texts[1].text = kvp.Value.ready ? statusReadyText : statusWaitingText;
+                texts[1].color = kvp.Value.ready
+                    ? new Color(0.18f, 0.80f, 0.44f)  // Bright Emerald Green
+                    : new Color(0.91f, 0.30f, 0.24f); // Vibrant Crimson Red
+            }
         }
     }
 

@@ -44,22 +44,54 @@ public class PlayerReadyTracker : NetworkBehaviour
     // =========================================================================
     public void StartTracking(ulong girlClientId, List<ulong> allClientIds)
     {
-        if (!IsServer) return;
-
-        _girlClientId = girlClientId;
-        _girlReady    = false;
-        _investigatorReady.Clear();
-        _playerNames.Clear();
-        _trackingStarted = true;
-
-        foreach (ulong id in allClientIds)
+        if (IsServer)
         {
-            _playerNames[id] = ResolvePlayerName(id);
-            if (id != girlClientId)
-                _investigatorReady[id] = false;
-        }
+            _girlClientId = girlClientId;
+            _girlReady    = false;
+            _investigatorReady.Clear();
+            _playerNames.Clear();
+            _trackingStarted = true;
 
-        BroadcastSnapshot();
+            foreach (ulong id in allClientIds)
+            {
+                _playerNames[id] = ResolvePlayerName(id);
+                if (id != girlClientId)
+                    _investigatorReady[id] = false;
+            }
+
+            BroadcastSnapshot();
+        }
+    }
+
+    // =========================================================================
+    //  Public API (Safe for Spawned / Unspawned / Offline calls)
+    // =========================================================================
+    public void ReportInvestigatorConfirmed(ulong clientId = 0)
+    {
+        if (IsSpawned)
+        {
+            ReportInvestigatorConfirmedServerRpc();
+        }
+        else
+        {
+            _investigatorReady[clientId] = true;
+            Debug.Log($"[PlayerReadyTracker] Investigator {clientId} confirmed (unspawned/local).");
+            CheckAllReady();
+        }
+    }
+
+    public void ReportGirlReady()
+    {
+        if (IsSpawned)
+        {
+            ReportGirlReadyServerRpc();
+        }
+        else
+        {
+            _girlReady = true;
+            Debug.Log("[PlayerReadyTracker] Girl ready (unspawned/local).");
+            CheckAllReady();
+        }
     }
 
     // =========================================================================
@@ -89,7 +121,6 @@ public class PlayerReadyTracker : NetworkBehaviour
 
     // =========================================================================
     //  RPCs - Server -> All Clients
-    //  NOTE: string[] is not NGO-serializable. Use FixedString64Bytes[] instead.
     // =========================================================================
 
     [Rpc(SendTo.ClientsAndHost)]
@@ -109,14 +140,13 @@ public class PlayerReadyTracker : NetworkBehaviour
     // =========================================================================
     private void BroadcastSnapshot()
     {
-        if (!IsServer) return;
+        if (!IsServer || !IsSpawned) return;
         var idList    = new List<ulong>();
         var nameList  = new List<FixedString64Bytes>();
         var readyList = new List<bool>();
         foreach (var kvp in _playerNames)
         {
             idList.Add(kvp.Key);
-            // Truncate to 63 chars to fit FixedString64Bytes safely
             string n = kvp.Value.Length > 63 ? kvp.Value.Substring(0, 63) : kvp.Value;
             nameList.Add(new FixedString64Bytes(n));
             if (kvp.Key == _girlClientId)
@@ -129,7 +159,6 @@ public class PlayerReadyTracker : NetworkBehaviour
 
     private void CheckAllReady()
     {
-        if (!IsServer) return;
         bool investigatorsDone = true;
         foreach (var kvp in _investigatorReady)
             if (!kvp.Value) { investigatorsDone = false; break; }

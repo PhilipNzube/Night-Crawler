@@ -253,7 +253,10 @@ public class LobbyUI : MonoBehaviour
 
     private void OnDisconnect()
     {
-        NetworkManager.Singleton.Shutdown();
+        if (NetworkManager.Singleton != null)
+        {
+            NetworkManager.Singleton.Shutdown();
+        }
         ShowConnectionPanel();
     }
 

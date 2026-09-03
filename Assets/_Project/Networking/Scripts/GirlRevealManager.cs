@@ -197,12 +197,25 @@ public class GirlRevealManager : NetworkBehaviour
         CheckAllReady();
     }
 
+    public void ReportGirlReady()
+    {
+        if (IsSpawned)
+        {
+            ReportGirlReadyServerRpc();
+        }
+        else
+        {
+            _girlReady = true;
+            Debug.Log("[GirlRevealManager] Girl player ready (unspawned/local).");
+            CheckAllReady();
+        }
+    }
+
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
     public void ReportGirlReadyServerRpc()
     {
-        // Redirect to PlayerReadyTracker so the status panel updates too.
         if (PlayerReadyTracker.Instance != null)
-            PlayerReadyTracker.Instance.ReportGirlReadyServerRpc();
+            PlayerReadyTracker.Instance.ReportGirlReady();
 
         _girlReady = true;
         Debug.Log("[GirlRevealManager] Girl player ready.");
@@ -318,6 +331,8 @@ public class GirlRevealManager : NetworkBehaviour
     {
         if (!IsServer) return;
 
+        ShowLoadingScreenClientRpc();
+
         if (NetworkManager.Singleton.SceneManager != null)
         {
             NetworkManager.Singleton.SceneManager.LoadScene(
@@ -330,6 +345,15 @@ public class GirlRevealManager : NetworkBehaviour
         else
         {
             UnityEngine.SceneManagement.SceneManager.LoadScene(gameSceneName);
+        }
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void ShowLoadingScreenClientRpc()
+    {
+        if (LoadingScreen.Instance != null)
+        {
+            LoadingScreen.Instance.ShowLoadingScreen();
         }
     }
 
