@@ -3,15 +3,23 @@ using Unity.Netcode;
 
 public class TargetHealth : NetworkBehaviour, IDamageReceiver
 {
+    [Header("Health Settings")]
+    [Tooltip("Base maximum health for this character. Can be configured uniquely on each character prefab.")]
+    public float baseMaxHealth = 100f;
+
     [Header("Data (ScriptableObject)")]
     public EntityStats stats;
     
     public bool destroyOnDeath = true;
     
     [Header("Runtime Variables (Synced)")]
+    public NetworkVariable<float> maxHealth = new NetworkVariable<float>(100f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
     public NetworkVariable<float> currentHealth = new NetworkVariable<float>(100f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
     public NetworkVariable<bool> isCorpse = new NetworkVariable<bool>(false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
     public NetworkVariable<bool> isOccupied = new NetworkVariable<bool>(false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    public float CurrentHealth => currentHealth.Value;
+    public float MaxHealth => maxHealth.Value > 0 ? maxHealth.Value : ((stats != null && stats.maxHealth > 0) ? stats.maxHealth : baseMaxHealth);
 
     private Animator _animator;
 
@@ -22,14 +30,12 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
 
     public override void OnNetworkSpawn()
     {
-        if (IsServer && stats != null)
+        if (IsServer)
         {
-            currentHealth.Value = stats.maxHealth;
-        }
-        else if (IsServer && stats == null)
-        {
-            // stats not assigned — keep the default value of 100 already set in declaration
-            Debug.LogWarning($"[TargetHealth] No EntityStats assigned on '{gameObject.name}'. Using default 100 HP.");
+            float targetMax = (stats != null && stats.maxHealth > 0) ? stats.maxHealth : (baseMaxHealth > 0 ? baseMaxHealth : 100f);
+            maxHealth.Value = targetMax;
+            currentHealth.Value = targetMax;
+            Debug.Log($"[TargetHealth] Initialized '{gameObject.name}' with {targetMax} Max HP.");
         }
 
         // Subscribe so local client can react to future changes
@@ -63,8 +69,8 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
     {
         if (!IsServer) return;
 
-        currentHealth.Value -= amount;
-        Debug.Log($"{gameObject.name} took {amount} {(isSoulAttack ? "SOUL" : "PHYSICAL")} damage. Remaining: {currentHealth.Value}");
+        currentHealth.Value = Mathf.Clamp(currentHealth.Value - amount, 0f, MaxHealth);
+        Debug.Log($"{gameObject.name} took {amount} {(isSoulAttack ? "SOUL" : "PHYSICAL")} damage. Remaining: {currentHealth.Value}/{MaxHealth}");
 
         // Visual feedback for everyone
         FlashRedClientRpc(isSoulAttack);
@@ -73,6 +79,12 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
         {
             Die();
         }
+    }
+
+    public void Heal(float amount)
+    {
+        if (!IsServer) return;
+        currentHealth.Value = Mathf.Clamp(currentHealth.Value + amount, 0f, MaxHealth);
     }
 
     [ClientRpc]

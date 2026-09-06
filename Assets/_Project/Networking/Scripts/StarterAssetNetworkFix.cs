@@ -20,17 +20,17 @@ public class StarterAssetNetworkFix : NetworkBehaviour
             // 2. Disable the ThirdPersonController script logic
             if (TryGetComponent<ThirdPersonController>(out var controller)) controller.enabled = false;
 
-            // 3. Find and disable the Camera and Cinemachine Virtual Camera inside this prefab
-            // This stops the "Camera Hijack"
-            var childCameras = GetComponentsInChildren<Camera>(true);
-            foreach (var cam in childCameras) cam.enabled = false;
-
+            // 3. Destroy remote cameras inside this prefab clone so they cannot hijack Cinemachine
             var childVCams = GetComponentsInChildren<Unity.Cinemachine.CinemachineCamera>(true);
             foreach (var vCam in childVCams)
             {
-                vCam.Priority = 0;
-                vCam.enabled = false;
-                vCam.gameObject.SetActive(false);
+                Destroy(vCam.gameObject);
+            }
+
+            var childCameras = GetComponentsInChildren<Camera>(true);
+            foreach (var cam in childCameras)
+            {
+                Destroy(cam.gameObject);
             }
             
             // 4. Disable AudioListener (prevents "Multiple AudioListeners" warning)

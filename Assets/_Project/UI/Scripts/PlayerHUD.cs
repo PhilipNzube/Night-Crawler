@@ -92,23 +92,50 @@ public class PlayerHUD : MonoBehaviour
     // =========================================================================
     //  Unity Lifecycle
     // =========================================================================
+    private CanvasGroup           _hudCanvasGroup;
+
+    void Awake()
+    {
+        // Subscribe to pause events across the entire lifecycle so unpausing always works
+        PauseManager.OnPauseStateChanged += SetHUDVisible;
+
+        // Auto-resolve missing health references if not wired in Inspector
+        if (healthSlider == null)
+            healthSlider = GetComponentInChildren<Slider>(true);
+
+        if (healthSlider != null && healthFill == null && healthSlider.fillRect != null)
+            healthFill = healthSlider.fillRect.GetComponent<Image>();
+    }
+
     void Start()
     {
         // Keep waiting overlay hidden when match starts
         SetWaitingState(false);
 
-        // If hudRoot is not assigned, fall back to this GameObject
         if (hudRoot == null) hudRoot = gameObject;
+        _hudCanvasGroup = hudRoot.GetComponent<CanvasGroup>();
     }
 
-    void OnEnable()
+    private void SetHUDVisible(bool isPaused)
     {
-        PauseManager.OnPauseStateChanged += SetHUDVisible;
-    }
+        if (hudRoot != null)
+        {
+            // If hudRoot is this GameObject, use a CanvasGroup so PlayerHUD is NOT deactivated!
+            // Deactivating the GameObject stops Update() and coroutines from running.
+            if (hudRoot == gameObject)
+            {
+                if (_hudCanvasGroup == null)
+                    _hudCanvasGroup = gameObject.AddComponent<CanvasGroup>();
 
-    void OnDisable()
-    {
-        PauseManager.OnPauseStateChanged -= SetHUDVisible;
+                _hudCanvasGroup.alpha = isPaused ? 0f : 1f;
+                _hudCanvasGroup.interactable = !isPaused;
+                _hudCanvasGroup.blocksRaycasts = !isPaused;
+            }
+            else
+            {
+                hudRoot.SetActive(!isPaused);
+            }
+        }
     }
 
     void Update()
@@ -146,14 +173,9 @@ public class PlayerHUD : MonoBehaviour
 
         if (_localHealth != null)
         {
-            // Prefer stats.maxHealth; fall back to the current NetworkVariable value
-            float statsMax = (_localHealth.stats != null && _localHealth.stats.maxHealth > 0)
-                ? _localHealth.stats.maxHealth
-                : 0f;
-            float networkMax = _localHealth.currentHealth.Value;
-            _maxHealth = statsMax > 0 ? statsMax : (networkMax > 0 ? networkMax : 100f);
-
+            _maxHealth = _localHealth.MaxHealth;
             _localHealth.currentHealth.OnValueChanged += OnTargetHealthChanged;
+            _localHealth.maxHealth.OnValueChanged     += OnTargetHealthChanged;
         }
         else if (_localHealthSys != null)
         {
@@ -183,8 +205,13 @@ public class PlayerHUD : MonoBehaviour
 
     private void OnDestroy()
     {
+        PauseManager.OnPauseStateChanged -= SetHUDVisible;
+
         if (_localHealth != null)
+        {
             _localHealth.currentHealth.OnValueChanged -= OnTargetHealthChanged;
+            _localHealth.maxHealth.OnValueChanged     -= OnTargetHealthChanged;
+        }
 
         if (_localHealthSys != null)
             _localHealthSys.OnHealthChanged -= OnHealthSysChanged;
@@ -218,17 +245,21 @@ public class PlayerHUD : MonoBehaviour
 
     private void RefreshHealth()
     {
-        float current = _maxHealth;
+        float current = 100f;
+        float max = 100f;
 
         if (_localHealth != null)
         {
-            current = _localHealth.currentHealth.Value;
+            current = _localHealth.CurrentHealth;
+            max = _localHealth.MaxHealth;
         }
         else if (_localHealthSys != null)
         {
             current = _localHealthSys.CurrentHealth;
+            max = _localHealthSys.MaxHealth;
         }
 
+        _maxHealth = max > 0 ? max : 100f;
         float fraction = Mathf.Clamp01(current / _maxHealth);
 
         if (healthSlider != null)
@@ -236,14 +267,48 @@ public class PlayerHUD : MonoBehaviour
             healthSlider.minValue = 0f;
             healthSlider.maxValue = 1f;
             healthSlider.value    = fraction;
+
+            // Ensure the fill rect has vertical height so it doesn't collapse to 0 height
+            if (healthSlider.fillRect != null)
+            {
+                Vector2 aMin = healthSlider.fillRect.anchorMin;
+                Vector2 aMax = healthSlider.fillRect.anchorMax;
+                if (aMax.y < 0.5f)
+                {
+                    healthSlider.fillRect.anchorMin = new Vector2(aMin.x, 0f);
+                    healthSlider.fillRect.anchorMax = new Vector2(aMax.x, 1f);
+                }
+
+                // If fillRect has a Filled Image (like Bloodlines UI Slider 5), update fillAmount directly
+                Image rImg = healthSlider.fillRect.GetComponent<Image>();
+                if (rImg != null)
+                {
+                    if (rImg.type == Image.Type.Filled)
+                    {
+                        rImg.fillAmount = fraction;
+                    }
+                    if (healthFill == null)
+                    {
+                        healthFill = rImg;
+                    }
+                }
+            }
+        }
+
+        if (healthFill != null)
+        {
+            // If the Image is a Filled type (e.g. Bloodlines UI Slider 5), set fillAmount directly
+            if (healthFill.type == Image.Type.Filled)
+            {
+                healthFill.fillAmount = fraction;
+            }
+
+            // Tint health bar: green → yellow → red
+            healthFill.color = Color.Lerp(Color.red, Color.green, fraction);
         }
 
         if (healthText != null)
             healthText.text = $"{Mathf.CeilToInt(current)} / {Mathf.CeilToInt(_maxHealth)}";
-
-        // Tint health bar: green → yellow → red
-        if (healthFill != null)
-            healthFill.color = Color.Lerp(Color.red, Color.green, fraction);
     }
 
     private void RefreshExplorerPanel()
@@ -293,17 +358,5 @@ public class PlayerHUD : MonoBehaviour
     private void SetWaitingState(bool waiting)
     {
         if (waitingOverlay != null) waitingOverlay.SetActive(waiting);
-    }
-
-    /// <summary>
-    /// Shows or hides the entire HUD. Called automatically when PauseManager
-    /// raises the OnPauseStateChanged event.
-    /// • paused = true  → HUD hides (health bar, ammo, etc.)
-    /// • paused = false → HUD shows again
-    /// </summary>
-    public void SetHUDVisible(bool isPaused)
-    {
-        if (hudRoot != null)
-            hudRoot.SetActive(!isPaused);
     }
 }

@@ -102,14 +102,10 @@ public class BloodScreenOverlay : MonoBehaviour
 
         if (_localTargetHealth != null)
         {
-            float statsMax = (_localTargetHealth.stats != null && _localTargetHealth.stats.maxHealth > 0)
-                ? _localTargetHealth.stats.maxHealth
-                : 0f;
-            float netMax = _localTargetHealth.currentHealth.Value;
-            _maxHealth = statsMax > 0 ? statsMax : (netMax > 0 ? netMax : 100f);
-
+            _maxHealth = _localTargetHealth.MaxHealth;
             _localTargetHealth.currentHealth.OnValueChanged += OnTargetHealthChanged;
-            UpdateHealthFraction(_localTargetHealth.currentHealth.Value, _maxHealth);
+            _localTargetHealth.maxHealth.OnValueChanged     += OnTargetHealthChanged;
+            UpdateHealthFraction(_localTargetHealth.CurrentHealth, _maxHealth);
             _isBound = true;
         }
         else if (_localHealthSystem != null)
@@ -124,7 +120,10 @@ public class BloodScreenOverlay : MonoBehaviour
     private void UnbindFromPlayer()
     {
         if (_localTargetHealth != null)
+        {
             _localTargetHealth.currentHealth.OnValueChanged -= OnTargetHealthChanged;
+            _localTargetHealth.maxHealth.OnValueChanged     -= OnTargetHealthChanged;
+        }
 
         if (_localHealthSystem != null)
             _localHealthSystem.OnHealthChanged -= OnHealthSystemChanged;
@@ -135,7 +134,11 @@ public class BloodScreenOverlay : MonoBehaviour
     // =========================================================================
     private void OnTargetHealthChanged(float previous, float current)
     {
-        UpdateHealthFraction(current, _maxHealth);
+        if (_localTargetHealth != null)
+        {
+            _maxHealth = _localTargetHealth.MaxHealth;
+            UpdateHealthFraction(_localTargetHealth.CurrentHealth, _maxHealth);
+        }
     }
 
     private void OnHealthSystemChanged(float current, float max)

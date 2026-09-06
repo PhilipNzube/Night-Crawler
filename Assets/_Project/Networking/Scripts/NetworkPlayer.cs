@@ -141,35 +141,34 @@ public class NetworkPlayer : NetworkBehaviour
         {
             Debug.Log($"[NetworkPlayer] Remote player detected: {gameObject.name} (ClientId: {OwnerClientId})");
 
-            // --- DISABLE REMOTE CAMERAS & PREVENT HIJACK ---
-            if (virtualCamera != null)
-            {
-                virtualCamera.Priority = 0;
-                virtualCamera.enabled = false;
-                virtualCamera.gameObject.SetActive(false);
-            }
-
-            var childCameras = GetComponentsInChildren<Camera>(true);
-            foreach (var cam in childCameras) cam.enabled = false;
-
+            // --- DESTROY REMOTE CAMERAS TO PREVENT HIJACK ---
+            // Clones never need cameras. Destroying their camera GameObjects permanently eliminates
+            // any possibility of CinemachineBrain following or blending to a remote character clone.
             var childVCams = GetComponentsInChildren<CinemachineCamera>(true);
             foreach (var vCam in childVCams)
             {
-                vCam.Priority = 0;
-                vCam.enabled = false;
-                vCam.gameObject.SetActive(false);
+                Destroy(vCam.gameObject);
             }
 
-            // --- DISABLE REMOTE INPUTS & PHYSICS ---
-            if (controller != null) controller.enabled = false;
-            if (girlMovement != null) girlMovement.enabled = false;
-            if (inputs != null) inputs.enabled = false;
-            if (playerInput != null) playerInput.enabled = false;
+            var childCameras = GetComponentsInChildren<Camera>(true);
+            foreach (var cam in childCameras)
+            {
+                Destroy(cam.gameObject);
+            }
 
+            // --- REMOTE PHYSICS & COLLIDERS ---
+            // KEEP CharacterController ENABLED so remote clones keep their physics collider!
+            // This prevents them from falling through floors and allows weapon raycasts to hit them.
             if (TryGetComponent<CharacterController>(out CharacterController cc))
             {
-                cc.enabled = false;
+                cc.enabled = true;
             }
+
+            // Disable player input and local movement logic on clones
+            if (controller != null)   controller.enabled = false;
+            if (girlMovement != null) girlMovement.enabled = false;
+            if (inputs != null)       inputs.enabled = false;
+            if (playerInput != null)  playerInput.enabled = false;
 
             // --- INTERPOLATION FOR REMOTE PLAYERS ---
             if (TryGetComponent<NetworkTransform>(out NetworkTransform nt))
@@ -185,21 +184,18 @@ public class NetworkPlayer : NetworkBehaviour
     private System.Collections.IEnumerator GroundSnapAndPhysicsWarmup()
     {
         CharacterController cc = GetComponent<CharacterController>();
-        if (cc != null) cc.enabled = false;
-        if (controller != null) controller.enabled = false;
 
-        // Raycast down from above the spawn point to find exact ground surface
-        if (Physics.Raycast(transform.position + Vector3.up * 2.5f, Vector3.down, out RaycastHit hit, 20f, ~0, QueryTriggerInteraction.Ignore))
+        // Snap to ground on Default layer only (layer 0), avoiding self, triggers, or props
+        int groundMask = 1 << 0;
+        if (Physics.Raycast(transform.position + Vector3.up * 1.5f, Vector3.down, out RaycastHit hit, 5f, groundMask, QueryTriggerInteraction.Ignore))
         {
             if (!hit.transform.IsChildOf(transform) && hit.transform != transform)
             {
+                if (cc != null) cc.enabled = false;
                 transform.position = hit.point + Vector3.up * 0.05f;
+                if (cc != null) cc.enabled = true;
             }
         }
-
-        // Wait 2 fixed updates for physics colliders to initialize
-        yield return new WaitForFixedUpdate();
-        yield return new WaitForFixedUpdate();
 
         if (IsOwner)
         {
@@ -210,6 +206,8 @@ public class NetworkPlayer : NetworkBehaviour
                 controller.Grounded = true;
             }
         }
+
+        yield return null;
     }
 
     public override void OnDestroy()
