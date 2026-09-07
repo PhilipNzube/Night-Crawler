@@ -35,6 +35,12 @@ public class PlayerHUD : MonoBehaviour
     [Tooltip("Fills the health bar with color (optional gradient tinting done via script).")]
     public Image healthFill;
 
+    [Tooltip("Invert the fill fraction if using a slider that fills in reverse (e.g. 1 - fraction).")]
+    public bool invertHealthBar = false;
+
+    [Tooltip("Tint the health bar from red to green. Set to false for Bloodlines UI since its sprites are already textured blood-red (tinting green blacks them out).")]
+    public bool tintHealthBarWithColor = false;
+
     [Tooltip("Displays current / max health as text, e.g. '75 / 100'.")]
     public TextMeshProUGUI healthText;
 
@@ -261,12 +267,13 @@ public class PlayerHUD : MonoBehaviour
 
         _maxHealth = max > 0 ? max : 100f;
         float fraction = Mathf.Clamp01(current / _maxHealth);
+        float displayFraction = invertHealthBar ? (1f - fraction) : fraction;
 
         if (healthSlider != null)
         {
             healthSlider.minValue = 0f;
             healthSlider.maxValue = 1f;
-            healthSlider.value    = fraction;
+            healthSlider.value    = displayFraction;
 
             // Ensure the fill rect has vertical height so it doesn't collapse to 0 height
             if (healthSlider.fillRect != null)
@@ -285,7 +292,7 @@ public class PlayerHUD : MonoBehaviour
                 {
                     if (rImg.type == Image.Type.Filled)
                     {
-                        rImg.fillAmount = fraction;
+                        rImg.fillAmount = displayFraction;
                     }
                     if (healthFill == null)
                     {
@@ -300,11 +307,19 @@ public class PlayerHUD : MonoBehaviour
             // If the Image is a Filled type (e.g. Bloodlines UI Slider 5), set fillAmount directly
             if (healthFill.type == Image.Type.Filled)
             {
-                healthFill.fillAmount = fraction;
+                healthFill.fillAmount = displayFraction;
             }
 
-            // Tint health bar: green → yellow → red
-            healthFill.color = Color.Lerp(Color.red, Color.green, fraction);
+            // Tint health bar: Bloodlines UI textures are already blood-red.
+            // Tinting with Color.green zeroes out red pixels, making the bar black (invisible/empty) at 100% health!
+            if (tintHealthBarWithColor)
+            {
+                healthFill.color = Color.Lerp(Color.red, Color.green, fraction);
+            }
+            else
+            {
+                healthFill.color = Color.white;
+            }
         }
 
         if (healthText != null)
