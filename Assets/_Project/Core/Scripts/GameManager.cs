@@ -73,6 +73,8 @@ public class GameManager : NetworkBehaviour
     private List<GirlStealth>   _allGirlComponents = new List<GirlStealth>();
     private MatchResultOverlay  _cachedOverlay;
 
+    private readonly HashSet<ulong> _spawnedClients = new HashSet<ulong>();
+
     // OCP: Extend win messages here without touching EndMatch logic.
     private static readonly Dictionary<WinReason, string> WinMessages = new Dictionary<WinReason, string>
     {
@@ -100,10 +102,40 @@ public class GameManager : NetworkBehaviour
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
-        if (IsServer && !_gameHasStarted)
+
+        if (IsServer)
         {
             AutoDiscoverSpawnPoints();
-            StartGame();
+            _gameHasStarted = true;
+            if (NetworkManager.Singleton != null)
+                NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
+        }
+
+        // When any client (Host or remote Client) loads GameScene and spawns on the network,
+        // it explicitly requests the server to spawn its character using its own locally saved selection.
+        if (IsClient)
+        {
+            int savedIndex = PersistentCharacterSelection.GetSelectedCharacterIndex();
+            bool isGirl = PersistentCharacterSelection.IsVengefulSpirit();
+            Debug.Log($"[GameManager] Local Client {NetworkManager.Singleton.LocalClientId} loaded GameScene. Requesting spawn (index={savedIndex}, isGirl={isGirl}).");
+            RequestSpawnPlayerServerRpc(savedIndex, isGirl);
+        }
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        base.OnNetworkDespawn();
+        if (IsServer && NetworkManager.Singleton != null)
+        {
+            NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnected;
+        }
+    }
+
+    private void OnClientDisconnected(ulong clientId)
+    {
+        if (_spawnedClients.Contains(clientId))
+        {
+            _spawnedClients.Remove(clientId);
         }
     }
 
@@ -177,75 +209,85 @@ public class GameManager : NetworkBehaviour
     public List<GirlStealth> GetAllDemons() => _allGirlComponents;
 
     // =========================================================================
-    //  Match Start
+    //  Match Start & Client-Driven Spawning
     // =========================================================================
 
-    /// <summary>Triggers player spawning when the Game Scene loads for all connected clients.</summary>
+    /// <summary>Initializes match state and discovers spawn points on the server.</summary>
     public void StartGame()
     {
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer || _gameHasStarted) return;
 
-        List<ulong> clientIds = new List<ulong>(NetworkManager.Singleton.ConnectedClientsIds);
-        int required = Mathf.Max(1, minPlayers);
-        if (clientIds.Count < required)
+        _gameHasStarted = true;
+        AutoDiscoverSpawnPoints();
+        Debug.Log("[GameManager] Match started on server. Awaiting client ready spawn requests.");
+    }
+
+    /// <summary>
+    /// Called by each client when it finishes loading GameScene.
+    /// The client reports its exact chosen character index and role so the server spawns
+    /// the correct character when the player's device is truly ready.
+    /// </summary>
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    public void RequestSpawnPlayerServerRpc(int characterIndex, bool isGirl, RpcParams rpcParams = default)
+    {
+        ulong senderId = rpcParams.Receive.SenderClientId;
+        Debug.Log($"[GameManager] Received spawn request from Client {senderId} | characterIndex: {characterIndex} | isGirl: {isGirl}");
+
+        if (_spawnedClients.Contains(senderId))
         {
-            Debug.LogWarning($"[GameManager] Cannot start match: Connected players ({clientIds.Count}) < Required ({required}). Change 'Min Players' in Inspector if you want solo testing.");
+            Debug.LogWarning($"[GameManager] Client {senderId} already spawned. Ignoring duplicate spawn request.");
             return;
         }
 
-        _gameHasStarted = true;
-        AutoDiscoverSpawnPoints();
-
-        // 1. Check synced Netcode role selection from lobby
-        ulong girlClientId = ulong.MaxValue;
-        if (CharacterSelectManager.SavedRoleSelectionDone && CharacterSelectManager.SavedVengefulSpiritClientId != 999 && CharacterSelectManager.SavedVengefulSpiritClientId != ulong.MaxValue)
+        if (!_gameHasStarted)
         {
-            girlClientId = CharacterSelectManager.SavedVengefulSpiritClientId;
-        }
-        else if (GirlRevealManager.SavedGirlClientId != 999 && GirlRevealManager.SavedGirlClientId != ulong.MaxValue)
-        {
-            girlClientId = GirlRevealManager.SavedGirlClientId;
-        }
-        else if (CharacterSelectManager.Instance != null && CharacterSelectManager.Instance.roleSelectionDone.Value && CharacterSelectManager.Instance.vengefulSpiritClientId.Value != 999 && CharacterSelectManager.Instance.vengefulSpiritClientId.Value != ulong.MaxValue)
-        {
-            girlClientId = CharacterSelectManager.Instance.vengefulSpiritClientId.Value;
-        }
-        else if (GirlRevealManager.Instance != null && GirlRevealManager.Instance.revealedGirlClientId.Value != 999 && GirlRevealManager.Instance.revealedGirlClientId.Value != ulong.MaxValue)
-        {
-            girlClientId = GirlRevealManager.Instance.revealedGirlClientId.Value;
+            StartGame();
         }
 
-        // 2. Check forceInvestigatorMode override (for dev testing)
+        // Verify role authority on server
+        bool finalIsGirl = isGirl;
         bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
 
-        Debug.Log($"[GameManager] Starting game. girlClientId={girlClientId}, forceInvestigator={forceInvestigator}, totalClients={clientIds.Count}");
-
-        foreach (ulong clientId in clientIds)
+        if (forceInvestigator)
         {
-            bool isGirl = false;
-
-            if (!forceInvestigator)
+            finalIsGirl = false;
+        }
+        else
+        {
+            ulong girlClientId = ulong.MaxValue;
+            if (CharacterSelectManager.SavedRoleSelectionDone && CharacterSelectManager.SavedVengefulSpiritClientId != 999 && CharacterSelectManager.SavedVengefulSpiritClientId != ulong.MaxValue)
             {
-                if (girlClientId != 999 && girlClientId != ulong.MaxValue)
-                {
-                    isGirl = (clientId == girlClientId);
-                }
-                else if (NetworkManager.Singleton != null && clientId == NetworkManager.Singleton.LocalClientId)
-                {
-                    isGirl = PersistentCharacterSelection.IsVengefulSpirit();
-                }
+                girlClientId = CharacterSelectManager.SavedVengefulSpiritClientId;
+            }
+            else if (GirlRevealManager.SavedGirlClientId != 999 && GirlRevealManager.SavedGirlClientId != ulong.MaxValue)
+            {
+                girlClientId = GirlRevealManager.SavedGirlClientId;
+            }
+            else if (CharacterSelectManager.Instance != null && CharacterSelectManager.Instance.roleSelectionDone.Value && CharacterSelectManager.Instance.vengefulSpiritClientId.Value != 999 && CharacterSelectManager.Instance.vengefulSpiritClientId.Value != ulong.MaxValue)
+            {
+                girlClientId = CharacterSelectManager.Instance.vengefulSpiritClientId.Value;
+            }
+            else if (GirlRevealManager.Instance != null && GirlRevealManager.Instance.revealedGirlClientId.Value != 999 && GirlRevealManager.Instance.revealedGirlClientId.Value != ulong.MaxValue)
+            {
+                girlClientId = GirlRevealManager.Instance.revealedGirlClientId.Value;
             }
 
-            SpawnPlayerRole(clientId, isGirl);
+            if (girlClientId != 999 && girlClientId != ulong.MaxValue)
+            {
+                finalIsGirl = (senderId == girlClientId);
+            }
         }
+
+        _spawnedClients.Add(senderId);
+        SpawnPlayerRole(senderId, characterIndex, finalIsGirl);
     }
 
     // =========================================================================
     //  Private Spawn Helpers
     // =========================================================================
-    private void SpawnPlayerRole(ulong clientId, bool isGirl)
+    private void SpawnPlayerRole(ulong clientId, int characterIndex, bool isGirl)
     {
-        GameObject prefabToSpawn = isGirl ? girlPrefab : GetInvestigatorPrefabForClient(clientId);
+        GameObject prefabToSpawn = isGirl ? girlPrefab : GetInvestigatorPrefabForClient(clientId, characterIndex);
         if (prefabToSpawn == null)
         {
             Debug.LogError($"[GameManager] Cannot spawn player for client {clientId}: prefab is null! (isGirl={isGirl})");
@@ -274,6 +316,7 @@ public class GameManager : NetworkBehaviour
                 cc.center = center;
             }
 
+            cc.detectCollisions = true;
             cc.enabled = true;
         }
 
@@ -301,16 +344,19 @@ public class GameManager : NetworkBehaviour
         }
     }
 
-    private GameObject GetInvestigatorPrefabForClient(ulong clientId)
+    private GameObject GetInvestigatorPrefabForClient(ulong clientId, int characterIndex)
     {
-        int selectedIndex = 0;
-        if (CharacterSelectManager.Instance != null)
-            selectedIndex = CharacterSelectManager.Instance.GetSelectedCharacterIndex(clientId);
-
-        if (NetworkManager.Singleton != null && clientId == NetworkManager.Singleton.LocalClientId)
+        int selectedIndex = characterIndex;
+        if (selectedIndex < 0)
         {
-            int localSaved = PersistentCharacterSelection.GetSelectedCharacterIndex();
-            if (localSaved >= 0) selectedIndex = localSaved;
+            if (CharacterSelectManager.Instance != null)
+                selectedIndex = CharacterSelectManager.Instance.GetSelectedCharacterIndex(clientId);
+
+            if (NetworkManager.Singleton != null && clientId == NetworkManager.Singleton.LocalClientId)
+            {
+                int localSaved = PersistentCharacterSelection.GetSelectedCharacterIndex();
+                if (localSaved >= 0) selectedIndex = localSaved;
+            }
         }
 
         // 1. Try explorerPrefabs by index
@@ -334,8 +380,7 @@ public class GameManager : NetworkBehaviour
 
     /// <summary>
     /// Returns the exact world-space position and rotation of a spawn point.
-    /// Girl: pick from girlSpawnPoints (fallback: origin + spawnHeight).
-    /// Investigator: pick from explorerSpawnPoints.
+    /// Uses SnapToGround to ensure characters are firmly placed on the floor.
     /// </summary>
     private void GetSpawnTransform(bool isGirl, out Vector3 position, out Quaternion rotation)
     {
@@ -350,11 +395,13 @@ public class GameManager : NetworkBehaviour
                     Transform pt = available[Random.Range(0, available.Count)];
                     position = pt.position;
                     rotation = pt.rotation;
+                    SnapToGround(ref position);
                     return;
                 }
             }
-            position = new Vector3(0f, spawnHeight, 0f);
+            position = new Vector3(0f, 1f, 0f);
             rotation = Quaternion.identity;
+            SnapToGround(ref position);
         }
         else
         {
@@ -367,11 +414,22 @@ public class GameManager : NetworkBehaviour
                     Transform chosenPoint = available[Random.Range(0, available.Count)];
                     position = chosenPoint.position;
                     rotation = chosenPoint.rotation;
+                    SnapToGround(ref position);
                     return;
                 }
             }
-            position = new Vector3(Random.Range(-5f, 5f), 1f, Random.Range(-5f, 5f));
+            position = new Vector3(Random.Range(-3f, 3f), 1f, Random.Range(-3f, 3f));
             rotation = Quaternion.identity;
+            SnapToGround(ref position);
+        }
+    }
+
+    private void SnapToGround(ref Vector3 position)
+    {
+        int groundMask = ~LayerMask.GetMask("Ignore Raycast", "UI");
+        if (Physics.Raycast(position + Vector3.up * 2f, Vector3.down, out RaycastHit hit, 30f, groundMask, QueryTriggerInteraction.Ignore))
+        {
+            position = hit.point + Vector3.up * 0.05f;
         }
     }
 
