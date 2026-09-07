@@ -8,10 +8,10 @@ public class PlayerCameraSetup : NetworkBehaviour
     {
         if (IsOwner)
         {
-            var vcam = GetComponentInChildren<CinemachineCamera>(true);
+            var vcam = GetComponentInChildren<CinemachineVirtualCameraBase>(true);
             if (vcam != null)
             {
-                vcam.Priority = 100;
+                vcam.Priority = 99999;
                 vcam.gameObject.SetActive(true);
                 vcam.enabled = true;
                 if (vcam.Follow == null) vcam.Follow = transform;
@@ -20,12 +20,13 @@ public class PlayerCameraSetup : NetworkBehaviour
         }
         else
         {
-            var childVCams = GetComponentsInChildren<CinemachineCamera>(true);
+            var childVCams = GetComponentsInChildren<CinemachineVirtualCameraBase>(true);
             foreach (var v in childVCams)
             {
-                v.Priority = 0;
+                v.Priority = -99999;
                 v.enabled = false;
                 v.gameObject.SetActive(false);
+                Destroy(v.gameObject);
             }
         }
     }

@@ -7,7 +7,7 @@ using Unity.Cinemachine;
 
 public class NetworkPlayer : NetworkBehaviour
 {
-    public CinemachineCamera virtualCamera;
+    public CinemachineVirtualCameraBase virtualCamera;
     public ThirdPersonController controller;
     public StarterAssetsInputs inputs;
     public PlayerInput playerInput;
@@ -53,11 +53,22 @@ public class NetworkPlayer : NetworkBehaviour
         CleanupDuplicateMainCameraTags();
         ResolveComponents();
 
-        // Immediately neutralize camera before CinemachineBrain can evaluate or blend to it
-        if (virtualCamera != null)
+        // 1. Immediately disable and neutralize ALL virtual cameras in this object/children
+        var allVCams = GetComponentsInChildren<CinemachineVirtualCameraBase>(true);
+        foreach (var v in allVCams)
         {
-            virtualCamera.enabled = false;
-            virtualCamera.Priority = -9999;
+            v.Priority = -99999;
+            v.enabled = false;
+        }
+
+        // 2. Also deactivate any child GameObject with "camera" in its name so Cinemachine Brain cannot detect it
+        for (int i = 0; i < transform.childCount; i++)
+        {
+            Transform child = transform.GetChild(i);
+            if (child.name.ToLower().Contains("camera"))
+            {
+                child.gameObject.SetActive(false);
+            }
         }
     }
 
@@ -83,7 +94,16 @@ public class NetworkPlayer : NetworkBehaviour
 
     private void ResolveComponents()
     {
-        if (virtualCamera == null) virtualCamera = GetComponentInChildren<CinemachineCamera>(true);
+        if (virtualCamera == null)
+        {
+            Transform camChild = transform.Find("PlayerFollowCamera");
+            if (camChild != null)
+                virtualCamera = camChild.GetComponent<CinemachineVirtualCameraBase>();
+        }
+
+        if (virtualCamera == null)
+            virtualCamera = GetComponentInChildren<CinemachineVirtualCameraBase>(true);
+
         if (controller == null)    controller = GetComponent<ThirdPersonController>();
         if (inputs == null)        inputs = GetComponent<StarterAssetsInputs>();
         if (playerInput == null)   playerInput = GetComponent<PlayerInput>();
@@ -106,28 +126,23 @@ public class NetworkPlayer : NetworkBehaviour
                 ? controller.CinemachineCameraTarget.transform
                 : (transform.Find("PlayerCameraRoot") ?? transform);
 
+            ResolveComponents();
+
             // --- CAMERA SETUP FOR OWNER ---
-            if (virtualCamera == null)
-            {
-                Transform camChild = transform.Find("PlayerFollowCamera");
-                if (camChild != null)
-                    virtualCamera = camChild.GetComponent<CinemachineCamera>();
-            }
-
-            if (virtualCamera == null)
-                virtualCamera = GetComponentInChildren<CinemachineCamera>(true);
-
             if (virtualCamera != null)
             {
+                // Reactivate camera GameObject and component for owner
+                virtualCamera.gameObject.SetActive(true);
+                virtualCamera.enabled = true;
+
                 // Unparent and rename uniquely to prevent name collisions
                 virtualCamera.transform.SetParent(null);
                 virtualCamera.gameObject.name = $"PlayerFollowCamera_Local_{OwnerClientId}";
 
-                virtualCamera.Priority = 1000;
+                // Highest priority in the scene: local owner camera dominates everything
+                virtualCamera.Priority = 99999;
                 virtualCamera.Follow = target;
                 virtualCamera.LookAt = target;
-                virtualCamera.gameObject.SetActive(true);
-                virtualCamera.enabled = true;
 
                 // Force CinemachineBrain to instantly cut to the local player camera
                 CinemachineBrain brain = Camera.main != null
@@ -199,18 +214,28 @@ public class NetworkPlayer : NetworkBehaviour
         {
             Debug.Log($"[NetworkPlayer] Remote player detected: {gameObject.name} (ClientId: {OwnerClientId})");
 
-            // --- IMMEDIATELY NEUTRALIZE REMOTE CAMERAS ---
-            // Clones must NEVER be evaluated by CinemachineBrain.
-            // Deprioritize, decouple targets, disable and deactivate immediately before Destroy().
-            var childVCams = GetComponentsInChildren<CinemachineCamera>(true);
+            // --- IMMEDIATELY NEUTRALIZE & DESTROY REMOTE CAMERAS ---
+            // Clones must NEVER have any camera active in the scene.
+            var childVCams = GetComponentsInChildren<CinemachineVirtualCameraBase>(true);
             foreach (var vCam in childVCams)
             {
-                vCam.Priority = -9999;
+                vCam.Priority = -99999;
                 vCam.Follow = null;
                 vCam.LookAt = null;
                 vCam.enabled = false;
                 vCam.gameObject.SetActive(false);
                 Destroy(vCam.gameObject);
+            }
+
+            // Also search and destroy any child GameObject containing "camera" in its name
+            for (int i = transform.childCount - 1; i >= 0; i--)
+            {
+                Transform child = transform.GetChild(i);
+                if (child.name.ToLower().Contains("camera"))
+                {
+                    child.gameObject.SetActive(false);
+                    Destroy(child.gameObject);
+                }
             }
 
             var childCameras = GetComponentsInChildren<Camera>(true);

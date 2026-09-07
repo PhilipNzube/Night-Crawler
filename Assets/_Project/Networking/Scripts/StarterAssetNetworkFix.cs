@@ -27,15 +27,25 @@ public class StarterAssetNetworkFix : NetworkBehaviour
             if (TryGetComponent<PlayerInput>(out var input)) input.enabled = false;
             if (TryGetComponent<ThirdPersonController>(out var controller)) controller.enabled = false;
 
-            var childVCams = GetComponentsInChildren<CinemachineCamera>(true);
+            var childVCams = GetComponentsInChildren<CinemachineVirtualCameraBase>(true);
             foreach (var vCam in childVCams)
             {
-                vCam.Priority = -1000;
+                vCam.Priority = -99999;
                 vCam.Follow = null;
                 vCam.LookAt = null;
                 vCam.enabled = false;
                 vCam.gameObject.SetActive(false);
                 Destroy(vCam.gameObject);
+            }
+
+            for (int i = transform.childCount - 1; i >= 0; i--)
+            {
+                Transform child = transform.GetChild(i);
+                if (child.name.ToLower().Contains("camera"))
+                {
+                    child.gameObject.SetActive(false);
+                    Destroy(child.gameObject);
+                }
             }
 
             var childCameras = GetComponentsInChildren<Camera>(true);
