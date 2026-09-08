@@ -305,26 +305,21 @@ public class PlayerHUD : MonoBehaviour
                     healthSlider.fillRect.anchorMax = new Vector2(aMax.x, 1f);
                 }
 
-                // If slider fillRect has a Filled Image, ensure fillAmount is 1.0f so the
-                // Slider's anchor sizing doesn't get double-squared!
-                Image rImg = healthSlider.fillRect.GetComponent<Image>();
-                if (rImg != null && rImg.type == Image.Type.Filled)
-                {
-                    rImg.fillAmount = 1.0f;
-                }
                 if (healthFill == null)
                 {
-                    healthFill = rImg;
+                    healthFill = healthSlider.fillRect.GetComponent<Image>();
                 }
             }
-        }
-        else if (healthFill != null && healthFill.type == Image.Type.Filled)
-        {
-            healthFill.fillAmount = displayFraction;
         }
 
         if (healthFill != null)
         {
+            // Bloodlines UI Slider 5 uses a Filled Image (Horizontal) to represent fill amount
+            if (healthFill.type == Image.Type.Filled)
+            {
+                healthFill.fillAmount = displayFraction;
+            }
+
             // Tint health bar: Bloodlines UI textures are already blood-red.
             // Tinting with Color.green zeroes out red pixels, making the bar black (invisible/empty) at 100% health!
             if (tintHealthBarWithColor)

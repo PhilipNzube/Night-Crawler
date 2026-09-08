@@ -25,27 +25,30 @@ public class BloodScreenOverlay : MonoBehaviour
     public CanvasGroup canvasGroup;
 
     [Header("Health Thresholds")]
-    [Tooltip("Health fraction below which blood starts appearing (1.0 = 100% HP, 0.6 = 60% HP).")]
-    [Range(0f, 1f)] public float bloodStartThreshold = 1.0f;
+    [Tooltip("Health fraction below which blood starts appearing (default 0.85 = starts at 85% HP).")]
+    [Range(0f, 1f)] public float bloodStartThreshold = 0.85f;
 
     [Tooltip("Maximum opacity/alpha of the blood screen when player is at 0 HP.")]
-    [Range(0f, 1f)] public float maxBloodAlpha = 0.9f;
+    [Range(0f, 1f)] public float maxBloodAlpha = 0.8f;
 
-    [Tooltip("Speed at which the blood overlay fades in or out when taking damage or healing.")]
-    public float fadeSpeed = 4f;
+    [Tooltip("Exponent curve controlling how slowly blood builds up. Higher = slower initial build up.")]
+    [Range(1f, 4f)] public float progressionCurvePower = 2.2f;
+
+    [Tooltip("Speed at which the blood overlay fades in or out.")]
+    public float fadeSpeed = 1.5f;
 
     [Header("Low Health Pulse")]
     [Tooltip("Enable a heartbeat pulsing effect when critically low on health.")]
     public bool enablePulse = true;
 
-    [Tooltip("Health fraction below which the heartbeat pulse activates (e.g. 0.35 = 35% HP).")]
-    [Range(0f, 1f)] public float pulseThreshold = 0.35f;
+    [Tooltip("Health fraction below which the heartbeat pulse activates (e.g. 0.25 = 25% HP).")]
+    [Range(0f, 1f)] public float pulseThreshold = 0.25f;
 
     [Tooltip("Frequency/speed of the heartbeat pulse.")]
-    public float pulseSpeed = 4f;
+    public float pulseSpeed = 3.5f;
 
     [Tooltip("Intensity fluctuation of the pulse.")]
-    public float pulseIntensity = 0.15f;
+    public float pulseIntensity = 0.12f;
 
     // -------------------------------------------------------------------------
     //  Private State
@@ -162,15 +165,22 @@ public class BloodScreenOverlay : MonoBehaviour
     {
         _currentHealthFraction = Mathf.Clamp01(currentHealth / Mathf.Max(1f, maxHealth));
 
-        if (_currentHealthFraction >= bloodStartThreshold)
+        // Use effective threshold (clamps so serialized 1.0f in scene behaves as 0.85f)
+        float threshold = Mathf.Clamp(bloodStartThreshold, 0.4f, 0.85f);
+
+        if (_currentHealthFraction >= threshold)
         {
             _targetAlpha = 0f;
         }
         else
         {
-            // Maps fraction (bloodStartThreshold -> 0) to alpha (0 -> maxBloodAlpha)
-            float t = 1f - (_currentHealthFraction / Mathf.Max(0.001f, bloodStartThreshold));
-            _targetAlpha = Mathf.Clamp01(t * maxBloodAlpha);
+            // Maps fraction (threshold -> 0) to normalized progression (0.0 -> 1.0)
+            float t = 1f - (_currentHealthFraction / threshold);
+            t = Mathf.Clamp01(t);
+
+            // Progressive power curve so blood rises slowly in proportion to health lost
+            float curved = Mathf.Pow(t, progressionCurvePower);
+            _targetAlpha = Mathf.Clamp01(curved * maxBloodAlpha);
         }
     }
 
@@ -181,15 +191,16 @@ public class BloodScreenOverlay : MonoBehaviour
     {
         if (bloodImage == null && canvasGroup == null) return;
 
-        // Smooth interpolation
+        // Smoothly follow target alpha at a natural pace matching health loss
         _currentAlpha = Mathf.MoveTowards(_currentAlpha, _targetAlpha, Time.deltaTime * fadeSpeed);
 
         float renderAlpha = _currentAlpha;
 
-        // Pulse heartbeat effect when health is critical
-        if (enablePulse && _currentHealthFraction <= pulseThreshold && _targetAlpha > 0.01f)
+        // Heartbeat pulsing activates only when critically low on health (< 25%)
+        if (enablePulse && _currentHealthFraction <= pulseThreshold && _targetAlpha > 0.05f)
         {
-            float pulse = (Mathf.Sin(Time.time * pulseSpeed) * 0.5f + 0.5f) * pulseIntensity;
+            float pulseScale = Mathf.Clamp01((pulseThreshold - _currentHealthFraction) / pulseThreshold);
+            float pulse = (Mathf.Sin(Time.time * pulseSpeed) * 0.5f + 0.5f) * pulseIntensity * pulseScale;
             renderAlpha = Mathf.Clamp01(_currentAlpha + pulse);
         }
 
