@@ -452,4 +452,4 @@ public class NetworkPlayer : NetworkBehaviour
             Destroy(virtualCamera.gameObject);
         }
     }
-}
+}

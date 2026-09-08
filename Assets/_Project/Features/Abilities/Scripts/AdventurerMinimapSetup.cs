@@ -19,6 +19,8 @@ public class AdventurerMinimapSetup : MonoBehaviour
     [Tooltip("The root UI GameObject of the minimap (panel/canvas).")]
     public GameObject minimapRoot;
 
+    private CanvasGroup _canvasGroup;
+
     private void Awake()
     {
         if (Instance != null && Instance != this)
@@ -27,11 +29,39 @@ public class AdventurerMinimapSetup : MonoBehaviour
             return;
         }
         Instance = this;
+
+        _canvasGroup = GetComponent<CanvasGroup>();
+        if (_canvasGroup == null)
+        {
+            _canvasGroup = gameObject.AddComponent<CanvasGroup>();
+        }
+
+        // Ensure initially hidden via canvas group so GameObject stays active to run coroutines
+        SetMinimapVisibility(false);
     }
 
     private void OnDestroy()
     {
         if (Instance == this) Instance = null;
+    }
+
+    /// <summary>
+    /// Sets minimap visibility using CanvasGroup and separate root object (if not this GameObject)
+    /// so that this component's GameObject remains active to run coroutines.
+    /// </summary>
+    public void SetMinimapVisibility(bool visible)
+    {
+        if (_canvasGroup != null)
+        {
+            _canvasGroup.alpha = visible ? 1f : 0f;
+            _canvasGroup.blocksRaycasts = visible;
+            _canvasGroup.interactable = visible;
+        }
+
+        if (minimapRoot != null && minimapRoot != gameObject)
+        {
+            minimapRoot.SetActive(visible);
+        }
     }
 
     /// <summary>
@@ -41,7 +71,7 @@ public class AdventurerMinimapSetup : MonoBehaviour
     {
         if (Instance != null)
         {
-            if (Instance.minimapRoot != null) Instance.minimapRoot.SetActive(true);
+            Instance.SetMinimapVisibility(true);
 
             if (Instance.miniMapView != null && NetworkManager.Singleton != null && 
                 NetworkManager.Singleton.LocalClient != null && NetworkManager.Singleton.LocalClient.PlayerObject != null)
@@ -55,8 +85,8 @@ public class AdventurerMinimapSetup : MonoBehaviour
 
     private void Start()
     {
-        // Start hidden until local player spawns and role is confirmed
-        if (minimapRoot != null) minimapRoot.SetActive(false);
+        // Start hidden via CanvasGroup until local player spawns and role is confirmed
+        SetMinimapVisibility(false);
         StartCoroutine(DetectRoleAndBindMinimap());
     }
 
@@ -75,7 +105,7 @@ public class AdventurerMinimapSetup : MonoBehaviour
         if (isAdventurer)
         {
             Debug.Log("[AdventurerMinimapSetup] Local player is Adventurer/Explorer. Activating Minimap!");
-            if (minimapRoot != null) minimapRoot.SetActive(true);
+            SetMinimapVisibility(true);
 
             if (miniMapView != null)
             {
@@ -85,7 +115,7 @@ public class AdventurerMinimapSetup : MonoBehaviour
         else
         {
             Debug.Log("[AdventurerMinimapSetup] Local player is not Adventurer. Minimap disabled.");
-            if (minimapRoot != null) minimapRoot.SetActive(false);
+            SetMinimapVisibility(false);
         }
     }
 
