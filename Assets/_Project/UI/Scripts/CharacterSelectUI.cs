@@ -70,6 +70,8 @@ public class CharacterSelectUI : MonoBehaviour
     public TextMeshProUGUI detailsDescriptionText;
     public TextMeshProUGUI detailsAbilitiesText;
     public Image detailsIconImage;
+    [Tooltip("Optional parent root for character details/abilities panel to hide on confirm.")]
+    public GameObject sideDetailsPanel;
 
     [Header("Stats Bars (Optional)")]
     public Slider speedBar;
@@ -144,6 +146,15 @@ public class CharacterSelectUI : MonoBehaviour
     {
         _localConfirmed = false;
         if (playerStatusPanel != null) playerStatusPanel.SetActive(false);
+
+        // Reset visibility of selection controls and abilities
+        if (slotCardContainer != null) slotCardContainer.gameObject.SetActive(true);
+        if (arrowLeft  != null)        arrowLeft.gameObject.SetActive(true);
+        if (arrowRight != null)        arrowRight.gameObject.SetActive(true);
+        if (confirmButton != null)     confirmButton.gameObject.SetActive(true);
+        if (detailsAbilitiesText != null)   detailsAbilitiesText.gameObject.SetActive(true);
+        if (detailsDescriptionText != null) detailsDescriptionText.gameObject.SetActive(true);
+        if (sideDetailsPanel != null)       sideDetailsPanel.SetActive(true);
 
         bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
         if (forceInvestigator)
@@ -539,17 +550,19 @@ public class CharacterSelectUI : MonoBehaviour
             CharacterSelectManager.Instance.RequestSelectCharacterServerRpc(_selectedIndex);
         }
 
-        if (_currentPreviewInstance != null)
-        {
-            Destroy(_currentPreviewInstance);
-            _currentPreviewInstance = null;
-        }
+        // Keep the featured 3D character model VISIBLE on stage (do not destroy it here).
+        // It stays on display while waiting for others, matching the girl's screen behavior.
 
-        // Hide selection controls — player has locked in
+        // Hide selection controls & ready text — player has locked in
         if (slotCardContainer != null) slotCardContainer.gameObject.SetActive(false);
         if (arrowLeft  != null)        arrowLeft.gameObject.SetActive(false);
         if (arrowRight != null)        arrowRight.gameObject.SetActive(false);
         if (confirmButton != null)     confirmButton.gameObject.SetActive(false);
+
+        // Disable character abilities and details text/panel
+        if (detailsAbilitiesText != null)   detailsAbilitiesText.gameObject.SetActive(false);
+        if (detailsDescriptionText != null) detailsDescriptionText.gameObject.SetActive(false);
+        if (sideDetailsPanel != null)       sideDetailsPanel.SetActive(false);
 
         // Notify the ready tracker (server will tell everyone when all are done)
         if (PlayerReadyTracker.Instance != null)
@@ -613,6 +626,12 @@ public class CharacterSelectUI : MonoBehaviour
         // Unsubscribe before switching
         if (PlayerReadyTracker.Instance != null)
             PlayerReadyTracker.Instance.OnReadyStatesUpdated -= HandleReadyStatesUpdated;
+
+        if (_currentPreviewInstance != null)
+        {
+            Destroy(_currentPreviewInstance);
+            _currentPreviewInstance = null;
+        }
 
         if (investigatorPanel != null) investigatorPanel.SetActive(false);
         if (characterSelectPanel != null) characterSelectPanel.SetActive(false);

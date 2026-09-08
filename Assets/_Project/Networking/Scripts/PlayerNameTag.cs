@@ -72,7 +72,7 @@ public class PlayerNameTag : MonoBehaviour
         }
         else
         {
-            UpdateNameText(_isVengefulSpirit ? "VENGEFUL SPIRIT" : "Investigator");
+            UpdateNameText("Investigator");
         }
     }
 
@@ -188,8 +188,9 @@ public class PlayerNameTag : MonoBehaviour
 
         if (_isVengefulSpirit)
         {
-            formattedName = $"💀 {displayName} [VENGEFUL SPIRIT] 💀";
-            textColor     = new Color(0.85f, 0.2f, 1f); // Glowing magenta/purple
+            // Keep the player's clean name without appending [VENGEFUL SPIRIT]
+            formattedName = displayName;
+            textColor     = nameColor;
         }
 
         if (nameText != null)

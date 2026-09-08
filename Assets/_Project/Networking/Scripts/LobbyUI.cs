@@ -198,6 +198,25 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Optional animated background element (e.g. a pulsing vignette image).")]
     public GameObject animatedBackground;
 
+    // -------------------------------------------------------------------------
+    //  Inspector — Loading / Spinner Overlay
+    // -------------------------------------------------------------------------
+    [Header("Loading / Spinner Overlay")]
+    [Tooltip("Full-screen semi-transparent overlay that covers the UI during code generation and connection.")]
+    public GameObject loadingOverlayPanel;
+
+    [Tooltip("Animated spinner GameObject inside the loading overlay.")]
+    public GameObject loadingSpinner;
+
+    [Tooltip("TextMeshProUGUI explaining what is currently loading (e.g. 'Generating Relay lobby code...').")]
+    public TextMeshProUGUI loadingStatusText;
+
+    [Tooltip("If enabled, LobbyUI will continuously spin the spinner via code. Turn OFF if your spinner already has an Animator/Animation.")]
+    public bool spinSpinnerInCode = true;
+
+    [Tooltip("Rotation speed in degrees per second when spinSpinnerInCode is enabled (default: 250).")]
+    public float spinnerRotationSpeed = 250f;
+
     public static LobbyUI Instance { get; private set; }
 
     // -------------------------------------------------------------------------
@@ -207,6 +226,8 @@ public class LobbyUI : MonoBehaviour
     private float _refreshTimer;
     private bool  _isHidden = false;
     private Coroutine _copyFeedbackCoroutine;
+    private string _defaultHostCopyBtnText = "COPY";
+    private string _defaultFallbackCopyBtnText = "COPY";
 
     // =========================================================================
     //  Unity Lifecycle
@@ -234,10 +255,18 @@ public class LobbyUI : MonoBehaviour
             joinCodeStatusText.gameObject.SetActive(false);
 
         if (hostCopyFeedbackText != null)
-            hostCopyFeedbackText.gameObject.SetActive(false);
+        {
+            _defaultHostCopyBtnText = hostCopyFeedbackText.text;
+            hostCopyFeedbackText.gameObject.SetActive(true);
+        }
 
         if (copyFeedbackText != null)
-            copyFeedbackText.gameObject.SetActive(false);
+        {
+            _defaultFallbackCopyBtnText = copyFeedbackText.text;
+            copyFeedbackText.gameObject.SetActive(true);
+        }
+
+        HideLoading();
 
         // If player already has a saved name, skip straight to connection screen
         if (PlayerNameManager.HasSavedName())
@@ -249,6 +278,12 @@ public class LobbyUI : MonoBehaviour
     void Update()
     {
         if (_isHidden) return;
+
+        // Smooth code-driven spinner rotation (independent of periodic lobby refresh timer)
+        if (spinSpinnerInCode && loadingSpinner != null && loadingSpinner.activeInHierarchy)
+        {
+            loadingSpinner.transform.Rotate(0f, 0f, -spinnerRotationSpeed * Time.deltaTime);
+        }
 
         _refreshTimer -= Time.deltaTime;
         if (_refreshTimer > 0f) return;
@@ -338,11 +373,15 @@ public class LobbyUI : MonoBehaviour
 
         if (networkMode == NetworkMode.LocalLAN)
         {
+            ShowLoading($"Starting local host session ({localIpAddress}:{localPort})...");
+
             var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
             if (transport != null)
                 transport.SetConnectionData(localIpAddress, localPort);
 
             bool success = NetworkManager.Singleton.StartHost();
+            HideLoading();
+
             if (success)
             {
                 ShowHostLobby($"LOCAL LAN ({localIpAddress}:{localPort})");
@@ -356,9 +395,12 @@ public class LobbyUI : MonoBehaviour
         else // Relay mode
         {
             EnsureRelayManager();
+            ShowLoading("Connecting to Relay & generating lobby code...");
             ShowConnectionStatus("Connecting to Relay & allocating session...", false);
 
             string joinCode = await RelayManager.Instance.StartRelayHostAsync(maxPlayers);
+            HideLoading();
+
             if (!string.IsNullOrEmpty(joinCode))
             {
                 ShowHostLobby(joinCode);
@@ -402,6 +444,7 @@ public class LobbyUI : MonoBehaviour
     private void ConnectLocalClient()
     {
         SetConnectionButtonsInteractable(false);
+        ShowLoading($"Connecting to local host at {localIpAddress}...");
         ShowConnectionStatus($"Connecting to local host at {localIpAddress}...", false);
 
         var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
@@ -409,6 +452,8 @@ public class LobbyUI : MonoBehaviour
             transport.SetConnectionData(localIpAddress, localPort);
 
         bool success = NetworkManager.Singleton.StartClient();
+        HideLoading();
+
         if (success)
         {
             ShowClientLobby($"LOCAL LAN ({localIpAddress})");
@@ -434,10 +479,12 @@ public class LobbyUI : MonoBehaviour
         }
 
         SetJoinCodeButtonsInteractable(false);
+        ShowLoading($"Connecting to Relay room '{code}'...");
         ShowJoinCodeStatus($"Connecting to Relay room '{code}'...", false);
 
         EnsureRelayManager();
         bool success = await RelayManager.Instance.StartRelayClientAsync(code);
+        HideLoading();
 
         if (success)
         {
@@ -481,19 +528,28 @@ public class LobbyUI : MonoBehaviour
     {
         if (hostCopyFeedbackText != null)
         {
-            hostCopyFeedbackText.text = "Copied to clipboard!";
+            hostCopyFeedbackText.text = "Copied!!";
             hostCopyFeedbackText.gameObject.SetActive(true);
         }
         if (copyFeedbackText != null)
         {
-            copyFeedbackText.text = "Copied to clipboard!";
+            copyFeedbackText.text = "Copied!!";
             copyFeedbackText.gameObject.SetActive(true);
         }
 
-        yield return new WaitForSeconds(2.0f);
+        yield return new WaitForSeconds(1.5f);
 
-        if (hostCopyFeedbackText != null) hostCopyFeedbackText.gameObject.SetActive(false);
-        if (copyFeedbackText     != null) copyFeedbackText.gameObject.SetActive(false);
+        // Revert back to original button text (e.g. "COPY") without hiding the GameObject
+        if (hostCopyFeedbackText != null)
+        {
+            hostCopyFeedbackText.text = !string.IsNullOrEmpty(_defaultHostCopyBtnText) ? _defaultHostCopyBtnText : "COPY";
+            hostCopyFeedbackText.gameObject.SetActive(true);
+        }
+        if (copyFeedbackText != null)
+        {
+            copyFeedbackText.text = !string.IsNullOrEmpty(_defaultFallbackCopyBtnText) ? _defaultFallbackCopyBtnText : "COPY";
+            copyFeedbackText.gameObject.SetActive(true);
+        }
     }
 
     private void ShowConnectionStatus(string message, bool isError)
@@ -586,8 +642,7 @@ public class LobbyUI : MonoBehaviour
         SetJoinCodeButtonsInteractable(true);
 
         if (connectionStatusText != null) connectionStatusText.gameObject.SetActive(false);
-        if (joinCodeStatusText   != null) joinCodeStatusText.gameObject.SetActive(false);
-
+        HideLoading();
         ShowConnectionPanel();
     }
 
@@ -712,6 +767,12 @@ public class LobbyUI : MonoBehaviour
             hostCopyCodeButton.gameObject.SetActive(networkMode == NetworkMode.Relay);
         }
 
+        if (hostCopyFeedbackText != null)
+        {
+            hostCopyFeedbackText.text = !string.IsNullOrEmpty(_defaultHostCopyBtnText) ? _defaultHostCopyBtnText : "COPY";
+            hostCopyFeedbackText.gameObject.SetActive(true);
+        }
+
         // Fallback panel support
         if (lobbyJoinCodeText != null)
         {
@@ -722,6 +783,11 @@ public class LobbyUI : MonoBehaviour
         if (copyJoinCodeButton != null)
         {
             copyJoinCodeButton.gameObject.SetActive(networkMode == NetworkMode.Relay);
+        }
+        if (copyFeedbackText != null)
+        {
+            copyFeedbackText.text = !string.IsNullOrEmpty(_defaultFallbackCopyBtnText) ? _defaultFallbackCopyBtnText : "COPY";
+            copyFeedbackText.gameObject.SetActive(true);
         }
 
         UnlockCursor();
@@ -755,9 +821,32 @@ public class LobbyUI : MonoBehaviour
         UnlockCursor();
     }
 
+    public void ShowLoading(string reason)
+    {
+        SetPanel(loadingOverlayPanel, true);
+        if (loadingSpinner != null)
+        {
+            if (spinSpinnerInCode) loadingSpinner.transform.localRotation = Quaternion.identity;
+            loadingSpinner.SetActive(true);
+        }
+        if (loadingStatusText != null)
+        {
+            loadingStatusText.text = reason;
+            loadingStatusText.gameObject.SetActive(true);
+        }
+    }
+
+    public void HideLoading()
+    {
+        SetPanel(loadingOverlayPanel, false);
+        if (loadingSpinner != null) loadingSpinner.SetActive(false);
+        if (loadingStatusText != null) loadingStatusText.gameObject.SetActive(false);
+    }
+
     public void HideLobbyUI()
     {
         _isHidden = true;
+        HideLoading();
         SetPanel(nameEntryPanel,      false);
         SetPanel(connectionPanel,     false);
         SetPanel(joinCodePanel,       false);
