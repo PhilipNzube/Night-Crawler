@@ -87,6 +87,20 @@ public class SuffocationSystemNet : NetworkBehaviour
         _effectiveLifespan = _isHazardSpecialist ? baseLifespanSeconds * hazardMultiplier : baseLifespanSeconds;
     }
 
+    /// <summary>
+    /// Inherits the Hazard Specialist's gas mask / respirator filter when looted from their corpse.
+    /// Extends lifespan by the hazard multiplier.
+    /// </summary>
+    public void InheritHazardFilter()
+    {
+        if (!_isHazardSpecialist)
+        {
+            _isHazardSpecialist = true;
+            _effectiveLifespan *= hazardMultiplier;
+            Debug.Log($"[SuffocationSystemNet] Inherited Hazard Specialist gas filter! Lifespan extended to {_effectiveLifespan}s.");
+        }
+    }
+
     private IEnumerator SuffocationDamageRoutine()
     {
         // Short delay after match starts before suffocation damage begins

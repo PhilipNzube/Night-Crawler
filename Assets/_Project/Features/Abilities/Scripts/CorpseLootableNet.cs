@@ -1,12 +1,17 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using Unity.Netcode;
 using UnityEngine.InputSystem;
 
 /// <summary>
-/// SOLID — SRP: Manages lootable items on a dead player's corpse across the network.
-/// When a player (e.g. Medic) dies with items like Healing Vials, their corpse retains
-/// those exact remaining items. Any surviving player can interact with the corpse to loot them.
+/// SOLID — SRP: Manages lootable items and role abilities on a dead player's corpse across the network.
+/// When an Investigator dies, surviving teammates can loot their corpse and INHERIT their abilities:
+///   - Medic: Remaining Healing Vials + ability to heal.
+///   - Miner: Melee Pickaxe weapon.
+///   - Cursed Priest: Holy Relic (unlocks Exorcism rite [R] to banish the Girl).
+///   - Hazard Specialist: Gas Mask / Respirator Filter (doubles looter's lifespan against poison air).
+///   - Explorer / Adventurer: Cartographer's Compass (unlocks the Minimap).
 /// </summary>
 public class CorpseLootableNet : NetworkBehaviour
 {
@@ -17,24 +22,43 @@ public class CorpseLootableNet : NetworkBehaviour
     [Tooltip("Layer mask for player corpses.")]
     public LayerMask corpseLayer;
 
-    [Header("Network State")]
+    [Header("Network State (Items & Inherited Abilities)")]
     public NetworkVariable<int> lootableVials = new NetworkVariable<int>(
         0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    public NetworkVariable<bool> hasWeaponLoot = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    public NetworkVariable<bool> hasExorcismRelic = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    public NetworkVariable<bool> hasHazardFilter = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    public NetworkVariable<bool> hasMinimapGear = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
     public NetworkVariable<bool> isLooted = new NetworkVariable<bool>(
         false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
     private HealthSystem _healthSystem;
     private HealingVialInventoryNet _vialInventory;
-    private bool _isLocalPlayerAimingAtThis = false;
+    private InvestigatorCombatNet _combatNet;
+    private PriestExorcismNet _priestExorcism;
+    private SuffocationSystemNet _suffocationNet;
 
-    public bool HasLoot => !isLooted.Value && lootableVials.Value > 0;
+    public bool HasLoot => !isLooted.Value && (lootableVials.Value > 0 || hasWeaponLoot.Value 
+                           || hasExorcismRelic.Value || hasHazardFilter.Value || hasMinimapGear.Value);
+
     public int RemainingVials => lootableVials.Value;
 
     private void Awake()
     {
         _healthSystem = GetComponent<HealthSystem>();
         _vialInventory = GetComponent<HealingVialInventoryNet>();
+        _combatNet = GetComponent<InvestigatorCombatNet>();
+        _priestExorcism = GetComponent<PriestExorcismNet>();
+        _suffocationNet = GetComponent<SuffocationSystemNet>();
     }
 
     public override void OnNetworkSpawn()
@@ -57,12 +81,27 @@ public class CorpseLootableNet : NetworkBehaviour
     {
         if (!IsServer) return;
 
-        // Extract remaining vials from inventory
+        string charName = gameObject.name.ToLower();
+
+        // 1. Vials
         int remaining = _vialInventory != null ? _vialInventory.VialCount : 0;
         lootableVials.Value = remaining;
-        isLooted.Value = (remaining <= 0);
 
-        Debug.Log($"[CorpseLootableNet] Player '{name}' died with {remaining} vials available to loot.");
+        // 2. Weapon (Miner or armed investigator)
+        hasWeaponLoot.Value = (_combatNet != null && _combatNet.HasWeapon) || charName.Contains("miner");
+
+        // 3. Exorcism Relic (Cursed Priest)
+        hasExorcismRelic.Value = (_priestExorcism != null && _priestExorcism.isUnlocked) || charName.Contains("priest");
+
+        // 4. Hazard Filter (Hazard Specialist)
+        hasHazardFilter.Value = (_suffocationNet != null && _suffocationNet.IsHazardSpecialist) || charName.Contains("hazard") || charName.Contains("protector");
+
+        // 5. Minimap Gear (Explorer / Adventurer)
+        hasMinimapGear.Value = charName.Contains("adventure") || charName.Contains("explorer");
+
+        isLooted.Value = !HasLoot;
+
+        Debug.Log($"[CorpseLootableNet] '{name}' died. Loot available: Vials={remaining}, Weapon={hasWeaponLoot.Value}, Exorcism={hasExorcismRelic.Value}, Hazard={hasHazardFilter.Value}, Minimap={hasMinimapGear.Value}");
     }
 
     private void Update()
@@ -78,11 +117,10 @@ public class CorpseLootableNet : NetworkBehaviour
 
         if (_healthSystem == null || !_healthSystem.IsDead || !HasLoot) return;
 
-        // Check distance to corpse
+        // Proximity check
         float dist = Vector3.Distance(localPlayer.transform.position, transform.position);
         if (dist <= interactionDistance)
         {
-            // If aiming near corpse or within radius, allow looting with E
             if (Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame)
             {
                 RequestLootServerRpc(localPlayer.NetworkObjectId);
@@ -97,30 +135,101 @@ public class CorpseLootableNet : NetworkBehaviour
 
         if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(looterNetId, out var looterObj))
         {
-            var looterVials = looterObj.GetComponent<HealingVialInventoryNet>();
-            if (looterVials != null)
-            {
-                int vialsToGive = lootableVials.Value;
-                lootableVials.Value = 0;
-                isLooted.Value = true;
+            int vialsGained = lootableVials.Value;
+            bool weaponGained = false;
+            bool exorcismGained = false;
+            bool hazardGained = false;
+            bool minimapGained = false;
 
-                looterVials.AddVialsServer(vialsToGive);
-                NotifyLootSuccessClientRpc(vialsToGive, looterNetId);
+            // 1. Transfer Vials
+            var looterVials = looterObj.GetComponent<HealingVialInventoryNet>();
+            if (looterVials != null && vialsGained > 0)
+            {
+                looterVials.AddVialsServer(vialsGained);
             }
+
+            // 2. Transfer Weapon
+            var looterCombat = looterObj.GetComponent<InvestigatorCombatNet>();
+            if (looterCombat != null && hasWeaponLoot.Value && !looterCombat.HasWeapon)
+            {
+                looterCombat.GrantMeleeWeapon();
+                weaponGained = true;
+            }
+
+            // 3. Inherit Exorcism Ability (Cursed Priest)
+            var looterPriest = looterObj.GetComponent<PriestExorcismNet>();
+            if (looterPriest != null && hasExorcismRelic.Value)
+            {
+                looterPriest.InheritExorcismAbility();
+                exorcismGained = true;
+            }
+
+            // 4. Inherit Hazard Filter (Hazard Specialist)
+            var looterSuffocation = looterObj.GetComponent<SuffocationSystemNet>();
+            if (looterSuffocation != null && hasHazardFilter.Value)
+            {
+                looterSuffocation.InheritHazardFilter();
+                hazardGained = true;
+            }
+
+            // 5. Inherit Minimap (Explorer / Adventurer)
+            if (hasMinimapGear.Value)
+            {
+                minimapGained = true;
+            }
+
+            // Mark corpse as depleted
+            lootableVials.Value = 0;
+            hasWeaponLoot.Value = false;
+            hasExorcismRelic.Value = false;
+            hasHazardFilter.Value = false;
+            hasMinimapGear.Value = false;
+            isLooted.Value = true;
+
+            NotifyLootSuccessClientRpc(vialsGained, weaponGained, exorcismGained, hazardGained, minimapGained, looterNetId);
         }
     }
 
     [Rpc(SendTo.ClientsAndHost)]
-    private void NotifyLootSuccessClientRpc(int count, ulong looterNetId)
+    private void NotifyLootSuccessClientRpc(int vials, bool weapon, bool exorcism, bool hazard, bool minimap, ulong looterNetId)
     {
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == looterNetId)
         {
-            string msg = $"Looted {count} Healing Vial{(count > 1 ? "s" : "")} from corpse!";
+            List<string> gained = new List<string>();
+            if (vials > 0) gained.Add($"{vials} Healing Vial{(vials > 1 ? "s" : "")}");
+            if (weapon) gained.Add("Melee Pickaxe");
+            if (exorcism) gained.Add("Exorcism Rite ([R])");
+            if (hazard) gained.Add("Gas Mask Filter (2x Lifespan)");
+            if (minimap)
+            {
+                gained.Add("Minimap Unlocked");
+                AdventurerMinimapSetup.UnlockMinimapForLocalPlayer();
+            }
+
+            string msg = gained.Count > 0 
+                ? $"LOOTED CORPSE: Inherited {string.Join(", ", gained)}!"
+                : "Looted corpse.";
+
             Debug.Log($"[CorpseLootableNet] {msg}");
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification(msg, 3f);
+                NotificationManager.Instance.ShowNotification(msg, 4.5f);
             }
         }
+    }
+
+    /// <summary>
+    /// Builds a short human-readable summary of what loot is currently available on this corpse.
+    /// </summary>
+    public string GetLootDescription()
+    {
+        List<string> items = new List<string>();
+        if (lootableVials.Value > 0) items.Add($"{lootableVials.Value} Vials");
+        if (hasWeaponLoot.Value) items.Add("Pickaxe");
+        if (hasExorcismRelic.Value) items.Add("Holy Relic");
+        if (hasHazardFilter.Value) items.Add("Gas Mask");
+        if (hasMinimapGear.Value) items.Add("Minimap");
+
+        return items.Count > 0 ? string.Join(", ", items) : "Empty";
     }
 }

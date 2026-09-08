@@ -28,8 +28,11 @@ public class PriestExorcismNet : NetworkBehaviour
     private AudioSource _audioSource;
     private Transform _cameraTransform;
 
+    [Tooltip("If true, this character can cast Exorcism. Automatically true for Priest; unlocked for others when looting Priest corpse.")]
+    public bool isUnlocked = false;
+
     public float CooldownRemaining => _cooldownTimer;
-    public bool CanCast => _cooldownTimer <= 0f;
+    public bool CanCast => isUnlocked && _cooldownTimer <= 0f;
 
     private void Awake()
     {
@@ -44,11 +47,27 @@ public class PriestExorcismNet : NetworkBehaviour
         {
             _cameraTransform = Camera.main.transform;
         }
+
+        // Auto-unlock for Priest character
+        if (gameObject.name.ToLower().Contains("priest"))
+        {
+            isUnlocked = true;
+        }
+    }
+
+    /// <summary>
+    /// Unlocks the Exorcism rite on this character when looting the Cursed Priest's corpse.
+    /// </summary>
+    public void InheritExorcismAbility()
+    {
+        isUnlocked = true;
+        enabled = true;
+        Debug.Log("[PriestExorcismNet] Inherited Holy Relic! Exorcism rite unlocked ([R] key).");
     }
 
     private void Update()
     {
-        if (!IsOwner) return;
+        if (!IsOwner || !isUnlocked) return;
 
         if (_cooldownTimer > 0f)
         {

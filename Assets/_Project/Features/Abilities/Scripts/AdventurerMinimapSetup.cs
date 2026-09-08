@@ -10,12 +10,48 @@ using Arikan;
 /// </summary>
 public class AdventurerMinimapSetup : MonoBehaviour
 {
+    public static AdventurerMinimapSetup Instance { get; private set; }
+
     [Header("Minimap References")]
     [Tooltip("The MiniMapView component in your HUD scene.")]
     public MiniMapView miniMapView;
 
     [Tooltip("The root UI GameObject of the minimap (panel/canvas).")]
     public GameObject minimapRoot;
+
+    private void Awake()
+    {
+        if (Instance != null && Instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+        Instance = this;
+    }
+
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
+    }
+
+    /// <summary>
+    /// Unlocks the minimap for the local player when they loot an Explorer's corpse!
+    /// </summary>
+    public static void UnlockMinimapForLocalPlayer()
+    {
+        if (Instance != null)
+        {
+            if (Instance.minimapRoot != null) Instance.minimapRoot.SetActive(true);
+
+            if (Instance.miniMapView != null && NetworkManager.Singleton != null && 
+                NetworkManager.Singleton.LocalClient != null && NetworkManager.Singleton.LocalClient.PlayerObject != null)
+            {
+                Instance.miniMapView.FollowCentered(NetworkManager.Singleton.LocalClient.PlayerObject.transform);
+            }
+
+            Debug.Log("[AdventurerMinimapSetup] Minimap inherited and unlocked from Explorer corpse!");
+        }
+    }
 
     private void Start()
     {

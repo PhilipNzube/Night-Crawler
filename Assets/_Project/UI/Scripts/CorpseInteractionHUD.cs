@@ -50,8 +50,8 @@ public class CorpseInteractionHUD : MonoBehaviour
 
         if (nearestLootable != null)
         {
-            int vials = nearestLootable.RemainingVials;
-            SetPromptVisible(true, $"[E] Loot Corpse ({vials} Vial{(vials > 1 ? "s" : "")})");
+            string lootDesc = nearestLootable.GetLootDescription();
+            SetPromptVisible(true, $"[E] Loot Corpse ({lootDesc})");
         }
         else
         {
