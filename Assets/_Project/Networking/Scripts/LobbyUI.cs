@@ -315,6 +315,7 @@ public class LobbyUI : MonoBehaviour
     {
         // 1. Name Entry
         if (nameConfirmButton      != null) nameConfirmButton.onClick.AddListener(OnConfirmName);
+        if (nameEntryInputField    != null) nameEntryInputField.onValueChanged.AddListener(OnNameInputChanged);
 
         // 2. Connection Panel
         if (startHostButton        != null) startHostButton.onClick.AddListener(OnStartHost);
@@ -341,15 +342,47 @@ public class LobbyUI : MonoBehaviour
     // =========================================================================
     //  Name Entry Actions
     // =========================================================================
+    private void OnNameInputChanged(string value)
+    {
+        if (PlayerNameManager.ContainsEmoji(value))
+        {
+            string sanitized = PlayerNameManager.SanitizePlayerName(value);
+            nameEntryInputField.text = sanitized;
+            nameEntryInputField.caretPosition = sanitized.Length;
+
+            if (nameEntryErrorText != null)
+            {
+                nameEntryErrorText.text = "Emojis are not allowed in player names.";
+                nameEntryErrorText.gameObject.SetActive(true);
+            }
+        }
+        else if (nameEntryErrorText != null && nameEntryErrorText.gameObject.activeSelf)
+        {
+            nameEntryErrorText.gameObject.SetActive(false);
+        }
+    }
+
     private void OnConfirmName()
     {
-        string enteredName = nameEntryInputField != null ? nameEntryInputField.text.Trim() : string.Empty;
+        string rawName = nameEntryInputField != null ? nameEntryInputField.text : string.Empty;
+
+        if (PlayerNameManager.ContainsEmoji(rawName))
+        {
+            if (nameEntryErrorText != null)
+            {
+                nameEntryErrorText.text = "Player name cannot contain emojis.";
+                nameEntryErrorText.gameObject.SetActive(true);
+            }
+            return;
+        }
+
+        string enteredName = rawName.Trim();
 
         if (string.IsNullOrWhiteSpace(enteredName))
         {
             if (nameEntryErrorText != null)
             {
-                nameEntryErrorText.text = "Please enter a name before continuing.";
+                nameEntryErrorText.text = "Please enter a valid name before continuing.";
                 nameEntryErrorText.gameObject.SetActive(true);
             }
             return;
