@@ -1,114 +1,234 @@
-using UnityEngine;
+using System;
 using System.Collections;
 using System.Collections.Generic;
+using UnityEngine;
+using Unity.Netcode;
 
-public class GirlMaterialController : MonoBehaviour
+/// <summary>
+/// SOLID — SRP: Controls the Girl's spectral invisibility, distortion effects, and dissolve manifestation.
+/// - When in Spirit Form (Default):
+///     - Owner (Girl player): Sees character rendered with M_VFX_Invisible_03 (distortion / invisible cloak).
+///     - Other players: Renderers disabled / completely invisible.
+/// - When Manifested (Visible):
+///     - ModelDissolveController plays dissolve materialization animation.
+///     - Switches to full real girl model materials visible to all players.
+/// </summary>
+public class GirlMaterialController : NetworkBehaviour
 {
-    private Renderer[] _allRenderers;
-    private MaterialPropertyBlock _propBlock;
-    private Dictionary<Renderer, Color> _origColors = new Dictionary<Renderer, Color>();
-    private Coroutine _fadeJob;
-    private float _currentAlpha = 1f;
+    [Header("Materials")]
+    [Tooltip("Distortion material from Invisible VFX package (M_VFX_Invisible_03.mat).")]
+    public Material invisibleVFXMaterial;
 
-    void Awake()
+    [Tooltip("Dissolve material from ShaderGraph_Dissolve package.")]
+    public Material dissolveMaterial;
+
+    [Header("Timing")]
+    public float dissolveDuration = 1.2f;
+
+    [Header("Network State")]
+    public NetworkVariable<bool> isManifested = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    private Renderer[] _allRenderers;
+    private Dictionary<Renderer, Material[]> _originalMaterials = new Dictionary<Renderer, Material[]>();
+    private ModelDissolveController _dissolveController;
+    private Coroutine _manifestRoutine;
+
+    private void Awake()
     {
         _allRenderers = GetComponentsInChildren<Renderer>(true);
-        _propBlock = new MaterialPropertyBlock();
-
-        foreach (Renderer r in _allRenderers)
+        _dissolveController = GetComponent<ModelDissolveController>();
+        if (_dissolveController == null)
         {
-            if (r == null || r.sharedMaterial == null) continue;
-            
-            // Read the original color without cloning the material to prevent FBX bug
-            if (r.sharedMaterial.HasProperty("_BaseColor"))
-                _origColors[r] = r.sharedMaterial.GetColor("_BaseColor");
-            else if (r.sharedMaterial.HasProperty("_Color"))
-                _origColors[r] = r.sharedMaterial.GetColor("_Color");
-            else
-                _origColors[r] = Color.white;
-        }
-    }
-
-    public void SetAlphaInstant(float alpha)
-    {
-        if (_fadeJob != null) StopCoroutine(_fadeJob);
-        _currentAlpha = alpha;
-        UpdateMaterials(alpha);
-    }
-
-    public void RequestAlpha(float target, float duration)
-    {
-        if (_fadeJob != null) StopCoroutine(_fadeJob);
-        _fadeJob = StartCoroutine(FadeRoutine(target, duration));
-    }
-
-    private IEnumerator FadeRoutine(float target, float duration)
-    {
-        float start = _currentAlpha;
-        float elapsed = 0;
-        while (elapsed < duration)
-        {
-            elapsed += Time.deltaTime;
-            _currentAlpha = Mathf.Lerp(start, target, elapsed / duration);
-            UpdateMaterials(_currentAlpha);
-            yield return null;
-        }
-        UpdateMaterials(target);
-    }
-
-    private void UpdateMaterials(float alpha)
-    {
-        bool isVisible = alpha > 0.01f;
-        foreach (Renderer r in _allRenderers)
-        {
-            if (r != null && r.enabled != isVisible)
-                r.enabled = isVisible;
+            _dissolveController = gameObject.AddComponent<ModelDissolveController>();
+            _dissolveController.dissolveMaterial = dissolveMaterial;
         }
 
-        if (!isVisible) return; 
-
-        float stealthLerp = Mathf.Clamp01((1f - alpha) * 1.5f); 
-        Color shadowBase = new Color(0.0f, 0.0f, 0.0f, 1f); 
-        Color glowingShadow = new Color(0.4f, 0.0f, 0.8f, 1f) * 1.5f; 
-
-        foreach (Renderer r in _allRenderers)
-        {
-            if (r == null || !_origColors.ContainsKey(r)) continue;
-
-            r.GetPropertyBlock(_propBlock);
-            
-            Color origBase = _origColors[r];
-            Color finalBase = Color.Lerp(origBase, shadowBase, stealthLerp);
-
-            _propBlock.SetColor("_BaseColor", finalBase);
-            _propBlock.SetColor("_Color", finalBase);
-
-            // Animate Emission intensity mathematically
-            Color finalEmission = Color.Lerp(Color.black, glowingShadow, stealthLerp);
-            _propBlock.SetColor("_EmissionColor", finalEmission);
-
-            r.SetPropertyBlock(_propBlock);
-        }
-    }
-
-    public void ToggleOutline(bool show)
-    {
+        // Cache original character materials
         foreach (Renderer r in _allRenderers)
         {
             if (r == null) continue;
-            r.GetPropertyBlock(_propBlock);
-            
-            _propBlock.SetFloat("_OutlineWidth", show ? 0.05f : 0f);
-            
-            // Note: Most URP Lit shaders don't have these properties by default, 
-            // but we'll set them in the block just in case yours does.
-            Color c = Color.white;
-            c.a = show ? 1f : 0f;
-            _propBlock.SetColor("_OutlineColor", c);
-            
-            r.SetPropertyBlock(_propBlock);
+            _originalMaterials[r] = r.sharedMaterials;
         }
     }
 
+    public override void OnNetworkSpawn()
+    {
+        isManifested.OnValueChanged += HandleManifestationChanged;
+        ApplyVisualState(isManifested.Value, immediate: true);
+    }
 
+    public override void OnNetworkDespawn()
+    {
+        isManifested.OnValueChanged -= HandleManifestationChanged;
+    }
+
+    private void HandleManifestationChanged(bool previous, bool current)
+    {
+        ApplyVisualState(current, immediate: false);
+    }
+
+    /// <summary>
+    /// Toggles manifestation on/off across the network (callable by Owner or Server).
+    /// </summary>
+    public void SetManifested(bool visible)
+    {
+        if (IsServer)
+        {
+            isManifested.Value = visible;
+        }
+        else
+        {
+            SetManifestedServerRpc(visible);
+        }
+    }
+
+    [Rpc(SendTo.Server)]
+    private void SetManifestedServerRpc(bool visible)
+    {
+        isManifested.Value = visible;
+    }
+
+    private void ApplyVisualState(bool visible, bool immediate)
+    {
+        if (_manifestRoutine != null)
+        {
+            StopCoroutine(_manifestRoutine);
+        }
+
+        if (immediate)
+        {
+            ApplyVisualStateImmediate(visible);
+        }
+        else
+        {
+            _manifestRoutine = StartCoroutine(ManifestTransitionRoutine(visible));
+        }
+    }
+
+    private void ApplyVisualStateImmediate(bool visible)
+    {
+        if (TryGetComponent<GirlMovement>(out var movement))
+        {
+            movement.UpdateCollisionState(visible);
+        }
+
+        if (visible)
+        {
+            // Full real girl model visible to everyone
+            RestoreOriginalMaterials();
+            ToggleRenderers(true);
+            if (_dissolveController != null) _dissolveController.SetDissolveImmediate(0f);
+        }
+        else
+        {
+            // Spirit / invisible mode
+            if (IsOwner)
+            {
+                ApplyInvisibleVFXMaterial();
+                ToggleRenderers(true);
+            }
+            else
+            {
+                ToggleRenderers(false);
+            }
+        }
+    }
+
+    private IEnumerator ManifestTransitionRoutine(bool targetVisible)
+    {
+        if (TryGetComponent<GirlMovement>(out var movement))
+        {
+            movement.UpdateCollisionState(targetVisible);
+        }
+
+        if (targetVisible)
+        {
+            // 1. Switch to dissolve material and start from dissolved (1.0)
+            ApplyDissolveMaterial();
+            ToggleRenderers(true);
+            if (_dissolveController != null)
+            {
+                _dissolveController.CollectRenderers();
+                _dissolveController.SetDissolveImmediate(1.0f);
+                _dissolveController.Materialize(dissolveDuration);
+            }
+
+            yield return new WaitForSeconds(dissolveDuration);
+
+            // 2. Dissolve complete -> swap to real girl original materials!
+            RestoreOriginalMaterials();
+            ToggleRenderers(true);
+        }
+        else
+        {
+            // Dissolve back out
+            ApplyDissolveMaterial();
+            if (_dissolveController != null)
+            {
+                _dissolveController.CollectRenderers();
+                _dissolveController.SetDissolveImmediate(0f);
+                _dissolveController.Dissolve(dissolveDuration);
+            }
+
+            yield return new WaitForSeconds(dissolveDuration);
+
+            if (IsOwner)
+            {
+                ApplyInvisibleVFXMaterial();
+                ToggleRenderers(true);
+            }
+            else
+            {
+                ToggleRenderers(false);
+            }
+        }
+
+        _manifestRoutine = null;
+    }
+
+    private void ApplyInvisibleVFXMaterial()
+    {
+        if (invisibleVFXMaterial == null) return;
+
+        foreach (var r in _allRenderers)
+        {
+            if (r == null) continue;
+            Material[] mats = new Material[r.sharedMaterials.Length];
+            for (int i = 0; i < mats.Length; i++) mats[i] = invisibleVFXMaterial;
+            r.materials = mats;
+        }
+    }
+
+    private void ApplyDissolveMaterial()
+    {
+        if (dissolveMaterial == null) return;
+
+        foreach (var r in _allRenderers)
+        {
+            if (r == null) continue;
+            Material[] mats = new Material[r.sharedMaterials.Length];
+            for (int i = 0; i < mats.Length; i++) mats[i] = dissolveMaterial;
+            r.materials = mats;
+        }
+    }
+
+    private void RestoreOriginalMaterials()
+    {
+        foreach (var kvp in _originalMaterials)
+        {
+            if (kvp.Key != null && kvp.Value != null)
+            {
+                kvp.Key.sharedMaterials = kvp.Value;
+            }
+        }
+    }
+
+    private void ToggleRenderers(bool enable)
+    {
+        foreach (var r in _allRenderers)
+        {
+            if (r != null) r.enabled = enable;
+        }
+    }
 }

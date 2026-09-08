@@ -2,6 +2,11 @@ using UnityEngine;
 using UnityEngine.InputSystem;
 using Unity.Netcode;
 
+/// <summary>
+/// Controls the Girl's movement, rotation, and ghost pass-through capabilities.
+/// Ignores collisions with other players so she can walk straight through them,
+/// while maintaining normal physics collisions with walls and environment geometry.
+/// </summary>
 public class GirlMovement : NetworkBehaviour
 {
     [Header("References")]
@@ -13,8 +18,57 @@ public class GirlMovement : NetworkBehaviour
     private readonly int _speedHash = Animator.StringToHash("Speed");
     private float _lastAnimSpeed = -1f;
 
+    private void Awake()
+    {
+        if (controller == null) controller = GetComponent<CharacterController>();
+        if (animator == null) animator = GetComponentInChildren<Animator>();
+    }
+
+    private bool _isCurrentlyVisible = false;
+
+    public override void OnNetworkSpawn()
+    {
+        UpdateCollisionState(false);
+    }
+
+    /// <summary>
+    /// Updates collision mode based on visibility.
+    /// When visible (real girl mode), she cannot pass through players or objects.
+    /// When invisible (spirit mode), she passes through players while still colliding with walls/geometry.
+    /// </summary>
+    public void UpdateCollisionState(bool isVisible)
+    {
+        _isCurrentlyVisible = isVisible;
+        ApplyPlayerPassThrough(!isVisible);
+    }
+
+    /// <summary>
+    /// Configures the Girl's CharacterController collision pairing.
+    /// - If enablePassThrough is true (spirit mode): ignores collisions with players.
+    /// - If enablePassThrough is false (visible mode): restores full solid collisions with players and objects!
+    /// </summary>
+    public void ApplyPlayerPassThrough(bool enablePassThrough)
+    {
+        if (controller == null) return;
+
+        var allPlayers = FindObjectsByType<CharacterController>(FindObjectsSortMode.None);
+        foreach (var otherCc in allPlayers)
+        {
+            if (otherCc != controller)
+            {
+                Physics.IgnoreCollision(controller, otherCc, enablePassThrough);
+            }
+        }
+    }
+
     void Update()
     {
+        // Periodic safeguard to ensure newly joined or spawned players respect current collision state
+        if (Time.frameCount % 60 == 0)
+        {
+            ApplyPlayerPassThrough(!_isCurrentlyVisible);
+        }
+
         // CORE NETWORK RULE: Ensure only the owner moves their own character
         if (!IsOwner) return;
 

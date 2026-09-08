@@ -99,13 +99,26 @@ public class HealthSystem : NetworkBehaviour, IDamageReceiver
 
         if (networked && IsSpawned)
         {
-            if (IsServer) _networkHealth.Value = Mathf.Clamp(_networkHealth.Value + amount, 0, maxHealth);
+            if (IsServer) ApplyHealServer(amount);
+            else          HealServerRpc(amount);
         }
         else
         {
             _localHealth = Mathf.Clamp(_localHealth + amount, 0, maxHealth);
             OnHealthChanged?.Invoke(_localHealth, maxHealth);
         }
+    }
+
+    private void ApplyHealServer(float amount)
+    {
+        if (_isDead) return;
+        _networkHealth.Value = Mathf.Clamp(_networkHealth.Value + amount, 0, maxHealth);
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    private void HealServerRpc(float amount)
+    {
+        ApplyHealServer(amount);
     }
 
     public void Revive(float withHealth = -1f)

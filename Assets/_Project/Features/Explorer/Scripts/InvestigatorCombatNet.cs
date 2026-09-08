@@ -57,13 +57,60 @@ public class InvestigatorCombatNet : NetworkBehaviour
         CacheAnimatorParameters();
     }
 
+    [Header("Starting Weapon")]
+    [Tooltip("If true, starts with melee weapon in hand. By default, only the Miner starts armed.")]
+    public bool startArmed = false;
+
+    public bool HasWeapon => currentWeaponIndex.Value >= 0;
+
     public override void OnNetworkSpawn()
     {
         _audioSource.spatialBlend = IsOwner ? 0.2f : float.MaxValue;
+        currentWeaponIndex.OnValueChanged += HandleWeaponIndexChanged;
 
         if (IsOwner)
         {
-            SwitchWeapon(0); // Start with Axe
+            // Detect if this character is the Mine Worker
+            bool isMiner = startArmed || gameObject.name.ToLower().Contains("miner") || gameObject.name.ToLower().Contains("worker");
+            if (isMiner)
+            {
+                SwitchWeapon(0); // Miner starts with Axe
+            }
+            else
+            {
+                SwitchWeapon(-1); // Other investigators start unarmed
+            }
+        }
+        else
+        {
+            ApplyWeaponVisuals(currentWeaponIndex.Value);
+        }
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        currentWeaponIndex.OnValueChanged -= HandleWeaponIndexChanged;
+    }
+
+    private void HandleWeaponIndexChanged(int prev, int current)
+    {
+        ApplyWeaponVisuals(current);
+    }
+
+    private void ApplyWeaponVisuals(int index)
+    {
+        if (axeVisual != null) axeVisual.SetActive(index == 0);
+        if (gunVisual != null) gunVisual.SetActive(index == 1);
+    }
+
+    /// <summary>
+    /// Grants the melee axe weapon (e.g. from accepting a deal with the Girl).
+    /// </summary>
+    public void GrantMeleeWeapon()
+    {
+        if (currentWeaponIndex.Value < 0)
+        {
+            SwitchWeapon(0);
         }
     }
 
@@ -73,14 +120,17 @@ public class InvestigatorCombatNet : NetworkBehaviour
 
         if (_attackTimer > 0) _attackTimer -= Time.deltaTime;
 
-        // Weapon switching (1 = Axe, 2 = Gun)
-        if (Keyboard.current.digit1Key != null && Keyboard.current.digit1Key.wasPressedThisFrame) SwitchWeapon(0);
-        if (Keyboard.current.digit2Key != null && Keyboard.current.digit2Key.wasPressedThisFrame) SwitchWeapon(1);
+        // Weapon switching (1 = Axe, 2 = Gun) — only if armed or switching
+        if (Keyboard.current.digit1Key != null && Keyboard.current.digit1Key.wasPressedThisFrame && HasWeapon) SwitchWeapon(0);
+        if (Keyboard.current.digit2Key != null && Keyboard.current.digit2Key.wasPressedThisFrame && HasWeapon) SwitchWeapon(1);
 
         // Attack (Left Click)
         if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame && _attackTimer <= 0 && !_isReloading)
         {
-            PerformAttack();
+            if (HasWeapon)
+            {
+                PerformAttack();
+            }
         }
 
         // Reload (R - Gun only)
@@ -93,12 +143,13 @@ public class InvestigatorCombatNet : NetworkBehaviour
     public void SwitchWeapon(int index)
     {
         currentWeaponIndex.Value = index;
-        
-        if (axeVisual != null) axeVisual.SetActive(index == 0);
-        if (gunVisual != null) gunVisual.SetActive(index == 1);
+        ApplyWeaponVisuals(index);
 
-        SafeSetInteger(_weaponIdHash, index);
-        SafeSetTrigger(_switchWeaponHash);
+        if (index >= 0)
+        {
+            SafeSetInteger(_weaponIdHash, index);
+            SafeSetTrigger(_switchWeaponHash);
+        }
 
         if (index == 1 && gunStats != null)
         {

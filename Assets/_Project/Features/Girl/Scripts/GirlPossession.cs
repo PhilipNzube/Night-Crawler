@@ -1,15 +1,32 @@
 using UnityEngine;
 using System.Collections;
-using Unity.Netcode; // Essential for Multiplayer
+using Unity.Netcode;
 using Unity.Cinemachine;
 using StarterAssets;
 
+/// <summary>
+/// SOLID — SRP: Manages the Girl's possession ability, 5-minute total possession time pool,
+/// target takeover, and forced ejection / time deduction when exorcised by the Cursed Priest.
+/// </summary>
 public class GirlPossession : NetworkBehaviour
 {
     [Header("Data (ScriptableObject)")]
     public EntityStats stats;
-    
     public CinemachineCamera vcam;
+
+    [Header("Possession Time Pool (5 Minutes Total)")]
+    [Tooltip("Total pool of possession time in seconds across the match (default 300s = 5 minutes).")]
+    public float maxPossessionTimePool = 300f;
+
+    [Tooltip("Time deducted from her possession pool when exorcised by the Cursed Priest.")]
+    public float exorcismPenaltySeconds = 30f;
+
+    [Header("Network State")]
+    public NetworkVariable<float> remainingPossessionTime = new NetworkVariable<float>(
+        300f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    public NetworkVariable<bool> isPossessing = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
     [Header("References")]
     private GirlMaterialController _matCtrl;
@@ -17,6 +34,10 @@ public class GirlPossession : NetworkBehaviour
     private ThirdPersonController _starterAssets;
     private CharacterController _controller;
     private Transform _girlCameraRoot;
+    private IPossessable _currentTarget;
+
+    public float RemainingPool => remainingPossessionTime.Value;
+    public bool IsCurrentlyPossessing => isPossessing.Value;
 
     void Awake()
     {
@@ -27,62 +48,97 @@ public class GirlPossession : NetworkBehaviour
         _girlCameraRoot = transform.Find("PlayerCameraRoot");
     }
 
+    public override void OnNetworkSpawn()
+    {
+        if (IsServer)
+        {
+            remainingPossessionTime.Value = maxPossessionTimePool;
+        }
+    }
+
     void Update()
     {
-        // ONLY the person controlling the Girl can trigger possession
+        // Server drains possession pool while possessing
+        if (IsServer && isPossessing.Value)
+        {
+            remainingPossessionTime.Value = Mathf.Max(0f, remainingPossessionTime.Value - Time.deltaTime);
+
+            if (remainingPossessionTime.Value <= 0f)
+            {
+                // Time pool depleted -> auto eject
+                EjectFromCurrentTarget();
+            }
+        }
+
+        // ONLY the person controlling the Girl can trigger or release possession
         if (!IsOwner) return;
 
         if (Input.GetKeyDown(KeyCode.E))
         {
-            TryPossess();
+            if (!isPossessing.Value)
+            {
+                if (remainingPossessionTime.Value > 0f)
+                {
+                    TryPossess();
+                }
+                else
+                {
+                    if (NotificationManager.Instance != null)
+                        NotificationManager.Instance.ShowNotification("Possession time bank depleted!", 2f);
+                }
+            }
+            else
+            {
+                // Voluntarily release
+                RequestReleaseServerRpc();
+            }
         }
     }
 
     private void TryPossess()
     {
         Vector3 searchCenter = transform.position + Vector3.up;
-        Collider[] hits = Physics.OverlapSphere(searchCenter, stats.possessionRange, stats.possessionTargetLayer);
+        float range = stats != null ? stats.possessionRange : 5f;
+        LayerMask mask = stats != null ? stats.possessionTargetLayer : ~0;
+        Collider[] hits = Physics.OverlapSphere(searchCenter, range, mask);
 
         foreach (var hit in hits)
         {
-            // We find the Monster's NetworkObject to identify it across the net
-            NetworkObject monsterNetObj = hit.GetComponentInParent<NetworkObject>();
+            if (hit.gameObject == gameObject) continue;
+
+            NetworkObject targetNetObj = hit.GetComponentInParent<NetworkObject>();
             IPossessable target = hit.GetComponentInParent<IPossessable>();
-            
-            if (target != null && monsterNetObj != null)
+
+            if (target != null && targetNetObj != null)
             {
-                // Tell the Server we want to possess this specific Monster ID
-                RequestPossessionServerRpc(monsterNetObj.NetworkObjectId);
+                RequestPossessionServerRpc(targetNetObj.NetworkObjectId);
                 StartCoroutine(PossessSequence(target));
                 return;
             }
         }
     }
 
-    [ServerRpc]
-    private void RequestPossessionServerRpc(ulong monsterId)
+    [Rpc(SendTo.Server)]
+    private void RequestPossessionServerRpc(ulong targetNetId)
     {
-        // The Server tells everyone else to hide the Girl
-        NotifyPossessionClientRpc(monsterId);
+        isPossessing.Value = true;
+        NotifyPossessionClientRpc(targetNetId);
     }
 
-    [ClientRpc]
-    private void NotifyPossessionClientRpc(ulong monsterId)
+    [Rpc(SendTo.ClientsAndHost)]
+    private void NotifyPossessionClientRpc(ulong targetNetId)
     {
-        // If I'm NOT the owner, I just hide the Girl model
         if (!IsOwner)
         {
-            if (_matCtrl != null) _matCtrl.RequestAlpha(0f, 0.3f);
-            // We don't disable the object on other screens to keep the NetworkObject alive
-            // We just hide the visuals
             ToggleRenderers(false);
         }
     }
 
     private IEnumerator PossessSequence(IPossessable target)
     {
-        if (_matCtrl != null) _matCtrl.RequestAlpha(0f, 0.3f);
-        yield return new WaitForSeconds(0.3f);
+        _currentTarget = target;
+        if (_matCtrl != null) _matCtrl.SetManifested(false);
+        yield return new WaitForSeconds(0.2f);
 
         if (vcam != null)
         {
@@ -92,29 +148,74 @@ public class GirlPossession : NetworkBehaviour
 
         target.Possess(this);
 
-        // Instead of SetActive(false), we disable components to keep the NetworkObject active
         _controller.enabled = false;
-        _starterAssets.enabled = false;
+        if (_starterAssets != null) _starterAssets.enabled = false;
         ToggleRenderers(false);
     }
 
-    public void ReturnFromMonster(Vector3 monsterPosition)
+    [Rpc(SendTo.Server)]
+    private void RequestReleaseServerRpc()
     {
+        EjectFromCurrentTarget();
+    }
+
+    /// <summary>
+    /// Forces the Girl out of the possessed body and penalizes her remaining possession pool.
+    /// Called when the Cursed Priest casts Exorcism!
+    /// </summary>
+    public void ForceEjectByExorcism()
+    {
+        if (IsServer)
+        {
+            remainingPossessionTime.Value = Mathf.Max(0f, remainingPossessionTime.Value - exorcismPenaltySeconds);
+            Debug.Log($"[GirlPossession] Exorcised by Priest! Deducted {exorcismPenaltySeconds}s. Remaining: {remainingPossessionTime.Value}s");
+            EjectFromCurrentTarget();
+            NotifyExorcisedClientRpc(exorcismPenaltySeconds);
+        }
+        else
+        {
+            ForceEjectServerRpc();
+        }
+    }
+
+    [Rpc(SendTo.Server)]
+    private void ForceEjectServerRpc()
+    {
+        ForceEjectByExorcism();
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void NotifyExorcisedClientRpc(float penalty)
+    {
+        if (IsOwner && NotificationManager.Instance != null)
+        {
+            NotificationManager.Instance.ShowNotification($"EXORCISED BY PRIEST! Lost {penalty:0}s possession time!", 4f);
+        }
+    }
+
+    private void EjectFromCurrentTarget()
+    {
+        if (!isPossessing.Value) return;
+        isPossessing.Value = false;
+
+        Vector3 returnPos = transform.position;
+        if (_currentTarget != null)
+        {
+            Transform t = _currentTarget.GetCameraTarget();
+            if (t != null) returnPos = t.position + Vector3.back * 1.5f;
+            _currentTarget.Release();
+            _currentTarget = null;
+        }
+
+        ReturnToSpiritFormClientRpc(returnPos);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void ReturnToSpiritFormClientRpc(Vector3 returnPosition)
+    {
+        transform.position = returnPosition;
         ToggleRenderers(true);
-        transform.position = monsterPosition;
         _controller.enabled = true;
-
-        float targetAlpha = 1.0f;
-        if (_stealthLogic != null && _stealthLogic.IsStealthActive.Value && stats != null) // Check the NetworkVariable
-        {
-            targetAlpha = stats.stealthAlpha;
-        }
-
-        if (_matCtrl != null)
-        {
-            _matCtrl.SetAlphaInstant(0f);
-            _matCtrl.RequestAlpha(targetAlpha, 0.5f);
-        }
 
         if (vcam != null)
         {
@@ -123,20 +224,17 @@ public class GirlPossession : NetworkBehaviour
             vcam.OnTargetObjectWarped(_girlCameraRoot, Vector3.zero);
         }
 
-        _starterAssets.enabled = true;
-        transform.rotation = Quaternion.Euler(0, transform.rotation.eulerAngles.y, 0);
-        
-        // Tell the server we are back so it can un-hide us for others
-        RequestReturnServerRpc();
+        if (_starterAssets != null) _starterAssets.enabled = true;
+
+        if (_matCtrl != null)
+        {
+            _matCtrl.SetManifested(false);
+        }
     }
 
-    [ServerRpc]
-    private void RequestReturnServerRpc() => NotifyReturnClientRpc();
-
-    [ClientRpc]
-    private void NotifyReturnClientRpc()
+    public void ReturnFromMonster(Vector3 monsterPosition)
     {
-        if (!IsOwner) ToggleRenderers(true);
+        ReturnToSpiritFormClientRpc(monsterPosition);
     }
 
     private void ToggleRenderers(bool isVisible)
