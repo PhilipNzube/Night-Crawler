@@ -123,19 +123,23 @@ public class HealingVialInventoryNet : NetworkBehaviour
         Transform cam = _cameraTransform != null ? _cameraTransform : transform;
         Ray ray = new Ray(cam.position, cam.forward);
 
-        if (Physics.Raycast(ray, out RaycastHit hit, healRange, playerLayer))
-        {
-            if (hit.collider.gameObject == gameObject) return;
+        // Fallback mask: if playerLayer is not configured in Inspector, hit anything except UI and Ignore Raycast
+        LayerMask mask = playerLayer.value != 0 ? playerLayer : ~LayerMask.GetMask("Ignore Raycast", "UI");
 
-            HealthSystem targetHealth = hit.collider.GetComponentInParent<HealthSystem>();
-            if (targetHealth != null && !targetHealth.IsDead && targetHealth.CurrentHealth < targetHealth.MaxHealth)
+        if (Physics.Raycast(ray, out RaycastHit hit, healRange, mask))
+        {
+            if (hit.collider.gameObject != gameObject)
             {
-                NetworkObject targetNetObj = targetHealth.GetComponent<NetworkObject>();
-                if (targetNetObj != null)
+                HealthSystem targetHealth = hit.collider.GetComponentInParent<HealthSystem>();
+                if (targetHealth != null && !targetHealth.IsDead && targetHealth.CurrentHealth < targetHealth.MaxHealth)
                 {
-                    PerformHealServerRpc(targetNetObj.NetworkObjectId);
-                    PlayHealEffects();
-                    return;
+                    NetworkObject targetNetObj = targetHealth.GetComponent<NetworkObject>();
+                    if (targetNetObj != null)
+                    {
+                        PerformHealServerRpc(targetNetObj.NetworkObjectId);
+                        PlayHealEffects();
+                        return;
+                    }
                 }
             }
         }
