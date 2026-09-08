@@ -71,6 +71,13 @@ public class BloodScreenOverlay : MonoBehaviour
         SetAlphaImmediate(0f);
     }
 
+    private void OnEnable()
+    {
+        if (bloodImage == null)  bloodImage  = GetComponent<Image>();
+        if (canvasGroup == null) canvasGroup = GetComponent<CanvasGroup>();
+        if (!_isBound) TryBindToLocalPlayer();
+    }
+
     private void Update()
     {
         // Smoothly update the visual alpha every frame
@@ -97,22 +104,22 @@ public class BloodScreenOverlay : MonoBehaviour
         var localPlayer = NetworkManager.Singleton.LocalClient?.PlayerObject;
         if (localPlayer == null) return;
 
-        localPlayer.TryGetComponent<TargetHealth>(out _localTargetHealth);
         localPlayer.TryGetComponent<HealthSystem>(out _localHealthSystem);
+        localPlayer.TryGetComponent<TargetHealth>(out _localTargetHealth);
 
-        if (_localTargetHealth != null)
+        if (_localHealthSystem != null)
+        {
+            _maxHealth = _localHealthSystem.MaxHealth > 0 ? _localHealthSystem.MaxHealth : 100f;
+            _localHealthSystem.OnHealthChanged += OnHealthSystemChanged;
+            UpdateHealthFraction(_localHealthSystem.CurrentHealth, _maxHealth);
+            _isBound = true;
+        }
+        else if (_localTargetHealth != null)
         {
             _maxHealth = _localTargetHealth.MaxHealth;
             _localTargetHealth.currentHealth.OnValueChanged += OnTargetHealthChanged;
             _localTargetHealth.maxHealth.OnValueChanged     += OnTargetHealthChanged;
             UpdateHealthFraction(_localTargetHealth.CurrentHealth, _maxHealth);
-            _isBound = true;
-        }
-        else if (_localHealthSystem != null)
-        {
-            _maxHealth = _localHealthSystem.MaxHealth > 0 ? _localHealthSystem.MaxHealth : 100f;
-            _localHealthSystem.OnHealthChanged += OnHealthSystemChanged;
-            UpdateHealthFraction(_localHealthSystem.CurrentHealth, _maxHealth);
             _isBound = true;
         }
     }
@@ -203,6 +210,7 @@ public class BloodScreenOverlay : MonoBehaviour
             Color c = bloodImage.color;
             c.a = alpha;
             bloodImage.color = c;
+            bloodImage.enabled = (alpha > 0.001f);
         }
 
         if (canvasGroup != null)

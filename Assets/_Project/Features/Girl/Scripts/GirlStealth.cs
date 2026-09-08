@@ -75,10 +75,15 @@ public class GirlStealth : NetworkBehaviour
         if (_matCtrl == null || stats == null) return;
 
         // 1. Owner sees stealthAlpha, Explorers see 0 (100% invisible)
-        float targetAlpha = 1f;
+        float targetAlpha;
         if (isActive)
         {
             targetAlpha = IsOwner ? stats.stealthAlpha : 0f;
+        }
+        else
+        {
+            // In spirit form, remote players are always 0 alpha (100% invisible)
+            targetAlpha = IsOwner ? 1f : (_matCtrl.isManifested.Value ? 1f : 0f);
         }
         
         _matCtrl.RequestAlpha(targetAlpha, 0.4f);

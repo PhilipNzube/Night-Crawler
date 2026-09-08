@@ -44,6 +44,10 @@ public class PlayerHUD : MonoBehaviour
     [Tooltip("Displays current / max health as text, e.g. '75 / 100'.")]
     public TextMeshProUGUI healthText;
 
+    [Header("Damage / Blood Overlay")]
+    [Tooltip("Vignette blood screen overlay. If null, will auto-locate on HUDCanvas even if inactive.")]
+    public BloodScreenOverlay bloodScreenOverlay;
+
     // -------------------------------------------------------------------------
     //  Inspector — Role
     // -------------------------------------------------------------------------
@@ -111,6 +115,21 @@ public class PlayerHUD : MonoBehaviour
 
         if (healthSlider != null && healthFill == null && healthSlider.fillRect != null)
             healthFill = healthSlider.fillRect.GetComponent<Image>();
+
+        // Auto-find BloodScreenOverlay (even if inactive in hierarchy) and activate it
+        if (bloodScreenOverlay == null)
+        {
+            bloodScreenOverlay = FindFirstObjectByType<BloodScreenOverlay>(FindObjectsInactive.Include);
+            if (bloodScreenOverlay == null)
+            {
+                bloodScreenOverlay = transform.root.GetComponentInChildren<BloodScreenOverlay>(true);
+            }
+        }
+        if (bloodScreenOverlay != null && !bloodScreenOverlay.gameObject.activeSelf)
+        {
+            bloodScreenOverlay.gameObject.SetActive(true);
+            Debug.Log("[PlayerHUD] Activated inactive BloodScreenOverlay on HUD Canvas.");
+        }
     }
 
     void Start()
@@ -173,20 +192,20 @@ public class PlayerHUD : MonoBehaviour
         // Determine role
         _isDemon = localPlayer.TryGetComponent<GirlStealth>(out _localStealth);
 
-        localPlayer.TryGetComponent<TargetHealth>(out _localHealth);
         localPlayer.TryGetComponent<HealthSystem>(out _localHealthSys);
+        localPlayer.TryGetComponent<TargetHealth>(out _localHealth);
         localPlayer.TryGetComponent<InvestigatorCombatNet>(out _localCombat);
 
-        if (_localHealth != null)
+        if (_localHealthSys != null)
+        {
+            _maxHealth = _localHealthSys.MaxHealth > 0 ? _localHealthSys.MaxHealth : 100f;
+            _localHealthSys.OnHealthChanged += OnHealthSysChanged;
+        }
+        else if (_localHealth != null)
         {
             _maxHealth = _localHealth.MaxHealth;
             _localHealth.currentHealth.OnValueChanged += OnTargetHealthChanged;
             _localHealth.maxHealth.OnValueChanged     += OnTargetHealthChanged;
-        }
-        else if (_localHealthSys != null)
-        {
-            _maxHealth = _localHealthSys.MaxHealth > 0 ? _localHealthSys.MaxHealth : 100f;
-            _localHealthSys.OnHealthChanged += OnHealthSysChanged;
         }
 
         // Configure role-specific panels
@@ -254,15 +273,15 @@ public class PlayerHUD : MonoBehaviour
         float current = 100f;
         float max = 100f;
 
-        if (_localHealth != null)
-        {
-            current = _localHealth.CurrentHealth;
-            max = _localHealth.MaxHealth;
-        }
-        else if (_localHealthSys != null)
+        if (_localHealthSys != null)
         {
             current = _localHealthSys.CurrentHealth;
             max = _localHealthSys.MaxHealth;
+        }
+        else if (_localHealth != null)
+        {
+            current = _localHealth.CurrentHealth;
+            max = _localHealth.MaxHealth;
         }
 
         _maxHealth = max > 0 ? max : 100f;
@@ -286,30 +305,26 @@ public class PlayerHUD : MonoBehaviour
                     healthSlider.fillRect.anchorMax = new Vector2(aMax.x, 1f);
                 }
 
-                // If fillRect has a Filled Image (like Bloodlines UI Slider 5), update fillAmount directly
+                // If slider fillRect has a Filled Image, ensure fillAmount is 1.0f so the
+                // Slider's anchor sizing doesn't get double-squared!
                 Image rImg = healthSlider.fillRect.GetComponent<Image>();
-                if (rImg != null)
+                if (rImg != null && rImg.type == Image.Type.Filled)
                 {
-                    if (rImg.type == Image.Type.Filled)
-                    {
-                        rImg.fillAmount = displayFraction;
-                    }
-                    if (healthFill == null)
-                    {
-                        healthFill = rImg;
-                    }
+                    rImg.fillAmount = 1.0f;
+                }
+                if (healthFill == null)
+                {
+                    healthFill = rImg;
                 }
             }
+        }
+        else if (healthFill != null && healthFill.type == Image.Type.Filled)
+        {
+            healthFill.fillAmount = displayFraction;
         }
 
         if (healthFill != null)
         {
-            // If the Image is a Filled type (e.g. Bloodlines UI Slider 5), set fillAmount directly
-            if (healthFill.type == Image.Type.Filled)
-            {
-                healthFill.fillAmount = displayFraction;
-            }
-
             // Tint health bar: Bloodlines UI textures are already blood-red.
             // Tinting with Color.green zeroes out red pixels, making the bar black (invisible/empty) at 100% health!
             if (tintHealthBarWithColor)
@@ -324,6 +339,12 @@ public class PlayerHUD : MonoBehaviour
 
         if (healthText != null)
             healthText.text = $"{Mathf.CeilToInt(current)} / {Mathf.CeilToInt(_maxHealth)}";
+
+        // Push health updates to Blood Screen Overlay immediately
+        if (bloodScreenOverlay != null)
+        {
+            bloodScreenOverlay.UpdateHealthFraction(current, _maxHealth);
+        }
     }
 
     private void RefreshExplorerPanel()
@@ -356,9 +377,11 @@ public class PlayerHUD : MonoBehaviour
 
         if (stealthPromptText != null)
         {
-            stealthPromptText.text  = stealthOn ? "VANISHED" : "[Q] Vanish";
+            stealthPromptText.text  = stealthOn 
+                ? "VANISHED [Q] | [T] Manifest | [E] Possess | [B] Deals" 
+                : "[Q] Vanish | [T] Manifest | [E] Possess | [B] Deals";
             stealthPromptText.color = stealthOn
-                ? new Color(0.5f, 0f, 1f)  // Purple when active
+                ? new Color(0.7f, 0.2f, 1f)  // Purple when active
                 : Color.white;
         }
 

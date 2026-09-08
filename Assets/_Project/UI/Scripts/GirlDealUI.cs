@@ -34,9 +34,12 @@ public class GirlDealUI : MonoBehaviour
     public Button closeButton;
 
     [Header("Hotkeys")]
-    public Key toggleKey = Key.T;
+    [Tooltip("Primary toggle hotkey (default [B] for Bargain/Deal or [P] for Pact).")]
+    public Key toggleKey = Key.B;
 
     private readonly List<ulong> _connectedPlayerIds = new List<ulong>();
+    private CanvasGroup _canvasGroup;
+    private bool _isOpen = false;
 
     private void Awake()
     {
@@ -47,11 +50,18 @@ public class GirlDealUI : MonoBehaviour
         }
         Instance = this;
 
+        _canvasGroup = GetComponent<CanvasGroup>();
+        if (_canvasGroup == null)
+        {
+            _canvasGroup = gameObject.AddComponent<CanvasGroup>();
+        }
+
         if (sendDealButton != null) sendDealButton.onClick.AddListener(OnSendDealClicked);
         if (closeButton != null) closeButton.onClick.AddListener(CloseUI);
         if (templateDropdown != null) templateDropdown.onValueChanged.AddListener(OnTemplateSelected);
 
-        if (mainPanel != null) mainPanel.SetActive(false);
+        // Hide UI initially without disabling this GameObject/script
+        SetVisible(false);
     }
 
     private void OnDestroy()
@@ -66,36 +76,69 @@ public class GirlDealUI : MonoBehaviour
 
     private void Update()
     {
-        // Toggle deal menu with hotkey (only for the Girl player)
-        if (Keyboard.current != null && Keyboard.current[toggleKey].wasPressedThisFrame)
+        // Toggle deal menu with hotkey (press [B], [P], or configured toggleKey)
+        if (Keyboard.current != null)
         {
-            ToggleUI();
+            bool pressed = Keyboard.current[toggleKey].wasPressedThisFrame 
+                        || Keyboard.current.bKey.wasPressedThisFrame 
+                        || Keyboard.current.pKey.wasPressedThisFrame;
+
+            if (pressed && IsLocalPlayerGirl())
+            {
+                ToggleUI();
+            }
         }
+    }
+
+    private bool IsLocalPlayerGirl()
+    {
+        if (NetworkManager.Singleton == null || NetworkManager.Singleton.LocalClient == null) return false;
+        var playerObj = NetworkManager.Singleton.LocalClient.PlayerObject;
+        if (playerObj == null) return false;
+        return playerObj.GetComponent<GirlStealth>() != null 
+            || playerObj.GetComponent<GirlMaterialController>() != null 
+            || playerObj.GetComponent<GirlPossession>() != null;
     }
 
     public void ToggleUI()
     {
-        if (mainPanel == null) return;
+        _isOpen = !_isOpen;
+        SetVisible(_isOpen);
+    }
 
-        bool active = !mainPanel.activeSelf;
-        if (active)
+    public void CloseUI()
+    {
+        _isOpen = false;
+        SetVisible(false);
+    }
+
+    private void SetVisible(bool visible)
+    {
+        _isOpen = visible;
+
+        if (_canvasGroup != null)
+        {
+            _canvasGroup.alpha = visible ? 1f : 0f;
+            _canvasGroup.interactable = visible;
+            _canvasGroup.blocksRaycasts = visible;
+        }
+
+        if (mainPanel != null && mainPanel != gameObject)
+        {
+            mainPanel.SetActive(visible);
+        }
+
+        if (visible)
         {
             RefreshConnectedPlayers();
-            mainPanel.SetActive(true);
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
         }
         else
         {
-            CloseUI();
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
         }
-    }
-
-    public void CloseUI()
-    {
-        if (mainPanel != null) mainPanel.SetActive(false);
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
     }
 
     private void RefreshConnectedPlayers()

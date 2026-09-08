@@ -155,6 +155,18 @@ public class HealthSystem : NetworkBehaviour, IDamageReceiver
         {
             _isDead = true;
             OnDied?.Invoke();
+
+            // Sync with TargetHealth if present
+            if (TryGetComponent<TargetHealth>(out var th) && !th.isCorpse.Value)
+            {
+                th.TakeDamage(th.CurrentHealth + 10f, isSoulAttack);
+            }
+
+            // Immediately notify GameManager on the server
+            if (IsServer && GameManager.Instance != null && TryGetComponent<NetworkObject>(out var netObj))
+            {
+                GameManager.Instance.OnEntityDeath(netObj);
+            }
         }
     }
 
@@ -168,6 +180,11 @@ public class HealthSystem : NetworkBehaviour, IDamageReceiver
         {
             _isDead = true;
             OnDied?.Invoke();
+
+            if (TryGetComponent<TargetHealth>(out var th) && !th.isCorpse.Value)
+            {
+                th.TakeDamage(th.CurrentHealth + 10f);
+            }
         }
     }
 

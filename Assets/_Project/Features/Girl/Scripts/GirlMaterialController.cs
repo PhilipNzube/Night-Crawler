@@ -3,6 +3,7 @@ using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
 using Unity.Netcode;
+using UnityEngine.InputSystem;
 
 /// <summary>
 /// SOLID — SRP: Controls the Girl's spectral invisibility, distortion effects, and dissolve manifestation.
@@ -89,20 +90,67 @@ public class GirlMaterialController : NetworkBehaviour
         isManifested.Value = visible;
     }
 
-    // =========================================================================
-    //  Stealth & Possession Alpha Controls
-    // =========================================================================
+    private CharacterController _characterController;
     private Coroutine _fadeJob;
     private float _currentAlpha = 1f;
+
+    void Update()
+    {
+        // Owner controls: Press [T] to toggle Manifestation (Visible to all) vs Spirit Form (Invisible)
+        if (IsOwner)
+        {
+            bool tPressed = (Keyboard.current != null && Keyboard.current.tKey.wasPressedThisFrame)
+                         || Input.GetKeyDown(KeyCode.T);
+
+            if (tPressed)
+            {
+                bool newState = !isManifested.Value;
+                SetManifested(newState);
+
+                string statusMsg = newState
+                    ? "[MANIFESTATION] You are now VISIBLE to all players!"
+                    : "[SPIRIT FORM] You are INVISIBLE to investigators.";
+
+                if (NotificationManager.Instance != null)
+                {
+                    NotificationManager.Instance.ShowNotification(statusMsg, 2.5f);
+                }
+                Debug.Log($"[GirlMaterialController] [T] toggled manifestation -> {newState}");
+            }
+        }
+
+        // Periodic safeguard running on all clients (host and remotes) to ensure
+        // newly spawned or connected players ignore collision with spirit form
+        if (Time.frameCount % 30 == 0)
+        {
+            ApplyPassThrough(!isManifested.Value);
+        }
+    }
+
+    public void ApplyPassThrough(bool enablePassThrough)
+    {
+        if (_characterController == null) _characterController = GetComponent<CharacterController>();
+        if (_characterController == null) return;
+
+        var allPlayers = FindObjectsByType<CharacterController>(FindObjectsSortMode.None);
+        foreach (var otherCc in allPlayers)
+        {
+            if (otherCc != _characterController)
+            {
+                Physics.IgnoreCollision(_characterController, otherCc, enablePassThrough);
+            }
+        }
+    }
 
     public void SetAlphaInstant(float alpha)
     {
         if (_fadeJob != null) StopCoroutine(_fadeJob);
         _currentAlpha = alpha;
 
-        if (alpha < 0.05f)
+        if (!IsOwner)
         {
-            if (!IsOwner) ToggleRenderers(false);
+            // Remote players ONLY see renderers when the Girl is manifested (real mode)
+            ToggleRenderers(isManifested.Value && alpha >= 0.05f);
         }
         else
         {
@@ -126,7 +174,8 @@ public class GirlMaterialController : NetworkBehaviour
             _currentAlpha = Mathf.Lerp(start, target, elapsed / duration);
             if (!IsOwner)
             {
-                ToggleRenderers(_currentAlpha > 0.05f);
+                // In spirit mode (!isManifested), remote players NEVER have renderers active
+                ToggleRenderers(isManifested.Value && _currentAlpha > 0.05f);
             }
             yield return null;
         }
@@ -134,7 +183,7 @@ public class GirlMaterialController : NetworkBehaviour
         _currentAlpha = target;
         if (!IsOwner)
         {
-            ToggleRenderers(_currentAlpha > 0.05f);
+            ToggleRenderers(isManifested.Value && _currentAlpha > 0.05f);
         }
         _fadeJob = null;
     }

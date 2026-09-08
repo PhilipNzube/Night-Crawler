@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Threading.Tasks;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
 using UnityEngine;
@@ -432,14 +433,18 @@ public class LobbyUI : MonoBehaviour
             ShowConnectionStatus("Connecting to Relay & allocating session...", false);
 
             string joinCode = await RelayManager.Instance.StartRelayHostAsync(maxPlayers);
-            HideLoading();
 
             if (!string.IsNullOrEmpty(joinCode))
             {
+                ShowLoading("Finalizing lobby session & determining player count...");
+                await WaitForRelayConnectionAsync(10f);
+                HideLoading();
                 ShowHostLobby(joinCode);
+                RefreshLobbyPanels();
             }
             else
             {
+                HideLoading();
                 ShowConnectionStatus("Failed to create Relay session. Check internet & dashboard.", true);
                 SetConnectionButtonsInteractable(true);
             }
@@ -517,17 +522,51 @@ public class LobbyUI : MonoBehaviour
 
         EnsureRelayManager();
         bool success = await RelayManager.Instance.StartRelayClientAsync(code);
-        HideLoading();
 
         if (success)
         {
-            ShowClientLobby(code);
+            ShowLoading("Establishing session & determining player count...");
+            bool connected = await WaitForRelayConnectionAsync(15f);
+            HideLoading();
+
+            if (connected)
+            {
+                ShowClientLobby(code);
+                RefreshLobbyPanels();
+            }
+            else
+            {
+                ShowJoinCodeStatus("Connection timed out. Please check the code and try again.", true);
+                SetJoinCodeButtonsInteractable(true);
+                if (NetworkManager.Singleton != null) NetworkManager.Singleton.Shutdown();
+            }
         }
         else
         {
+            HideLoading();
             ShowJoinCodeStatus("Failed to join. Check the code and try again.", true);
             SetJoinCodeButtonsInteractable(true);
         }
+    }
+
+    /// <summary>
+    /// Waits asynchronously until NetworkManager confirms connection and initial player count.
+    /// </summary>
+    private async Task<bool> WaitForRelayConnectionAsync(float timeoutSeconds = 15f)
+    {
+        float elapsed = 0f;
+        while (elapsed < timeoutSeconds)
+        {
+            await Task.Delay(150);
+            elapsed += 0.15f;
+
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsConnectedClient)
+            {
+                await Task.Delay(250);
+                return true;
+            }
+        }
+        return false;
     }
 
     // =========================================================================

@@ -144,6 +144,12 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
             GameManager.Instance.OnEntityDeath(GetComponent<NetworkObject>());
         }
 
+        // Trigger ragdoll if NetworkRagdollController is present
+        if (TryGetComponent<NetworkRagdollController>(out var ragdoll))
+        {
+            ragdoll.TriggerRagdollDeath();
+        }
+
         if (IsServer)
         {
             isCorpse.Value = true;

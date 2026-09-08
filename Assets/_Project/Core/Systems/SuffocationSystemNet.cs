@@ -27,6 +27,7 @@ public class SuffocationSystemNet : NetworkBehaviour
     public float warningDisplayDuration = 6f;
 
     private HealthSystem _healthSystem;
+    private TargetHealth _targetHealth;
     private float _damageInterval = 1.0f;
     private float _effectiveLifespan;
     private bool _isHazardSpecialist = false;
@@ -37,6 +38,7 @@ public class SuffocationSystemNet : NetworkBehaviour
     private void Awake()
     {
         _healthSystem = GetComponent<HealthSystem>();
+        _targetHealth = GetComponent<TargetHealth>();
         _effectiveLifespan = baseLifespanSeconds;
     }
 
@@ -115,7 +117,19 @@ public class SuffocationSystemNet : NetworkBehaviour
             float damagePerSecond = _healthSystem.MaxHealth / _effectiveLifespan;
             float damageThisTick = damagePerSecond * _damageInterval;
 
+            // If remaining health is very low (at or near 0), execute immediate lethal kill
+            if (_healthSystem.CurrentHealth <= damageThisTick * 1.25f)
+            {
+                _healthSystem.TakeDamage(9999f);
+                if (_targetHealth != null) _targetHealth.TakeDamage(9999f);
+                break;
+            }
+
             _healthSystem.TakeDamage(damageThisTick);
+            if (_targetHealth != null)
+            {
+                _targetHealth.TakeDamage(damageThisTick);
+            }
         }
     }
 

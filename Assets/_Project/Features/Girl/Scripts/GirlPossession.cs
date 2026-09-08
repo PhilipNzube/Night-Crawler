@@ -3,6 +3,7 @@ using System.Collections;
 using Unity.Netcode;
 using Unity.Cinemachine;
 using StarterAssets;
+using UnityEngine.InputSystem;
 
 /// <summary>
 /// SOLID — SRP: Manages the Girl's possession ability, 5-minute total possession time pool,
@@ -73,7 +74,10 @@ public class GirlPossession : NetworkBehaviour
         // ONLY the person controlling the Girl can trigger or release possession
         if (!IsOwner) return;
 
-        if (Input.GetKeyDown(KeyCode.E))
+        bool ePressed = (Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame)
+                     || Input.GetKeyDown(KeyCode.E);
+
+        if (ePressed)
         {
             if (!isPossessing.Value)
             {
@@ -115,6 +119,12 @@ public class GirlPossession : NetworkBehaviour
                 StartCoroutine(PossessSequence(target));
                 return;
             }
+        }
+
+        // If no target found, give feedback so the player knows to get closer
+        if (NotificationManager.Instance != null)
+        {
+            NotificationManager.Instance.ShowNotification("Get closer to an Investigator to Possess [E]!", 1.5f);
         }
     }
 

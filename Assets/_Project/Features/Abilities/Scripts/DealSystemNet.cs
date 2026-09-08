@@ -38,8 +38,9 @@ public class DealSystemNet : NetworkBehaviour
         }
     }
 
-    private void OnDestroy()
+    public override void OnDestroy()
     {
+        base.OnDestroy();
         if (Instance == this) Instance = null;
     }
 

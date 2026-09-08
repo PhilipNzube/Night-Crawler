@@ -7,6 +7,10 @@ public class GirlShadowTeleportNet : NetworkBehaviour
     // SOLID: Drag your "Teleport_Standard" Scriptable Object here
     public AbilityData teleportData; 
     public LayerMask explorerLayer;
+    [Header("Hotkeys")]
+    [Tooltip("Hotkey to trigger shadow teleport (default [F]).")]
+    public Key teleportKey = Key.F;
+
     private GirlStealth _stealth;
 
     void Awake()
@@ -17,7 +21,11 @@ public class GirlShadowTeleportNet : NetworkBehaviour
     void Update()
     {
         if (!IsOwner) return;
-        if (Keyboard.current.tKey.wasPressedThisFrame) TryAutoTeleport();
+
+        bool pressed = (Keyboard.current != null && (Keyboard.current[teleportKey].wasPressedThisFrame || Keyboard.current.fKey.wasPressedThisFrame))
+                     || Input.GetKeyDown(KeyCode.F);
+
+        if (pressed) TryAutoTeleport();
     }
 
     private void TryAutoTeleport()
