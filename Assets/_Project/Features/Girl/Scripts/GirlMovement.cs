@@ -1,6 +1,7 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
 using Unity.Netcode;
+using StarterAssets;
 
 /// <summary>
 /// Controls the Girl's movement, rotation, and ghost pass-through capabilities.
@@ -61,6 +62,16 @@ public class GirlMovement : NetworkBehaviour
         }
     }
 
+    private void Start()
+    {
+        // Synchronize entity stats to ThirdPersonController if present
+        if (TryGetComponent<ThirdPersonController>(out var tpc) && stats != null)
+        {
+            tpc.MoveSpeed = stats.walkSpeed;
+            tpc.SprintSpeed = stats.runSpeed;
+        }
+    }
+
     void Update()
     {
         // Periodic safeguard to ensure newly joined or spawned players respect current collision state
@@ -71,6 +82,14 @@ public class GirlMovement : NetworkBehaviour
 
         // CORE NETWORK RULE: Ensure only the owner moves their own character
         if (!IsOwner) return;
+
+        // If ThirdPersonController is present and enabled, it manages 3rd-person movement,
+        // gravity, and camera-relative character rotation.
+        // Bypassing HandleRotation and HandleMovement prevents the Girl from spinning in place when orbiting the camera!
+        if (TryGetComponent<ThirdPersonController>(out var controller) && controller.enabled)
+        {
+            return;
+        }
 
         HandleRotation();
         HandleMovement();
