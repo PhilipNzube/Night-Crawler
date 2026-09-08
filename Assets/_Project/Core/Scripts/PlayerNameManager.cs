@@ -29,6 +29,34 @@ public static class PlayerNameManager
     }
 
     /// <summary>
+    /// Gets the synchronized network player name for a specific client ID,
+    /// or falls back to local name / default identifier.
+    /// </summary>
+    public static string GetPlayerName(ulong clientId)
+    {
+        if (Unity.Netcode.NetworkManager.Singleton != null && 
+            Unity.Netcode.NetworkManager.Singleton.ConnectedClients.TryGetValue(clientId, out var client))
+        {
+            if (client.PlayerObject != null)
+            {
+                var netName = client.PlayerObject.GetComponent<NetworkPlayerName>();
+                if (netName != null && !string.IsNullOrEmpty(netName.playerName.Value.ToString()))
+                {
+                    return netName.playerName.Value.ToString();
+                }
+            }
+        }
+
+        if (Unity.Netcode.NetworkManager.Singleton != null && clientId == Unity.Netcode.NetworkManager.Singleton.LocalClientId)
+        {
+            string localName = GetPlayerName();
+            if (!string.IsNullOrEmpty(localName)) return localName;
+        }
+
+        return $"Player {clientId}";
+    }
+
+    /// <summary>
     /// Saves a new player name to PlayerPrefs.
     /// </summary>
     public static void SetPlayerName(string newName)

@@ -89,6 +89,61 @@ public class GirlMaterialController : NetworkBehaviour
         isManifested.Value = visible;
     }
 
+    // =========================================================================
+    //  Stealth & Possession Alpha Controls
+    // =========================================================================
+    private Coroutine _fadeJob;
+    private float _currentAlpha = 1f;
+
+    public void SetAlphaInstant(float alpha)
+    {
+        if (_fadeJob != null) StopCoroutine(_fadeJob);
+        _currentAlpha = alpha;
+
+        if (alpha < 0.05f)
+        {
+            if (!IsOwner) ToggleRenderers(false);
+        }
+        else
+        {
+            ToggleRenderers(true);
+        }
+    }
+
+    public void RequestAlpha(float target, float duration)
+    {
+        if (_fadeJob != null) StopCoroutine(_fadeJob);
+        _fadeJob = StartCoroutine(FadeRoutine(target, duration));
+    }
+
+    private IEnumerator FadeRoutine(float target, float duration)
+    {
+        float start = _currentAlpha;
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            _currentAlpha = Mathf.Lerp(start, target, elapsed / duration);
+            if (!IsOwner)
+            {
+                ToggleRenderers(_currentAlpha > 0.05f);
+            }
+            yield return null;
+        }
+
+        _currentAlpha = target;
+        if (!IsOwner)
+        {
+            ToggleRenderers(_currentAlpha > 0.05f);
+        }
+        _fadeJob = null;
+    }
+
+    public void ToggleOutline(bool show)
+    {
+        // Outline highlight hook for local predator perspective
+    }
+
     private void ApplyVisualState(bool visible, bool immediate)
     {
         if (_manifestRoutine != null)

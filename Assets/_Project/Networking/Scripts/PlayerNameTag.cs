@@ -38,13 +38,14 @@ public class PlayerNameTag : MonoBehaviour
     // -------------------------------------------------------------------------
     //  Private State
     // -------------------------------------------------------------------------
-    private NetworkPlayerName _netName;
-    private GirlStealth       _stealthComponent;
-    private Transform         _camTransform;
-    private bool              _isVengefulSpirit = false;
-    private Material          _customOverlayMaterial;
+    private NetworkPlayerName      _netName;
+    private GirlStealth            _stealthComponent;
+    private GirlMaterialController _girlMatCtrl;
+    private Transform              _camTransform;
+    private bool                   _isVengefulSpirit = false;
+    private Material               _customOverlayMaterial;
 
-    private NetworkObject     _netObj;
+    private NetworkObject          _netObj;
 
     // =========================================================================
     //  Unity Lifecycle
@@ -63,7 +64,8 @@ public class PlayerNameTag : MonoBehaviour
         _netObj           = GetComponentInParent<NetworkObject>();
         _netName          = GetComponentInParent<NetworkPlayerName>();
         _stealthComponent = GetComponentInParent<GirlStealth>();
-        _isVengefulSpirit = _stealthComponent != null;
+        _girlMatCtrl      = GetComponentInParent<GirlMaterialController>();
+        _isVengefulSpirit = (_stealthComponent != null || _girlMatCtrl != null || GetComponentInParent<GirlPossession>() != null);
 
         if (_netName != null)
         {
@@ -121,11 +123,22 @@ public class PlayerNameTag : MonoBehaviour
                 transform.rotation = _camTransform.rotation;
         }
 
-        // 3. Stealth visibility check: hide name tag if Vengeful Spirit is vanished
-        if (_isVengefulSpirit && _stealthComponent != null)
+        // 3. Stealth/Visibility check: Girl's name tag is hidden when invisible, shown ONLY when manifested/visible
+        if (_isVengefulSpirit)
         {
-            bool isStealth = _stealthComponent.IsStealthActive.Value;
-            SetVisible(!isStealth);
+            bool isVisible = false;
+
+            if (_girlMatCtrl != null)
+            {
+                isVisible = _girlMatCtrl.isManifested.Value;
+            }
+
+            if (_stealthComponent != null && _stealthComponent.IsStealthActive.Value)
+            {
+                isVisible = false;
+            }
+
+            SetVisible(isVisible);
         }
         else
         {
