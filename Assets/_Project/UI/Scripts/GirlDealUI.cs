@@ -103,13 +103,11 @@ public class GirlDealUI : MonoBehaviour
             return;
         }
 
-        // Toggle deal menu with hotkey (press [B], [P], or configured toggleKey - NEVER [T])
+        // Toggle deal menu with hotkey (press [B] or configured toggleKey - NEVER [T])
         if (Keyboard.current != null)
         {
             bool keyMatch = (toggleKey != Key.T && Keyboard.current[toggleKey].wasPressedThisFrame);
-            bool pressed = keyMatch 
-                        || Keyboard.current.bKey.wasPressedThisFrame 
-                        || Keyboard.current.pKey.wasPressedThisFrame;
+            bool pressed = keyMatch || Keyboard.current.bKey.wasPressedThisFrame;
 
             if (pressed && IsLocalPlayerGirl())
             {

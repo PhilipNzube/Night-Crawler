@@ -72,10 +72,15 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
         {
             ApplyCorpseState();
 
-            // If the local player owns this dead character, display "YOU DIED"
-            if (IsOwner && DeathUI.Instance != null)
+            // Only show death screen if the local player is truly this character
+            // (prevents server host adopting an orphaned object from falsely showing YOU DIED)
+            bool isGirl = GetComponent<GirlStealth>() != null || GetComponent<GirlMaterialController>() != null;
+            bool isLocalCharacter = (NetworkManager.Singleton != null && 
+                                     NetworkManager.Singleton.LocalClient != null && 
+                                     NetworkManager.Singleton.LocalClient.PlayerObject == GetComponent<NetworkObject>());
+
+            if (isLocalCharacter && DeathUI.Instance != null)
             {
-                bool isGirl = GetComponent<GirlStealth>() != null || GetComponent<GirlMaterialController>() != null;
                 DeathUI.Instance.ShowDeathScreen("YOU DIED", isGirl 
                     ? "The Vengeful Spirit has been banished." 
                     : "Your soul has fallen. Allies can still loot your body.");

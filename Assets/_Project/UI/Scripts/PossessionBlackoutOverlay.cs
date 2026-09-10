@@ -12,9 +12,15 @@ public class PossessionBlackoutOverlay : MonoBehaviour
     [Header("UI References")]
     public CanvasGroup blackoutCanvasGroup;
     public TMP_Text possessMessageText;
+    public TMP_Text subtitleText;
+    public TMP_Text timerText;
 
     [Header("Message")]
     public string defaultMessage = "Let me take the wheel for a sec☠️";
+    public string defaultSubtitle = "The Vengeful Spirit has taken control of your body...";
+
+    private float _possessionStartTime;
+    private bool _isBlackoutActive;
 
     private void Awake()
     {
@@ -33,8 +39,27 @@ public class PossessionBlackoutOverlay : MonoBehaviour
         if (Instance == this) Instance = null;
     }
 
+    private void Update()
+    {
+        if (_isBlackoutActive)
+        {
+            float elapsed = Time.time - _possessionStartTime;
+            if (timerText != null)
+            {
+                timerText.text = $"Possessed: {elapsed:F1}s";
+            }
+        }
+    }
+
     public void SetBlackout(bool active, string customMessage = null)
     {
+        _isBlackoutActive = active;
+
+        if (active)
+        {
+            _possessionStartTime = Time.time;
+        }
+
         if (blackoutCanvasGroup != null)
         {
             blackoutCanvasGroup.alpha = active ? 1f : 0f;
@@ -46,6 +71,17 @@ public class PossessionBlackoutOverlay : MonoBehaviour
         {
             possessMessageText.text = !string.IsNullOrEmpty(customMessage) ? customMessage : defaultMessage;
             possessMessageText.gameObject.SetActive(active);
+        }
+
+        if (subtitleText != null)
+        {
+            subtitleText.text = defaultSubtitle;
+            subtitleText.gameObject.SetActive(active);
+        }
+
+        if (timerText != null)
+        {
+            timerText.gameObject.SetActive(active);
         }
 
         gameObject.SetActive(active);

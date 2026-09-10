@@ -128,10 +128,44 @@ public class GirlPossession : NetworkBehaviour
         }
     }
 
+    /// <summary>
+    /// Initiates possession of a specific investigator selected from the UI.
+    /// </summary>
+    public void PossessTargetByClientId(ulong targetClientId)
+    {
+        if (!IsOwner || remainingPossessionTime.Value <= 0f) return;
+
+        if (NetworkManager.Singleton != null &&
+            NetworkManager.Singleton.ConnectedClients.TryGetValue(targetClientId, out var client) &&
+            client.PlayerObject != null)
+        {
+            var target = client.PlayerObject.GetComponent<IPossessable>();
+            if (target != null)
+            {
+                RequestPossessionServerRpc(client.PlayerObject.NetworkObjectId);
+                StartCoroutine(PossessSequence(target));
+            }
+        }
+    }
+
+    public void RequestRelease()
+    {
+        if (!IsOwner || !isPossessing.Value) return;
+        RequestReleaseServerRpc();
+    }
+
     [Rpc(SendTo.Server)]
     private void RequestPossessionServerRpc(ulong targetNetId)
     {
         isPossessing.Value = true;
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetNetId, out var targetNetObj))
+        {
+            var possessable = targetNetObj.GetComponent<IPossessable>();
+            if (possessable != null)
+            {
+                possessable.Possess(this);
+            }
+        }
         NotifyPossessionClientRpc(targetNetId);
     }
 
@@ -166,6 +200,11 @@ public class GirlPossession : NetworkBehaviour
     [Rpc(SendTo.Server)]
     private void RequestReleaseServerRpc()
     {
+        isPossessing.Value = false;
+        if (_currentTarget != null)
+        {
+            _currentTarget.Release();
+        }
         EjectFromCurrentTarget();
     }
 

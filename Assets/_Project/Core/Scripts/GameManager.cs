@@ -141,38 +141,68 @@ public class GameManager : NetworkBehaviour
 
         if (_clientPlayerObjects.TryGetValue(clientId, out NetworkObject playerObj) && playerObj != null)
         {
+            _clientPlayerObjects.Remove(clientId);
+
             if (playerObj == _girlPlayer)
             {
                 BroadcastNotificationClientRpc("☠ The Vengeful Spirit disconnected. Investigators survive!");
                 EndMatch(WinReason.DemonSlain);
+                return;
+            }
+
+            // Check if investigator was already dead
+            bool isAlreadyDead = false;
+            if (playerObj.TryGetComponent<TargetHealth>(out var targetHealth))
+            {
+                isAlreadyDead = targetHealth.isCorpse.Value || targetHealth.CurrentHealth <= 0;
+            }
+            else if (playerObj.TryGetComponent<HealthSystem>(out var healthSystem))
+            {
+                isAlreadyDead = healthSystem.IsDead;
+            }
+
+            string charName = GirlRevealManager.GetRegisteredPlayerName(clientId);
+            if (string.IsNullOrEmpty(charName) || charName.StartsWith("Player "))
+            {
+                if (playerObj.TryGetComponent<NetworkPlayerName>(out var netName) && !string.IsNullOrEmpty(netName.playerName.Value.ToString()))
+                {
+                    charName = netName.playerName.Value.ToString();
+                }
+                else
+                {
+                    charName = playerObj.name.Replace("(Clone)", "").Trim();
+                }
+            }
+
+            if (!isAlreadyDead)
+            {
+                // 1. Investigator left while ALIVE:
+                // Destroy / remove only this investigator character from the scene for all remaining players!
+                Debug.Log($"[GameManager] Investigator {clientId} ({charName}) disconnected while ALIVE. Removing character from scene.");
+                BroadcastNotificationClientRpc($"⚡ {charName} has left the match.");
+
+                if (_aliveExplorers.Contains(playerObj))
+                {
+                    _aliveExplorers.Remove(playerObj);
+                }
+
+                if (playerObj.IsSpawned)
+                {
+                    playerObj.Despawn(true);
+                }
+                else
+                {
+                    Destroy(playerObj.gameObject);
+                }
             }
             else
             {
-                // Investigator disconnected: keep the model in scene for looting!
-                if (playerObj.TryGetComponent<TargetHealth>(out var targetHealth) && targetHealth.CurrentHealth > 0)
-                {
-                    targetHealth.TakeDamage(99999f);
-                }
-                else if (playerObj.TryGetComponent<HealthSystem>(out var healthSystem) && !healthSystem.IsDead)
-                {
-                    healthSystem.TakeDamage(99999f);
-                }
-
+                // 2. Investigator was ALREADY DEAD:
+                // Keep the dead body in the scene for looting purposes!
+                Debug.Log($"[GameManager] Investigator {clientId} ({charName}) disconnected while DEAD. Leaving corpse in scene for looting.");
+                playerObj.DontDestroyWithOwner = true;
                 playerObj.gameObject.tag = "Untagged";
-
-                string charName = GirlRevealManager.GetRegisteredPlayerName(clientId);
-                if (string.IsNullOrEmpty(charName) || charName.StartsWith("Player "))
-                {
-                    if (playerObj.TryGetComponent<NetworkPlayerName>(out var netName) && !string.IsNullOrEmpty(netName.playerName.Value.ToString()))
-                    {
-                        charName = netName.playerName.Value.ToString();
-                    }
-                    else
-                    {
-                        charName = playerObj.name.Replace("(Clone)", "").Trim();
-                    }
-                }
-                BroadcastNotificationClientRpc($"☠ {charName} disconnected. Their supplies remain for looting.");
+                BroadcastNotificationClientRpc($"☠ {charName} disconnected. Their body remains for looting.");
             }
         }
     }
