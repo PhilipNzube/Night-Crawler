@@ -40,6 +40,13 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
 
         // Subscribe so local client can react to future changes
         currentHealth.OnValueChanged += OnHealthValueChanged;
+        isCorpse.OnValueChanged += OnCorpseStateChanged;
+
+        // If spawned already as corpse, apply visual/tag states
+        if (isCorpse.Value)
+        {
+            ApplyCorpseState();
+        }
 
         // Notify UI immediately with the current value so health bars populate on spawn
         // (OnValueChanged doesn't fire if the value didn't change after spawn)
@@ -59,9 +66,37 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
         // but if they need a C# event, broadcast via this relay.
     }
 
+    private void OnCorpseStateChanged(bool previous, bool current)
+    {
+        if (current)
+        {
+            ApplyCorpseState();
+        }
+    }
+
+    private void ApplyCorpseState()
+    {
+        // Disable Player tag so AI/sensors don't target dead bodies
+        gameObject.tag = "Untagged";
+
+        // Disable CharacterController to allow ragdoll physics & prevent movement
+        if (TryGetComponent<CharacterController>(out var cc))
+        {
+            cc.enabled = false;
+        }
+
+        // Disable overhead player name tag
+        var nameTags = GetComponentsInChildren<PlayerNameTag>(true);
+        foreach (var nt in nameTags)
+        {
+            nt.gameObject.SetActive(false);
+        }
+    }
+
     public override void OnNetworkDespawn()
     {
         currentHealth.OnValueChanged -= OnHealthValueChanged;
+        isCorpse.OnValueChanged -= OnCorpseStateChanged;
     }
 
     // This must only be called on the Server
@@ -138,7 +173,10 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
     {
         Debug.Log($"{gameObject.name} has died.");
         
-        // Notify GameManager so it can check win/loss conditions
+        // Disable player tag, character controller, and name tag
+        ApplyCorpseState();
+
+        // Notify GameManager so it can check win/loss conditions & broadcast death message
         if (IsServer && GameManager.Instance != null)
         {
             GameManager.Instance.OnEntityDeath(GetComponent<NetworkObject>());
@@ -153,20 +191,7 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
         if (IsServer)
         {
             isCorpse.Value = true;
-            // Delay despawning so the Girl has time to possess the body
-            StartCoroutine(CorpseCleanupRoutine());
-        }
-    }
-
-    private System.Collections.IEnumerator CorpseCleanupRoutine()
-    {
-        // Wait 30 seconds before final cleanup
-        yield return new WaitForSeconds(30f);
-        
-        // Only despawn if the Girl isn't currently hiding inside it!
-        if (!isOccupied.Value && IsServer)
-        {
-            GetComponent<NetworkObject>().Despawn();
+            // The corpse is NOT destroyed or despawned so other players can loot it
         }
     }
 

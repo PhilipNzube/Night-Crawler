@@ -19,6 +19,12 @@ using System.Collections;
 public class PauseManager : MonoBehaviour
 {
     // =========================================================================
+    //  Static Singleton & State
+    // =========================================================================
+    public static PauseManager Instance { get; private set; }
+    public static bool IsGamePaused => (Instance != null && Instance._isPaused);
+
+    // =========================================================================
     //  Static Event
     // =========================================================================
     /// <summary>
@@ -54,6 +60,13 @@ public class PauseManager : MonoBehaviour
 
     private void Awake()
     {
+        if (Instance != null && Instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+        Instance = this;
+
         // Resolve references immediately in Awake so they are ready before
         // the very first Update tick (fixes the "need to press ESC twice" bug).
         if (pauseUI == null)
@@ -61,6 +74,11 @@ public class PauseManager : MonoBehaviour
 
         if (pauseCameraSystem == null)
             pauseCameraSystem = FindFirstObjectByType<PauseCameraSystem>();
+    }
+
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
     }
 
     private IEnumerator Start()
@@ -124,6 +142,13 @@ public class PauseManager : MonoBehaviour
         // ── Player input & movement ─────────────────────────────────────────
         if (_inputs != null)
         {
+            if (_isPaused)
+            {
+                _inputs.move = Vector2.zero;
+                _inputs.look = Vector2.zero;
+                _inputs.jump = false;
+                _inputs.sprint = false;
+            }
             _inputs.cursorLocked       = !_isPaused;
             _inputs.cursorInputForLook = !_isPaused;
         }

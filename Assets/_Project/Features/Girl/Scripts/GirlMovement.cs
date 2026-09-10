@@ -81,7 +81,7 @@ public class GirlMovement : NetworkBehaviour
         }
 
         // CORE NETWORK RULE: Ensure only the owner moves their own character
-        if (!IsOwner) return;
+        if (!IsOwner || PauseManager.IsGamePaused) return;
 
         // If ThirdPersonController is present and enabled, it manages 3rd-person movement,
         // gravity, and camera-relative character rotation.

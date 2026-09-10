@@ -146,7 +146,7 @@ public class DealNotificationUI : MonoBehaviour
 
     private void Update()
     {
-        if (!_isActive) return;
+        if (!_isActive || PauseManager.IsGamePaused) return;
 
         // Hotkeys [Y] Accept / [N] Decline
         if (Keyboard.current != null)

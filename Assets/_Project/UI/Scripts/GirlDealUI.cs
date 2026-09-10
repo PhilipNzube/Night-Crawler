@@ -87,6 +87,12 @@ public class GirlDealUI : MonoBehaviour
 
     private void Update()
     {
+        if (PauseManager.IsGamePaused)
+        {
+            if (_isOpen) CloseUI();
+            return;
+        }
+
         // When typing in text fields, do NOT process UI toggles or hotkeys
         if (IsAnyInputFocused())
         {

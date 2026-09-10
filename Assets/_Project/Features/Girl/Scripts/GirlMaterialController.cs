@@ -100,6 +100,8 @@ public class GirlMaterialController : NetworkBehaviour
         // Owner controls: Press [T] to toggle Manifestation (Visible to all) vs Spirit Form (Invisible)
         if (IsOwner)
         {
+            if (PauseManager.IsGamePaused) return;
+
             // Do NOT trigger if Deal UI modal is open or if any text input field is focused!
             bool isDealOpen = GirlDealUI.Instance != null && GirlDealUI.Instance.IsOpen;
             bool isInputFocused = GirlDealUI.IsAnyInputFocused();

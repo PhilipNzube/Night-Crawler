@@ -72,7 +72,7 @@ public class GirlPossession : NetworkBehaviour
         }
 
         // ONLY the person controlling the Girl can trigger or release possession
-        if (!IsOwner) return;
+        if (!IsOwner || PauseManager.IsGamePaused) return;
 
         bool ePressed = (Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame)
                      || Input.GetKeyDown(KeyCode.E);

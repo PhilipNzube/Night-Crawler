@@ -67,7 +67,7 @@ public class PriestExorcismNet : NetworkBehaviour
 
     private void Update()
     {
-        if (!IsOwner || !isUnlocked) return;
+        if (!IsOwner || !isUnlocked || PauseManager.IsGamePaused) return;
 
         if (_cooldownTimer > 0f)
         {

@@ -172,7 +172,7 @@ public class InvestigatorCombatNet : NetworkBehaviour
 
     void Update()
     {
-        if (!IsOwner) return;
+        if (!IsOwner || PauseManager.IsGamePaused) return;
 
         if (_attackTimer > 0) _attackTimer -= Time.deltaTime;
 

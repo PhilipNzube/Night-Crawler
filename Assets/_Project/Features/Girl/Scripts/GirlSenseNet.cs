@@ -13,7 +13,7 @@ public class GirlSenseNet : NetworkBehaviour
 
     void Update()
     {
-        if (!IsOwner) return;
+        if (!IsOwner || PauseManager.IsGamePaused) return;
 
         // Press 'V' to activate "Shadow Sense"
         if (Input.GetKeyDown(KeyCode.V) && Time.time >= _nextSenseTime)

@@ -15,7 +15,7 @@ public class PossessionSystemNet : NetworkBehaviour
 
     void Update()
     {
-        if (!IsOwner) return;
+        if (!IsOwner || PauseManager.IsGamePaused) return;
 
         if (Keyboard.current.tabKey.wasPressedThisFrame)
         {

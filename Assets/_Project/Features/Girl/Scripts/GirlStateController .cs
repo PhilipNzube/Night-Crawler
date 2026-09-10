@@ -33,6 +33,8 @@ public class GirlStateController : MonoBehaviour
 
     void Update()
     {
+        if (PauseManager.IsGamePaused) return;
+
         if (Keyboard.current != null && Keyboard.current.iKey.wasPressedThisFrame)
         {
             TryActivateInvisibility();

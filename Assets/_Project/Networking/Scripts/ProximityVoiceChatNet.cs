@@ -165,7 +165,7 @@ public class ProximityVoiceChatNet : NetworkBehaviour
 
     private void Update()
     {
-        if (!IsOwner || !_isChannelJoined || VivoxService.Instance == null) return;
+        if (!IsOwner || !_isChannelJoined || VivoxService.Instance == null || PauseManager.IsGamePaused) return;
 
         if (_listenerCamera == null && Camera.main != null)
         {

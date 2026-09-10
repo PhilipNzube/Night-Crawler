@@ -74,6 +74,7 @@ public class GameManager : NetworkBehaviour
     private MatchResultOverlay  _cachedOverlay;
 
     private readonly HashSet<ulong> _spawnedClients = new HashSet<ulong>();
+    private readonly Dictionary<ulong, NetworkObject> _clientPlayerObjects = new Dictionary<ulong, NetworkObject>();
 
     // OCP: Extend win messages here without touching EndMatch logic.
     private static readonly Dictionary<WinReason, string> WinMessages = new Dictionary<WinReason, string>
@@ -136,6 +137,36 @@ public class GameManager : NetworkBehaviour
         if (_spawnedClients.Contains(clientId))
         {
             _spawnedClients.Remove(clientId);
+        }
+
+        if (_clientPlayerObjects.TryGetValue(clientId, out NetworkObject playerObj) && playerObj != null)
+        {
+            if (playerObj == _girlPlayer)
+            {
+                BroadcastDeathMessageClientRpc("☠ The Vengeful Spirit disconnected. Investigators survive!");
+                EndMatch(WinReason.DemonSlain);
+            }
+            else
+            {
+                // Investigator disconnected: keep the model in scene for looting!
+                if (playerObj.TryGetComponent<TargetHealth>(out var targetHealth) && targetHealth.CurrentHealth > 0)
+                {
+                    targetHealth.TakeDamage(99999f);
+                }
+                else if (playerObj.TryGetComponent<HealthSystem>(out var healthSystem) && !healthSystem.IsDead)
+                {
+                    healthSystem.TakeDamage(99999f);
+                }
+
+                playerObj.gameObject.tag = "Untagged";
+
+                string charName = playerObj.name.Replace("(Clone)", "").Trim();
+                if (playerObj.TryGetComponent<NetworkPlayerName>(out var netName) && !string.IsNullOrEmpty(netName.playerName.Value.ToString()))
+                {
+                    charName = netName.playerName.Value.ToString();
+                }
+                BroadcastDeathMessageClientRpc($"☠ {charName} disconnected. Their supplies remain for looting.");
+            }
         }
     }
 
@@ -339,7 +370,9 @@ public class GameManager : NetworkBehaviour
         NetworkObject netObj = playerInstance.GetComponent<NetworkObject>();
         if (netObj != null)
         {
+            netObj.DontDestroyWithOwner = true;
             netObj.SpawnAsPlayerObject(clientId);
+            _clientPlayerObjects[clientId] = netObj;
             RegisterPlayer(netObj, isGirl);
         }
     }
@@ -446,17 +479,45 @@ public class GameManager : NetworkBehaviour
     /// <summary>Called by TargetHealth on the Server when an entity reaches 0 HP.</summary>
     public void OnEntityDeath(NetworkObject victim)
     {
-        if (!IsServer || gameEnded.Value) return;
+        if (!IsServer || gameEnded.Value || victim == null) return;
 
-        if (victim == _girlPlayer)
+        bool isGirl = (victim == _girlPlayer);
+        string victimName;
+
+        if (isGirl)
+        {
+            victimName = "The Vengeful Spirit";
+        }
+        else if (victim.TryGetComponent<NetworkPlayerName>(out var netName) && !string.IsNullOrEmpty(netName.playerName.Value.ToString()))
+        {
+            victimName = netName.playerName.Value.ToString();
+        }
+        else
+        {
+            victimName = victim.gameObject.name.Replace("(Clone)", "").Trim();
+        }
+
+        string deathMsg = isGirl ? "☠ The Vengeful Spirit has been slain!" : $"☠ {victimName} has died.";
+        BroadcastDeathMessageClientRpc(deathMsg);
+
+        if (isGirl)
         {
             EndMatch(WinReason.DemonSlain);
         }
         else if (_aliveExplorers.Contains(victim))
         {
             _aliveExplorers.Remove(victim);
-            if (_aliveExplorers.Count == 0)
-                EndMatch(WinReason.TeamWipe);
+            // Match does NOT end when investigators die; only ends when the girl dies.
+        }
+    }
+
+    [ClientRpc]
+    public void BroadcastDeathMessageClientRpc(string message)
+    {
+        Debug.Log($"[MatchNotification] {message}");
+        if (NotificationManager.Instance != null)
+        {
+            NotificationManager.Instance.ShowNotification(message, 5f);
         }
     }
 
@@ -468,7 +529,7 @@ public class GameManager : NetworkBehaviour
         string resultMessage = WinMessages.TryGetValue(reason, out string msg) ? msg : "Match Over";
 
         EndMatchClientRpc(resultMessage);
-        Invoke(nameof(ResetMatch), 10f);
+        Invoke(nameof(ReturnToLobby), 6f);
     }
 
     [ClientRpc]
@@ -480,11 +541,24 @@ public class GameManager : NetworkBehaviour
         _cachedOverlay?.ShowResultDirectly(resultMessage);
     }
 
-    private void ResetMatch()
+    private void ReturnToLobby()
     {
         if (!IsServer) return;
-        UnityEngine.SceneManagement.SceneManager.LoadScene(
-            UnityEngine.SceneManagement.SceneManager.GetActiveScene().name);
+
+        Debug.Log("[GameManager] Returning all players to LobbyScene via LoadingScreen...");
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.SceneManager != null)
+        {
+            NetworkManager.Singleton.SceneManager.LoadScene("LobbyScene", UnityEngine.SceneManagement.LoadSceneMode.Single);
+        }
+        else if (LoadingScreen.Instance != null)
+        {
+            LoadingScreen.Instance.LoadScene("LobbyScene");
+        }
+        else
+        {
+            LoadingScreen.TargetSceneToLoad = "LobbyScene";
+            UnityEngine.SceneManagement.SceneManager.LoadScene("LoadingScene");
+        }
     }
 
     // =========================================================================
