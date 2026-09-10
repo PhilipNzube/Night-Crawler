@@ -466,6 +466,12 @@ public class SquadLineupDisplay : MonoBehaviour
     /// </summary>
     private string ResolvePlayerName(ulong clientId)
     {
+        string registered = GirlRevealManager.GetRegisteredPlayerName(clientId);
+        if (!string.IsNullOrEmpty(registered) && !registered.StartsWith("Player "))
+        {
+            return registered;
+        }
+
         NetworkObject netObj = null;
 
         // GetPlayerNetworkObject for remote clients only works on the server.

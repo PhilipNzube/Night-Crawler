@@ -143,7 +143,7 @@ public class GameManager : NetworkBehaviour
         {
             if (playerObj == _girlPlayer)
             {
-                BroadcastDeathMessageClientRpc("☠ The Vengeful Spirit disconnected. Investigators survive!");
+                BroadcastNotificationClientRpc("☠ The Vengeful Spirit disconnected. Investigators survive!");
                 EndMatch(WinReason.DemonSlain);
             }
             else
@@ -160,12 +160,19 @@ public class GameManager : NetworkBehaviour
 
                 playerObj.gameObject.tag = "Untagged";
 
-                string charName = playerObj.name.Replace("(Clone)", "").Trim();
-                if (playerObj.TryGetComponent<NetworkPlayerName>(out var netName) && !string.IsNullOrEmpty(netName.playerName.Value.ToString()))
+                string charName = GirlRevealManager.GetRegisteredPlayerName(clientId);
+                if (string.IsNullOrEmpty(charName) || charName.StartsWith("Player "))
                 {
-                    charName = netName.playerName.Value.ToString();
+                    if (playerObj.TryGetComponent<NetworkPlayerName>(out var netName) && !string.IsNullOrEmpty(netName.playerName.Value.ToString()))
+                    {
+                        charName = netName.playerName.Value.ToString();
+                    }
+                    else
+                    {
+                        charName = playerObj.name.Replace("(Clone)", "").Trim();
+                    }
                 }
-                BroadcastDeathMessageClientRpc($"☠ {charName} disconnected. Their supplies remain for looting.");
+                BroadcastNotificationClientRpc($"☠ {charName} disconnected. Their supplies remain for looting.");
             }
         }
     }
@@ -482,23 +489,31 @@ public class GameManager : NetworkBehaviour
         if (!IsServer || gameEnded.Value || victim == null) return;
 
         bool isGirl = (victim == _girlPlayer);
+        ulong victimClientId = victim.OwnerClientId;
         string victimName;
 
         if (isGirl)
         {
             victimName = "The Vengeful Spirit";
         }
-        else if (victim.TryGetComponent<NetworkPlayerName>(out var netName) && !string.IsNullOrEmpty(netName.playerName.Value.ToString()))
-        {
-            victimName = netName.playerName.Value.ToString();
-        }
         else
         {
-            victimName = victim.gameObject.name.Replace("(Clone)", "").Trim();
+            victimName = GirlRevealManager.GetRegisteredPlayerName(victimClientId);
+            if (string.IsNullOrEmpty(victimName) || victimName.StartsWith("Player "))
+            {
+                if (victim.TryGetComponent<NetworkPlayerName>(out var netName) && !string.IsNullOrEmpty(netName.playerName.Value.ToString()))
+                {
+                    victimName = netName.playerName.Value.ToString();
+                }
+                else
+                {
+                    victimName = victim.gameObject.name.Replace("(Clone)", "").Trim();
+                }
+            }
         }
 
-        string deathMsg = isGirl ? "☠ The Vengeful Spirit has been slain!" : $"☠ {victimName} has died.";
-        BroadcastDeathMessageClientRpc(deathMsg);
+        // Broadcast to all clients: local player sees 'YOU DIED', allies see notification!
+        BroadcastDeathMessageClientRpc(victimClientId, victimName, isGirl);
 
         if (isGirl)
         {
@@ -512,7 +527,39 @@ public class GameManager : NetworkBehaviour
     }
 
     [ClientRpc]
-    public void BroadcastDeathMessageClientRpc(string message)
+    public void BroadcastDeathMessageClientRpc(ulong victimClientId, string victimName, bool isGirl)
+    {
+        bool isLocalVictim = (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == victimClientId);
+
+        if (isLocalVictim)
+        {
+            Debug.Log($"[DeathUI] Local player ({victimName}) has died -> Displaying 'YOU DIED' screen.");
+            if (DeathUI.Instance != null)
+            {
+                DeathUI.Instance.ShowDeathScreen("YOU DIED", isGirl 
+                    ? "The Vengeful Spirit has been banished." 
+                    : "Your soul has fallen. Allies can still loot your body.");
+            }
+        }
+        else
+        {
+            string msg = isGirl ? "☠ The Vengeful Spirit has been slain!" : $"☠ {victimName} has died.";
+            Debug.Log($"[DeathNotification] Remote player death: {msg}");
+
+            if (NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification(msg, 5f);
+            }
+
+            if (DeathUI.Instance != null)
+            {
+                DeathUI.Instance.ShowAllyDeathNotification(victimName);
+            }
+        }
+    }
+
+    [ClientRpc]
+    public void BroadcastNotificationClientRpc(string message)
     {
         Debug.Log($"[MatchNotification] {message}");
         if (NotificationManager.Instance != null)

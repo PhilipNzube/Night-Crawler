@@ -67,16 +67,30 @@ public class PlayerNameTag : MonoBehaviour
         _girlMatCtrl      = GetComponentInParent<GirlMaterialController>();
         _isVengefulSpirit = (_stealthComponent != null || _girlMatCtrl != null || GetComponentInParent<GirlPossession>() != null);
 
+        string resolvedName = string.Empty;
         if (_netName != null)
         {
             _netName.playerName.OnValueChanged += OnNameChanged;
-            UpdateNameText(_netName.playerName.Value.ToString());
+            resolvedName = _netName.playerName.Value.ToString();
         }
-        else
+
+        if (string.IsNullOrEmpty(resolvedName) || resolvedName == "Investigator")
         {
-            UpdateNameText("Investigator");
+            if (_netObj != null)
+            {
+                resolvedName = GirlRevealManager.GetRegisteredPlayerName(_netObj.OwnerClientId);
+            }
         }
+
+        if (string.IsNullOrEmpty(resolvedName))
+        {
+            resolvedName = "Investigator";
+        }
+
+        UpdateNameText(resolvedName);
     }
+
+    private TargetHealth _targetHealth;
 
     void OnDestroy()
     {
@@ -93,7 +107,15 @@ public class PlayerNameTag : MonoBehaviour
 
     void LateUpdate()
     {
-        // 0. Ownership check: Never show name tag above the local player's own head
+        // 0. Hide name tag immediately if dead corpse
+        if (_targetHealth == null) _targetHealth = GetComponentInParent<TargetHealth>();
+        if (_targetHealth != null && _targetHealth.isCorpse.Value)
+        {
+            SetVisible(false);
+            return;
+        }
+
+        // Ownership check: Never show name tag above the local player's own head
         if (_netObj == null) _netObj = GetComponentInParent<NetworkObject>();
         if (_netObj != null && _netObj.IsOwner)
         {

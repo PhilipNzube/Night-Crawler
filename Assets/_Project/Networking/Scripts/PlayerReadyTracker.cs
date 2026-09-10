@@ -184,6 +184,12 @@ public class PlayerReadyTracker : NetworkBehaviour
 
     private string ResolvePlayerName(ulong clientId)
     {
+        string registered = GirlRevealManager.GetRegisteredPlayerName(clientId);
+        if (!string.IsNullOrEmpty(registered) && !registered.StartsWith("Player "))
+        {
+            return registered;
+        }
+
         if (NetworkManager.Singleton == null) return $"Player {clientId % 1000}";
         if (NetworkManager.Singleton.IsServer)
         {

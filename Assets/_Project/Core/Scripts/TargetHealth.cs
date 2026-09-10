@@ -71,6 +71,15 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
         if (current)
         {
             ApplyCorpseState();
+
+            // If the local player owns this dead character, display "YOU DIED"
+            if (IsOwner && DeathUI.Instance != null)
+            {
+                bool isGirl = GetComponent<GirlStealth>() != null || GetComponent<GirlMaterialController>() != null;
+                DeathUI.Instance.ShowDeathScreen("YOU DIED", isGirl 
+                    ? "The Vengeful Spirit has been banished." 
+                    : "Your soul has fallen. Allies can still loot your body.");
+            }
         }
     }
 
@@ -85,11 +94,17 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
             cc.enabled = false;
         }
 
-        // Disable overhead player name tag
+        // Disable overhead player name tag (without deactivating the character GameObject!)
         var nameTags = GetComponentsInChildren<PlayerNameTag>(true);
         foreach (var nt in nameTags)
         {
-            nt.gameObject.SetActive(false);
+            nt.enabled = false;
+            if (nt.nameText != null) nt.nameText.gameObject.SetActive(false);
+            if (nt.nameTextUGUI != null) nt.nameTextUGUI.gameObject.SetActive(false);
+            if (nt.gameObject != gameObject)
+            {
+                nt.gameObject.SetActive(false);
+            }
         }
     }
 

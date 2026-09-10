@@ -34,6 +34,12 @@ public static class PlayerNameManager
     /// </summary>
     public static string GetPlayerName(ulong clientId)
     {
+        string registered = GirlRevealManager.GetRegisteredPlayerName(clientId);
+        if (!string.IsNullOrEmpty(registered) && !registered.StartsWith("Player "))
+        {
+            return registered;
+        }
+
         if (Unity.Netcode.NetworkManager.Singleton != null && 
             Unity.Netcode.NetworkManager.Singleton.ConnectedClients.TryGetValue(clientId, out var client))
         {

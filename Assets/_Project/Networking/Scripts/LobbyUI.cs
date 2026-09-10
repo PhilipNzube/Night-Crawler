@@ -440,6 +440,7 @@ public class LobbyUI : MonoBehaviour
                 await WaitForRelayConnectionAsync(10f);
                 HideLoading();
                 ShowHostLobby(joinCode);
+                GirlRevealManager.Instance?.SubmitLocalPlayerName();
                 RefreshLobbyPanels();
             }
             else
@@ -495,6 +496,7 @@ public class LobbyUI : MonoBehaviour
         if (success)
         {
             ShowClientLobby($"LOCAL LAN ({localIpAddress})");
+            GirlRevealManager.Instance?.SubmitLocalPlayerName();
         }
         else
         {
@@ -532,6 +534,7 @@ public class LobbyUI : MonoBehaviour
             if (connected)
             {
                 ShowClientLobby(code);
+                GirlRevealManager.Instance?.SubmitLocalPlayerName();
                 RefreshLobbyPanels();
             }
             else

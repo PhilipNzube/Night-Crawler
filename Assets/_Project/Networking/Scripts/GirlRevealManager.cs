@@ -89,6 +89,89 @@ public class GirlRevealManager : NetworkBehaviour
         if (girlFlow         != null) girlFlow.SetActive(false);
     }
 
+    private static readonly Dictionary<ulong, string> s_RegisteredPlayerNames = new Dictionary<ulong, string>();
+
+    public static string GetRegisteredPlayerName(ulong clientId)
+    {
+        if (s_RegisteredPlayerNames.TryGetValue(clientId, out string name) && !string.IsNullOrWhiteSpace(name) && !name.StartsWith("Player "))
+        {
+            return name;
+        }
+
+        if (NetworkManager.Singleton != null && clientId == NetworkManager.Singleton.LocalClientId)
+        {
+            string localName = PlayerNameManager.GetPlayerName();
+            if (!string.IsNullOrWhiteSpace(localName)) return localName;
+        }
+
+        if (s_RegisteredPlayerNames.TryGetValue(clientId, out string fallback) && !string.IsNullOrWhiteSpace(fallback))
+        {
+            return fallback;
+        }
+
+        return $"Player {clientId % 1000}";
+    }
+
+    public override void OnNetworkSpawn()
+    {
+        base.OnNetworkSpawn();
+        SubmitLocalPlayerName();
+
+        if (IsServer && NetworkManager.Singleton != null)
+        {
+            NetworkManager.Singleton.OnClientConnectedCallback += OnClientConnectedToServer;
+        }
+    }
+
+    public override void OnNetworkDespawn()
+    {
+        base.OnNetworkDespawn();
+        if (IsServer && NetworkManager.Singleton != null)
+        {
+            NetworkManager.Singleton.OnClientConnectedCallback -= OnClientConnectedToServer;
+        }
+    }
+
+    private void OnClientConnectedToServer(ulong newClientId)
+    {
+        if (!IsServer) return;
+        // Sync all known names to the new client
+        foreach (var kvp in s_RegisteredPlayerNames)
+        {
+            SyncPlayerNameClientRpc(kvp.Key, new Unity.Collections.FixedString64Bytes(kvp.Value));
+        }
+    }
+
+    public void SubmitLocalPlayerName()
+    {
+        if (NetworkManager.Singleton == null) return;
+        ulong myId = NetworkManager.Singleton.LocalClientId;
+        string myName = PlayerNameManager.GetPlayerName();
+        if (string.IsNullOrWhiteSpace(myName)) myName = $"Player {myId % 1000}";
+
+        s_RegisteredPlayerNames[myId] = myName;
+
+        if (IsSpawned)
+        {
+            RegisterPlayerNameServerRpc(myId, new Unity.Collections.FixedString64Bytes(myName));
+        }
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    private void RegisterPlayerNameServerRpc(ulong clientId, Unity.Collections.FixedString64Bytes name)
+    {
+        string nameStr = name.ToString();
+        s_RegisteredPlayerNames[clientId] = nameStr;
+        SyncPlayerNameClientRpc(clientId, name);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void SyncPlayerNameClientRpc(ulong clientId, Unity.Collections.FixedString64Bytes name)
+    {
+        s_RegisteredPlayerNames[clientId] = name.ToString();
+        Debug.Log($"[GirlRevealManager] Synchronized name: Client {clientId} -> '{name}'");
+    }
+
     // =========================================================================
     //  Server API — called from LobbyUI.OnStartMatch()
     // =========================================================================
@@ -134,7 +217,14 @@ public class GirlRevealManager : NetworkBehaviour
             return;
         }
 
-        StartRevealRpc(girlClientId, clientIds.ToArray());
+        Unity.Collections.FixedString64Bytes[] nameArray = new Unity.Collections.FixedString64Bytes[clientIds.Count];
+        for (int i = 0; i < clientIds.Count; i++)
+        {
+            string pName = GetRegisteredPlayerName(clientIds[i]);
+            nameArray[i] = new Unity.Collections.FixedString64Bytes(pName);
+        }
+
+        StartRevealRpc(girlClientId, clientIds.ToArray(), nameArray);
     }
 
     // =========================================================================
@@ -146,7 +236,7 @@ public class GirlRevealManager : NetworkBehaviour
     /// GirlRevealUI runs the coroutine, then calls back to route players locally.
     /// </summary>
     [Rpc(SendTo.ClientsAndHost)]
-    private void StartRevealRpc(ulong girlClientId, ulong[] clientIds)
+    private void StartRevealRpc(ulong girlClientId, ulong[] clientIds, Unity.Collections.FixedString64Bytes[] synchedNames)
     {
         // Hide lobby UI on all clients
         if (LobbyUI.Instance != null)
@@ -154,7 +244,15 @@ public class GirlRevealManager : NetworkBehaviour
         else
             FindFirstObjectByType<LobbyUI>(FindObjectsInactive.Include)?.HideLobbyUI();
 
-        List<string> playerNames = CollectPlayerNames(new List<ulong>(clientIds));
+        List<string> playerNames = new List<string>();
+        for (int i = 0; i < clientIds.Length; i++)
+        {
+            string n = (synchedNames != null && i < synchedNames.Length)
+                ? synchedNames[i].ToString()
+                : GetRegisteredPlayerName(clientIds[i]);
+            playerNames.Add(n);
+            s_RegisteredPlayerNames[clientIds[i]] = n;
+        }
 
         if (revealUI != null)
         {
@@ -380,6 +478,12 @@ public class GirlRevealManager : NetworkBehaviour
 
     private string ResolvePlayerName(ulong clientId)
     {
+        string registered = GetRegisteredPlayerName(clientId);
+        if (!string.IsNullOrEmpty(registered) && !registered.StartsWith("Player "))
+        {
+            return registered;
+        }
+
         NetworkObject netObj = null;
 
         // GetPlayerNetworkObject for remote clients only works on the server.
