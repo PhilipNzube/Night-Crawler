@@ -40,8 +40,17 @@ public class DealNotificationUI : MonoBehaviour
 
     private CanvasGroup _canvasGroup;
 
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
+    private static void HookSceneLoaded()
+    {
+        UnityEngine.SceneManagement.SceneManager.sceneLoaded += (scene, mode) =>
+        {
+            EnsureActiveAndHidden();
+        };
+    }
+
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
-    private static void EnsureActiveAndHidden()
+    public static void EnsureActiveAndHidden()
     {
         var found = FindFirstObjectByType<DealNotificationUI>(FindObjectsInactive.Include);
         if (found != null)
@@ -51,6 +60,7 @@ public class DealNotificationUI : MonoBehaviour
             // but keep it visually hidden via CanvasGroup until a deal is offered!
             found.gameObject.SetActive(true);
             found.SetVisible(false);
+            Debug.Log($"[DealNotificationUI] Discovered and initialized prompt: {found.gameObject.name} (activeInHierarchy={found.gameObject.activeInHierarchy})");
         }
     }
 
@@ -165,6 +175,7 @@ public class DealNotificationUI : MonoBehaviour
         if (!_isActive) return;
         _isActive = false;
 
+        Debug.Log($"[DealNotificationUI] Local player ACCEPTED deal from Girl {_currentGirlSenderId}");
         if (DealSystemNet.Instance != null)
         {
             DealSystemNet.Instance.RespondToDeal(_currentGirlSenderId, true, _grantWeapon);
@@ -178,6 +189,7 @@ public class DealNotificationUI : MonoBehaviour
         if (!_isActive) return;
         _isActive = false;
 
+        Debug.Log($"[DealNotificationUI] Local player DECLINED deal from Girl {_currentGirlSenderId}");
         if (DealSystemNet.Instance != null)
         {
             DealSystemNet.Instance.RespondToDeal(_currentGirlSenderId, false, _grantWeapon);
