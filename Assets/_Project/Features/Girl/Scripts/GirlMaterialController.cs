@@ -93,29 +93,37 @@ public class GirlMaterialController : NetworkBehaviour
     private CharacterController _characterController;
     private Coroutine _fadeJob;
     private float _currentAlpha = 1f;
+    private bool _isDissolvingActive = false;
 
     void Update()
     {
         // Owner controls: Press [T] to toggle Manifestation (Visible to all) vs Spirit Form (Invisible)
         if (IsOwner)
         {
-            bool tPressed = (Keyboard.current != null && Keyboard.current.tKey.wasPressedThisFrame)
-                         || Input.GetKeyDown(KeyCode.T);
+            // Do NOT trigger if Deal UI modal is open or if any text input field is focused!
+            bool isDealOpen = GirlDealUI.Instance != null && GirlDealUI.Instance.IsOpen;
+            bool isInputFocused = GirlDealUI.IsAnyInputFocused();
 
-            if (tPressed)
+            if (!isDealOpen && !isInputFocused)
             {
-                bool newState = !isManifested.Value;
-                SetManifested(newState);
+                bool tPressed = (Keyboard.current != null && Keyboard.current.tKey.wasPressedThisFrame)
+                             || Input.GetKeyDown(KeyCode.T);
 
-                string statusMsg = newState
-                    ? "[MANIFESTATION] You are now VISIBLE to all players!"
-                    : "[SPIRIT FORM] You are INVISIBLE to investigators.";
-
-                if (NotificationManager.Instance != null)
+                if (tPressed)
                 {
-                    NotificationManager.Instance.ShowNotification(statusMsg, 2.5f);
+                    bool newState = !isManifested.Value;
+                    SetManifested(newState);
+
+                    string statusMsg = newState
+                        ? "[MANIFESTATION] You are now VISIBLE to all players!"
+                        : "[SPIRIT FORM] You are INVISIBLE to investigators.";
+
+                    if (NotificationManager.Instance != null)
+                    {
+                        NotificationManager.Instance.ShowNotification(statusMsg, 2.5f);
+                    }
+                    Debug.Log($"[GirlMaterialController] [T] toggled manifestation -> {newState}");
                 }
-                Debug.Log($"[GirlMaterialController] [T] toggled manifestation -> {newState}");
             }
         }
 
@@ -212,6 +220,8 @@ public class GirlMaterialController : NetworkBehaviour
 
     private void ApplyVisualStateImmediate(bool visible)
     {
+        _isDissolvingActive = false;
+
         if (TryGetComponent<GirlMovement>(out var movement))
         {
             movement.UpdateCollisionState(visible);
@@ -236,6 +246,7 @@ public class GirlMaterialController : NetworkBehaviour
             {
                 ToggleRenderers(false);
             }
+            if (_dissolveController != null) _dissolveController.SetDissolveImmediate(1f);
         }
     }
 
@@ -248,34 +259,68 @@ public class GirlMaterialController : NetworkBehaviour
 
         if (targetVisible)
         {
-            // 1. Switch to dissolve material and start from dissolved (1.0)
-            ApplyDissolveMaterial();
-            ToggleRenderers(true);
-            if (_dissolveController != null)
+            // Target is solid / materialized (Dissolve = 0.0)
+            if (!_isDissolvingActive)
             {
-                _dissolveController.CollectRenderers();
-                _dissolveController.SetDissolveImmediate(1.0f);
-                _dissolveController.Materialize(dissolveDuration);
+                ApplyDissolveMaterial();
+                ToggleRenderers(true);
+                if (_dissolveController != null)
+                {
+                    _dissolveController.CollectRenderers();
+                    _dissolveController.SetDissolveImmediate(1.0f);
+                }
+                _isDissolvingActive = true;
+            }
+            else
+            {
+                // Reversing midway! Keep dissolve materials active
+                ToggleRenderers(true);
             }
 
-            yield return new WaitForSeconds(dissolveDuration);
+            float currentDissolve = _dissolveController != null ? _dissolveController.CurrentDissolve : 1f;
+            float remainingTime = Mathf.Max(0.05f, dissolveDuration * currentDissolve);
 
-            // 2. Dissolve complete -> swap to real girl original materials!
+            if (_dissolveController != null)
+            {
+                _dissolveController.StartTransition(0f, remainingTime);
+            }
+
+            yield return new WaitForSeconds(remainingTime);
+
+            // Dissolve complete -> swap to real girl original materials!
             RestoreOriginalMaterials();
             ToggleRenderers(true);
+            _isDissolvingActive = false;
         }
         else
         {
-            // Dissolve back out
-            ApplyDissolveMaterial();
-            if (_dissolveController != null)
+            // Target is spirit / dissolved (Dissolve = 1.0)
+            if (!_isDissolvingActive)
             {
-                _dissolveController.CollectRenderers();
-                _dissolveController.SetDissolveImmediate(0f);
-                _dissolveController.Dissolve(dissolveDuration);
+                ApplyDissolveMaterial();
+                ToggleRenderers(true);
+                if (_dissolveController != null)
+                {
+                    _dissolveController.CollectRenderers();
+                    _dissolveController.SetDissolveImmediate(0f);
+                }
+                _isDissolvingActive = true;
+            }
+            else
+            {
+                // Reversing midway! Keep dissolve materials active
+                ToggleRenderers(true);
             }
 
-            yield return new WaitForSeconds(dissolveDuration);
+            float currentDissolve = _dissolveController != null ? _dissolveController.CurrentDissolve : 0f;
+            float remainingTime = Mathf.Max(0.05f, dissolveDuration * (1f - currentDissolve));
+
+            if (_dissolveController != null)
+            {
+                _dissolveController.StartTransition(1f, remainingTime);
+            }
+
+            yield return new WaitForSeconds(remainingTime);
 
             if (IsOwner)
             {
@@ -286,6 +331,7 @@ public class GirlMaterialController : NetworkBehaviour
             {
                 ToggleRenderers(false);
             }
+            _isDissolvingActive = false;
         }
 
         _manifestRoutine = null;

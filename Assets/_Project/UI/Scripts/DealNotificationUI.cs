@@ -26,6 +26,8 @@ public class DealNotificationUI : MonoBehaviour
     private bool _grantWeapon;
     private bool _isActive = false;
 
+    private CanvasGroup _canvasGroup;
+
     private void Awake()
     {
         if (Instance != null && Instance != this)
@@ -35,15 +37,47 @@ public class DealNotificationUI : MonoBehaviour
         }
         Instance = this;
 
+        _canvasGroup = GetComponent<CanvasGroup>();
+        if (_canvasGroup == null)
+        {
+            _canvasGroup = gameObject.AddComponent<CanvasGroup>();
+        }
+
         if (acceptButton != null) acceptButton.onClick.AddListener(OnAcceptClicked);
         if (declineButton != null) declineButton.onClick.AddListener(OnDeclineClicked);
 
-        if (panel != null) panel.SetActive(false);
+        SetVisible(false);
     }
 
     private void OnDestroy()
     {
         if (Instance == this) Instance = null;
+    }
+
+    private void SetVisible(bool visible)
+    {
+        if (_canvasGroup != null)
+        {
+            _canvasGroup.alpha = visible ? 1f : 0f;
+            _canvasGroup.interactable = visible;
+            _canvasGroup.blocksRaycasts = visible;
+        }
+
+        if (panel != null && panel != gameObject)
+        {
+            panel.SetActive(visible);
+        }
+
+        if (visible)
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
+        else
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
     }
 
     public void DisplayDealOffer(ulong senderId, string title, string terms, string reward, bool grantWeapon)
@@ -57,7 +91,7 @@ public class DealNotificationUI : MonoBehaviour
         if (termsText != null) termsText.text = terms;
         if (rewardText != null) rewardText.text = $"REWARD: {reward}";
 
-        if (panel != null) panel.SetActive(true);
+        SetVisible(true);
     }
 
     private void Update()
@@ -96,7 +130,7 @@ public class DealNotificationUI : MonoBehaviour
             DealSystemNet.Instance.RespondToDeal(_currentGirlSenderId, true, _grantWeapon);
         }
 
-        if (panel != null) panel.SetActive(false);
+        SetVisible(false);
     }
 
     public void OnDeclineClicked()
@@ -109,6 +143,6 @@ public class DealNotificationUI : MonoBehaviour
             DealSystemNet.Instance.RespondToDeal(_currentGirlSenderId, false, _grantWeapon);
         }
 
-        if (panel != null) panel.SetActive(false);
+        SetVisible(false);
     }
 }

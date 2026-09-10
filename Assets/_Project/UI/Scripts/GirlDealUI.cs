@@ -74,18 +74,44 @@ public class GirlDealUI : MonoBehaviour
         PopulateTemplateOptions();
     }
 
+    public bool IsOpen => _isOpen;
+
+    public static bool IsAnyInputFocused()
+    {
+        if (UnityEngine.EventSystems.EventSystem.current == null) return false;
+        var currentObj = UnityEngine.EventSystems.EventSystem.current.currentSelectedGameObject;
+        if (currentObj == null) return false;
+        return currentObj.GetComponent<TMP_InputField>() != null 
+            || currentObj.GetComponent<InputField>() != null;
+    }
+
     private void Update()
     {
-        // Toggle deal menu with hotkey (press [B], [P], or configured toggleKey)
+        // When typing in text fields, do NOT process UI toggles or hotkeys
+        if (IsAnyInputFocused())
+        {
+            if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame && _isOpen)
+            {
+                CloseUI();
+            }
+            return;
+        }
+
+        // Toggle deal menu with hotkey (press [B], [P], or configured toggleKey - NEVER [T])
         if (Keyboard.current != null)
         {
-            bool pressed = Keyboard.current[toggleKey].wasPressedThisFrame 
+            bool keyMatch = (toggleKey != Key.T && Keyboard.current[toggleKey].wasPressedThisFrame);
+            bool pressed = keyMatch 
                         || Keyboard.current.bKey.wasPressedThisFrame 
                         || Keyboard.current.pKey.wasPressedThisFrame;
 
             if (pressed && IsLocalPlayerGirl())
             {
                 ToggleUI();
+            }
+            else if (_isOpen && Keyboard.current.escapeKey.wasPressedThisFrame)
+            {
+                CloseUI();
             }
         }
     }
