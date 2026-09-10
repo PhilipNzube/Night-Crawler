@@ -83,6 +83,104 @@ public class DeathUI : MonoBehaviour
         {
             allyDeathBanner.SetActive(false);
         }
+
+        // Auto-discover or wire existing AllyBanner if user placed one under DeathUI
+        AutoDiscoverOrSetupAllyBanner();
+    }
+
+    /// <summary>
+    /// Auto-discovers any AllyBanner child under DeathUI and guarantees
+    /// Viewport, RectMask2D, Content, and Layout groups are properly established.
+    /// </summary>
+    private void AutoDiscoverOrSetupAllyBanner()
+    {
+        if (allyAlertContent != null && allyAlertScrollRect != null) return;
+
+        // Check if an AllyBanner GameObject exists under DeathUI or its children
+        Transform bannerT = transform.Find("AllyBanner");
+        if (bannerT == null)
+        {
+            var allChildren = GetComponentsInChildren<Transform>(true);
+            foreach (var t in allChildren)
+            {
+                if (t != transform && t.name.ToLower().Contains("allybanner"))
+                {
+                    bannerT = t;
+                    break;
+                }
+            }
+        }
+
+        if (bannerT != null)
+        {
+            ScrollRect sr = bannerT.GetComponent<ScrollRect>();
+            if (sr == null) sr = bannerT.gameObject.AddComponent<ScrollRect>();
+
+            sr.horizontal = false;
+            sr.vertical = true;
+            sr.movementType = ScrollRect.MovementType.Clamped;
+            sr.scrollSensitivity = 25f;
+
+            // Check for Viewport
+            Transform viewT = bannerT.Find("Viewport");
+            if (viewT == null)
+            {
+                GameObject viewObj = new GameObject("Viewport");
+                viewObj.transform.SetParent(bannerT, false);
+                RectTransform vrt = viewObj.AddComponent<RectTransform>();
+                vrt.anchorMin = Vector2.zero;
+                vrt.anchorMax = Vector2.one;
+                vrt.sizeDelta = Vector2.zero;
+                vrt.pivot = new Vector2(0f, 1f);
+                viewObj.AddComponent<RectMask2D>();
+                viewT = viewObj.transform;
+            }
+
+            // Check for Content inside Viewport
+            Transform contentT = viewT.Find("Content");
+            if (contentT == null)
+            {
+                GameObject contentObj = new GameObject("Content");
+                contentObj.transform.SetParent(viewT, false);
+                RectTransform crt = contentObj.AddComponent<RectTransform>();
+                crt.anchorMin = new Vector2(0f, 0f);
+                crt.anchorMax = new Vector2(1f, 0f);
+                crt.pivot = new Vector2(0f, 0f);
+                crt.sizeDelta = Vector2.zero;
+
+                VerticalLayoutGroup vlg = contentObj.AddComponent<VerticalLayoutGroup>();
+                vlg.padding = new RectOffset(4, 4, 4, 4);
+                vlg.spacing = 6f;
+                vlg.childAlignment = TextAnchor.LowerLeft;
+                vlg.childControlWidth = true;
+                vlg.childControlHeight = false;
+                vlg.childForceExpandWidth = true;
+                vlg.childForceExpandHeight = false;
+
+                ContentSizeFitter csf = contentObj.AddComponent<ContentSizeFitter>();
+                csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+                contentT = contentObj.transform;
+            }
+
+            sr.viewport = viewT.GetComponent<RectTransform>();
+            sr.content = contentT.GetComponent<RectTransform>();
+
+            // If AllyText is directly under banner, move it to Content and hide the static placeholder
+            Transform textT = bannerT.Find("AllyText");
+            if (textT != null)
+            {
+                textT.SetParent(contentT, false);
+                textT.gameObject.SetActive(false);
+            }
+
+            allyAlertScrollRect = sr;
+            allyAlertContent = contentT;
+            Debug.Log($"[DeathUI] Auto-discovered and wired existing '{bannerT.name}' into ally alert feed!");
+        }
+        else
+        {
+            BuildDefaultAllyAlertFeed();
+        }
     }
 
     private void OnDestroy()
