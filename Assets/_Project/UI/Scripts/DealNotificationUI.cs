@@ -9,7 +9,19 @@ using UnityEngine.InputSystem;
 /// </summary>
 public class DealNotificationUI : MonoBehaviour
 {
-    public static DealNotificationUI Instance { get; private set; }
+    private static DealNotificationUI _instance;
+    public static DealNotificationUI Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                _instance = FindFirstObjectByType<DealNotificationUI>(FindObjectsInactive.Include);
+            }
+            return _instance;
+        }
+        private set => _instance = value;
+    }
 
     [Header("UI References")]
     public GameObject panel;
@@ -28,19 +40,36 @@ public class DealNotificationUI : MonoBehaviour
 
     private CanvasGroup _canvasGroup;
 
+    [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
+    private static void EnsureActiveAndHidden()
+    {
+        var found = FindFirstObjectByType<DealNotificationUI>(FindObjectsInactive.Include);
+        if (found != null)
+        {
+            _instance = found;
+            // Activate the GameObject in the hierarchy so Awake runs and listeners hook up,
+            // but keep it visually hidden via CanvasGroup until a deal is offered!
+            found.gameObject.SetActive(true);
+            found.SetVisible(false);
+        }
+    }
+
     private void Awake()
     {
-        if (Instance != null && Instance != this)
+        if (_instance != null && _instance != this)
         {
             Destroy(gameObject);
             return;
         }
-        Instance = this;
+        _instance = this;
 
-        _canvasGroup = GetComponent<CanvasGroup>();
         if (_canvasGroup == null)
         {
-            _canvasGroup = gameObject.AddComponent<CanvasGroup>();
+            _canvasGroup = GetComponent<CanvasGroup>();
+            if (_canvasGroup == null)
+            {
+                _canvasGroup = gameObject.AddComponent<CanvasGroup>();
+            }
         }
 
         if (acceptButton != null) acceptButton.onClick.AddListener(OnAcceptClicked);
@@ -51,11 +80,20 @@ public class DealNotificationUI : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (Instance == this) Instance = null;
+        if (_instance == this) _instance = null;
     }
 
     private void SetVisible(bool visible)
     {
+        if (_canvasGroup == null)
+        {
+            _canvasGroup = GetComponent<CanvasGroup>();
+            if (_canvasGroup == null)
+            {
+                _canvasGroup = gameObject.AddComponent<CanvasGroup>();
+            }
+        }
+
         if (_canvasGroup != null)
         {
             _canvasGroup.alpha = visible ? 1f : 0f;
@@ -63,13 +101,10 @@ public class DealNotificationUI : MonoBehaviour
             _canvasGroup.blocksRaycasts = visible;
         }
 
-        if (panel != null && panel != gameObject)
-        {
-            panel.SetActive(visible);
-        }
-
         if (visible)
         {
+            gameObject.SetActive(true);
+            if (panel != null) panel.SetActive(true);
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
         }
@@ -91,7 +126,12 @@ public class DealNotificationUI : MonoBehaviour
         if (termsText != null) termsText.text = terms;
         if (rewardText != null) rewardText.text = $"REWARD: {reward}";
 
+        // Crucial: Make sure the GameObject itself is ACTIVE in the hierarchy!
+        gameObject.SetActive(true);
+        if (panel != null) panel.SetActive(true);
+
         SetVisible(true);
+        Debug.Log($"[DealNotificationUI] Displaying deal '{title}' from {senderId} to local player!");
     }
 
     private void Update()

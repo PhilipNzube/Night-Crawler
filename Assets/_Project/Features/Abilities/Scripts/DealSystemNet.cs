@@ -157,9 +157,15 @@ public class DealSystemNet : MonoBehaviour
     {
         if (targetClientId == NetworkManager.Singleton.LocalClientId)
         {
-            if (DealNotificationUI.Instance != null)
+            var notif = DealNotificationUI.Instance ?? FindFirstObjectByType<DealNotificationUI>(FindObjectsInactive.Include);
+            if (notif != null)
             {
-                DealNotificationUI.Instance.DisplayDealOffer(senderId, title, terms, reward, grantWeapon);
+                notif.gameObject.SetActive(true);
+                notif.DisplayDealOffer(senderId, title, terms, reward, grantWeapon);
+            }
+            else
+            {
+                Debug.LogError("[DealSystemNet] DealNotificationUI not found when delivering to local player!");
             }
         }
         else if (NetworkManager.Singleton.ConnectedClients.ContainsKey(targetClientId))
@@ -172,6 +178,7 @@ public class DealSystemNet : MonoBehaviour
             writer.WriteValueSafe(grantWeapon);
 
             NetworkManager.Singleton.CustomMessagingManager.SendNamedMessage(MSG_DELIVER_OFFER, targetClientId, writer);
+            Debug.Log($"[DealSystemNet] Sent MSG_DELIVER_OFFER to client {targetClientId}");
         }
         else
         {
@@ -199,13 +206,15 @@ public class DealSystemNet : MonoBehaviour
         reader.ReadValueSafe(out bool grantWeapon);
 
         Debug.Log($"[DealSystemNet] Received deal offer from {girlSenderId}: '{title}'");
-        if (DealNotificationUI.Instance != null)
+        var notif = DealNotificationUI.Instance ?? FindFirstObjectByType<DealNotificationUI>(FindObjectsInactive.Include);
+        if (notif != null)
         {
-            DealNotificationUI.Instance.DisplayDealOffer(girlSenderId, title, terms, reward, grantWeapon);
+            notif.gameObject.SetActive(true);
+            notif.DisplayDealOffer(girlSenderId, title, terms, reward, grantWeapon);
         }
         else
         {
-            Debug.LogWarning("[DealSystemNet] DealNotificationUI.Instance is null when delivering offer!");
+            Debug.LogError("[DealSystemNet] DealNotificationUI could not be found anywhere in the scene!");
         }
     }
 
