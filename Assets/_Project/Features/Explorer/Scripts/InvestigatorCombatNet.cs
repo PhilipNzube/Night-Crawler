@@ -55,6 +55,62 @@ public class InvestigatorCombatNet : NetworkBehaviour
         _audioSource.volume = 1f;
 
         CacheAnimatorParameters();
+        AutoBindWeaponVisuals();
+    }
+
+    private void AutoBindWeaponVisuals()
+    {
+        if (axeVisual == null)
+        {
+            var allTransforms = GetComponentsInChildren<Transform>(true);
+            foreach (var t in allTransforms)
+            {
+                if (t != null && t != transform && (t.name.ToLower().Contains("axe") || t.name.ToLower().Contains("pickaxe")))
+                {
+                    axeVisual = t.gameObject;
+                    break;
+                }
+            }
+
+            if (axeVisual == null && _animator != null && _animator.isHuman)
+            {
+                var rHand = _animator.GetBoneTransform(HumanBodyBones.RightHand);
+                if (rHand != null)
+                {
+                    var handChildren = rHand.GetComponentsInChildren<Transform>(true);
+                    foreach (var c in handChildren)
+                    {
+                        if (c != rHand && c.GetComponent<Renderer>() != null)
+                        {
+                            axeVisual = c.gameObject;
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        if (axeStats == null)
+        {
+            var stats = Resources.FindObjectsOfTypeAll<WeaponStats>();
+            foreach (var s in stats)
+            {
+                if (s != null && (s.name.ToLower().Contains("axe") || s.name.ToLower().Contains("pick") || !s.isRanged))
+                {
+                    axeStats = s;
+                    break;
+                }
+            }
+            if (axeStats == null)
+            {
+                axeStats = ScriptableObject.CreateInstance<WeaponStats>();
+                axeStats.weaponName = "Heavy Pickaxe";
+                axeStats.isRanged = false;
+                axeStats.damage = 35f;
+                axeStats.fireRate = 0.8f;
+                axeStats.meleeRadius = 2.5f;
+            }
+        }
     }
 
     [Header("Starting Weapon")]
