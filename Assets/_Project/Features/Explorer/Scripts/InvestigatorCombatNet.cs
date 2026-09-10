@@ -86,6 +86,21 @@ public class InvestigatorCombatNet : NetworkBehaviour
                             break;
                         }
                     }
+
+                    // If character has no axe model attached (e.g. Medic), instantiate default axe_Bloody
+                    if (axeVisual == null)
+                    {
+                        var axePrefab = Resources.Load<GameObject>("axe_Bloody");
+                        if (axePrefab != null)
+                        {
+                            axeVisual = Instantiate(axePrefab, rHand);
+                            axeVisual.name = "axe_Bloody";
+                            axeVisual.transform.localPosition = new Vector3(0.208f, -0.03f, 0.146f);
+                            axeVisual.transform.localRotation = Quaternion.Euler(3.902f, -85f, 4.435f);
+                            axeVisual.transform.localScale = Vector3.one;
+                            Debug.Log($"[InvestigatorCombatNet] Instantiated default axe_Bloody for {gameObject.name}");
+                        }
+                    }
                 }
             }
         }
@@ -117,6 +132,12 @@ public class InvestigatorCombatNet : NetworkBehaviour
     [Tooltip("If true, starts with melee weapon in hand. By default, only the Miner starts armed.")]
     public bool startArmed = false;
 
+    [Header("Weapon Inventory")]
+    [Tooltip("Tracks whether this investigator currently carries/unlocked a weapon.")]
+    public bool hasUnlockedWeapon = false;
+
+    public bool IsMiner => startArmed || gameObject.name.ToLower().Contains("miner") || gameObject.name.ToLower().Contains("worker");
+
     public bool HasWeapon => currentWeaponIndex.Value >= 0;
 
     public override void OnNetworkSpawn()
@@ -126,14 +147,14 @@ public class InvestigatorCombatNet : NetworkBehaviour
 
         if (IsOwner)
         {
-            // Detect if this character is the Mine Worker
-            bool isMiner = startArmed || gameObject.name.ToLower().Contains("miner") || gameObject.name.ToLower().Contains("worker");
-            if (isMiner)
+            if (IsMiner)
             {
-                SwitchWeapon(0); // Miner starts with Axe
+                hasUnlockedWeapon = true;
+                SwitchWeapon(0); // Miner always starts with pickaxe
             }
             else
             {
+                hasUnlockedWeapon = false;
                 SwitchWeapon(-1); // Other investigators start unarmed
             }
         }
@@ -160,13 +181,47 @@ public class InvestigatorCombatNet : NetworkBehaviour
     }
 
     /// <summary>
-    /// Grants the melee axe weapon (e.g. from accepting a deal with the Girl).
+    /// Grants and equips the melee axe weapon (e.g. from accepting a deal with the Girl or looting).
+    /// Safe to invoke from server (routes via ClientRpc) or directly on the owner client.
     /// </summary>
     public void GrantMeleeWeapon()
     {
-        if (currentWeaponIndex.Value < 0)
+        hasUnlockedWeapon = true;
+        if (IsServer && !IsOwner)
+        {
+            GrantMeleeWeaponClientRpc();
+        }
+        else if (IsOwner)
         {
             SwitchWeapon(0);
+        }
+    }
+
+    [ClientRpc]
+    public void GrantMeleeWeaponClientRpc()
+    {
+        hasUnlockedWeapon = true;
+        if (IsOwner)
+        {
+            SwitchWeapon(0);
+        }
+    }
+
+    /// <summary>
+    /// Holsters or draws the melee weapon. The Miner is NOT allowed to hide their pickaxe.
+    /// </summary>
+    public void ToggleWeaponHide()
+    {
+        if (IsMiner) return; // Miner cannot hide weapons
+        if (!hasUnlockedWeapon) return;
+
+        if (currentWeaponIndex.Value >= 0)
+        {
+            SwitchWeapon(-1); // Holster / hide weapon
+        }
+        else
+        {
+            SwitchWeapon(0);  // Draw / unhide weapon
         }
     }
 
@@ -176,21 +231,51 @@ public class InvestigatorCombatNet : NetworkBehaviour
 
         if (_attackTimer > 0) _attackTimer -= Time.deltaTime;
 
-        // Weapon switching (1 = Axe, 2 = Gun) — only if armed or switching
-        if (Keyboard.current.digit1Key != null && Keyboard.current.digit1Key.wasPressedThisFrame && HasWeapon) SwitchWeapon(0);
-        if (Keyboard.current.digit2Key != null && Keyboard.current.digit2Key.wasPressedThisFrame && HasWeapon) SwitchWeapon(1);
+        // Weapon hide/holster toggle [X] — only non-miners can hide
+        if (Keyboard.current != null && Keyboard.current.xKey != null && Keyboard.current.xKey.wasPressedThisFrame)
+        {
+            ToggleWeaponHide();
+        }
 
-        // Attack (Left Click)
+        // Weapon draw/toggle [1]
+        if (Keyboard.current != null && Keyboard.current.digit1Key != null && Keyboard.current.digit1Key.wasPressedThisFrame)
+        {
+            if (currentWeaponIndex.Value == 0 && !IsMiner)
+            {
+                SwitchWeapon(-1); // Holster if already equipped
+            }
+            else if (hasUnlockedWeapon)
+            {
+                SwitchWeapon(0);  // Draw axe
+            }
+        }
+
+        // Weapon draw/switch [2] (Gun)
+        if (Keyboard.current != null && Keyboard.current.digit2Key != null && Keyboard.current.digit2Key.wasPressedThisFrame && HasWeapon)
+        {
+            SwitchWeapon(1);
+        }
+
+        // Attack (Left Click) — suppressed if clicking over UI or if weapon is hidden
         if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame && _attackTimer <= 0 && !_isReloading)
         {
-            if (HasWeapon)
+            if (UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
+            {
+                return;
+            }
+            if (DealNotificationUI.Instance != null && DealNotificationUI.Instance.IsActive)
+            {
+                return;
+            }
+
+            if (HasWeapon && currentWeaponIndex.Value >= 0)
             {
                 PerformAttack();
             }
         }
 
         // Reload (R - Gun only)
-        if (Keyboard.current.rKey != null && Keyboard.current.rKey.wasPressedThisFrame && currentWeaponIndex.Value == 1 && !_isReloading)
+        if (Keyboard.current != null && Keyboard.current.rKey != null && Keyboard.current.rKey.wasPressedThisFrame && currentWeaponIndex.Value == 1 && !_isReloading)
         {
             StartCoroutine(ReloadRoutine());
         }
@@ -205,6 +290,10 @@ public class InvestigatorCombatNet : NetworkBehaviour
         {
             SafeSetInteger(_weaponIdHash, index);
             SafeSetTrigger(_switchWeaponHash);
+        }
+        else
+        {
+            SafeSetInteger(_weaponIdHash, -1);
         }
 
         if (index == 1 && gunStats != null)

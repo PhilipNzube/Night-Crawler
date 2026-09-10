@@ -93,8 +93,12 @@ public class DealNotificationUI : MonoBehaviour
         if (_instance == this) _instance = null;
     }
 
+    public bool IsActive => _isActive;
+
     private void SetVisible(bool visible)
     {
+        _isActive = visible;
+
         if (_canvasGroup == null)
         {
             _canvasGroup = GetComponent<CanvasGroup>();
@@ -115,13 +119,33 @@ public class DealNotificationUI : MonoBehaviour
         {
             gameObject.SetActive(true);
             if (panel != null) panel.SetActive(true);
+
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
+
+            SetPlayerLookInputs(false);
         }
         else
         {
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
+
+            SetPlayerLookInputs(true);
+        }
+    }
+
+    private void SetPlayerLookInputs(bool allowLookAndLock)
+    {
+        if (Unity.Netcode.NetworkManager.Singleton != null &&
+            Unity.Netcode.NetworkManager.Singleton.LocalClient != null &&
+            Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject != null)
+        {
+            var inputs = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject.GetComponent<StarterAssets.StarterAssetsInputs>();
+            if (inputs != null)
+            {
+                inputs.cursorLocked = allowLookAndLock;
+                inputs.cursorInputForLook = allowLookAndLock;
+            }
         }
     }
 
@@ -130,7 +154,6 @@ public class DealNotificationUI : MonoBehaviour
         _currentGirlSenderId = senderId;
         _grantWeapon = grantWeapon;
         _timer = timeoutSeconds;
-        _isActive = true;
 
         if (titleText != null) titleText.text = title;
         if (termsText != null) termsText.text = terms;
@@ -141,12 +164,23 @@ public class DealNotificationUI : MonoBehaviour
         if (panel != null) panel.SetActive(true);
 
         SetVisible(true);
-        Debug.Log($"[DealNotificationUI] Displaying deal '{title}' from {senderId} to local player!");
+        Debug.Log($"[DealNotificationUI] Displaying deal '{title}' from {senderId} to local player! (grantWeapon={grantWeapon})");
     }
 
     private void Update()
     {
         if (!_isActive || PauseManager.IsGamePaused) return;
+
+        // Force cursor to stay free and visible while this modal is active (prevents clicks from re-locking cursor)
+        if (Cursor.lockState != CursorLockMode.None)
+        {
+            Cursor.lockState = CursorLockMode.None;
+        }
+        if (!Cursor.visible)
+        {
+            Cursor.visible = true;
+        }
+        SetPlayerLookInputs(false);
 
         // Hotkeys [Y] Accept / [N] Decline
         if (Keyboard.current != null)
@@ -175,7 +209,23 @@ public class DealNotificationUI : MonoBehaviour
         if (!_isActive) return;
         _isActive = false;
 
-        Debug.Log($"[DealNotificationUI] Local player ACCEPTED deal from Girl {_currentGirlSenderId}");
+        Debug.Log($"[DealNotificationUI] Local player ACCEPTED deal from Girl {_currentGirlSenderId} (grantWeapon={_grantWeapon})");
+
+        // Immediately grant and equip weapon on the local investigator character if requested
+        if (_grantWeapon)
+        {
+            if (Unity.Netcode.NetworkManager.Singleton != null &&
+                Unity.Netcode.NetworkManager.Singleton.LocalClient != null &&
+                Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject != null)
+            {
+                var combat = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject.GetComponent<InvestigatorCombatNet>();
+                if (combat != null)
+                {
+                    combat.GrantMeleeWeapon();
+                }
+            }
+        }
+
         if (DealSystemNet.Instance != null)
         {
             DealSystemNet.Instance.RespondToDeal(_currentGirlSenderId, true, _grantWeapon);
