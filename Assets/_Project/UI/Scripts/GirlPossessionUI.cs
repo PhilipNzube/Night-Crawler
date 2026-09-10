@@ -27,7 +27,6 @@ public class GirlPossessionUI : MonoBehaviour
 
     [Header("Action Buttons")]
     public Button possessButton;
-    public Button releaseButton;
     public Button closeButton;
 
     [Header("Hotkeys")]
@@ -54,7 +53,6 @@ public class GirlPossessionUI : MonoBehaviour
         }
 
         if (possessButton != null) possessButton.onClick.AddListener(OnPossessClicked);
-        if (releaseButton != null) releaseButton.onClick.AddListener(OnReleaseClicked);
         if (closeButton != null) closeButton.onClick.AddListener(CloseUI);
 
         // Auto-build visual UI if unassigned in Inspector
@@ -231,7 +229,6 @@ public class GirlPossessionUI : MonoBehaviour
 
         // Update button states depending on whether girl is already possessing someone
         if (possessButton != null) possessButton.gameObject.SetActive(!isAlreadyPossessing);
-        if (releaseButton != null) releaseButton.gameObject.SetActive(isAlreadyPossessing);
     }
 
     private void UpdateTimeBankDisplay()
@@ -438,33 +435,6 @@ public class GirlPossessionUI : MonoBehaviour
         btnTxt.fontStyle = FontStyles.Bold;
         btnTxt.color = Color.white;
 
-        // Release Button (initially hidden)
-        GameObject relObj = new GameObject("ReleaseButton");
-        relObj.transform.SetParent(panelObj.transform, false);
-        RectTransform relRt = relObj.AddComponent<RectTransform>();
-        relRt.anchorMin = new Vector2(0.5f, 0f);
-        relRt.anchorMax = new Vector2(0.5f, 0f);
-        relRt.pivot = new Vector2(0.5f, 0f);
-        relRt.anchoredPosition = new Vector2(0f, 50f);
-        relRt.sizeDelta = new Vector2(280f, 42f);
-
-        Image relImg = relObj.AddComponent<Image>();
-        relImg.color = new Color(0.3f, 0.3f, 0.35f, 1f);
-        releaseButton = relObj.AddComponent<Button>();
-        releaseButton.onClick.AddListener(OnReleaseClicked);
-
-        GameObject relTxtObj = new GameObject("Text");
-        relTxtObj.transform.SetParent(relObj.transform, false);
-        RectTransform rltRt = relTxtObj.AddComponent<RectTransform>();
-        rltRt.anchorMin = Vector2.zero;
-        rltRt.anchorMax = Vector2.one;
-        TextMeshProUGUI relTxt = relTxtObj.AddComponent<TextMeshProUGUI>();
-        relTxt.text = "RELEASE BODY";
-        relTxt.alignment = TextAlignmentOptions.Center;
-        relTxt.fontSize = 16f;
-        relTxt.fontStyle = FontStyles.Bold;
-        relTxt.color = Color.white;
-        relObj.SetActive(false);
 
         // Close Button [X]
         GameObject closeObj = new GameObject("CloseButton");

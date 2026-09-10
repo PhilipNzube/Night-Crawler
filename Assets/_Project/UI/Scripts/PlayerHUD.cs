@@ -222,7 +222,18 @@ public class PlayerHUD : MonoBehaviour
         }
 
         _isBound = true;
-        SetWaitingState(false);
+        // Ensure auxiliary HUD overlays (Corpse looting prompt, Blood damage vignette) are active
+        var corpseHUD = GetComponentInChildren<CorpseInteractionHUD>(true);
+        if (corpseHUD != null && !corpseHUD.gameObject.activeSelf)
+        {
+            corpseHUD.gameObject.SetActive(true);
+        }
+
+        var bloodOverlay = FindFirstObjectByType<BloodScreenOverlay>(FindObjectsInactive.Include);
+        if (bloodOverlay != null && !bloodOverlay.gameObject.activeSelf)
+        {
+            bloodOverlay.gameObject.SetActive(true);
+        }
 
         // Immediately initialize health bar UI
         RefreshHealth();
@@ -314,14 +325,22 @@ public class PlayerHUD : MonoBehaviour
 
         if (healthFill != null)
         {
-            // Bloodlines UI Slider 5 uses a Filled Image (Horizontal) to represent fill amount
-            if (healthFill.type == Image.Type.Filled)
+            // Crucial: If healthSlider is already resizing fillRect, keep fillAmount at 1.0.
+            // Setting both healthSlider.value and healthFill.fillAmount squares the reduction (fraction * fraction),
+            // making the health bar look completely empty when the player still had 25-30% HP remaining!
+            if (healthSlider != null && healthSlider.fillRect == healthFill.rectTransform)
+            {
+                if (healthFill.type == Image.Type.Filled)
+                {
+                    healthFill.fillAmount = 1f;
+                }
+            }
+            else if (healthSlider == null && healthFill.type == Image.Type.Filled)
             {
                 healthFill.fillAmount = displayFraction;
             }
 
             // Tint health bar: Bloodlines UI textures are already blood-red.
-            // Tinting with Color.green zeroes out red pixels, making the bar black (invisible/empty) at 100% health!
             if (tintHealthBarWithColor)
             {
                 healthFill.color = Color.Lerp(Color.red, Color.green, fraction);

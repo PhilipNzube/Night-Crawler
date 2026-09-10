@@ -9,10 +9,25 @@ using TMPro;
 /// ally death notification support.
 /// Includes dynamic runtime UI generation so it works out-of-the-box even before
 /// the designer manually wires elements in the Inspector.
-/// </summary>
 public class DeathUI : MonoBehaviour
 {
-    public static DeathUI Instance { get; private set; }
+    private static DeathUI _instance;
+    public static DeathUI Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                _instance = FindFirstObjectByType<DeathUI>(FindObjectsInactive.Include);
+                if (_instance != null && !_instance.gameObject.activeInHierarchy)
+                {
+                    _instance.gameObject.SetActive(true);
+                }
+            }
+            return _instance;
+        }
+        private set => _instance = value;
+    }
 
     [Header("Death Screen UI (Local Victim)")]
     [Tooltip("Root GameObject or panel for the local death screen.")]

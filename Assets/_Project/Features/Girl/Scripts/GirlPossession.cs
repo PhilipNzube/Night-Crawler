@@ -178,23 +178,101 @@ public class GirlPossession : NetworkBehaviour
         }
     }
 
+    private Transform _flightAnchor;
+
+    private Transform GetFlightAnchor()
+    {
+        if (_flightAnchor == null)
+        {
+            var go = new GameObject("GhostCameraFlightAnchor");
+            _flightAnchor = go.transform;
+        }
+        return _flightAnchor;
+    }
+
+    private IEnumerator GhostCameraFlightRoutine(Vector3 startPos, Transform endTarget, float duration, System.Action onComplete)
+    {
+        Transform anchor = GetFlightAnchor();
+        anchor.position = startPos;
+        anchor.rotation = Quaternion.identity;
+
+        if (vcam != null)
+        {
+            vcam.Follow = anchor;
+            vcam.LookAt = anchor;
+        }
+
+        float elapsed = 0f;
+        while (elapsed < duration)
+        {
+            elapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(elapsed / duration);
+
+            // Smooth cubic ease-in-out curve
+            float ease = t < 0.5f ? 4f * t * t * t : 1f - Mathf.Pow(-2f * t + 2f, 3f) / 2f;
+
+            Vector3 targetPos = endTarget != null ? endTarget.position : startPos;
+            Vector3 currentPos = Vector3.Lerp(startPos, targetPos, ease);
+
+            // Arched ghost trajectory (peaks slightly upward in flight)
+            float arc = Mathf.Sin(t * Mathf.PI) * 2.2f;
+            currentPos.y += arc;
+
+            anchor.position = currentPos;
+            yield return null;
+        }
+
+        if (vcam != null && endTarget != null)
+        {
+            vcam.Follow = endTarget;
+            vcam.LookAt = endTarget;
+        }
+
+        onComplete?.Invoke();
+    }
+
     private IEnumerator PossessSequence(IPossessable target)
     {
         _currentTarget = target;
         if (_matCtrl != null) _matCtrl.SetManifested(false);
-        yield return new WaitForSeconds(0.2f);
 
-        if (vcam != null)
+        Vector3 startPos = _girlCameraRoot != null ? _girlCameraRoot.position : transform.position + Vector3.up * 1.5f;
+        Transform targetCamera = target.GetCameraTarget();
+
+        // 1. Ghost camera flies swiftly towards the target (~0.65s)
+        bool flightDone = false;
+        StartCoroutine(GhostCameraFlightRoutine(startPos, targetCamera, 0.65f, () => flightDone = true));
+
+        while (!flightDone)
         {
-            vcam.Follow = target.GetCameraTarget();
-            vcam.LookAt = target.GetCameraTarget();
+            yield return null;
         }
 
+        // 2. Attach control to victim
         target.Possess(this);
 
         _controller.enabled = false;
         if (_starterAssets != null) _starterAssets.enabled = false;
         ToggleRenderers(false);
+
+        // 3. Show active on-display HUD for the Girl
+        string victimName = "Investigator";
+        var comp = target as Component;
+        if (comp != null)
+        {
+            var no = comp.GetComponent<NetworkObject>();
+            if (no != null)
+            {
+                victimName = GirlRevealManager.GetRegisteredPlayerName(no.OwnerClientId);
+                if (string.IsNullOrEmpty(victimName)) victimName = PlayerNameManager.GetPlayerName(no.OwnerClientId);
+                if (string.IsNullOrEmpty(victimName)) victimName = comp.gameObject.name.Replace("(Clone)", "").Trim();
+            }
+        }
+
+        if (PossessionActiveHUD.Instance != null)
+        {
+            PossessionActiveHUD.Instance.Show(victimName, this);
+        }
     }
 
     [Rpc(SendTo.Server)]
@@ -262,18 +340,37 @@ public class GirlPossession : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void ReturnToSpiritFormClientRpc(Vector3 returnPosition)
     {
-        transform.position = returnPosition;
-        ToggleRenderers(true);
-        _controller.enabled = true;
-
-        if (vcam != null)
+        if (PossessionActiveHUD.Instance != null)
         {
-            vcam.Follow = _girlCameraRoot;
-            vcam.LookAt = _girlCameraRoot;
-            vcam.OnTargetObjectWarped(_girlCameraRoot, Vector3.zero);
+            PossessionActiveHUD.Instance.Hide();
         }
 
-        if (_starterAssets != null) _starterAssets.enabled = true;
+        if (IsOwner)
+        {
+            Transform startTarget = _currentTarget != null ? _currentTarget.GetCameraTarget() : null;
+            Vector3 startPos = startTarget != null ? startTarget.position : returnPosition;
+
+            transform.position = returnPosition;
+            ToggleRenderers(true);
+
+            StartCoroutine(GhostCameraFlightRoutine(startPos, _girlCameraRoot, 0.65f, () =>
+            {
+                _controller.enabled = true;
+                if (_starterAssets != null) _starterAssets.enabled = true;
+                if (vcam != null && _girlCameraRoot != null)
+                {
+                    vcam.Follow = _girlCameraRoot;
+                    vcam.LookAt = _girlCameraRoot;
+                    vcam.OnTargetObjectWarped(_girlCameraRoot, Vector3.zero);
+                }
+            }));
+        }
+        else
+        {
+            transform.position = returnPosition;
+            ToggleRenderers(true);
+            _controller.enabled = true;
+        }
 
         if (_matCtrl != null)
         {

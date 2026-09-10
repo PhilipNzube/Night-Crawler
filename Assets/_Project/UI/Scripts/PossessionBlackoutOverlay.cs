@@ -7,7 +7,23 @@ using TMPro;
 /// </summary>
 public class PossessionBlackoutOverlay : MonoBehaviour
 {
-    public static PossessionBlackoutOverlay Instance { get; private set; }
+    private static PossessionBlackoutOverlay _instance;
+    public static PossessionBlackoutOverlay Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                _instance = FindFirstObjectByType<PossessionBlackoutOverlay>(FindObjectsInactive.Include);
+                if (_instance != null && !_instance.gameObject.activeInHierarchy)
+                {
+                    _instance.gameObject.SetActive(true);
+                }
+            }
+            return _instance;
+        }
+        private set => _instance = value;
+    }
 
     [Header("UI References")]
     public CanvasGroup blackoutCanvasGroup;

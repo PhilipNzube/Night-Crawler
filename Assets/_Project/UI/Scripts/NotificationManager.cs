@@ -8,7 +8,23 @@ using TMPro;
 /// </summary>
 public class NotificationManager : MonoBehaviour
 {
-    public static NotificationManager Instance { get; private set; }
+    private static NotificationManager _instance;
+    public static NotificationManager Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                _instance = FindFirstObjectByType<NotificationManager>(FindObjectsInactive.Include);
+                if (_instance != null && !_instance.gameObject.activeInHierarchy)
+                {
+                    _instance.gameObject.SetActive(true);
+                }
+            }
+            return _instance;
+        }
+        private set => _instance = value;
+    }
 
     [Header("UI References")]
     [Tooltip("Text component to show the message.")]

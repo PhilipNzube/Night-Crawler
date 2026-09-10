@@ -118,7 +118,7 @@ public class SuffocationSystemNet : NetworkBehaviour
             float damageThisTick = damagePerSecond * _damageInterval;
 
             // If remaining health is very low (at or near 0), execute immediate lethal kill
-            if (_healthSystem.CurrentHealth <= damageThisTick * 1.25f)
+            if (_healthSystem.CurrentHealth <= Mathf.Max(2.5f, damageThisTick * 1.25f))
             {
                 _healthSystem.TakeDamage(9999f);
                 if (_targetHealth != null) _targetHealth.TakeDamage(9999f);
