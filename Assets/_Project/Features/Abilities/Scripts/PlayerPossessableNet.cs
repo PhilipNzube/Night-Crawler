@@ -47,54 +47,7 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
 
     private void HandlePossessionChanged(bool previous, bool current)
     {
-        ulong localId = NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 999999;
-        bool isLocalVictim = (IsOwner && !isPossessed.Value) || (originalOwnerClientId.Value == localId);
-
-        if (isLocalVictim || IsOwner)
-        {
-            if (current)
-            {
-                // Lock victim inputs
-                if (_thirdPersonController != null) _thirdPersonController.enabled = false;
-                if (_combatNet != null) _combatNet.enabled = false;
-
-                if (PossessionBlackoutOverlay.Instance != null)
-                {
-                    PossessionBlackoutOverlay.Instance.SetBlackout(true);
-                }
-
-                // Check if this character is a Priest with Exorcism capability
-                bool isPriest = (TryGetComponent<PriestExorcismNet>(out var priest) && priest.isUnlocked) 
-                             || gameObject.name.ToLower().Contains("priest");
-
-                if (isPriest)
-                {
-                    if (_priestRejectionCoroutine != null) StopCoroutine(_priestRejectionCoroutine);
-                    _priestRejectionCoroutine = StartCoroutine(PriestRejectionWindowRoutine(4.0f));
-                }
-                else
-                {
-                    NotifyPossessionAcceptedServerRpc();
-                }
-            }
-            else
-            {
-                if (_priestRejectionCoroutine != null)
-                {
-                    StopCoroutine(_priestRejectionCoroutine);
-                    _priestRejectionCoroutine = null;
-                }
-
-                // Restore victim inputs
-                if (_thirdPersonController != null) _thirdPersonController.enabled = true;
-                if (_combatNet != null) _combatNet.enabled = true;
-
-                if (PossessionBlackoutOverlay.Instance != null)
-                {
-                    PossessionBlackoutOverlay.Instance.SetBlackout(false);
-                }
-            }
-        }
+        // Network state synced. Specific UI/controls handled via targeted RPCs
     }
 
     private System.Collections.IEnumerator PriestRejectionWindowRoutine(float windowDuration)
@@ -238,24 +191,33 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
     public override void OnLostOwnership()
     {
         base.OnLostOwnership();
+
+        bool isVictim = NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == originalOwnerClientId.Value;
+
         if (isPossessed.Value)
         {
             // Victim lost control to Girl
-            if (_thirdPersonController != null) _thirdPersonController.enabled = false;
-            if (_combatNet != null) _combatNet.enabled = false;
-            if (PossessionBlackoutOverlay.Instance != null)
+            if (isVictim)
             {
-                PossessionBlackoutOverlay.Instance.SetBlackout(true);
+                if (_thirdPersonController != null) _thirdPersonController.enabled = false;
+                if (_combatNet != null) _combatNet.enabled = false;
+                if (PossessionBlackoutOverlay.Instance != null)
+                {
+                    PossessionBlackoutOverlay.Instance.SetBlackout(true);
+                }
             }
         }
         else
         {
             // Restored to victim
-            if (_thirdPersonController != null) _thirdPersonController.enabled = true;
-            if (_combatNet != null) _combatNet.enabled = true;
-            if (PossessionBlackoutOverlay.Instance != null)
+            if (isVictim)
             {
-                PossessionBlackoutOverlay.Instance.SetBlackout(false);
+                if (_thirdPersonController != null) _thirdPersonController.enabled = true;
+                if (_combatNet != null) _combatNet.enabled = true;
+                if (PossessionBlackoutOverlay.Instance != null)
+                {
+                    PossessionBlackoutOverlay.Instance.SetBlackout(false);
+                }
             }
         }
     }
@@ -269,7 +231,8 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         _activeGirlRef = girl;
         if (IsServer)
         {
-            originalOwnerClientId.Value = OwnerClientId;
+            ulong victimId = OwnerClientId;
+            originalOwnerClientId.Value = victimId;
             isPossessed.Value = true;
             possessingClientId.Value = girl.OwnerClientId;
 
@@ -278,6 +241,39 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             {
                 netObj.ChangeOwnership(girl.OwnerClientId);
             }
+
+            NotifyVictimPossessedClientRpc(victimId);
+        }
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void NotifyVictimPossessedClientRpc(ulong victimClientId)
+    {
+        if (NetworkManager.Singleton == null) return;
+        // The Girl must NEVER receive victim blackout!
+        if (NetworkManager.Singleton.LocalClientId != victimClientId) return;
+
+        // Lock victim inputs
+        if (_thirdPersonController != null) _thirdPersonController.enabled = false;
+        if (_combatNet != null) _combatNet.enabled = false;
+
+        if (PossessionBlackoutOverlay.Instance != null)
+        {
+            PossessionBlackoutOverlay.Instance.SetBlackout(true);
+        }
+
+        // Check if this character is a Priest with Exorcism capability
+        bool isPriest = (TryGetComponent<PriestExorcismNet>(out var priest) && priest.isUnlocked) 
+                     || gameObject.name.ToLower().Contains("priest");
+
+        if (isPriest)
+        {
+            if (_priestRejectionCoroutine != null) StopCoroutine(_priestRejectionCoroutine);
+            _priestRejectionCoroutine = StartCoroutine(PriestRejectionWindowRoutine(4.0f));
+        }
+        else
+        {
+            NotifyPossessionAcceptedServerRpc();
         }
     }
 
@@ -357,8 +353,27 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
     public Transform GetCameraTarget()
     {
         if (cameraTarget != null) return cameraTarget;
-        Transform camRoot = transform.Find("PlayerCameraRoot");
-        return camRoot != null ? camRoot : transform;
+
+        if (TryGetComponent<StarterAssets.ThirdPersonController>(out var tpc) && tpc.CinemachineCameraTarget != null)
+        {
+            return tpc.CinemachineCameraTarget.transform;
+        }
+
+        foreach (var c in GetComponentsInChildren<Transform>(true))
+        {
+            if (c.name == "PlayerCameraRoot" || c.name == "CinemachineCameraTarget")
+                return c;
+        }
+
+        if (TryGetComponent<Animator>(out var anim) && anim.isHuman)
+        {
+            Transform head = anim.GetBoneTransform(HumanBodyBones.Head);
+            if (head != null) return head;
+            Transform chest = anim.GetBoneTransform(HumanBodyBones.Chest);
+            if (chest != null) return chest;
+        }
+
+        return transform;
     }
 
     /// <summary>

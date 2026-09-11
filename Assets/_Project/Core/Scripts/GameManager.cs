@@ -99,12 +99,6 @@ public class GameManager : NetworkBehaviour
 
         // Pre-cache overlay so EndMatch doesn't need a scene search
         _cachedOverlay = FindFirstObjectByType<MatchResultOverlay>(FindObjectsInactive.Include);
-
-        // Guarantee HostDisconnectUI is present so clients always get the disconnect overlay & return to lobby
-        if (GetComponent<HostDisconnectUI>() == null)
-        {
-            gameObject.AddComponent<HostDisconnectUI>();
-        }
     }
 
     public override void OnNetworkSpawn()

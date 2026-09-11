@@ -84,6 +84,10 @@ public class PossessionBlackoutOverlay : MonoBehaviour
                     {
                         subtitleText.text = promptStr;
                     }
+                    else if (possessMessageText != null)
+                    {
+                        possessMessageText.text = defaultMessage + "\n\n" + promptStr;
+                    }
                 }
                 else
                 {
@@ -107,6 +111,10 @@ public class PossessionBlackoutOverlay : MonoBehaviour
         {
             subtitleText.text = promptStr;
         }
+        else if (possessMessageText != null)
+        {
+            possessMessageText.text = defaultMessage + "\n\n" + promptStr;
+        }
     }
 
     public void HideRejectionPrompt()
@@ -120,10 +128,27 @@ public class PossessionBlackoutOverlay : MonoBehaviour
         {
             subtitleText.text = defaultSubtitle;
         }
+        else if (possessMessageText != null)
+        {
+            possessMessageText.text = defaultMessage;
+        }
     }
 
     public void SetBlackout(bool active, string customMessage = null)
     {
+        if (active)
+        {
+            // The Girl player must NEVER have a blackout screen!
+            if (Unity.Netcode.NetworkManager.Singleton != null && Unity.Netcode.NetworkManager.Singleton.LocalClient != null)
+            {
+                var localObj = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject;
+                if (localObj != null && (localObj.GetComponent<GirlPossession>() != null || localObj.name.ToLower().Contains("girl")))
+                {
+                    return;
+                }
+            }
+        }
+
         _isBlackoutActive = active;
 
         if (active)
