@@ -287,6 +287,11 @@ public class NetworkPlayer : NetworkBehaviour
     {
         if (playerInput == null || inputs == null) return;
 
+        playerInput.enabled = true;
+        inputs.enabled = true;
+        inputs.cursorLocked = true;
+        inputs.cursorInputForLook = true;
+
         // Switch notification behavior to C# events so broken serialized UnityEvents are ignored
         playerInput.notificationBehavior = PlayerNotifications.InvokeCSharpEvents;
         playerInput.defaultActionMap = "Player";

@@ -198,6 +198,13 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
     private void Die()
     {
         Debug.Log($"{gameObject.name} has died.");
+
+        // If possessed, immediately auto-exit possession!
+        if (TryGetComponent<PlayerPossessableNet>(out var possessable) && possessable.isPossessed.Value)
+        {
+            Debug.Log($"[TargetHealth] Possessed character {gameObject.name} died! Releasing possession immediately.");
+            possessable.Release();
+        }
         
         // Disable player tag, character controller, and name tag
         ApplyCorpseState();

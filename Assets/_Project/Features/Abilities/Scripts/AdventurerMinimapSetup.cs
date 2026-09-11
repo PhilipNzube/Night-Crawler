@@ -83,6 +83,36 @@ public class AdventurerMinimapSetup : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Activates or deactivates minimap when the Girl possesses or releases an Explorer.
+    /// </summary>
+    public static void OnPossessionChanged(GameObject possessedTarget, bool isPossessing)
+    {
+        if (Instance == null) return;
+
+        if (isPossessing && possessedTarget != null)
+        {
+            bool isAdv = Instance.CheckIfAdventurer(possessedTarget);
+            if (isAdv)
+            {
+                Instance.SetMinimapVisibility(true);
+                if (Instance.miniMapView != null)
+                {
+                    Instance.miniMapView.FollowCentered(possessedTarget.transform);
+                }
+            }
+            else
+            {
+                Instance.SetMinimapVisibility(false);
+            }
+        }
+        else
+        {
+            // Restore: Girl or non-adventurer should not see minimap
+            Instance.SetMinimapVisibility(false);
+        }
+    }
+
     private void Start()
     {
         // Start hidden via CanvasGroup until local player spawns and role is confirmed

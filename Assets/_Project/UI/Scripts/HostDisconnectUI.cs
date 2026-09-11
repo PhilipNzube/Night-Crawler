@@ -41,6 +41,19 @@ public class HostDisconnectUI : MonoBehaviour
     [Tooltip("Countdown text (e.g., 'Returning in 3s...').")]
     public TMP_Text countdownText;
 
+    [Header("Success / Victory UI (Optional)")]
+    [Tooltip("Optional dedicated Success panel. If unassigned, disconnectPanel or DeathUI will be used.")]
+    public GameObject successPanel;
+
+    [Tooltip("Optional title text for success panel.")]
+    public TMP_Text successTitleText;
+
+    [Tooltip("Optional subtitle text for success panel.")]
+    public TMP_Text successSubtitleText;
+
+    [Tooltip("Optional countdown text for success panel.")]
+    public TMP_Text successCountdownText;
+
     [Header("Settings")]
     public float returnDelaySeconds = 3.5f;
     public string lobbySceneName = "LobbyScene";
@@ -119,6 +132,86 @@ public class HostDisconnectUI : MonoBehaviour
         {
             Debug.Log($"[HostDisconnectUI] ClientDisconnectCallback fired for id={clientId}");
             TriggerHostDisconnect();
+        }
+    }
+
+    public void TriggerSuccessOverlay(string title, string subtitle, string countdownFormat, float delay = 5f)
+    {
+        if (_hasTriggered) return;
+        _hasTriggered = true;
+        StartCoroutine(SuccessRoutine(title, subtitle, countdownFormat, delay));
+    }
+
+    private IEnumerator SuccessRoutine(string title, string subtitle, string countdownFormat, float delay)
+    {
+        // 1. Send alert into AllyBanner feed
+        if (DeathUI.Instance != null)
+        {
+            DeathUI.Instance.AddAllyAlertEntry("<color=#00E676>|</color> [VICTORY] The Vengeful Spirit has fled. Investigators survive!", new Color(0f, 0.9f, 0.45f, 1f));
+        }
+
+        // 2. Unlock cursor
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+
+        // 3. Disable local player controls
+        DisableLocalPlayerControls();
+
+        // 4. Determine panel and text components
+        GameObject activePanel = successPanel != null ? successPanel : disconnectPanel;
+        TMP_Text titleComp = successTitleText != null ? successTitleText : titleText;
+        TMP_Text subComp = successSubtitleText != null ? successSubtitleText : subtitleText;
+        TMP_Text countComp = successCountdownText != null ? successCountdownText : countdownText;
+
+        if (activePanel != null)
+        {
+            activePanel.SetActive(true);
+            if (canvasGroup != null)
+            {
+                canvasGroup.alpha = 1f;
+                canvasGroup.blocksRaycasts = true;
+            }
+            if (titleComp != null)
+            {
+                titleComp.text = title;
+                titleComp.color = new Color(0.2f, 1f, 0.4f); // Victory Green
+            }
+            if (subComp != null)
+            {
+                subComp.text = subtitle;
+            }
+        }
+        else if (DeathUI.Instance != null)
+        {
+            DeathUI.Instance.ShowDeathScreen(title, subtitle);
+            if (DeathUI.Instance.deathCanvasGroup != null)
+            {
+                DeathUI.Instance.deathCanvasGroup.alpha = 1f;
+                DeathUI.Instance.deathCanvasGroup.blocksRaycasts = true;
+                DeathUI.Instance.deathCanvasGroup.interactable = true;
+            }
+        }
+
+        // 5. Live countdown loop
+        float remaining = delay;
+        while (remaining > 0f)
+        {
+            string countStr = string.Format(countdownFormat, Mathf.CeilToInt(remaining));
+            if (countComp != null)
+            {
+                countComp.text = countStr;
+            }
+            else if (subComp != null)
+            {
+                subComp.text = $"{subtitle}\n{countStr}";
+            }
+            else if (DeathUI.Instance != null && DeathUI.Instance.subtitleText != null)
+            {
+                DeathUI.Instance.subtitleText.text = $"{subtitle}\n{countStr}";
+            }
+
+            yield return new WaitForSecondsRealtime(1f);
+            remaining -= 1f;
         }
     }
 

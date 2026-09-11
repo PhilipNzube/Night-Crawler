@@ -68,6 +68,9 @@ public class PlayerHUD : MonoBehaviour
     [Tooltip("Displays current weapon name.")]
     public TextMeshProUGUI weaponText;
 
+    [Tooltip("Optional: Displays current healing vials count (e.g. 'VIALS  3').")]
+    public TextMeshProUGUI vialText;
+
     // -------------------------------------------------------------------------
     //  Inspector — Vengeful Spirit-Only Panel
     // -------------------------------------------------------------------------
@@ -94,6 +97,7 @@ public class PlayerHUD : MonoBehaviour
     private TargetHealth          _localHealth;
     private HealthSystem          _localHealthSys;
     private InvestigatorCombatNet _localCombat;
+    private HealingVialInventoryNet _localVials;
     private GirlStealth           _localStealth;
     private bool                  _isBound    = false;
     private bool                  _isDemon    = false;
@@ -102,10 +106,20 @@ public class PlayerHUD : MonoBehaviour
     // =========================================================================
     //  Unity Lifecycle
     // =========================================================================
-    private CanvasGroup           _hudCanvasGroup;
+    public static PlayerHUD Instance { get; private set; }
+
+    private CanvasGroup _hudCanvasGroup;
+    private bool _isPossessingOverride = false;
 
     void Awake()
     {
+        if (Instance != null && Instance != this)
+        {
+            Destroy(this);
+            return;
+        }
+        Instance = this;
+
         // Subscribe to pause events across the entire lifecycle so unpausing always works
         PauseManager.OnPauseStateChanged += SetHUDVisible;
 
@@ -129,6 +143,86 @@ public class PlayerHUD : MonoBehaviour
         {
             bloodScreenOverlay.gameObject.SetActive(true);
             Debug.Log("[PlayerHUD] Activated inactive BloodScreenOverlay on HUD Canvas.");
+        }
+    }
+
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
+        PauseManager.OnPauseStateChanged -= SetHUDVisible;
+        UnsubscribeHealthEvents();
+    }
+
+    /// <summary>
+    /// Swaps Player HUD from the Girl's view to the possessed Investigator's view
+    /// displaying their actual health bar, weapons, ammo, and role.
+    /// </summary>
+    public void BindToPossessedTarget(GameObject targetObj)
+    {
+        if (targetObj == null) return;
+        _isPossessingOverride = true;
+
+        UnsubscribeHealthEvents();
+
+        targetObj.TryGetComponent<HealthSystem>(out _localHealthSys);
+        targetObj.TryGetComponent<TargetHealth>(out _localHealth);
+        targetObj.TryGetComponent<InvestigatorCombatNet>(out _localCombat);
+        targetObj.TryGetComponent<HealingVialInventoryNet>(out _localVials);
+
+        if (_localHealthSys != null)
+        {
+            _maxHealth = _localHealthSys.MaxHealth > 0 ? _localHealthSys.MaxHealth : 100f;
+            _localHealthSys.OnHealthChanged += OnHealthSysChanged;
+        }
+        else if (_localHealth != null)
+        {
+            _maxHealth = _localHealth.MaxHealth;
+            _localHealth.currentHealth.OnValueChanged += OnTargetHealthChanged;
+            _localHealth.maxHealth.OnValueChanged     += OnTargetHealthChanged;
+        }
+
+        // Show investigator HUD, hide demon HUD
+        _isDemon = false;
+        if (explorerPanel != null) explorerPanel.SetActive(true);
+        if (demonPanel != null) demonPanel.SetActive(false);
+
+        // Turn on minimap if target is an Adventurer/Explorer
+        AdventurerMinimapSetup.OnPossessionChanged(targetObj, true);
+
+        string targetName = targetObj.name.Replace("(Clone)", "").Trim();
+        if (roleLabel != null)
+        {
+            roleLabel.text = $"<color=#B388FF>|</color> POSSESSING: {targetName.ToUpper()}";
+            roleLabel.color = new Color(0.7f, 0.4f, 1f);
+        }
+
+        RefreshHealth();
+    }
+
+    /// <summary>
+    /// Restores the Girl's native HUD when possession ends.
+    /// </summary>
+    public void RestoreGirlHUD()
+    {
+        if (!_isPossessingOverride) return;
+        _isPossessingOverride = false;
+
+        UnsubscribeHealthEvents();
+        AdventurerMinimapSetup.OnPossessionChanged(null, false);
+        _isBound = false;
+        TryBindToLocalPlayer();
+    }
+
+    private void UnsubscribeHealthEvents()
+    {
+        if (_localHealthSys != null)
+        {
+            _localHealthSys.OnHealthChanged -= OnHealthSysChanged;
+        }
+        if (_localHealth != null)
+        {
+            _localHealth.currentHealth.OnValueChanged -= OnTargetHealthChanged;
+            _localHealth.maxHealth.OnValueChanged     -= OnTargetHealthChanged;
         }
     }
 
@@ -195,6 +289,7 @@ public class PlayerHUD : MonoBehaviour
         localPlayer.TryGetComponent<HealthSystem>(out _localHealthSys);
         localPlayer.TryGetComponent<TargetHealth>(out _localHealth);
         localPlayer.TryGetComponent<InvestigatorCombatNet>(out _localCombat);
+        localPlayer.TryGetComponent<HealingVialInventoryNet>(out _localVials);
 
         if (_localHealthSys != null)
         {
@@ -345,6 +440,12 @@ public class PlayerHUD : MonoBehaviour
 
     private void RefreshExplorerPanel()
     {
+        int vialCount = _localVials != null ? _localVials.VialCount : 0;
+        if (vialText != null)
+        {
+            vialText.text = $"VIALS  {vialCount}";
+        }
+
         if (_localCombat == null || ammoText == null) return;
 
         bool isGun = _localCombat.currentWeaponIndex.Value == 1;
@@ -353,12 +454,12 @@ public class PlayerHUD : MonoBehaviour
         if (isGun)
         {
             int ammo = _localCombat.currentAmmo.Value;
-            ammoText.text  = $"AMMO  {ammo}";
+            ammoText.text  = (vialText != null) ? $"AMMO  {ammo}" : $"AMMO  {ammo}  |  VIALS  {vialCount}";
             ammoText.color = ammo <= 3 ? new Color(1f, 0.3f, 0.3f) : Color.white;
         }
         else
         {
-            ammoText.text  = "──";
+            ammoText.text  = (vialText != null) ? "──" : $"VIALS  {vialCount}";
             ammoText.color = Color.gray;
         }
     }

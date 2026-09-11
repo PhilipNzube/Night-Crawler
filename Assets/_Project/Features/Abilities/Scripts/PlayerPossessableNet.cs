@@ -221,6 +221,17 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
                 np.SetupOwnerInput();
             }
 
+            if (TryGetComponent<UnityEngine.InputSystem.PlayerInput>(out var pi))
+            {
+                pi.enabled = true;
+            }
+
+            if (TryGetComponent<CharacterController>(out var cc))
+            {
+                cc.enabled = true;
+                cc.detectCollisions = true;
+            }
+
             if (_thirdPersonController != null)
             {
                 _thirdPersonController.enabled = true;
@@ -243,6 +254,12 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
 
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
+
+            // Switch Player HUD to show the possessed investigator's health, ammo, weapons, etc.
+            if (PlayerHUD.Instance != null)
+            {
+                PlayerHUD.Instance.BindToPossessedTarget(gameObject);
+            }
         }
         else
         {
@@ -273,6 +290,11 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
 
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
+
+            if (PlayerHUD.Instance != null)
+            {
+                PlayerHUD.Instance.RestoreGirlHUD();
+            }
         }
     }
 
@@ -489,28 +511,48 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
 
     public Transform GetCameraTarget()
     {
-        if (cameraTarget != null) return cameraTarget;
+        Transform result = null;
 
-        if (TryGetComponent<StarterAssets.ThirdPersonController>(out var tpc) && tpc.CinemachineCameraTarget != null)
+        if (cameraTarget != null)
         {
-            return tpc.CinemachineCameraTarget.transform;
+            result = cameraTarget;
+        }
+        else if (TryGetComponent<StarterAssets.ThirdPersonController>(out var tpc) && tpc.CinemachineCameraTarget != null)
+        {
+            result = tpc.CinemachineCameraTarget.transform;
+        }
+        else
+        {
+            foreach (var c in GetComponentsInChildren<Transform>(true))
+            {
+                if (c.name == "PlayerCameraRoot" || c.name == "CinemachineCameraTarget")
+                {
+                    result = c;
+                    break;
+                }
+            }
         }
 
-        foreach (var c in GetComponentsInChildren<Transform>(true))
-        {
-            if (c.name == "PlayerCameraRoot" || c.name == "CinemachineCameraTarget")
-                return c;
-        }
-
-        if (TryGetComponent<Animator>(out var anim) && anim.isHuman)
+        if (result == null && TryGetComponent<Animator>(out var anim) && anim.isHuman)
         {
             Transform head = anim.GetBoneTransform(HumanBodyBones.Head);
-            if (head != null) return head;
-            Transform chest = anim.GetBoneTransform(HumanBodyBones.Chest);
-            if (chest != null) return chest;
+            if (head != null) result = head;
+            else
+            {
+                Transform chest = anim.GetBoneTransform(HumanBodyBones.Chest);
+                if (chest != null) result = chest;
+            }
         }
 
-        return transform;
+        if (result == null) result = transform;
+
+        // Auto-fix if at character feet: elevate to standard eye/shoulder height (1.375m)
+        if (result != transform && result.localPosition.y < 0.5f)
+        {
+            result.localPosition = new Vector3(result.localPosition.x, 1.375f, result.localPosition.z);
+        }
+
+        return result;
     }
 
     /// <summary>

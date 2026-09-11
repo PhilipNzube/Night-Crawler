@@ -32,6 +32,9 @@ public class PossessionActiveHUD : MonoBehaviour
     public GameObject hudContainer;
     public TMP_Text victimNameText;
     public TMP_Text timeRemainingText;
+    [Tooltip("Text hint displaying the hotkey to exit possession, e.g. '[E] Exit Body'. Replaces the release button.")]
+    public TMP_Text exitPromptText;
+    [Tooltip("Optional button if kept, otherwise exit is performed with the hotkey.")]
     public Button releaseButton;
 
     private GirlPossession _activeGirlPossession;
@@ -70,42 +73,13 @@ public class PossessionActiveHUD : MonoBehaviour
             timeRemainingText.text = $"{Mathf.CeilToInt(rem)}s left";
         }
 
-        // Allow cursor to be free when moving towards the top-center release HUD area or holding Alt
-        bool isHoveringReleaseArea = false;
-        Vector2 mousePos = Mouse.current != null ? Mouse.current.position.ReadValue() : (Vector2)Input.mousePosition;
-        if (hudContainer != null)
-        {
-            RectTransform rt = hudContainer.GetComponent<RectTransform>();
-            if (rt != null && RectTransformUtility.RectangleContainsScreenPoint(rt, mousePos))
-            {
-                isHoveringReleaseArea = true;
-            }
-        }
-        
-        // Also check if cursor is in the top-center zone (width 440px, top 120px)
-        if (!isHoveringReleaseArea)
-        {
-            if (mousePos.y >= (Screen.height - 120f) && Mathf.Abs(mousePos.x - Screen.width * 0.5f) <= 220f)
-            {
-                isHoveringReleaseArea = true;
-            }
-        }
-
-        bool altHeld = (Keyboard.current != null && Keyboard.current.leftAltKey.isPressed) || Input.GetKey(KeyCode.LeftAlt);
-
-        if (isHoveringReleaseArea || altHeld)
-        {
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
-        }
-
         if (_activeGirlPossession.RemainingPool <= 0.05f)
         {
             OnReleaseClicked();
             return;
         }
 
-        // Hotkey: E or Keyboard E to release possession
+        // Hotkey: Press [E] to exit possession
         if ((Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame) || Input.GetKeyDown(KeyCode.E))
         {
             OnReleaseClicked();
@@ -122,11 +96,20 @@ public class PossessionActiveHUD : MonoBehaviour
             victimNameText.text = $"<color=#FF4444>|</color> [POSSESSING]: {victimName}";
         }
 
+        if (exitPromptText != null)
+        {
+            exitPromptText.text = "<color=#FFD700>|</color> Press [E] to exit body";
+        }
+
         if (hudContainer != null)
         {
             hudContainer.SetActive(true);
         }
         gameObject.SetActive(true);
+
+        // Keep cursor locked during active possession for seamless mouse looking
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
     }
 
     public void Hide()

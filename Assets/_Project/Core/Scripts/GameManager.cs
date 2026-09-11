@@ -181,8 +181,9 @@ public class GameManager : NetworkBehaviour
 
             if (playerObj == _girlPlayer)
             {
-                BroadcastNotificationClientRpc("<color=#FF2222>|</color> [SPIRIT DISCONNECTED] The Vengeful Spirit disconnected. Investigators survive!");
-                EndMatch(WinReason.DemonSlain);
+                Debug.Log("[GameManager] Vengeful Spirit disconnected. Triggering victory success overlay for investigators!");
+                BroadcastGirlLeftSuccessClientRpc();
+                Invoke(nameof(ReturnToLobby), 5.5f);
                 return;
             }
 
@@ -464,7 +465,7 @@ public class GameManager : NetworkBehaviour
                 }
             }
             if (string.IsNullOrEmpty(joinName)) joinName = $"Player {clientId}";
-            BroadcastPlayerJoinedClientRpc(joinName);
+            BroadcastPlayerJoinedClientRpc(clientId, joinName);
         }
     }
 
@@ -650,12 +651,33 @@ public class GameManager : NetworkBehaviour
     }
 
     [ClientRpc]
-    public void BroadcastPlayerJoinedClientRpc(string playerName)
+    public void BroadcastPlayerJoinedClientRpc(ulong joiningClientId, string playerName)
     {
+        // Don't show to the player who just joined!
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == joiningClientId)
+        {
+            return;
+        }
+
         Debug.Log($"[MatchNotification] {playerName} joined.");
         if (DeathUI.Instance != null)
         {
             DeathUI.Instance.PostPlayerJoined(playerName);
+        }
+    }
+
+    [ClientRpc]
+    public void BroadcastGirlLeftSuccessClientRpc()
+    {
+        Debug.Log("[GameManager] Vengeful Spirit disconnected. Triggering victory success UI on clients!");
+        if (HostDisconnectUI.Instance != null)
+        {
+            HostDisconnectUI.Instance.TriggerSuccessOverlay(
+                "INVESTIGATORS VICTORIOUS",
+                "The Vengeful Spirit has fled into the shadows. You survived!",
+                "Returning to Lobby in {0}s...",
+                5f
+            );
         }
     }
 

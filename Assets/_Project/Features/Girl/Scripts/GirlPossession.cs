@@ -259,6 +259,20 @@ public class GirlPossession : NetworkBehaviour
         if (_starterAssets != null) _starterAssets.enabled = false;
         if (TryGetComponent<GirlMovement>(out var gm)) gm.enabled = false;
 
+        // Ensure vcam is dynamically resolved if not wired in Inspector
+        if (vcam == null)
+        {
+            var netPlayer = GetComponent<NetworkPlayer>();
+            if (netPlayer != null && netPlayer.virtualCamera != null)
+            {
+                vcam = netPlayer.virtualCamera as CinemachineCamera;
+            }
+            if (vcam == null)
+            {
+                vcam = FindFirstObjectByType<CinemachineCamera>();
+            }
+        }
+
         // Play cool Cinemachine spirit swoop right at the target into position
         if (vcam != null && targetCamera != null)
         {
@@ -358,6 +372,23 @@ public class GirlPossession : NetworkBehaviour
 
         if (IsOwner)
         {
+            if (vcam == null)
+            {
+                var netPlayer = GetComponent<NetworkPlayer>();
+                if (netPlayer != null && netPlayer.virtualCamera != null)
+                {
+                    vcam = netPlayer.virtualCamera as CinemachineCamera;
+                }
+                if (vcam == null)
+                {
+                    vcam = FindFirstObjectByType<CinemachineCamera>();
+                }
+            }
+            if (_girlCameraRoot == null)
+            {
+                _girlCameraRoot = transform.Find("PlayerCameraRoot") ?? transform;
+            }
+
             // Restore Cinemachine Virtual Camera back to the Girl's camera root
             if (vcam != null && _girlCameraRoot != null)
             {
@@ -370,6 +401,11 @@ public class GirlPossession : NetworkBehaviour
             if (_controller != null) _controller.enabled = true;
             if (_starterAssets != null) _starterAssets.enabled = true;
             if (TryGetComponent<GirlMovement>(out var gm)) gm.enabled = true;
+
+            if (PlayerHUD.Instance != null)
+            {
+                PlayerHUD.Instance.RestoreGirlHUD();
+            }
         }
         else
         {
