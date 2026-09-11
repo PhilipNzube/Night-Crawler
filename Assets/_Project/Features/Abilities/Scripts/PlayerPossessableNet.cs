@@ -109,32 +109,104 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
     [Rpc(SendTo.Server)]
     private void RejectPossessionServerRpc()
     {
-        string victimName = GirlRevealManager.GetRegisteredPlayerName(OwnerClientId);
-        if (string.IsNullOrEmpty(victimName)) victimName = PlayerNameManager.GetPlayerName(OwnerClientId);
+        ulong victimId = originalOwnerClientId.Value;
+        ulong girlClientId = possessingClientId.Value;
+
+        string victimName = GirlRevealManager.GetRegisteredPlayerName(victimId);
+        if (string.IsNullOrEmpty(victimName)) victimName = PlayerNameManager.GetPlayerName(victimId);
         if (string.IsNullOrEmpty(victimName)) victimName = gameObject.name.Replace("(Clone)", "").Trim();
 
-        ForceExorcise();
+        float penalty = _activeGirlRef != null ? _activeGirlRef.exorcismPenaltySeconds : 30f;
 
-        if (GameManager.Instance != null)
+        isPossessed.Value = false;
+        possessingClientId.Value = 0;
+
+        if (_activeGirlRef != null)
         {
-            GameManager.Instance.BroadcastMatchEventClientRpc(
-                $"<color=#FFD700>|</color> [EXORCISED] {victimName} (Priest) purged the spirit & rejected possession!",
-                new Color(1f, 0.85f, 0.2f, 1f));
+            _activeGirlRef.ForceEjectByExorcism();
+        }
+
+        NotifyPriestRejectionEndedClientRpc(victimId, girlClientId, victimName, penalty);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void NotifyPriestRejectionEndedClientRpc(ulong victimClientId, ulong girlClientId, string victimName, float penalty)
+    {
+        if (NetworkManager.Singleton == null) return;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+
+        if (localId == victimClientId)
+        {
+            if (TryGetComponent<NetworkPlayer>(out var np))
+            {
+                np.SetupOwnerInput();
+            }
+
+            if (_thirdPersonController != null) _thirdPersonController.enabled = true;
+            if (_combatNet != null) _combatNet.enabled = true;
+
+            var inputs = GetComponent<StarterAssets.StarterAssetsInputs>();
+            if (inputs != null)
+            {
+                inputs.enabled = true;
+                inputs.cursorLocked = true;
+                inputs.cursorInputForLook = true;
+            }
+
+            if (PossessionBlackoutOverlay.Instance != null)
+            {
+                PossessionBlackoutOverlay.Instance.SetBlackout(false);
+            }
+
+            if (NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification("<color=#FFD700>|</color> [EXORCISED] You purged the spirit & rejected possession!", 3f);
+            }
+
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
+        else if (localId == girlClientId)
+        {
+            if (NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification($"<color=#FFD700>|</color> [EXORCISED] {victimName} purged your spirit & rejected possession! Lost {penalty:0}s possession time!", 4f);
+            }
         }
     }
 
     [Rpc(SendTo.Server)]
     private void NotifyPossessionAcceptedServerRpc()
     {
-        string victimName = GirlRevealManager.GetRegisteredPlayerName(OwnerClientId);
-        if (string.IsNullOrEmpty(victimName)) victimName = PlayerNameManager.GetPlayerName(OwnerClientId);
+        ulong victimId = originalOwnerClientId.Value;
+        ulong girlClientId = possessingClientId.Value;
+
+        string victimName = GirlRevealManager.GetRegisteredPlayerName(victimId);
+        if (string.IsNullOrEmpty(victimName)) victimName = PlayerNameManager.GetPlayerName(victimId);
         if (string.IsNullOrEmpty(victimName)) victimName = gameObject.name.Replace("(Clone)", "").Trim();
 
-        if (GameManager.Instance != null)
+        var netObj = GetComponent<NetworkObject>();
+        if (netObj != null && netObj.OwnerClientId != girlClientId)
         {
-            GameManager.Instance.BroadcastMatchEventClientRpc(
-                $"<color=#B388FF>|</color> [POSSESSED] The Vengeful Spirit took possession of {victimName}!",
-                new Color(0.7f, 0.4f, 1f, 1f));
+            netObj.ChangeOwnership(girlClientId);
+        }
+
+        NotifyPossessionConfirmedClientRpc(victimId, girlClientId, victimName);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void NotifyPossessionConfirmedClientRpc(ulong victimClientId, ulong girlClientId, string victimName)
+    {
+        if (NetworkManager.Singleton == null) return;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+
+        // ONLY the Girl sees that she took possession of the victim!
+        if (localId == girlClientId)
+        {
+            if (NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification($"<color=#B388FF>|</color> [POSSESSED] You took possession of {victimName}!", 3f);
+            }
         }
     }
 
@@ -143,7 +215,12 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         base.OnGainedOwnership();
         if (isPossessed.Value)
         {
-            // Girl took over control
+            // Girl took over control: dynamically wire up StarterAssetsInputs to local input
+            if (TryGetComponent<NetworkPlayer>(out var np))
+            {
+                np.SetupOwnerInput();
+            }
+
             if (_thirdPersonController != null)
             {
                 _thirdPersonController.enabled = true;
@@ -163,10 +240,18 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
                 inputs.cursorLocked = true;
                 inputs.cursorInputForLook = true;
             }
+
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
         }
         else
         {
             // Victim regained ownership: hide blackout overlay and re-enable local controls
+            if (TryGetComponent<NetworkPlayer>(out var np))
+            {
+                np.SetupOwnerInput();
+            }
+
             if (_thirdPersonController != null)
             {
                 _thirdPersonController.enabled = true;
@@ -185,6 +270,9 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             {
                 PossessionBlackoutOverlay.Instance.SetBlackout(false);
             }
+
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
         }
     }
 
@@ -212,12 +300,20 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             // Restored to victim
             if (isVictim)
             {
+                if (TryGetComponent<NetworkPlayer>(out var np))
+                {
+                    np.SetupOwnerInput();
+                }
+
                 if (_thirdPersonController != null) _thirdPersonController.enabled = true;
                 if (_combatNet != null) _combatNet.enabled = true;
                 if (PossessionBlackoutOverlay.Instance != null)
                 {
                     PossessionBlackoutOverlay.Instance.SetBlackout(false);
                 }
+
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
             }
         }
     }
@@ -236,13 +332,60 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             isPossessed.Value = true;
             possessingClientId.Value = girl.OwnerClientId;
 
-            var netObj = GetComponent<NetworkObject>();
-            if (netObj != null && netObj.OwnerClientId != girl.OwnerClientId)
+            bool isPriest = (TryGetComponent<PriestExorcismNet>(out var priest) && priest.isUnlocked) 
+                         || gameObject.name.ToLower().Contains("priest");
+
+            if (isPriest)
             {
-                netObj.ChangeOwnership(girl.OwnerClientId);
+                float penalty = girl != null ? girl.exorcismPenaltySeconds : 30f;
+                // Priest resistance window: ownership stays with Priest during resistance
+                NotifyPriestRejectionWindowClientRpc(victimId, girl.OwnerClientId, 4.0f, penalty);
+            }
+            else
+            {
+                var netObj = GetComponent<NetworkObject>();
+                if (netObj != null && netObj.OwnerClientId != girl.OwnerClientId)
+                {
+                    netObj.ChangeOwnership(girl.OwnerClientId);
+                }
+
+                NotifyVictimPossessedClientRpc(victimId);
+                NotifyPossessionAcceptedServerRpc();
+            }
+        }
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void NotifyPriestRejectionWindowClientRpc(ulong victimClientId, ulong girlClientId, float duration, float penalty)
+    {
+        if (NetworkManager.Singleton == null) return;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+
+        if (localId == victimClientId)
+        {
+            // Lock Priest inputs
+            if (_thirdPersonController != null) _thirdPersonController.enabled = false;
+            if (_combatNet != null) _combatNet.enabled = false;
+
+            if (PossessionBlackoutOverlay.Instance != null)
+            {
+                PossessionBlackoutOverlay.Instance.SetBlackout(true);
             }
 
-            NotifyVictimPossessedClientRpc(victimId);
+            if (_priestRejectionCoroutine != null) StopCoroutine(_priestRejectionCoroutine);
+            _priestRejectionCoroutine = StartCoroutine(PriestRejectionWindowRoutine(duration));
+        }
+        else if (localId == girlClientId)
+        {
+            string victimName = GirlRevealManager.GetRegisteredPlayerName(victimClientId);
+            if (string.IsNullOrEmpty(victimName)) victimName = PlayerNameManager.GetPlayerName(victimClientId);
+            if (string.IsNullOrEmpty(victimName)) victimName = "Cursed Priest";
+
+            if (NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification(
+                    $"<color=#FFD700>|</color> [RESISTING] {victimName} is attempting Exorcism! ({duration:0}s) Rejection penalty: -{penalty:0}s! Press [E] to cancel.", duration);
+            }
         }
     }
 
@@ -260,20 +403,6 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         if (PossessionBlackoutOverlay.Instance != null)
         {
             PossessionBlackoutOverlay.Instance.SetBlackout(true);
-        }
-
-        // Check if this character is a Priest with Exorcism capability
-        bool isPriest = (TryGetComponent<PriestExorcismNet>(out var priest) && priest.isUnlocked) 
-                     || gameObject.name.ToLower().Contains("priest");
-
-        if (isPriest)
-        {
-            if (_priestRejectionCoroutine != null) StopCoroutine(_priestRejectionCoroutine);
-            _priestRejectionCoroutine = StartCoroutine(PriestRejectionWindowRoutine(4.0f));
-        }
-        else
-        {
-            NotifyPossessionAcceptedServerRpc();
         }
     }
 
@@ -308,6 +437,11 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
                 _priestRejectionCoroutine = null;
             }
 
+            if (TryGetComponent<NetworkPlayer>(out var np))
+            {
+                np.SetupOwnerInput();
+            }
+
             if (_thirdPersonController != null)
             {
                 _thirdPersonController.enabled = true;
@@ -326,6 +460,9 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             {
                 PossessionBlackoutOverlay.Instance.SetBlackout(false);
             }
+
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
         }
     }
 

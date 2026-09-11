@@ -163,6 +163,7 @@ public class GirlPossession : NetworkBehaviour
             var possessable = targetNetObj.GetComponent<IPossessable>();
             if (possessable != null)
             {
+                _currentTarget = possessable;
                 possessable.Possess(this);
             }
         }
@@ -256,6 +257,7 @@ public class GirlPossession : NetworkBehaviour
         // Keep Girl in her current position! Freeze her local movement controls while possessing
         if (_controller != null) _controller.enabled = false;
         if (_starterAssets != null) _starterAssets.enabled = false;
+        if (TryGetComponent<GirlMovement>(out var gm)) gm.enabled = false;
 
         // Play cool Cinemachine spirit swoop right at the target into position
         if (vcam != null && targetCamera != null)
@@ -326,7 +328,7 @@ public class GirlPossession : NetworkBehaviour
     {
         if (IsOwner && NotificationManager.Instance != null)
         {
-            NotificationManager.Instance.ShowNotification($"EXORCISED BY PRIEST! Lost {penalty:0}s possession time!", 4f);
+            NotificationManager.Instance.ShowNotification($"<color=#FFD700>|</color> [EXORCISED] Exorcised by Priest! Lost {penalty:0}s possession time!", 4f);
         }
     }
 
@@ -367,10 +369,12 @@ public class GirlPossession : NetworkBehaviour
             // Re-enable Girl controls
             if (_controller != null) _controller.enabled = true;
             if (_starterAssets != null) _starterAssets.enabled = true;
+            if (TryGetComponent<GirlMovement>(out var gm)) gm.enabled = true;
         }
         else
         {
             if (_controller != null) _controller.enabled = true;
+            if (TryGetComponent<GirlMovement>(out var gm)) gm.enabled = true;
         }
 
         if (_matCtrl != null)

@@ -83,10 +83,16 @@ public class GirlMovement : NetworkBehaviour
         // CORE NETWORK RULE: Ensure only the owner moves their own character
         if (!IsOwner || PauseManager.IsGamePaused) return;
 
+        // If controller is missing or disabled (e.g. while possessing an investigator), suspend movement!
+        if (controller == null || !controller.enabled) return;
+
+        // If possessing an investigator, the Girl's body stays frozen in place
+        if (TryGetComponent<GirlPossession>(out var girlPoss) && girlPoss.isPossessing.Value) return;
+
         // If ThirdPersonController is present and enabled, it manages 3rd-person movement,
         // gravity, and camera-relative character rotation.
         // Bypassing HandleRotation and HandleMovement prevents the Girl from spinning in place when orbiting the camera!
-        if (TryGetComponent<ThirdPersonController>(out var controller) && controller.enabled)
+        if (TryGetComponent<ThirdPersonController>(out var tpc) && tpc.enabled)
         {
             return;
         }
@@ -105,7 +111,7 @@ public class GirlMovement : NetworkBehaviour
 
     private void HandleMovement()
     {
-        if (Keyboard.current == null || stats == null) return;
+        if (Keyboard.current == null || stats == null || controller == null || !controller.enabled) return;
 
         // Input gathering
         float x = (Keyboard.current.dKey.isPressed ? 1 : 0) - (Keyboard.current.aKey.isPressed ? 1 : 0);

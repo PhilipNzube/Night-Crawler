@@ -227,11 +227,18 @@ public class NetworkPlayer : NetworkBehaviour
                 Destroy(vCam.gameObject);
             }
 
-            // Also search and destroy any child GameObject containing "camera" in its name
+            // Only disable/destroy actual Camera or Cinemachine components on remote clones.
+            // NEVER destroy camera targets or roots (CinemachineCameraTarget, PlayerCameraRoot) as they are required anchors!
             for (int i = transform.childCount - 1; i >= 0; i--)
             {
                 Transform child = transform.GetChild(i);
-                if (child.name.ToLower().Contains("camera"))
+                string lower = child.name.ToLower();
+                if (lower.Contains("target") || lower.Contains("root"))
+                {
+                    continue;
+                }
+
+                if (child.GetComponent<Camera>() != null || child.GetComponent<CinemachineVirtualCameraBase>() != null)
                 {
                     child.gameObject.SetActive(false);
                     Destroy(child.gameObject);
@@ -276,7 +283,7 @@ public class NetworkPlayer : NetworkBehaviour
     /// Dynamically hooks PlayerInput C# action events to the local character's StarterAssetsInputs.
     /// This fixes the bug where investigator prefabs were hard-linked to Demon.prefab in UnityEvents.
     /// </summary>
-    private void SetupOwnerInput()
+    public void SetupOwnerInput()
     {
         if (playerInput == null || inputs == null) return;
 
@@ -371,7 +378,7 @@ public class NetworkPlayer : NetworkBehaviour
         if (inputs != null) inputs.SprintInput(false);
     }
 
-    private void TeardownInputActions()
+    public void TeardownInputActions()
     {
         if (_moveAction != null)
         {
