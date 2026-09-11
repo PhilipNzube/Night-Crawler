@@ -46,6 +46,7 @@ public class HostDisconnectUI : MonoBehaviour
     public string lobbySceneName = "LobbyScene";
 
     private bool _hasTriggered = false;
+    private bool _wasConnected = false;
 
     private void Awake()
     {
@@ -75,6 +76,29 @@ public class HostDisconnectUI : MonoBehaviour
         }
     }
 
+    private void Update()
+    {
+        if (_hasTriggered) return;
+
+        // Fail-safe connection watcher for remote clients
+        if (NetworkManager.Singleton != null)
+        {
+            if (NetworkManager.Singleton.IsClient && !NetworkManager.Singleton.IsServer)
+            {
+                if (NetworkManager.Singleton.IsConnectedClient)
+                {
+                    _wasConnected = true;
+                }
+                else if (_wasConnected)
+                {
+                    // Server has disconnected or terminated!
+                    Debug.Log("[HostDisconnectUI] Detected connection drop from Host server.");
+                    TriggerHostDisconnect();
+                }
+            }
+        }
+    }
+
     private void OnDestroy()
     {
         if (NetworkManager.Singleton != null)
@@ -93,8 +117,8 @@ public class HostDisconnectUI : MonoBehaviour
         // If local client disconnected from server, or host disconnected
         if (clientId == NetworkManager.Singleton.LocalClientId || clientId == NetworkManager.ServerClientId)
         {
-            _hasTriggered = true;
-            StartCoroutine(HostDisconnectedRoutine());
+            Debug.Log($"[HostDisconnectUI] ClientDisconnectCallback fired for id={clientId}");
+            TriggerHostDisconnect();
         }
     }
 
@@ -107,14 +131,20 @@ public class HostDisconnectUI : MonoBehaviour
 
     private IEnumerator HostDisconnectedRoutine()
     {
-        // 1. Unlock cursor so user is not trapped in locked mouse mode
+        // 1. Send alert into AllyBanner feed
+        if (DeathUI.Instance != null)
+        {
+            DeathUI.Instance.AddAllyAlertEntry("<color=#FFA000>|</color> [HOST DISCONNECTED] The Host has left the match.", new Color(0.95f, 0.6f, 0.15f, 1f));
+        }
+
+        // 2. Unlock cursor so user is not trapped in locked mouse mode
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
 
-        // 2. Disable local player controls if present
+        // 3. Disable local player controls so characters don't fall or drift
         DisableLocalPlayerControls();
 
-        // 3. Display UI Overlay
+        // 4. Display UI Overlay
         if (disconnectPanel != null)
         {
             disconnectPanel.SetActive(true);
@@ -129,28 +159,38 @@ public class HostDisconnectUI : MonoBehaviour
         else if (DeathUI.Instance != null)
         {
             // Clean fallback using existing high-contrast overlay
-            DeathUI.Instance.ShowDeathScreen("HOST DISCONNECTED", "The Host has disconnected. Returning to Lobby...");
+            DeathUI.Instance.ShowDeathScreen("HOST DISCONNECTED", "The Host has disconnected. Returning to Lobby in 3s...");
+            if (DeathUI.Instance.deathCanvasGroup != null)
+            {
+                DeathUI.Instance.deathCanvasGroup.alpha = 1f;
+                DeathUI.Instance.deathCanvasGroup.blocksRaycasts = true;
+                DeathUI.Instance.deathCanvasGroup.interactable = true;
+            }
         }
 
-        // 4. Countdown display
+        // 5. Live countdown display
         float remaining = returnDelaySeconds;
         while (remaining > 0f)
         {
-            string countStr = $"Returning to Lobby in {Mathf.CeilToInt(remaining)}s...";
+            string countStr = $"The Host has disconnected. Returning to Lobby in {Mathf.CeilToInt(remaining)}s...";
             if (countdownText != null)
             {
                 countdownText.text = countStr;
             }
             else if (subtitleText != null && disconnectPanel != null)
             {
-                subtitleText.text = $"The Host has disconnected. {countStr}";
+                subtitleText.text = countStr;
+            }
+            else if (DeathUI.Instance != null && DeathUI.Instance.subtitleText != null)
+            {
+                DeathUI.Instance.subtitleText.text = countStr;
             }
 
             yield return new WaitForSecondsRealtime(1f);
             remaining -= 1f;
         }
 
-        // 5. Clean network shutdown & transition to Lobby
+        // 6. Clean network shutdown & transition to Lobby
         if (NetworkManager.Singleton != null)
         {
             GameObject netObj = NetworkManager.Singleton.gameObject;

@@ -99,6 +99,12 @@ public class GameManager : NetworkBehaviour
 
         // Pre-cache overlay so EndMatch doesn't need a scene search
         _cachedOverlay = FindFirstObjectByType<MatchResultOverlay>(FindObjectsInactive.Include);
+
+        // Guarantee HostDisconnectUI is present so clients always get the disconnect overlay & return to lobby
+        if (GetComponent<HostDisconnectUI>() == null)
+        {
+            gameObject.AddComponent<HostDisconnectUI>();
+        }
     }
 
     public override void OnNetworkSpawn()
@@ -109,8 +115,11 @@ public class GameManager : NetworkBehaviour
         {
             AutoDiscoverSpawnPoints();
             _gameHasStarted = true;
-            if (NetworkManager.Singleton != null)
-                NetworkManager.Singleton.OnClientDisconnectCallback += OnClientDisconnected;
+        }
+
+        if (NetworkManager.Singleton != null)
+        {
+            NetworkManager.Singleton.OnClientDisconnectCallback += HandleAnyDisconnect;
         }
 
         // When any client (Host or remote Client) loads GameScene and spawns on the network,
@@ -127,9 +136,39 @@ public class GameManager : NetworkBehaviour
     public override void OnNetworkDespawn()
     {
         base.OnNetworkDespawn();
-        if (IsServer && NetworkManager.Singleton != null)
+        if (NetworkManager.Singleton != null)
         {
-            NetworkManager.Singleton.OnClientDisconnectCallback -= OnClientDisconnected;
+            NetworkManager.Singleton.OnClientDisconnectCallback -= HandleAnyDisconnect;
+        }
+    }
+
+    [Rpc(SendTo.NotServer)]
+    public void NotifyHostLeavingClientRpc()
+    {
+        Debug.Log("[GameManager] Received NotifyHostLeavingClientRpc from Host!");
+        if (HostDisconnectUI.Instance != null)
+        {
+            HostDisconnectUI.Instance.TriggerHostDisconnect();
+        }
+    }
+
+    private void HandleAnyDisconnect(ulong clientId)
+    {
+        if (IsServer)
+        {
+            OnClientDisconnected(clientId);
+        }
+        else
+        {
+            // Remote Client: Server/Host disconnected!
+            if (clientId == NetworkManager.Singleton.LocalClientId || clientId == NetworkManager.ServerClientId)
+            {
+                Debug.Log($"[GameManager] Remote client detected host disconnect (clientId={clientId})");
+                if (HostDisconnectUI.Instance != null)
+                {
+                    HostDisconnectUI.Instance.TriggerHostDisconnect();
+                }
+            }
         }
     }
 

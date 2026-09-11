@@ -196,8 +196,27 @@ public class PauseUI : MonoBehaviour
         if (pauseMgr != null)
             pauseMgr.SetPaused(false);
 
+        StartCoroutine(DisconnectRoutine());
+    }
+
+    private IEnumerator DisconnectRoutine()
+    {
         if (NetworkManager.Singleton != null)
         {
+            if (NetworkManager.Singleton.IsServer && GameManager.Instance != null)
+            {
+                try
+                {
+                    GameManager.Instance.NotifyHostLeavingClientRpc();
+                }
+                catch (System.Exception ex)
+                {
+                    Debug.LogWarning($"[PauseUI] Broadcast error: {ex.Message}");
+                }
+                // Brief pause so transport flushes the RPC packet to clients before server teardown
+                yield return new WaitForSecondsRealtime(0.12f);
+            }
+
             GameObject netObj = NetworkManager.Singleton.gameObject;
             NetworkManager.Singleton.Shutdown();
             Destroy(netObj);

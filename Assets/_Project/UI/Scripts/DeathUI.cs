@@ -63,6 +63,9 @@ public class DeathUI : MonoBehaviour
     [Header("Animation Settings")]
     public float fadeInDuration = 1.2f;
 
+    [Tooltip("How long each alert message stays visible in the feed before animating out (seconds).")]
+    public float alertLifetime = 6.0f;
+
     private Coroutine _fadeCoroutine;
     private Coroutine _allyBannerCoroutine;
     private string _lastAlertMessage = "";
@@ -272,9 +275,66 @@ public class DeathUI : MonoBehaviour
                     }
                 }
             }
+
+            // Animate card in, keep on screen, then animate card out and destroy
+            StartCoroutine(AnimateAlertEntryLifecycle(entryObj, alertLifetime));
         }
 
         StartCoroutine(ScrollToBottomRoutine());
+    }
+
+    private IEnumerator AnimateAlertEntryLifecycle(GameObject entry, float lifetime)
+    {
+        if (entry == null) yield break;
+
+        var cg = entry.GetComponent<CanvasGroup>();
+        if (cg == null) cg = entry.AddComponent<CanvasGroup>();
+
+        // 1. Animate In (Fade in 0.25s + subtle pop from 0.90 to 1.0 scale)
+        cg.alpha = 0f;
+        entry.transform.localScale = new Vector3(0.9f, 0.9f, 1f);
+
+        float inElapsed = 0f;
+        float inDuration = 0.25f;
+        while (inElapsed < inDuration)
+        {
+            if (entry == null) yield break;
+            inElapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(inElapsed / inDuration);
+            float ease = Mathf.Sin(t * Mathf.PI * 0.5f); // Smooth ease-out
+            cg.alpha = ease;
+            entry.transform.localScale = Vector3.Lerp(new Vector3(0.9f, 0.9f, 1f), Vector3.one, ease);
+            yield return null;
+        }
+
+        if (entry == null) yield break;
+        cg.alpha = 1f;
+        entry.transform.localScale = Vector3.one;
+
+        // 2. Visible on-screen duration
+        yield return new WaitForSeconds(lifetime);
+
+        if (entry == null) yield break;
+
+        // 3. Animate Out (Fade out 0.35s + subtle scale down)
+        float outElapsed = 0f;
+        float outDuration = 0.35f;
+        while (outElapsed < outDuration)
+        {
+            if (entry == null) yield break;
+            outElapsed += Time.deltaTime;
+            float t = Mathf.Clamp01(outElapsed / outDuration);
+            float ease = t * t; // Smooth ease-in fade
+            cg.alpha = 1f - ease;
+            entry.transform.localScale = Vector3.Lerp(Vector3.one, new Vector3(0.9f, 0.9f, 1f), ease);
+            yield return null;
+        }
+
+        // 4. Clean up / destroy
+        if (entry != null)
+        {
+            Destroy(entry);
+        }
     }
 
     private IEnumerator ScrollToBottomRoutine()
