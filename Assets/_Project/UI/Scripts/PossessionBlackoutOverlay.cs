@@ -32,11 +32,16 @@ public class PossessionBlackoutOverlay : MonoBehaviour
     public TMP_Text timerText;
 
     [Header("Message")]
-    public string defaultMessage = "Let me take the wheel for a sec☠️";
+    public string defaultMessage = "Let me take the wheel for a sec...";
     public string defaultSubtitle = "The Vengeful Spirit has taken control of your body...";
+
+    [Header("Priest Possession Rejection Prompt")]
+    public TMP_Text rejectPromptText;
 
     private float _possessionStartTime;
     private bool _isBlackoutActive;
+    private float _rejectionWindowEndTime;
+    private bool _isRejectionActive;
 
     private void Awake()
     {
@@ -64,6 +69,56 @@ public class PossessionBlackoutOverlay : MonoBehaviour
             {
                 timerText.text = $"Possessed: {elapsed:F1}s";
             }
+
+            if (_isRejectionActive)
+            {
+                float remaining = Mathf.Max(0f, _rejectionWindowEndTime - Time.time);
+                if (remaining > 0f)
+                {
+                    string promptStr = $"<color=#FFD700>|</color> [PRIEST WARD] Press [R] to PURGE SPIRIT & REJECT ({remaining:F1}s)";
+                    if (rejectPromptText != null)
+                    {
+                        rejectPromptText.text = promptStr;
+                    }
+                    else if (subtitleText != null)
+                    {
+                        subtitleText.text = promptStr;
+                    }
+                }
+                else
+                {
+                    HideRejectionPrompt();
+                }
+            }
+        }
+    }
+
+    public void ShowRejectionPrompt(float durationSeconds)
+    {
+        _isRejectionActive = true;
+        _rejectionWindowEndTime = Time.time + durationSeconds;
+        string promptStr = $"<color=#FFD700>|</color> [PRIEST WARD] Press [R] to PURGE SPIRIT & REJECT ({durationSeconds:F1}s)";
+        if (rejectPromptText != null)
+        {
+            rejectPromptText.gameObject.SetActive(true);
+            rejectPromptText.text = promptStr;
+        }
+        else if (subtitleText != null)
+        {
+            subtitleText.text = promptStr;
+        }
+    }
+
+    public void HideRejectionPrompt()
+    {
+        _isRejectionActive = false;
+        if (rejectPromptText != null)
+        {
+            rejectPromptText.gameObject.SetActive(false);
+        }
+        else if (subtitleText != null)
+        {
+            subtitleText.text = defaultSubtitle;
         }
     }
 
@@ -74,6 +129,10 @@ public class PossessionBlackoutOverlay : MonoBehaviour
         if (active)
         {
             _possessionStartTime = Time.time;
+        }
+        else
+        {
+            HideRejectionPrompt();
         }
 
         if (blackoutCanvasGroup != null)

@@ -178,31 +178,40 @@ public class GirlPossession : NetworkBehaviour
         }
     }
 
-    private Transform _flightAnchor;
+    private Transform _swoopAnchor;
 
-    private Transform GetFlightAnchor()
+    private Transform GetSwoopAnchor()
     {
-        if (_flightAnchor == null)
+        if (_swoopAnchor == null)
         {
-            var go = new GameObject("GhostCameraFlightAnchor");
-            _flightAnchor = go.transform;
+            var go = new GameObject("PossessionSwoopAnchor");
+            _swoopAnchor = go.transform;
         }
-        return _flightAnchor;
+        return _swoopAnchor;
     }
 
-    private IEnumerator GhostCameraFlightRoutine(Vector3 startPos, Transform endTarget, float duration, System.Action onComplete)
+    private IEnumerator CloseTargetCinematicSwoop(Transform targetCamera, float duration = 0.45f)
     {
-        Transform anchor = GetFlightAnchor();
+        if (vcam == null || targetCamera == null) yield break;
+
+        Transform anchor = GetSwoopAnchor();
+
+        // Start position: Close behind over-the-shoulder of the victim (1.6m back, 0.45m up)
+        Vector3 backOffset = (targetCamera.forward * -1.6f) + (targetCamera.right * 0.35f) + (Vector3.up * 0.45f);
+        Vector3 startPos = targetCamera.position + backOffset;
+        Quaternion startRot = Quaternion.LookRotation(targetCamera.position - startPos, Vector3.up);
+
         anchor.position = startPos;
-        anchor.rotation = Quaternion.identity;
+        anchor.rotation = startRot;
 
-        if (vcam != null)
-        {
-            vcam.Follow = anchor;
-            vcam.LookAt = anchor;
-        }
+        // Immediately jump camera right behind the victim's shoulder (never clips through outside geometry)
+        vcam.Follow = anchor;
+        vcam.LookAt = anchor;
+        vcam.OnTargetObjectWarped(anchor, Vector3.zero);
 
+        float initialFOV = vcam.Lens.FieldOfView;
         float elapsed = 0f;
+
         while (elapsed < duration)
         {
             elapsed += Time.deltaTime;
@@ -211,24 +220,30 @@ public class GirlPossession : NetworkBehaviour
             // Smooth cubic ease-in-out curve
             float ease = t < 0.5f ? 4f * t * t * t : 1f - Mathf.Pow(-2f * t + 2f, 3f) / 2f;
 
-            Vector3 targetPos = endTarget != null ? endTarget.position : startPos;
-            Vector3 currentPos = Vector3.Lerp(startPos, targetPos, ease);
+            // Follow target camera dynamically even if player is moving
+            Vector3 currentTargetPos = targetCamera.position;
+            Vector3 dynamicStartPos = currentTargetPos + (targetCamera.forward * -1.6f) + (targetCamera.right * 0.35f) + (Vector3.up * 0.45f);
 
-            // Arched ghost trajectory (peaks slightly upward in flight)
-            float arc = Mathf.Sin(t * Mathf.PI) * 2.2f;
-            currentPos.y += arc;
+            anchor.position = Vector3.Lerp(dynamicStartPos, currentTargetPos, ease);
+            anchor.rotation = Quaternion.Slerp(startRot, targetCamera.rotation, ease);
 
-            anchor.position = currentPos;
+            // Subtle dramatic spirit FOV rush: dips by 5 degrees at peak, then settles back smoothly
+            float fovOffset = Mathf.Sin(t * Mathf.PI) * 6f;
+            var lens = vcam.Lens;
+            lens.FieldOfView = initialFOV - fovOffset;
+            vcam.Lens = lens;
+
             yield return null;
         }
 
-        if (vcam != null && endTarget != null)
-        {
-            vcam.Follow = endTarget;
-            vcam.LookAt = endTarget;
-        }
+        // Restore exact lens and bind directly to targetCamera
+        var finalLens = vcam.Lens;
+        finalLens.FieldOfView = initialFOV;
+        vcam.Lens = finalLens;
 
-        onComplete?.Invoke();
+        vcam.Follow = targetCamera;
+        vcam.LookAt = targetCamera;
+        vcam.OnTargetObjectWarped(targetCamera, Vector3.zero);
     }
 
     private IEnumerator PossessSequence(IPossessable target)
@@ -236,26 +251,22 @@ public class GirlPossession : NetworkBehaviour
         _currentTarget = target;
         if (_matCtrl != null) _matCtrl.SetManifested(false);
 
-        Vector3 startPos = _girlCameraRoot != null ? _girlCameraRoot.position : transform.position + Vector3.up * 1.5f;
         Transform targetCamera = target.GetCameraTarget();
 
-        // 1. Ghost camera flies swiftly towards the target (~0.65s)
-        bool flightDone = false;
-        StartCoroutine(GhostCameraFlightRoutine(startPos, targetCamera, 0.65f, () => flightDone = true));
+        // Keep Girl in her current position! Freeze her local movement controls while possessing
+        if (_controller != null) _controller.enabled = false;
+        if (_starterAssets != null) _starterAssets.enabled = false;
 
-        while (!flightDone)
+        // Play cool Cinemachine spirit swoop right at the target into position
+        if (vcam != null && targetCamera != null)
         {
-            yield return null;
+            yield return StartCoroutine(CloseTargetCinematicSwoop(targetCamera, 0.45f));
         }
 
-        // 2. Attach control to victim
+        // Inform target (Server transfers ownership so Girl can move the victim character directly)
         target.Possess(this);
 
-        _controller.enabled = false;
-        if (_starterAssets != null) _starterAssets.enabled = false;
-        ToggleRenderers(false);
-
-        // 3. Show active on-display HUD for the Girl
+        // Show active on-display HUD for the Girl
         string victimName = "Investigator";
         var comp = target as Component;
         if (comp != null)
@@ -278,7 +289,6 @@ public class GirlPossession : NetworkBehaviour
     [Rpc(SendTo.Server)]
     private void RequestReleaseServerRpc()
     {
-        isPossessing.Value = false;
         if (_currentTarget != null)
         {
             _currentTarget.Release();
@@ -325,51 +335,42 @@ public class GirlPossession : NetworkBehaviour
         if (!isPossessing.Value) return;
         isPossessing.Value = false;
 
-        Vector3 returnPos = transform.position;
         if (_currentTarget != null)
         {
-            Transform t = _currentTarget.GetCameraTarget();
-            if (t != null) returnPos = t.position + Vector3.back * 1.5f;
             _currentTarget.Release();
             _currentTarget = null;
         }
 
-        ReturnToSpiritFormClientRpc(returnPos);
+        ReturnToSpiritFormClientRpc();
     }
 
     [Rpc(SendTo.ClientsAndHost)]
-    private void ReturnToSpiritFormClientRpc(Vector3 returnPosition)
+    private void ReturnToSpiritFormClientRpc()
     {
         if (PossessionActiveHUD.Instance != null)
         {
             PossessionActiveHUD.Instance.Hide();
         }
 
+        ToggleRenderers(true);
+
         if (IsOwner)
         {
-            Transform startTarget = _currentTarget != null ? _currentTarget.GetCameraTarget() : null;
-            Vector3 startPos = startTarget != null ? startTarget.position : returnPosition;
-
-            transform.position = returnPosition;
-            ToggleRenderers(true);
-
-            StartCoroutine(GhostCameraFlightRoutine(startPos, _girlCameraRoot, 0.65f, () =>
+            // Restore Cinemachine Virtual Camera back to the Girl's camera root
+            if (vcam != null && _girlCameraRoot != null)
             {
-                _controller.enabled = true;
-                if (_starterAssets != null) _starterAssets.enabled = true;
-                if (vcam != null && _girlCameraRoot != null)
-                {
-                    vcam.Follow = _girlCameraRoot;
-                    vcam.LookAt = _girlCameraRoot;
-                    vcam.OnTargetObjectWarped(_girlCameraRoot, Vector3.zero);
-                }
-            }));
+                vcam.Follow = _girlCameraRoot;
+                vcam.LookAt = _girlCameraRoot;
+                vcam.OnTargetObjectWarped(_girlCameraRoot, Vector3.zero);
+            }
+
+            // Re-enable Girl controls
+            if (_controller != null) _controller.enabled = true;
+            if (_starterAssets != null) _starterAssets.enabled = true;
         }
         else
         {
-            transform.position = returnPosition;
-            ToggleRenderers(true);
-            _controller.enabled = true;
+            if (_controller != null) _controller.enabled = true;
         }
 
         if (_matCtrl != null)
@@ -380,7 +381,7 @@ public class GirlPossession : NetworkBehaviour
 
     public void ReturnFromMonster(Vector3 monsterPosition)
     {
-        ReturnToSpiritFormClientRpc(monsterPosition);
+        ReturnToSpiritFormClientRpc();
     }
 
     private void ToggleRenderers(bool isVisible)

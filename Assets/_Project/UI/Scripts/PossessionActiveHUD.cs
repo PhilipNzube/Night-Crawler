@@ -51,11 +51,6 @@ public class PossessionActiveHUD : MonoBehaviour
             releaseButton.onClick.AddListener(OnReleaseClicked);
         }
 
-        if (hudContainer == null)
-        {
-            BuildDefaultActiveHUD();
-        }
-
         Hide();
     }
 
@@ -75,8 +70,43 @@ public class PossessionActiveHUD : MonoBehaviour
             timeRemainingText.text = $"{Mathf.CeilToInt(rem)}s left";
         }
 
-        // Hotkey [E] releases possession directly
-        if (Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame)
+        // Allow cursor to be free when moving towards the top-center release HUD area or holding Alt
+        bool isHoveringReleaseArea = false;
+        Vector2 mousePos = Mouse.current != null ? Mouse.current.position.ReadValue() : (Vector2)Input.mousePosition;
+        if (hudContainer != null)
+        {
+            RectTransform rt = hudContainer.GetComponent<RectTransform>();
+            if (rt != null && RectTransformUtility.RectangleContainsScreenPoint(rt, mousePos))
+            {
+                isHoveringReleaseArea = true;
+            }
+        }
+        
+        // Also check if cursor is in the top-center zone (width 440px, top 120px)
+        if (!isHoveringReleaseArea)
+        {
+            if (mousePos.y >= (Screen.height - 120f) && Mathf.Abs(mousePos.x - Screen.width * 0.5f) <= 220f)
+            {
+                isHoveringReleaseArea = true;
+            }
+        }
+
+        bool altHeld = (Keyboard.current != null && Keyboard.current.leftAltKey.isPressed) || Input.GetKey(KeyCode.LeftAlt);
+
+        if (isHoveringReleaseArea || altHeld)
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
+
+        if (_activeGirlPossession.RemainingPool <= 0.05f)
+        {
+            OnReleaseClicked();
+            return;
+        }
+
+        // Hotkey: E or Keyboard E to release possession
+        if ((Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame) || Input.GetKeyDown(KeyCode.E))
         {
             OnReleaseClicked();
         }
@@ -89,7 +119,7 @@ public class PossessionActiveHUD : MonoBehaviour
 
         if (victimNameText != null)
         {
-            victimNameText.text = $"☠ POSSESSING: {victimName}";
+            victimNameText.text = $"<color=#FF4444>|</color> [POSSESSING]: {victimName}";
         }
 
         if (hudContainer != null)
@@ -108,6 +138,10 @@ public class PossessionActiveHUD : MonoBehaviour
         {
             hudContainer.SetActive(false);
         }
+
+        // Re-lock cursor when possession ends
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
     }
 
     public void OnReleaseClicked()
@@ -117,106 +151,5 @@ public class PossessionActiveHUD : MonoBehaviour
             _activeGirlPossession.RequestRelease();
         }
         Hide();
-    }
-
-    /// <summary>
-    /// Procedurally constructs a sleek top-center on-screen release widget
-    /// on the HUDCanvas if not manually placed in the Inspector.
-    /// </summary>
-    private void BuildDefaultActiveHUD()
-    {
-        Transform parentTransform = null;
-        var hudRoot = GameObject.Find("HUDRoot");
-        if (hudRoot != null) parentTransform = hudRoot.transform;
-
-        if (parentTransform == null)
-        {
-            var hudCanvas = GameObject.Find("HUDCanvas");
-            if (hudCanvas != null) parentTransform = hudCanvas.transform;
-        }
-
-        if (parentTransform == null)
-        {
-            Canvas c = FindFirstObjectByType<Canvas>();
-            if (c != null) parentTransform = c.transform;
-        }
-
-        if (parentTransform == null) return;
-
-        // Container (Top Center)
-        GameObject container = new GameObject("PossessionActiveHUD_TopBar");
-        container.transform.SetParent(parentTransform, false);
-
-        RectTransform rt = container.AddComponent<RectTransform>();
-        rt.anchorMin = new Vector2(0.5f, 1f);
-        rt.anchorMax = new Vector2(0.5f, 1f);
-        rt.pivot = new Vector2(0.5f, 1f);
-        rt.anchoredPosition = new Vector2(0f, -25f);
-        rt.sizeDelta = new Vector2(460f, 65f);
-
-        Image bg = container.AddComponent<Image>();
-        bg.color = new Color(0.12f, 0.02f, 0.04f, 0.88f); // Dark translucent crimson
-
-        HorizontalLayoutGroup hlg = container.AddComponent<HorizontalLayoutGroup>();
-        hlg.padding = new RectOffset(15, 15, 10, 10);
-        hlg.spacing = 15f;
-        hlg.childAlignment = TextAnchor.MiddleCenter;
-        hlg.childControlWidth = false;
-        hlg.childControlHeight = true;
-        hlg.childForceExpandWidth = false;
-        hlg.childForceExpandHeight = true;
-
-        // Target Name Text
-        GameObject nameObj = new GameObject("VictimName");
-        nameObj.transform.SetParent(container.transform, false);
-        RectTransform nRt = nameObj.AddComponent<RectTransform>();
-        nRt.sizeDelta = new Vector2(180f, 40f);
-
-        victimNameText = nameObj.AddComponent<TextMeshProUGUI>();
-        victimNameText.text = "☠ POSSESSING: Investigator";
-        victimNameText.fontSize = 14f;
-        victimNameText.fontStyle = FontStyles.Bold;
-        victimNameText.color = new Color(0.95f, 0.3f, 0.3f, 1f);
-        victimNameText.alignment = TextAlignmentOptions.MidlineLeft;
-
-        // Timer Text
-        GameObject timeObj = new GameObject("TimeText");
-        timeObj.transform.SetParent(container.transform, false);
-        RectTransform tRt = timeObj.AddComponent<RectTransform>();
-        tRt.sizeDelta = new Vector2(70f, 40f);
-
-        timeRemainingText = timeObj.AddComponent<TextMeshProUGUI>();
-        timeRemainingText.text = "300s left";
-        timeRemainingText.fontSize = 13f;
-        timeRemainingText.color = new Color(0.85f, 0.85f, 0.9f, 0.9f);
-        timeRemainingText.alignment = TextAlignmentOptions.Center;
-
-        // Release Button [E]
-        GameObject btnObj = new GameObject("ReleaseButton");
-        btnObj.transform.SetParent(container.transform, false);
-        RectTransform bRt = btnObj.AddComponent<RectTransform>();
-        bRt.sizeDelta = new Vector2(160f, 42f);
-
-        Image btnImg = btnObj.AddComponent<Image>();
-        btnImg.color = new Color(0.8f, 0.15f, 0.15f, 1f);
-
-        releaseButton = btnObj.AddComponent<Button>();
-        releaseButton.onClick.AddListener(OnReleaseClicked);
-
-        GameObject btnTxtObj = new GameObject("Text");
-        btnTxtObj.transform.SetParent(btnObj.transform, false);
-        RectTransform btRt = btnTxtObj.AddComponent<RectTransform>();
-        btRt.anchorMin = Vector2.zero;
-        btRt.anchorMax = Vector2.one;
-
-        TextMeshProUGUI btnTxt = btnTxtObj.AddComponent<TextMeshProUGUI>();
-        btnTxt.text = "RELEASE [E]";
-        btnTxt.alignment = TextAlignmentOptions.Center;
-        btnTxt.fontSize = 14f;
-        btnTxt.fontStyle = FontStyles.Bold;
-        btnTxt.color = Color.white;
-
-        hudContainer = container;
-        hudContainer.SetActive(false);
     }
 }

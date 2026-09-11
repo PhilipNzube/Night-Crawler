@@ -149,7 +149,7 @@ public class SuffocationSystemNet : NetworkBehaviour
 
         if (NotificationManager.Instance != null)
         {
-            NotificationManager.Instance.ShowNotification(message, warningDisplayDuration);
+            NotificationManager.Instance.ShowHazardWarning(message, warningDisplayDuration);
         }
     }
 }

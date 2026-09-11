@@ -65,6 +65,8 @@ public class DeathUI : MonoBehaviour
 
     private Coroutine _fadeCoroutine;
     private Coroutine _allyBannerCoroutine;
+    private string _lastAlertMessage = "";
+    private float _lastAlertTime = -999f;
 
     private void Awake()
     {
@@ -74,12 +76,6 @@ public class DeathUI : MonoBehaviour
             return;
         }
         Instance = this;
-
-        // Auto-generate visual elements if nothing is hooked up in Inspector
-        if (deathPanel == null && deathCanvasGroup == null)
-        {
-            BuildDefaultDeathScreenUI();
-        }
 
         // Hide death screen initially
         if (deathCanvasGroup != null)
@@ -94,107 +90,30 @@ public class DeathUI : MonoBehaviour
             deathPanel.SetActive(false);
         }
 
-        if (allyDeathBanner != null)
+        // Ensure AllyBanner / ScrollRect is ACTIVE so match notifications are seen
+        if (allyAlertScrollRect != null)
         {
-            allyDeathBanner.SetActive(false);
-        }
-
-        // Auto-discover or wire existing AllyBanner if user placed one under DeathUI
-        AutoDiscoverOrSetupAllyBanner();
-    }
-
-    /// <summary>
-    /// Auto-discovers any AllyBanner child under DeathUI and guarantees
-    /// Viewport, RectMask2D, Content, and Layout groups are properly established.
-    /// </summary>
-    private void AutoDiscoverOrSetupAllyBanner()
-    {
-        if (allyAlertContent != null && allyAlertScrollRect != null) return;
-
-        // Check if an AllyBanner GameObject exists under DeathUI or its children
-        Transform bannerT = transform.Find("AllyBanner");
-        if (bannerT == null)
-        {
-            var allChildren = GetComponentsInChildren<Transform>(true);
-            foreach (var t in allChildren)
+            allyAlertScrollRect.gameObject.SetActive(true);
+            if (allyAlertContent == null && allyAlertScrollRect.content != null)
             {
-                if (t != transform && t.name.ToLower().Contains("allybanner"))
-                {
-                    bannerT = t;
-                    break;
-                }
+                allyAlertContent = allyAlertScrollRect.content;
+            }
+        }
+        else if (allyDeathBanner != null)
+        {
+            allyDeathBanner.SetActive(true);
+            var sr = allyDeathBanner.GetComponentInChildren<ScrollRect>(true);
+            if (sr != null)
+            {
+                allyAlertScrollRect = sr;
+                if (sr.content != null) allyAlertContent = sr.content;
             }
         }
 
-        if (bannerT != null)
+        // Hide the template text if assigned so only dynamic entries appear
+        if (allyDeathText != null)
         {
-            ScrollRect sr = bannerT.GetComponent<ScrollRect>();
-            if (sr == null) sr = bannerT.gameObject.AddComponent<ScrollRect>();
-
-            sr.horizontal = false;
-            sr.vertical = true;
-            sr.movementType = ScrollRect.MovementType.Clamped;
-            sr.scrollSensitivity = 25f;
-
-            // Check for Viewport
-            Transform viewT = bannerT.Find("Viewport");
-            if (viewT == null)
-            {
-                GameObject viewObj = new GameObject("Viewport");
-                viewObj.transform.SetParent(bannerT, false);
-                RectTransform vrt = viewObj.AddComponent<RectTransform>();
-                vrt.anchorMin = Vector2.zero;
-                vrt.anchorMax = Vector2.one;
-                vrt.sizeDelta = Vector2.zero;
-                vrt.pivot = new Vector2(0f, 1f);
-                viewObj.AddComponent<RectMask2D>();
-                viewT = viewObj.transform;
-            }
-
-            // Check for Content inside Viewport
-            Transform contentT = viewT.Find("Content");
-            if (contentT == null)
-            {
-                GameObject contentObj = new GameObject("Content");
-                contentObj.transform.SetParent(viewT, false);
-                RectTransform crt = contentObj.AddComponent<RectTransform>();
-                crt.anchorMin = new Vector2(0f, 0f);
-                crt.anchorMax = new Vector2(1f, 0f);
-                crt.pivot = new Vector2(0f, 0f);
-                crt.sizeDelta = Vector2.zero;
-
-                VerticalLayoutGroup vlg = contentObj.AddComponent<VerticalLayoutGroup>();
-                vlg.padding = new RectOffset(4, 4, 4, 4);
-                vlg.spacing = 6f;
-                vlg.childAlignment = TextAnchor.LowerLeft;
-                vlg.childControlWidth = true;
-                vlg.childControlHeight = false;
-                vlg.childForceExpandWidth = true;
-                vlg.childForceExpandHeight = false;
-
-                ContentSizeFitter csf = contentObj.AddComponent<ContentSizeFitter>();
-                csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-                contentT = contentObj.transform;
-            }
-
-            sr.viewport = viewT.GetComponent<RectTransform>();
-            sr.content = contentT.GetComponent<RectTransform>();
-
-            // If AllyText is directly under banner, move it to Content and hide the static placeholder
-            Transform textT = bannerT.Find("AllyText");
-            if (textT != null)
-            {
-                textT.SetParent(contentT, false);
-                textT.gameObject.SetActive(false);
-            }
-
-            allyAlertScrollRect = sr;
-            allyAlertContent = contentT;
-            Debug.Log($"[DeathUI] Auto-discovered and wired existing '{bannerT.name}' into ally alert feed!");
-        }
-        else
-        {
-            BuildDefaultAllyAlertFeed();
+            allyDeathText.gameObject.SetActive(false);
         }
     }
 
@@ -234,38 +153,88 @@ public class DeathUI : MonoBehaviour
     }
 
     /// <summary>
-    /// Shows an onscreen notification banner and adds an entry into the bottom-right scrollable feed.
+    /// Shows an onscreen notification and adds an entry into the bottom-right scrollable feed.
     /// </summary>
     public void ShowAllyDeathNotification(string victimName)
     {
-        // 1. Add into bottom-right scrollable alert feed
-        AddAllyAlertEntry($"☠ {victimName} has fallen", new Color(0.9f, 0.2f, 0.2f, 1f));
-
-        // 2. Banner / toast
-        if (allyDeathBanner != null && allyDeathText != null)
-        {
-            if (_allyBannerCoroutine != null) StopCoroutine(_allyBannerCoroutine);
-            _allyBannerCoroutine = StartCoroutine(AllyBannerRoutine(victimName));
-        }
-        else if (NotificationManager.Instance != null)
-        {
-            NotificationManager.Instance.ShowNotification($"☠ {victimName} has died.", 4.5f);
-        }
+        PostPlayerDied(victimName);
     }
 
     /// <summary>
-    /// Appends a new sleek alert item to the bottom-right scrollable feed.
+    /// Global helper to post any match/ally notification into the feed.
+    /// </summary>
+    public static void PostEvent(string message, Color? accentColor = null)
+    {
+        if (Instance != null)
+        {
+            Instance.AddAllyAlertEntry(message, accentColor);
+        }
+    }
+
+    public void PostMatchEvent(string message, Color? accentColor = null)
+    {
+        AddAllyAlertEntry(message, accentColor);
+    }
+
+    public void PostPlayerJoined(string playerName)
+    {
+        AddAllyAlertEntry($"<color=#00E5FF>|</color> [JOIN] {playerName} has entered the match.", new Color(0.2f, 0.85f, 0.95f, 1f));
+    }
+
+    public void PostPlayerLeft(string playerName, bool wasDead = false)
+    {
+        string desc = wasDead 
+            ? $"<color=#FFA000>|</color> [LEAVE] {playerName} (Fallen) has left the match." 
+            : $"<color=#FFA000>|</color> [LEAVE] {playerName} has left the match.";
+        AddAllyAlertEntry(desc, new Color(0.95f, 0.6f, 0.15f, 1f));
+    }
+
+    public void PostPlayerDied(string victimName)
+    {
+        AddAllyAlertEntry($"<color=#FF3333>|</color> [FALLEN] {victimName} has fallen.", new Color(0.95f, 0.2f, 0.2f, 1f));
+    }
+
+    public void PostDealResponse(string playerName, bool accepted)
+    {
+        if (accepted)
+        {
+            AddAllyAlertEntry($"<color=#00E676>|</color> [DEAL ACCEPTED] {playerName} accepted your dark pact!", new Color(0.2f, 0.9f, 0.4f, 1f));
+        }
+        else
+        {
+            AddAllyAlertEntry($"<color=#FF5252>|</color> [DEAL DECLINED] {playerName} rejected your dark pact.", new Color(0.95f, 0.35f, 0.2f, 1f));
+        }
+    }
+
+    public void PostPossessionEvent(string message, Color accentColor)
+    {
+        AddAllyAlertEntry(message, accentColor);
+    }
+
+    /// <summary>
+    /// Appends a new alert item into the scrollable feed using the user's template or prefab.
     /// </summary>
     public void AddAllyAlertEntry(string message, Color? accentColor = null)
     {
-        Color accent = accentColor ?? new Color(0.9f, 0.2f, 0.2f, 1f);
-
-        if (allyAlertContent == null)
+        // Deduplication: ignore identical messages received within 4 seconds
+        if (message == _lastAlertMessage && (Time.time - _lastAlertTime) < 4f)
         {
-            BuildDefaultAllyAlertFeed();
+            return;
+        }
+        _lastAlertMessage = message;
+        _lastAlertTime = Time.time;
+
+        if (allyAlertContent == null && allyAlertScrollRect != null)
+        {
+            allyAlertContent = allyAlertScrollRect.content;
         }
 
         if (allyAlertContent == null) return;
+
+        if (allyAlertScrollRect != null && !allyAlertScrollRect.gameObject.activeInHierarchy)
+        {
+            allyAlertScrollRect.gameObject.SetActive(true);
+        }
 
         // Cull oldest if max reached
         while (allyAlertContent.childCount >= maxAlerts && allyAlertContent.childCount > 0)
@@ -273,85 +242,39 @@ public class DeathUI : MonoBehaviour
             Destroy(allyAlertContent.GetChild(0).gameObject);
         }
 
-        GameObject entryObj;
+        GameObject entryObj = null;
         if (alertItemPrefab != null)
         {
             entryObj = Instantiate(alertItemPrefab, allyAlertContent);
-            var txt = entryObj.GetComponentInChildren<TMP_Text>();
-            if (txt != null) txt.text = message;
         }
-        else
+        else if (allyDeathText != null)
         {
-            entryObj = CreateAlertCardVisual(allyAlertContent, message, accent);
+            entryObj = Instantiate(allyDeathText.gameObject, allyAlertContent);
+        }
+
+        if (entryObj != null)
+        {
+            entryObj.SetActive(true);
+            var txt = entryObj.GetComponentInChildren<TMP_Text>();
+            if (txt != null)
+            {
+                txt.text = message;
+            }
+
+            if (accentColor.HasValue)
+            {
+                foreach (var img in entryObj.GetComponentsInChildren<UnityEngine.UI.Image>())
+                {
+                    if (img.gameObject.name.ToLower().Contains("accent") || img.gameObject.name.ToLower().Contains("bar"))
+                    {
+                        img.color = accentColor.Value;
+                        break;
+                    }
+                }
+            }
         }
 
         StartCoroutine(ScrollToBottomRoutine());
-    }
-
-    private GameObject CreateAlertCardVisual(Transform parent, string message, Color accent)
-    {
-        GameObject card = new GameObject("AlertEntry");
-        card.transform.SetParent(parent, false);
-
-        RectTransform rt = card.AddComponent<RectTransform>();
-        rt.sizeDelta = new Vector2(0f, 38f);
-
-        Image bg = card.AddComponent<Image>();
-        bg.color = new Color(0.08f, 0.08f, 0.12f, 0.85f); // Dark translucent card
-
-        HorizontalLayoutGroup hlg = card.AddComponent<HorizontalLayoutGroup>();
-        hlg.padding = new RectOffset(8, 8, 4, 4);
-        hlg.spacing = 8f;
-        hlg.childAlignment = TextAnchor.MiddleLeft;
-        hlg.childControlWidth = false;
-        hlg.childControlHeight = true;
-        hlg.childForceExpandWidth = false;
-        hlg.childForceExpandHeight = true;
-
-        ContentSizeFitter csf = card.AddComponent<ContentSizeFitter>();
-        csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-
-        // Left Accent Bar / Indicator
-        GameObject bar = new GameObject("AccentBar");
-        bar.transform.SetParent(card.transform, false);
-        RectTransform barRt = bar.AddComponent<RectTransform>();
-        barRt.sizeDelta = new Vector2(4f, 26f);
-        Image barImg = bar.AddComponent<Image>();
-        barImg.color = accent;
-
-        // Text element
-        GameObject txtObj = new GameObject("AlertText");
-        txtObj.transform.SetParent(card.transform, false);
-        RectTransform txtRt = txtObj.AddComponent<RectTransform>();
-        txtRt.sizeDelta = new Vector2(250f, 30f);
-
-        TextMeshProUGUI tmp = txtObj.AddComponent<TextMeshProUGUI>();
-        tmp.text = message;
-        tmp.fontSize = 15f;
-        tmp.fontStyle = FontStyles.Bold;
-        tmp.color = new Color(0.95f, 0.95f, 0.95f, 0.95f);
-        tmp.alignment = TextAlignmentOptions.MidlineLeft;
-        tmp.enableWordWrapping = true;
-
-        // Fade in animation
-        CanvasGroup cg = card.AddComponent<CanvasGroup>();
-        StartCoroutine(FadeInCardRoutine(cg));
-
-        return card;
-    }
-
-    private IEnumerator FadeInCardRoutine(CanvasGroup cg)
-    {
-        if (cg == null) yield break;
-        cg.alpha = 0f;
-        float elapsed = 0f;
-        while (elapsed < 0.25f)
-        {
-            elapsed += Time.deltaTime;
-            cg.alpha = Mathf.Clamp01(elapsed / 0.25f);
-            yield return null;
-        }
-        cg.alpha = 1f;
     }
 
     private IEnumerator ScrollToBottomRoutine()
@@ -364,17 +287,6 @@ public class DeathUI : MonoBehaviour
         }
     }
 
-    private IEnumerator AllyBannerRoutine(string victimName)
-    {
-        allyDeathText.text = $"☠ {victimName} has fallen";
-        allyDeathBanner.SetActive(true);
-
-        yield return new WaitForSeconds(4f);
-
-        allyDeathBanner.SetActive(false);
-        _allyBannerCoroutine = null;
-    }
-
     public void HideDeathScreen()
     {
         if (_fadeCoroutine != null) StopCoroutine(_fadeCoroutine);
@@ -384,156 +296,5 @@ public class DeathUI : MonoBehaviour
             deathCanvasGroup.blocksRaycasts = false;
         }
         if (deathPanel != null) deathPanel.SetActive(false);
-    }
-
-    /// <summary>
-    /// Creates a default dark, cinematic "YOU DIED" UI hierarchy at runtime
-    /// if the user has not wired up custom UI in the Inspector yet.
-    /// </summary>
-    private void BuildDefaultDeathScreenUI()
-    {
-        // Find or create Canvas
-        Canvas targetCanvas = GetComponentInParent<Canvas>();
-        if (targetCanvas == null)
-        {
-            targetCanvas = FindFirstObjectByType<Canvas>();
-        }
-
-        if (targetCanvas == null)
-        {
-            GameObject canvasObj = new GameObject("DeathUICanvas");
-            targetCanvas = canvasObj.AddComponent<Canvas>();
-            targetCanvas.renderMode = RenderMode.ScreenSpaceOverlay;
-            targetCanvas.sortingOrder = 950;
-            canvasObj.AddComponent<CanvasScaler>();
-            canvasObj.AddComponent<GraphicRaycaster>();
-        }
-
-        // Create Panel Container
-        GameObject panelObj = new GameObject("DeathUIPanel");
-        panelObj.transform.SetParent(targetCanvas.transform, false);
-
-        RectTransform panelRect = panelObj.AddComponent<RectTransform>();
-        panelRect.anchorMin = Vector2.zero;
-        panelRect.anchorMax = Vector2.one;
-        panelRect.sizeDelta = Vector2.zero;
-
-        deathCanvasGroup = panelObj.AddComponent<CanvasGroup>();
-        deathCanvasGroup.alpha = 0f;
-        deathCanvasGroup.blocksRaycasts = false;
-
-        // Dark Blood-Red Vignette Overlay Background
-        Image bgImage = panelObj.AddComponent<Image>();
-        bgImage.color = new Color(0.12f, 0.01f, 0.01f, 0.65f); // Deep atmospheric red-black
-
-        // Title Text
-        GameObject titleObj = new GameObject("DeathTitleText");
-        titleObj.transform.SetParent(panelObj.transform, false);
-        RectTransform titleRect = titleObj.AddComponent<RectTransform>();
-        titleRect.anchorMin = new Vector2(0f, 0.5f);
-        titleRect.anchorMax = new Vector2(1f, 0.5f);
-        titleRect.sizeDelta = new Vector2(0f, 100f);
-        titleRect.anchoredPosition = new Vector2(0f, 40f);
-
-        titleText = titleObj.AddComponent<TextMeshProUGUI>();
-        titleText.text = "YOU DIED";
-        titleText.alignment = TextAlignmentOptions.Center;
-        titleText.fontSize = 68f;
-        titleText.fontStyle = FontStyles.Bold;
-        titleText.color = new Color(0.9f, 0.12f, 0.12f, 1f); // Menacing Crimson Red
-
-        // Subtitle Text
-        GameObject subObj = new GameObject("DeathSubtitleText");
-        subObj.transform.SetParent(panelObj.transform, false);
-        RectTransform subRect = subObj.AddComponent<RectTransform>();
-        subRect.anchorMin = new Vector2(0f, 0.5f);
-        subRect.anchorMax = new Vector2(1f, 0.5f);
-        subRect.sizeDelta = new Vector2(0f, 60f);
-        subRect.anchoredPosition = new Vector2(0f, -30f);
-
-        subtitleText = subObj.AddComponent<TextMeshProUGUI>();
-        subtitleText.text = "Your soul has fallen. Allies can still loot your body.";
-        subtitleText.alignment = TextAlignmentOptions.Center;
-        subtitleText.fontSize = 24f;
-        subtitleText.fontStyle = FontStyles.Normal;
-        subtitleText.color = new Color(0.85f, 0.85f, 0.9f, 0.9f);
-
-        deathPanel = panelObj;
-        deathPanel.SetActive(false);
-
-        // Also build default bottom-right alert feed
-        BuildDefaultAllyAlertFeed(targetCanvas);
-    }
-
-    /// <summary>
-    /// Constructs a clean, aesthetic bottom-right ScrollRect feed on the Canvas
-    /// if the user has not wired custom references in the Inspector.
-    /// </summary>
-    public void BuildDefaultAllyAlertFeed(Canvas targetCanvas = null)
-    {
-        if (allyAlertContent != null && allyAlertScrollRect != null) return;
-
-        if (targetCanvas == null)
-        {
-            targetCanvas = GetComponentInParent<Canvas>();
-            if (targetCanvas == null) targetCanvas = FindFirstObjectByType<Canvas>();
-        }
-        if (targetCanvas == null) return;
-
-        // 1. Root Scroll Container (Anchored Bottom-Right)
-        GameObject feedRoot = new GameObject("AllyAlertFeed_BottomRight");
-        feedRoot.transform.SetParent(targetCanvas.transform, false);
-
-        RectTransform feedRt = feedRoot.AddComponent<RectTransform>();
-        feedRt.anchorMin = new Vector2(1f, 0f);
-        feedRt.anchorMax = new Vector2(1f, 0f);
-        feedRt.pivot = new Vector2(1f, 0f);
-        feedRt.anchoredPosition = new Vector2(-20f, 20f);
-        feedRt.sizeDelta = new Vector2(320f, 180f);
-
-        ScrollRect scroll = feedRoot.AddComponent<ScrollRect>();
-        scroll.horizontal = false;
-        scroll.vertical = true;
-        scroll.movementType = ScrollRect.MovementType.Clamped;
-        scroll.scrollSensitivity = 25f;
-
-        // 2. Viewport with RectMask2D
-        GameObject viewport = new GameObject("Viewport");
-        viewport.transform.SetParent(feedRoot.transform, false);
-
-        RectTransform viewRt = viewport.AddComponent<RectTransform>();
-        viewRt.anchorMin = Vector2.zero;
-        viewRt.anchorMax = Vector2.one;
-        viewRt.sizeDelta = Vector2.zero;
-        viewRt.pivot = new Vector2(0f, 1f);
-        viewport.AddComponent<RectMask2D>();
-
-        // 3. Content Panel with VerticalLayoutGroup and ContentSizeFitter
-        GameObject content = new GameObject("Content");
-        content.transform.SetParent(viewport.transform, false);
-
-        RectTransform contentRt = content.AddComponent<RectTransform>();
-        contentRt.anchorMin = new Vector2(0f, 0f);
-        contentRt.anchorMax = new Vector2(1f, 0f);
-        contentRt.pivot = new Vector2(0f, 0f);
-        contentRt.sizeDelta = new Vector2(0f, 0f);
-
-        VerticalLayoutGroup vlg = content.AddComponent<VerticalLayoutGroup>();
-        vlg.padding = new RectOffset(4, 4, 4, 4);
-        vlg.spacing = 6f;
-        vlg.childAlignment = TextAnchor.LowerLeft;
-        vlg.childControlWidth = true;
-        vlg.childControlHeight = false;
-        vlg.childForceExpandWidth = true;
-        vlg.childForceExpandHeight = false;
-
-        ContentSizeFitter csf = content.AddComponent<ContentSizeFitter>();
-        csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
-
-        scroll.viewport = viewRt;
-        scroll.content = contentRt;
-
-        allyAlertScrollRect = scroll;
-        allyAlertContent = content.transform;
     }
 }

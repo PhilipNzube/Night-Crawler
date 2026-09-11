@@ -355,14 +355,10 @@ public class DealSystemNet : MonoBehaviour
 
     private void NotifyGirlDealResult(string responderName, bool accepted)
     {
-        string msg = accepted 
-            ? $"PACT FORGED: {responderName} accepted your terms!" 
-            : $"PACT REJECTED: {responderName} refused the spirits.";
-
-        Debug.Log($"[DealSystemNet] {msg}");
-        if (NotificationManager.Instance != null)
+        Debug.Log($"[DealSystemNet] Pact response from {responderName}: accepted={accepted}");
+        if (DeathUI.Instance != null)
         {
-            NotificationManager.Instance.ShowNotification(msg, 4f);
+            DeathUI.Instance.PostDealResponse(responderName, accepted);
         }
     }
 }

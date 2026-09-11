@@ -99,6 +99,12 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
             cc.enabled = false;
         }
 
+        // Preserve dead body in scene for looting even if player disconnects
+        if (TryGetComponent<NetworkObject>(out var netObj))
+        {
+            netObj.DontDestroyWithOwner = true;
+        }
+
         // Disable overhead player name tag (without deactivating the character GameObject!)
         var nameTags = GetComponentsInChildren<PlayerNameTag>(true);
         foreach (var nt in nameTags)

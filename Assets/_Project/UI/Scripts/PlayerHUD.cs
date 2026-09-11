@@ -305,38 +305,20 @@ public class PlayerHUD : MonoBehaviour
             healthSlider.maxValue = 1f;
             healthSlider.value    = displayFraction;
 
-            // Ensure the fill rect has vertical height so it doesn't collapse to 0 height
-            if (healthSlider.fillRect != null)
+            if (healthFill == null && healthSlider.fillRect != null)
             {
-                Vector2 aMin = healthSlider.fillRect.anchorMin;
-                Vector2 aMax = healthSlider.fillRect.anchorMax;
-                if (aMax.y < 0.5f)
-                {
-                    healthSlider.fillRect.anchorMin = new Vector2(aMin.x, 0f);
-                    healthSlider.fillRect.anchorMax = new Vector2(aMax.x, 1f);
-                }
-
-                if (healthFill == null)
-                {
-                    healthFill = healthSlider.fillRect.GetComponent<Image>();
-                }
+                healthFill = healthSlider.fillRect.GetComponent<Image>();
             }
         }
 
         if (healthFill != null)
         {
-            // Crucial: If healthSlider is already resizing fillRect, keep fillAmount at 1.0.
-            // Setting both healthSlider.value and healthFill.fillAmount squares the reduction (fraction * fraction),
-            // making the health bar look completely empty when the player still had 25-30% HP remaining!
-            if (healthSlider != null && healthSlider.fillRect == healthFill.rectTransform)
+            // If the image uses Unity's Filled type (e.g. Bloodlines UI Horizontal Fill),
+            // ensure the fill container is full-span and drive fillAmount linearly!
+            if (healthFill.type == Image.Type.Filled)
             {
-                if (healthFill.type == Image.Type.Filled)
-                {
-                    healthFill.fillAmount = 1f;
-                }
-            }
-            else if (healthSlider == null && healthFill.type == Image.Type.Filled)
-            {
+                healthFill.rectTransform.anchorMin = new Vector2(0f, 0f);
+                healthFill.rectTransform.anchorMax = new Vector2(1f, 1f);
                 healthFill.fillAmount = displayFraction;
             }
 

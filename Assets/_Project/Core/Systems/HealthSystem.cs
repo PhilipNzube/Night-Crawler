@@ -192,6 +192,19 @@ public class HealthSystem : NetworkBehaviour, IDamageReceiver
     {
         OnHealthChanged?.Invoke(current, maxHealth);
 
+        // Low health critical warning for local player
+        if (IsOwner && current > 0f)
+        {
+            float threshold = maxHealth * 0.25f;
+            if (current <= threshold && prev > threshold)
+            {
+                if (NotificationManager.Instance != null)
+                {
+                    NotificationManager.Instance.ShowCriticalHealthWarning(current, maxHealth);
+                }
+            }
+        }
+
         if (current <= 0f && !_isDead)
         {
             _isDead = true;

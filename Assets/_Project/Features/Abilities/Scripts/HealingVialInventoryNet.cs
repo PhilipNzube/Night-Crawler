@@ -174,15 +174,26 @@ public class HealingVialInventoryNet : NetworkBehaviour
             {
                 currentVials.Value--;
                 targetHp.Heal(healAmount);
-                NotifyHealPerformedClientRpc();
+                NotifyHealPerformedClientRpc(targetNetId, healAmount);
             }
         }
     }
 
     [Rpc(SendTo.ClientsAndHost)]
-    private void NotifyHealPerformedClientRpc()
+    private void NotifyHealPerformedClientRpc(ulong recipientNetId, float amountHealed)
     {
         PlayHealEffects();
+
+        // If this client owns the recipient character, display restorative health message
+        if (NetworkManager.Singleton != null &&
+            NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(recipientNetId, out var obj) &&
+            obj.IsOwner)
+        {
+            if (NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowHealthRestored($"Healing vial administered (+{amountHealed:F0} HP)!", amountHealed);
+            }
+        }
     }
 
     private void PlayHealEffects()

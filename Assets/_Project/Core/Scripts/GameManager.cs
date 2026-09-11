@@ -74,6 +74,7 @@ public class GameManager : NetworkBehaviour
     private MatchResultOverlay  _cachedOverlay;
 
     private readonly HashSet<ulong> _spawnedClients = new HashSet<ulong>();
+    private readonly HashSet<ulong> _deadVictimNetworkIds = new HashSet<ulong>();
     private readonly Dictionary<ulong, NetworkObject> _clientPlayerObjects = new Dictionary<ulong, NetworkObject>();
 
     // OCP: Extend win messages here without touching EndMatch logic.
@@ -134,6 +135,8 @@ public class GameManager : NetworkBehaviour
 
     private void OnClientDisconnected(ulong clientId)
     {
+        if (NetworkManager.Singleton != null && clientId == NetworkManager.Singleton.LocalClientId) return;
+
         if (_spawnedClients.Contains(clientId))
         {
             _spawnedClients.Remove(clientId);
@@ -145,7 +148,7 @@ public class GameManager : NetworkBehaviour
 
             if (playerObj == _girlPlayer)
             {
-                BroadcastNotificationClientRpc("☠ The Vengeful Spirit disconnected. Investigators survive!");
+                BroadcastNotificationClientRpc("<color=#FF2222>|</color> [SPIRIT DISCONNECTED] The Vengeful Spirit disconnected. Investigators survive!");
                 EndMatch(WinReason.DemonSlain);
                 return;
             }
@@ -177,22 +180,25 @@ public class GameManager : NetworkBehaviour
             if (!isAlreadyDead)
             {
                 // 1. Investigator left while ALIVE:
-                // Destroy / remove only this investigator character from the scene for all remaining players!
-                Debug.Log($"[GameManager] Investigator {clientId} ({charName}) disconnected while ALIVE. Removing character from scene.");
-                BroadcastNotificationClientRpc($"⚡ {charName} has left the match.");
+                // Remove only this investigator character from the scene for all remaining players!
+                Debug.Log($"[GameManager] Investigator {clientId} ({charName}) disconnected while ALIVE. Removing only this character.");
+                BroadcastNotificationClientRpc($"<color=#FFA000>|</color> [LEAVE] {charName} has left the match.");
 
                 if (_aliveExplorers.Contains(playerObj))
                 {
                     _aliveExplorers.Remove(playerObj);
                 }
 
-                if (playerObj.IsSpawned)
+                if (playerObj != null && playerObj.gameObject != null)
                 {
-                    playerObj.Despawn(true);
-                }
-                else
-                {
-                    Destroy(playerObj.gameObject);
+                    if (playerObj.IsSpawned)
+                    {
+                        playerObj.Despawn(true);
+                    }
+                    else
+                    {
+                        Destroy(playerObj.gameObject);
+                    }
                 }
             }
             else
@@ -202,7 +208,7 @@ public class GameManager : NetworkBehaviour
                 Debug.Log($"[GameManager] Investigator {clientId} ({charName}) disconnected while DEAD. Leaving corpse in scene for looting.");
                 playerObj.DontDestroyWithOwner = true;
                 playerObj.gameObject.tag = "Untagged";
-                BroadcastNotificationClientRpc($"☠ {charName} disconnected. Their body remains for looting.");
+                BroadcastNotificationClientRpc($"<color=#FFA000>|</color> [LEAVE] {charName} (Fallen) has left the match. Body remains for looting.");
             }
         }
     }
@@ -407,10 +413,25 @@ public class GameManager : NetworkBehaviour
         NetworkObject netObj = playerInstance.GetComponent<NetworkObject>();
         if (netObj != null)
         {
-            netObj.DontDestroyWithOwner = true;
+            netObj.DontDestroyWithOwner = false;
             netObj.SpawnAsPlayerObject(clientId);
             _clientPlayerObjects[clientId] = netObj;
             RegisterPlayer(netObj, isGirl);
+
+            string joinName = isGirl ? "The Vengeful Spirit" : GirlRevealManager.GetRegisteredPlayerName(clientId);
+            if (string.IsNullOrEmpty(joinName) || joinName.StartsWith("Player "))
+            {
+                if (netObj.TryGetComponent<NetworkPlayerName>(out var netName) && !string.IsNullOrEmpty(netName.playerName.Value.ToString()))
+                {
+                    joinName = netName.playerName.Value.ToString();
+                }
+                else
+                {
+                    joinName = PlayerNameManager.GetPlayerName(clientId);
+                }
+            }
+            if (string.IsNullOrEmpty(joinName)) joinName = $"Player {clientId}";
+            BroadcastPlayerJoinedClientRpc(joinName);
         }
     }
 
@@ -517,6 +538,8 @@ public class GameManager : NetworkBehaviour
     public void OnEntityDeath(NetworkObject victim)
     {
         if (!IsServer || gameEnded.Value || victim == null) return;
+        if (_deadVictimNetworkIds.Contains(victim.NetworkObjectId)) return;
+        _deadVictimNetworkIds.Add(victim.NetworkObjectId);
 
         bool isGirl = (victim == _girlPlayer);
         ulong victimClientId = victim.OwnerClientId;
@@ -573,13 +596,8 @@ public class GameManager : NetworkBehaviour
         }
         else
         {
-            string msg = isGirl ? "☠ The Vengeful Spirit has been slain!" : $"☠ {victimName} has died.";
+            string msg = isGirl ? "| [BANISHED] The Vengeful Spirit has been slain!" : $"| [FALLEN] {victimName} has fallen.";
             Debug.Log($"[DeathNotification] Remote player death: {msg}");
-
-            if (NotificationManager.Instance != null)
-            {
-                NotificationManager.Instance.ShowNotification(msg, 5f);
-            }
 
             if (DeathUI.Instance != null)
             {
@@ -592,9 +610,29 @@ public class GameManager : NetworkBehaviour
     public void BroadcastNotificationClientRpc(string message)
     {
         Debug.Log($"[MatchNotification] {message}");
-        if (NotificationManager.Instance != null)
+        if (DeathUI.Instance != null)
         {
-            NotificationManager.Instance.ShowNotification(message, 5f);
+            DeathUI.Instance.AddAllyAlertEntry(message, new Color(0.95f, 0.6f, 0.15f, 1f));
+        }
+    }
+
+    [ClientRpc]
+    public void BroadcastPlayerJoinedClientRpc(string playerName)
+    {
+        Debug.Log($"[MatchNotification] {playerName} joined.");
+        if (DeathUI.Instance != null)
+        {
+            DeathUI.Instance.PostPlayerJoined(playerName);
+        }
+    }
+
+    [ClientRpc]
+    public void BroadcastMatchEventClientRpc(string message, Color accentColor)
+    {
+        Debug.Log($"[MatchEvent] {message}");
+        if (DeathUI.Instance != null)
+        {
+            DeathUI.Instance.AddAllyAlertEntry(message, accentColor);
         }
     }
 
