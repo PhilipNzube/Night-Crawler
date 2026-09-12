@@ -39,6 +39,7 @@ public class GirlPossession : NetworkBehaviour
 
     public float RemainingPool => remainingPossessionTime.Value;
     public bool IsCurrentlyPossessing => isPossessing.Value;
+    public IPossessable CurrentTarget => _currentTarget;
 
     void Awake()
     {
@@ -93,6 +94,12 @@ public class GirlPossession : NetworkBehaviour
             }
             else
             {
+                // If near a lootable corpse, looting corpse takes precedence over exiting
+                if (IsNearLootableCorpse())
+                {
+                    return;
+                }
+
                 // Voluntarily release
                 RequestReleaseServerRpc();
             }
@@ -119,12 +126,6 @@ public class GirlPossession : NetworkBehaviour
                 StartCoroutine(PossessSequence(target));
                 return;
             }
-        }
-
-        // If no target found, give feedback so the player knows to get closer
-        if (NotificationManager.Instance != null)
-        {
-            NotificationManager.Instance.ShowNotification("Get closer to an Investigator to Possess [E]!", 1.5f);
         }
     }
 
@@ -173,14 +174,7 @@ public class GirlPossession : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void NotifyPossessionClientRpc(ulong targetNetId)
     {
-        if (_matCtrl != null)
-        {
-            _matCtrl.RefreshVisualState();
-        }
-        else
-        {
-            ToggleRenderers(false);
-        }
+        UpdatePossessionVisuals(true);
     }
 
     private Transform _swoopAnchor;
@@ -254,22 +248,16 @@ public class GirlPossession : NetworkBehaviour
     private IEnumerator PossessSequence(IPossessable target)
     {
         _currentTarget = target;
-        if (_matCtrl != null)
-        {
-            _matCtrl.RefreshVisualState();
-        }
-        else
-        {
-            ToggleRenderers(false);
-        }
+        UpdatePossessionVisuals(true);
 
         Transform targetCamera = target.GetCameraTarget();
 
-        // Keep Girl in her current position! Freeze her local movement controls while possessing
+        // Keep Girl in her current position! Freeze her local movement controls and Girl abilities while possessing
         if (_controller != null) _controller.enabled = false;
         if (_starterAssets != null) _starterAssets.enabled = false;
         if (TryGetComponent<GirlMovement>(out var gm)) gm.enabled = false;
         if (TryGetComponent<UnityEngine.InputSystem.PlayerInput>(out var pi)) pi.enabled = false;
+        SetGirlAbilitiesEnabled(false);
 
         // Ensure vcam is dynamically resolved if not wired in Inspector
         if (vcam == null)
@@ -428,14 +416,7 @@ public class GirlPossession : NetworkBehaviour
         }
 
         // Restore correct visibility: preserves player's chosen manifestation state
-        if (_matCtrl != null)
-        {
-            _matCtrl.RefreshVisualState();
-        }
-        else
-        {
-            ToggleRenderers(IsOwner);
-        }
+        UpdatePossessionVisuals(false);
 
         if (IsOwner)
         {
@@ -489,6 +470,7 @@ public class GirlPossession : NetworkBehaviour
             }
             if (_controller != null) _controller.enabled = true;
             if (TryGetComponent<GirlMovement>(out var gm)) gm.enabled = true;
+            SetGirlAbilitiesEnabled(true);
 
             var inputs = GetComponent<StarterAssetsInputs>();
             if (inputs != null)
@@ -518,8 +500,50 @@ public class GirlPossession : NetworkBehaviour
         ReturnToSpiritFormClientRpc();
     }
 
+    private void UpdatePossessionVisuals(bool possessing)
+    {
+        if (_matCtrl == null) _matCtrl = GetComponent<GirlMaterialController>();
+        if (_matCtrl != null)
+        {
+            _matCtrl.OnPossessionStateChanged(possessing);
+        }
+        else
+        {
+            ToggleRenderers(!possessing && IsOwner);
+        }
+    }
+
     private void ToggleRenderers(bool isVisible)
     {
         foreach (var r in GetComponentsInChildren<Renderer>()) r.enabled = isVisible;
+    }
+
+    private void SetGirlAbilitiesEnabled(bool isEnabled)
+    {
+        if (TryGetComponent<GirlSenseNet>(out var sense)) sense.enabled = isEnabled;
+        if (TryGetComponent<GirlShadowTeleportNet>(out var teleport)) teleport.enabled = isEnabled;
+        if (TryGetComponent<GirlStealth>(out var stealth)) stealth.enabled = isEnabled;
+        if (TryGetComponent<GirlCommandNet>(out var command)) command.enabled = isEnabled;
+        if (TryGetComponent<GirlAttackNet>(out var attack)) attack.enabled = isEnabled;
+    }
+
+    private bool IsNearLootableCorpse()
+    {
+        if (_currentTarget is Component comp && comp != null)
+        {
+            Vector3 pos = comp.transform.position;
+            var allLootables = FindObjectsByType<CorpseLootableNet>(FindObjectsSortMode.None);
+            foreach (var corpse in allLootables)
+            {
+                if (corpse != null && corpse.HasLoot && corpse.gameObject != comp.gameObject)
+                {
+                    if (Vector3.Distance(pos, corpse.transform.position) <= corpse.interactionDistance)
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+        return false;
     }
 }

@@ -100,7 +100,7 @@ public class GirlMaterialController : NetworkBehaviour
         // Owner controls: Press [T] to toggle Manifestation (Visible to all) vs Spirit Form (Invisible)
         if (IsOwner)
         {
-            if (PauseManager.IsGamePaused) return;
+            if (PauseManager.IsGamePaused || _isCurrentlyPossessing) return;
 
             // Do NOT trigger if Deal UI modal is open or if any text input field is focused!
             bool isDealOpen = GirlDealUI.Instance != null && GirlDealUI.Instance.IsOpen;
@@ -157,9 +157,9 @@ public class GirlMaterialController : NetworkBehaviour
         if (_fadeJob != null) StopCoroutine(_fadeJob);
         _currentAlpha = alpha;
 
-        if (!IsOwner)
+        if (!IsOwner || (_isCurrentlyPossessing && !isManifested.Value))
         {
-            // Remote players ONLY see renderers when the Girl is manifested (real mode)
+            // Remote players (or owner while possessing in spirit mode) only see renderers if manifested
             ToggleRenderers(isManifested.Value && alpha >= 0.05f);
         }
         else
@@ -220,9 +220,42 @@ public class GirlMaterialController : NetworkBehaviour
         }
     }
 
+    private bool _isCurrentlyPossessing = false;
+    public bool IsCurrentlyPossessing => _isCurrentlyPossessing;
+
+    public void OnPossessionStateChanged(bool possessing)
+    {
+        _isCurrentlyPossessing = possessing;
+        if (_manifestRoutine != null)
+        {
+            StopCoroutine(_manifestRoutine);
+            _manifestRoutine = null;
+        }
+        ApplyVisualStateImmediate(isManifested.Value);
+    }
+
     public void RefreshVisualState()
     {
         ApplyVisualStateImmediate(isManifested.Value);
+    }
+
+    /// <summary>
+    /// Explicitly controls spirit mode visibility.
+    /// When possessing in spirit mode: showGhostVfx = false (nobody sees anything, including the Girl).
+    /// When roaming in spirit mode: showGhostVfx = true (owner sees ghost VFX, remote players see nothing).
+    /// </summary>
+    public void SetSpiritMode(bool showGhostVfx)
+    {
+        if (showGhostVfx && IsOwner)
+        {
+            ApplyInvisibleVFXMaterial();
+            ToggleRenderers(true);
+        }
+        else
+        {
+            ToggleRenderers(false);
+        }
+        if (_dissolveController != null) _dissolveController.SetDissolveImmediate(1f);
     }
 
     private void ApplyVisualStateImmediate(bool visible)
@@ -236,32 +269,17 @@ public class GirlMaterialController : NetworkBehaviour
 
         if (visible)
         {
-            // Full real girl model visible to everyone
+            // Full real girl model visible to everyone (whether roaming or possessing)
             RestoreOriginalMaterials();
             ToggleRenderers(true);
             if (_dissolveController != null) _dissolveController.SetDissolveImmediate(0f);
         }
         else
         {
-            // Spirit / invisible mode
-            if (IsOwner)
-            {
-                bool isPossessing = TryGetComponent<GirlPossession>(out var gp) && gp.isPossessing.Value;
-                if (isPossessing)
-                {
-                    ToggleRenderers(false);
-                }
-                else
-                {
-                    ApplyInvisibleVFXMaterial();
-                    ToggleRenderers(true);
-                }
-            }
-            else
-            {
-                ToggleRenderers(false);
-            }
-            if (_dissolveController != null) _dissolveController.SetDissolveImmediate(1f);
+            // Spirit / invisible mode:
+            // If currently possessing, nobody sees the Girl (showGhostVfx = false).
+            // If roaming, the owner sees ghost VFX while remotes see nothing (showGhostVfx = true).
+            SetSpiritMode(!_isCurrentlyPossessing);
         }
     }
 
@@ -337,7 +355,11 @@ public class GirlMaterialController : NetworkBehaviour
 
             yield return new WaitForSeconds(remainingTime);
 
-            if (IsOwner)
+            if (_isCurrentlyPossessing)
+            {
+                ToggleRenderers(false);
+            }
+            else if (IsOwner)
             {
                 ApplyInvisibleVFXMaterial();
                 ToggleRenderers(true);

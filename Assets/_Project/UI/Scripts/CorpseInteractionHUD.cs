@@ -15,37 +15,57 @@ public class CorpseInteractionHUD : MonoBehaviour
     [Header("Detection Settings")]
     public float maxPromptDistance = 3.0f;
 
+    private void Awake()
+    {
+        SetPromptVisible(false);
+    }
+
+    private void OnEnable()
+    {
+        SetPromptVisible(false);
+    }
+
+    private GameObject GetActiveControlledCharacter()
+    {
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsClient) return null;
+        var localPlayer = NetworkManager.Singleton.LocalClient?.PlayerObject;
+        if (localPlayer == null) return null;
+
+        if (localPlayer.TryGetComponent<GirlPossession>(out var possession) && possession.isPossessing.Value)
+        {
+            if (possession.CurrentTarget is Component comp && comp != null)
+            {
+                return comp.gameObject;
+            }
+        }
+        return localPlayer.gameObject;
+    }
+
     private void Update()
     {
-        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsClient)
+        var activePlayer = GetActiveControlledCharacter();
+        if (activePlayer == null)
         {
             SetPromptVisible(false);
             return;
         }
 
-        var localPlayer = NetworkManager.Singleton.LocalClient?.PlayerObject;
-        if (localPlayer == null)
-        {
-            SetPromptVisible(false);
-            return;
-        }
-
-        // The Girl character cannot loot corpses — suppress prompt completely
-        if (localPlayer.GetComponent<GirlPossession>() != null || 
-            localPlayer.GetComponent<GirlMovement>() != null || 
-            localPlayer.GetComponent<GirlStealth>() != null)
+        // The Girl character in her own body cannot loot corpses — suppress prompt completely
+        if (activePlayer.GetComponent<GirlPossession>() != null || 
+            activePlayer.GetComponent<GirlMovement>() != null || 
+            activePlayer.GetComponent<GirlStealth>() != null)
         {
             SetPromptVisible(false);
             return;
         }
 
         // Dead players cannot loot
-        if (localPlayer.TryGetComponent<TargetHealth>(out var myHealth) && (myHealth.isCorpse.Value || myHealth.CurrentHealth <= 0))
+        if (activePlayer.TryGetComponent<TargetHealth>(out var myHealth) && (myHealth.isCorpse.Value || myHealth.CurrentHealth <= 0))
         {
             SetPromptVisible(false);
             return;
         }
-        if (localPlayer.TryGetComponent<HealthSystem>(out var myHs) && myHs.IsDead)
+        if (activePlayer.TryGetComponent<HealthSystem>(out var myHs) && myHs.IsDead)
         {
             SetPromptVisible(false);
             return;
@@ -58,7 +78,7 @@ public class CorpseInteractionHUD : MonoBehaviour
         var allLootables = FindObjectsByType<CorpseLootableNet>(FindObjectsSortMode.None);
         foreach (var corpse in allLootables)
         {
-            if (corpse.gameObject == localPlayer.gameObject) continue;
+            if (corpse.gameObject == activePlayer) continue;
 
             // Only actual dead corpses can be looted!
             bool isDead = false;
@@ -68,7 +88,7 @@ public class CorpseInteractionHUD : MonoBehaviour
 
             if (!corpse.HasLoot) continue;
 
-            float dist = Vector3.Distance(localPlayer.transform.position, corpse.transform.position);
+            float dist = Vector3.Distance(activePlayer.transform.position, corpse.transform.position);
             if (dist < nearestDist)
             {
                 nearestDist = dist;
@@ -96,8 +116,7 @@ public class CorpseInteractionHUD : MonoBehaviour
 
         if (promptText != null)
         {
-            if (visible) promptText.text = text;
-            else if (promptPanel == null) promptText.text = "";
+            promptText.text = visible ? text : "";
         }
     }
 }

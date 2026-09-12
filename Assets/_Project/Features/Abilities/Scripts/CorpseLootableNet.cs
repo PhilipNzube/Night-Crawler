@@ -104,6 +104,22 @@ public class CorpseLootableNet : NetworkBehaviour
         Debug.Log($"[CorpseLootableNet] '{name}' died. Loot available: Vials={remaining}, Weapon={hasWeaponLoot.Value}, Exorcism={hasExorcismRelic.Value}, Hazard={hasHazardFilter.Value}, Minimap={hasMinimapGear.Value}");
     }
 
+    private GameObject GetActiveControlledCharacter()
+    {
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsClient) return null;
+        var localPlayer = NetworkManager.Singleton.LocalClient?.PlayerObject;
+        if (localPlayer == null) return null;
+
+        if (localPlayer.TryGetComponent<GirlPossession>(out var possession) && possession.isPossessing.Value)
+        {
+            if (possession.CurrentTarget is Component comp && comp != null)
+            {
+                return comp.gameObject;
+            }
+        }
+        return localPlayer.gameObject;
+    }
+
     private void Update()
     {
         if (PauseManager.IsGamePaused) return;
@@ -111,32 +127,36 @@ public class CorpseLootableNet : NetworkBehaviour
         // Only alive, non-owner players can loot this corpse
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsClient) return;
 
-        var localPlayer = NetworkManager.Singleton.LocalClient?.PlayerObject;
-        if (localPlayer == null || localPlayer.gameObject == gameObject) return;
+        var activePlayer = GetActiveControlledCharacter();
+        if (activePlayer == null || activePlayer == gameObject) return;
 
-        // The Girl character CANNOT loot corpses
-        if (localPlayer.GetComponent<GirlPossession>() != null ||
-            localPlayer.GetComponent<GirlMovement>() != null ||
-            localPlayer.GetComponent<GirlStealth>() != null)
+        // The Girl character in her own body CANNOT loot corpses
+        if (activePlayer.GetComponent<GirlPossession>() != null ||
+            activePlayer.GetComponent<GirlMovement>() != null ||
+            activePlayer.GetComponent<GirlStealth>() != null)
         {
             return;
         }
 
-        var localHealth = localPlayer.GetComponent<HealthSystem>();
+        var localHealth = activePlayer.GetComponent<HealthSystem>();
         if (localHealth != null && localHealth.IsDead) return;
-        if (localPlayer.TryGetComponent<TargetHealth>(out var localTh) && (localTh.isCorpse.Value || localTh.CurrentHealth <= 0)) return;
+        if (activePlayer.TryGetComponent<TargetHealth>(out var localTh) && (localTh.isCorpse.Value || localTh.CurrentHealth <= 0)) return;
 
         bool isCorpseDead = (_healthSystem != null && _healthSystem.IsDead) ||
                             (TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0));
         if (!isCorpseDead || !HasLoot) return;
 
         // Proximity check
-        float dist = Vector3.Distance(localPlayer.transform.position, transform.position);
+        float dist = Vector3.Distance(activePlayer.transform.position, transform.position);
         if (dist <= interactionDistance)
         {
             if (Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame)
             {
-                RequestLootServerRpc(localPlayer.NetworkObjectId);
+                var netObj = activePlayer.GetComponent<NetworkObject>();
+                if (netObj != null)
+                {
+                    RequestLootServerRpc(netObj.NetworkObjectId);
+                }
             }
         }
     }

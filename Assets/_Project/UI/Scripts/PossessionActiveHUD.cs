@@ -78,12 +78,6 @@ public class PossessionActiveHUD : MonoBehaviour
             OnReleaseClicked();
             return;
         }
-
-        // Hotkey: Press [E] to exit possession
-        if ((Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame) || Input.GetKeyDown(KeyCode.E))
-        {
-            OnReleaseClicked();
-        }
     }
 
     public void Show(string victimName, GirlPossession girlPossession)

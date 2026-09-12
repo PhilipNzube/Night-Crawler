@@ -125,6 +125,13 @@ public class GirlDealUI : MonoBehaviour
         if (NetworkManager.Singleton == null || NetworkManager.Singleton.LocalClient == null) return false;
         var playerObj = NetworkManager.Singleton.LocalClient.PlayerObject;
         if (playerObj == null) return false;
+
+        // Disabled while actively possessing another character
+        if (playerObj.TryGetComponent<GirlPossession>(out var possession) && possession.isPossessing.Value)
+        {
+            return false;
+        }
+
         return playerObj.GetComponent<GirlStealth>() != null 
             || playerObj.GetComponent<GirlMaterialController>() != null 
             || playerObj.GetComponent<GirlPossession>() != null;
