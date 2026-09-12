@@ -26,17 +26,38 @@ public class InvestigatorCombatNet : NetworkBehaviour
     [Header("Runtime State")]
     public NetworkVariable<int> currentWeaponIndex = new NetworkVariable<int>(0, 
         NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
-    
-    public NetworkVariable<int> currentAmmo = new NetworkVariable<int>(0, 
+    public NetworkVariable<int> currentAmmo = new NetworkVariable<int>(0,
         NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Owner);
+    
+    [Header("Combo Settings")]
+    [Tooltip("Maximum window in seconds between clicks to continue the melee combo.")]
+    public float comboWindow = 1.25f;
+    [Tooltip("Total number of combo steps in the attack chain (e.g. 2 for 2-hit, 3 for 3-hit, 4 for 4-hit).")]
+    public int maxComboSteps = 2;
+
+    [Header("Equip Animation Settings")]
+    [Tooltip("If true, plays draw/equip and holster/disarm animations. If false (default), weapons appear instantly in hand upon deal/pickup.")]
+    public bool playEquipAnimations = false;
+    [Tooltip("Time delay before weapon visual appears when playEquipAnimations is true.")]
+    public float equipAnimDelay = 0.35f;
+    [Tooltip("Time delay before weapon visual vanishes when playEquipAnimations is true.")]
+    public float disarmAnimDelay = 0.35f;
 
     private readonly int _weaponIdHash     = Animator.StringToHash("WeaponID");
+    private readonly int _hasWeaponHash    = Animator.StringToHash("HasWeapon");
     private readonly int _switchWeaponHash = Animator.StringToHash("SwitchWeapon");
+    private readonly int _disarmHash       = Animator.StringToHash("Disarm");
     private readonly int _attackHash       = Animator.StringToHash("Attack");
+    private readonly int _comboStepHash    = Animator.StringToHash("ComboStep");
     private readonly int _reloadHash       = Animator.StringToHash("Reload");
+    private readonly int _hitReactHash     = Animator.StringToHash("HitReact");
+    private readonly int _hitTypeHash      = Animator.StringToHash("HitType");
 
     private float _attackTimer;
+    private int _currentComboStep = 0;
+    private float _lastAttackTime = -10f;
     private bool _isReloading;
+    private Coroutine _weaponEquipRoutine;
     private Animator _animator;
     private NetworkAnimator _networkAnimator;
     private AudioSource _audioSource;
@@ -140,6 +161,14 @@ public class InvestigatorCombatNet : NetworkBehaviour
 
     public bool HasWeapon => currentWeaponIndex.Value >= 0;
 
+    void Start()
+    {
+        // Immediately set animator state on the first frame
+        int initialIndex = IsMiner ? 0 : (currentWeaponIndex.Value >= 0 ? currentWeaponIndex.Value : -1);
+        UpdateAnimatorWeaponState(initialIndex);
+        ApplyWeaponVisuals(initialIndex);
+    }
+
     public override void OnNetworkSpawn()
     {
         _audioSource.spatialBlend = IsOwner ? 0.2f : float.MaxValue;
@@ -161,6 +190,7 @@ public class InvestigatorCombatNet : NetworkBehaviour
         else
         {
             ApplyWeaponVisuals(currentWeaponIndex.Value);
+            UpdateAnimatorWeaponState(currentWeaponIndex.Value);
         }
     }
 
@@ -172,6 +202,7 @@ public class InvestigatorCombatNet : NetworkBehaviour
     private void HandleWeaponIndexChanged(int prev, int current)
     {
         ApplyWeaponVisuals(current);
+        UpdateAnimatorWeaponState(current);
     }
 
     private void ApplyWeaponVisuals(int index)
@@ -283,23 +314,55 @@ public class InvestigatorCombatNet : NetworkBehaviour
 
     public void SwitchWeapon(int index)
     {
-        currentWeaponIndex.Value = index;
-        ApplyWeaponVisuals(index);
-
-        if (index >= 0)
+        if (_weaponEquipRoutine != null)
         {
-            SafeSetInteger(_weaponIdHash, index);
-            SafeSetTrigger(_switchWeaponHash);
+            StopCoroutine(_weaponEquipRoutine);
+            _weaponEquipRoutine = null;
+        }
+
+        currentWeaponIndex.Value = index;
+
+        if (playEquipAnimations)
+        {
+            _weaponEquipRoutine = StartCoroutine(AnimatedWeaponSwitchRoutine(index));
         }
         else
         {
-            SafeSetInteger(_weaponIdHash, -1);
+            ApplyWeaponVisuals(index);
+            UpdateAnimatorWeaponState(index);
         }
 
         if (index == 1 && gunStats != null)
         {
             currentAmmo.Value = gunStats.maxAmmo;
         }
+    }
+
+    private void UpdateAnimatorWeaponState(int index)
+    {
+        SafeSetInteger(_weaponIdHash, index);
+        SafeSetBool(_hasWeaponHash, index >= 0);
+    }
+
+    private IEnumerator AnimatedWeaponSwitchRoutine(int index)
+    {
+        if (index >= 0)
+        {
+            // Drawing weapon
+            SafeSetTrigger(_switchWeaponHash);
+            UpdateAnimatorWeaponState(index);
+            yield return new WaitForSeconds(equipAnimDelay);
+            ApplyWeaponVisuals(index);
+        }
+        else
+        {
+            // Holstering weapon (Disarm)
+            SafeSetTrigger(_disarmHash);
+            yield return new WaitForSeconds(disarmAnimDelay);
+            ApplyWeaponVisuals(-1);
+            UpdateAnimatorWeaponState(-1);
+        }
+        _weaponEquipRoutine = null;
     }
 
     private void PerformAttack()
@@ -316,19 +379,32 @@ public class InvestigatorCombatNet : NetworkBehaviour
 
         _attackTimer = activeStats.fireRate;
 
-        SafeSetTrigger(_attackHash);
-
-        if (activeStats.fireSound != null)
-            _audioSource.PlayOneShot(activeStats.fireSound);
-
         if (currentWeaponIndex.Value == 0)
         {
+            // Melee Combo Logic
+            if (Time.time - _lastAttackTime <= comboWindow)
+            {
+                _currentComboStep = (_currentComboStep + 1) % Mathf.Max(1, maxComboSteps);
+            }
+            else
+            {
+                _currentComboStep = 0;
+            }
+            _lastAttackTime = Time.time;
+
+            SafeSetInteger(_comboStepHash, _currentComboStep);
+            SafeSetTrigger(_attackHash);
             PerformMeleeHit(activeStats);
         }
         else
         {
+            _currentComboStep = 0;
+            SafeSetTrigger(_attackHash);
             PerformRangedShot(activeStats);
         }
+
+        if (activeStats.fireSound != null)
+            _audioSource.PlayOneShot(activeStats.fireSound);
     }
 
     private void PerformMeleeHit(WeaponStats stats)
@@ -407,6 +483,14 @@ public class InvestigatorCombatNet : NetworkBehaviour
         }
     }
 
+    private void SafeSetBool(int hash, bool value)
+    {
+        if (_animator != null && _animatorParameterHashes.Contains(hash))
+        {
+            _animator.SetBool(hash, value);
+        }
+    }
+
     private void SafeSetTrigger(int hash)
     {
         if (_animatorParameterHashes.Contains(hash))
@@ -420,5 +504,15 @@ public class InvestigatorCombatNet : NetworkBehaviour
                 _animator.SetTrigger(hash);
             }
         }
+    }
+
+    /// <summary>
+    /// Triggers hit reaction animation on the investigator (e.g. when struck by a monster or ability).
+    /// 0 = Gut Hit, 1 = Right Side Hit.
+    /// </summary>
+    public void PlayHitReaction(int reactionType = 0)
+    {
+        SafeSetInteger(_hitTypeHash, reactionType);
+        SafeSetTrigger(_hitReactHash);
     }
 }
