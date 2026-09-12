@@ -421,11 +421,9 @@ public class GirlPossession : NetworkBehaviour
         if (IsOwner)
         {
             // The Girl is alive — ensure 'YOU DIED' is never shown on the Girl's screen
-            if (DeathUI.Instance != null && DeathUI.Instance.deathCanvasGroup != null)
+            if (DeathUI.Instance != null)
             {
-                DeathUI.Instance.deathCanvasGroup.alpha = 0f;
-                DeathUI.Instance.deathCanvasGroup.blocksRaycasts = false;
-                DeathUI.Instance.deathCanvasGroup.interactable = false;
+                DeathUI.Instance.HideDeathScreen();
             }
 
             if (TryGetComponent<NetworkPlayer>(out var np))

@@ -130,12 +130,56 @@ public class DeathUI : MonoBehaviour
     /// </summary>
     public void ShowDeathScreen(string title = "YOU DIED", string subtitle = "Your soul has fallen. Allies can still loot your body.")
     {
+        // Safety guard: The Girl player must NEVER see 'YOU DIED' when an investigator dies!
+        if (Unity.Netcode.NetworkManager.Singleton != null && Unity.Netcode.NetworkManager.Singleton.LocalClient != null)
+        {
+            var localPlayerObj = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject;
+            if (localPlayerObj != null && (localPlayerObj.GetComponent<GirlPossession>() != null || localPlayerObj.name.ToLower().Contains("girl")))
+            {
+                // Only allow death screen if the Girl herself is actually dead
+                bool girlDead = false;
+                if (localPlayerObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) girlDead = true;
+                if (localPlayerObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) girlDead = true;
+
+                if (!girlDead)
+                {
+                    Debug.Log("[DeathUI] Suppressed ShowDeathScreen — Local player is the alive Girl.");
+                    HideDeathScreen();
+                    return;
+                }
+            }
+        }
+
         if (deathPanel != null) deathPanel.SetActive(true);
         if (titleText != null) titleText.text = title;
         if (subtitleText != null) subtitleText.text = subtitle;
 
         if (_fadeCoroutine != null) StopCoroutine(_fadeCoroutine);
         _fadeCoroutine = StartCoroutine(FadeInDeathScreenRoutine());
+    }
+
+    /// <summary>
+    /// Immediately dismisses and resets the death screen overlay.
+    /// </summary>
+    public void HideDeathScreen()
+    {
+        if (_fadeCoroutine != null)
+        {
+            StopCoroutine(_fadeCoroutine);
+            _fadeCoroutine = null;
+        }
+
+        if (deathCanvasGroup != null)
+        {
+            deathCanvasGroup.alpha = 0f;
+            deathCanvasGroup.blocksRaycasts = false;
+            deathCanvasGroup.interactable = false;
+        }
+
+        if (deathPanel != null)
+        {
+            deathPanel.SetActive(false);
+        }
     }
 
     private IEnumerator FadeInDeathScreenRoutine()
@@ -345,16 +389,5 @@ public class DeathUI : MonoBehaviour
             Canvas.ForceUpdateCanvases();
             allyAlertScrollRect.verticalNormalizedPosition = 0f; // Scroll to newest entry
         }
-    }
-
-    public void HideDeathScreen()
-    {
-        if (_fadeCoroutine != null) StopCoroutine(_fadeCoroutine);
-        if (deathCanvasGroup != null)
-        {
-            deathCanvasGroup.alpha = 0f;
-            deathCanvasGroup.blocksRaycasts = false;
-        }
-        if (deathPanel != null) deathPanel.SetActive(false);
     }
 }

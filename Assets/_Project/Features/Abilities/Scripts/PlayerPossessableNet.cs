@@ -306,6 +306,16 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
 
     private void EnforceDeadState()
     {
+        // The Girl player must NEVER execute victim death logic or see 'YOU DIED'!
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null)
+        {
+            var localPlayerObj = NetworkManager.Singleton.LocalClient.PlayerObject;
+            if (localPlayerObj != null && (localPlayerObj.GetComponent<GirlPossession>() != null || localPlayerObj.name.ToLower().Contains("girl")))
+            {
+                return;
+            }
+        }
+
         if (TryGetComponent<NetworkPlayer>(out var np))
         {
             np.TeardownInputActions();
@@ -437,6 +447,14 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         }
         else
         {
+            // The Girl should never execute victim ownership return logic
+            bool localIsGirl = NetworkManager.Singleton != null && 
+                               NetworkManager.Singleton.LocalClient != null && 
+                               NetworkManager.Singleton.LocalClient.PlayerObject != null && 
+                               (NetworkManager.Singleton.LocalClient.PlayerObject.GetComponent<GirlPossession>() != null || 
+                                NetworkManager.Singleton.LocalClient.PlayerObject.name.ToLower().Contains("girl"));
+            if (localIsGirl) return;
+
             // Victim regained ownership
             if (IsTargetDead())
             {
@@ -633,21 +651,19 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         if (IsServer)
         {
             ulong victimId = originalOwnerClientId.Value;
-            if (victimId == ulong.MaxValue || victimId == possessingClientId.Value)
-            {
-                victimId = (OwnerClientId != possessingClientId.Value) ? OwnerClientId : 0;
-            }
+            ulong girlId = (_activeGirlRef != null) ? _activeGirlRef.OwnerClientId : possessingClientId.Value;
 
             isPossessed.Value = false;
             possessingClientId.Value = ulong.MaxValue;
 
             var netObj = GetComponent<NetworkObject>();
-            if (netObj != null && victimId != ulong.MaxValue && netObj.OwnerClientId != victimId)
+            if (netObj != null && victimId != ulong.MaxValue && victimId != girlId && netObj.OwnerClientId != victimId)
             {
                 netObj.ChangeOwnership(victimId);
             }
 
-            NotifyPossessionEndedClientRpc(victimId);
+            ulong rpcVictimId = (victimId != girlId && victimId != ulong.MaxValue) ? victimId : ulong.MaxValue;
+            NotifyPossessionEndedClientRpc(rpcVictimId);
         }
 
         _activeGirlRef = null;
@@ -659,13 +675,22 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         if (NetworkManager.Singleton == null) return;
         ulong localId = NetworkManager.Singleton.LocalClientId;
 
+        bool localIsGirl = NetworkManager.Singleton.LocalClient != null && 
+                           NetworkManager.Singleton.LocalClient.PlayerObject != null && 
+                           (NetworkManager.Singleton.LocalClient.PlayerObject.GetComponent<GirlPossession>() != null || 
+                            NetworkManager.Singleton.LocalClient.PlayerObject.name.ToLower().Contains("girl"));
+
         // Clean up puppet controls on the Girl's client
-        if (localId == possessingClientId.Value || (NetworkManager.Singleton.LocalClient != null && NetworkManager.Singleton.LocalClient.PlayerObject != null && NetworkManager.Singleton.LocalClient.PlayerObject.GetComponent<GirlPossession>() != null))
+        if (localId == possessingClientId.Value || localIsGirl)
         {
             TeardownGirlControl();
         }
 
-        bool isVictim = (localId == victimClientId) || (localId == originalOwnerClientId.Value);
+        // The Girl is NEVER the victim — exit immediately
+        if (localIsGirl) return;
+
+        bool isVictim = (victimClientId != ulong.MaxValue && localId == victimClientId) || 
+                        (originalOwnerClientId.Value != ulong.MaxValue && localId == originalOwnerClientId.Value);
         if (isVictim)
         {
             if (_priestRejectionCoroutine != null)
