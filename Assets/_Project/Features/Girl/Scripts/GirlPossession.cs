@@ -173,7 +173,11 @@ public class GirlPossession : NetworkBehaviour
     [Rpc(SendTo.ClientsAndHost)]
     private void NotifyPossessionClientRpc(ulong targetNetId)
     {
-        if (!IsOwner)
+        if (_matCtrl != null)
+        {
+            _matCtrl.RefreshVisualState();
+        }
+        else
         {
             ToggleRenderers(false);
         }
@@ -250,7 +254,14 @@ public class GirlPossession : NetworkBehaviour
     private IEnumerator PossessSequence(IPossessable target)
     {
         _currentTarget = target;
-        if (_matCtrl != null) _matCtrl.SetManifested(false);
+        if (_matCtrl != null)
+        {
+            _matCtrl.RefreshVisualState();
+        }
+        else
+        {
+            ToggleRenderers(false);
+        }
 
         Transform targetCamera = target.GetCameraTarget();
 
@@ -258,6 +269,7 @@ public class GirlPossession : NetworkBehaviour
         if (_controller != null) _controller.enabled = false;
         if (_starterAssets != null) _starterAssets.enabled = false;
         if (TryGetComponent<GirlMovement>(out var gm)) gm.enabled = false;
+        if (TryGetComponent<UnityEngine.InputSystem.PlayerInput>(out var pi)) pi.enabled = false;
 
         // Ensure vcam is dynamically resolved if not wired in Inspector
         if (vcam == null)
@@ -406,18 +418,44 @@ public class GirlPossession : NetworkBehaviour
             PossessionActiveHUD.Instance.Hide();
         }
 
-        // The Girl is alive — ensure 'YOU DIED' is never shown on the Girl's screen
-        if (DeathUI.Instance != null && DeathUI.Instance.deathCanvasGroup != null)
+        // Clean up puppet controls on the Girl's client
+        if (_currentTarget != null)
         {
-            DeathUI.Instance.deathCanvasGroup.alpha = 0f;
-            DeathUI.Instance.deathCanvasGroup.blocksRaycasts = false;
-            DeathUI.Instance.deathCanvasGroup.interactable = false;
+            if (_currentTarget is Component comp && comp.TryGetComponent<PlayerPossessableNet>(out var pnet))
+            {
+                pnet.TeardownGirlControl();
+            }
         }
 
-        ToggleRenderers(true);
+        // Restore correct visibility: preserves player's chosen manifestation state
+        if (_matCtrl != null)
+        {
+            _matCtrl.RefreshVisualState();
+        }
+        else
+        {
+            ToggleRenderers(IsOwner);
+        }
 
         if (IsOwner)
         {
+            // The Girl is alive — ensure 'YOU DIED' is never shown on the Girl's screen
+            if (DeathUI.Instance != null && DeathUI.Instance.deathCanvasGroup != null)
+            {
+                DeathUI.Instance.deathCanvasGroup.alpha = 0f;
+                DeathUI.Instance.deathCanvasGroup.blocksRaycasts = false;
+                DeathUI.Instance.deathCanvasGroup.interactable = false;
+            }
+
+            if (TryGetComponent<NetworkPlayer>(out var np))
+            {
+                np.SetupOwnerInput();
+            }
+            else if (TryGetComponent<UnityEngine.InputSystem.PlayerInput>(out var pi))
+            {
+                pi.enabled = true;
+            }
+
             if (vcam == null)
             {
                 var netPlayer = GetComponent<NetworkPlayer>();
@@ -472,11 +510,6 @@ public class GirlPossession : NetworkBehaviour
         {
             if (_controller != null) _controller.enabled = true;
             if (TryGetComponent<GirlMovement>(out var gm)) gm.enabled = true;
-        }
-
-        if (_matCtrl != null)
-        {
-            _matCtrl.SetManifested(false);
         }
     }
 

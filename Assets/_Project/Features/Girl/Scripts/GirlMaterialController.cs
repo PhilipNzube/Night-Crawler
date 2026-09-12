@@ -220,6 +220,11 @@ public class GirlMaterialController : NetworkBehaviour
         }
     }
 
+    public void RefreshVisualState()
+    {
+        ApplyVisualStateImmediate(isManifested.Value);
+    }
+
     private void ApplyVisualStateImmediate(bool visible)
     {
         _isDissolvingActive = false;
@@ -241,8 +246,16 @@ public class GirlMaterialController : NetworkBehaviour
             // Spirit / invisible mode
             if (IsOwner)
             {
-                ApplyInvisibleVFXMaterial();
-                ToggleRenderers(true);
+                bool isPossessing = TryGetComponent<GirlPossession>(out var gp) && gp.isPossessing.Value;
+                if (isPossessing)
+                {
+                    ToggleRenderers(false);
+                }
+                else
+                {
+                    ApplyInvisibleVFXMaterial();
+                    ToggleRenderers(true);
+                }
             }
             else
             {

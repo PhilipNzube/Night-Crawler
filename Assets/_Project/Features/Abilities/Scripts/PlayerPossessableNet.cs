@@ -210,6 +210,17 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
 
         if (localId == victimClientId)
         {
+            if (PossessionBlackoutOverlay.Instance != null)
+            {
+                PossessionBlackoutOverlay.Instance.SetBlackout(false);
+            }
+
+            if (IsTargetDead())
+            {
+                EnforceDeadState();
+                return;
+            }
+
             if (TryGetComponent<NetworkPlayer>(out var np))
             {
                 np.SetupOwnerInput();
@@ -224,11 +235,6 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
                 inputs.enabled = true;
                 inputs.cursorLocked = true;
                 inputs.cursorInputForLook = true;
-            }
-
-            if (PossessionBlackoutOverlay.Instance != null)
-            {
-                PossessionBlackoutOverlay.Instance.SetBlackout(false);
             }
 
             if (NotificationManager.Instance != null)
@@ -289,6 +295,85 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         }
     }
 
+    private bool IsTargetDead()
+    {
+        if (_targetHealth != null && (_targetHealth.isCorpse.Value || _targetHealth.CurrentHealth <= 0)) return true;
+        if (_healthSystem != null && _healthSystem.IsDead) return true;
+        if (TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) return true;
+        if (TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) return true;
+        return false;
+    }
+
+    private void EnforceDeadState()
+    {
+        if (TryGetComponent<NetworkPlayer>(out var np))
+        {
+            np.TeardownInputActions();
+        }
+
+        if (_thirdPersonController != null) _thirdPersonController.enabled = false;
+        if (_combatNet != null) _combatNet.enabled = false;
+
+        var inputs = GetComponent<StarterAssets.StarterAssetsInputs>();
+        if (inputs != null)
+        {
+            inputs.move = Vector2.zero;
+            inputs.look = Vector2.zero;
+            inputs.cursorInputForLook = false;
+            inputs.enabled = false;
+        }
+
+        if (PossessionBlackoutOverlay.Instance != null)
+        {
+            PossessionBlackoutOverlay.Instance.SetBlackout(false);
+        }
+
+        if (DeathUI.Instance != null)
+        {
+            DeathUI.Instance.ShowDeathScreen("YOU DIED", "Your soul has fallen. Allies can still loot your body.");
+        }
+
+        if (PlayerHUD.Instance != null)
+        {
+            PlayerHUD.Instance.HandleLocalPlayerDied();
+        }
+    }
+
+    /// <summary>
+    /// Completely strips input listening, movement, and camera control from the puppet on the Girl's machine.
+    /// Prevents ghost input handling when possessing targets multiple times.
+    /// </summary>
+    public void TeardownGirlControl()
+    {
+        if (TryGetComponent<NetworkPlayer>(out var np))
+        {
+            np.TeardownInputActions();
+        }
+
+        if (_thirdPersonController != null)
+        {
+            _thirdPersonController.enabled = false;
+        }
+
+        if (_combatNet != null)
+        {
+            _combatNet.enabled = false;
+        }
+
+        var inputs = GetComponent<StarterAssets.StarterAssetsInputs>();
+        if (inputs != null)
+        {
+            inputs.move = Vector2.zero;
+            inputs.look = Vector2.zero;
+            inputs.enabled = false;
+        }
+
+        if (TryGetComponent<UnityEngine.InputSystem.PlayerInput>(out var pi))
+        {
+            pi.enabled = false;
+        }
+    }
+
     public override void OnGainedOwnership()
     {
         base.OnGainedOwnership();
@@ -314,6 +399,16 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             if (_thirdPersonController != null)
             {
                 _thirdPersonController.enabled = true;
+                Transform camTarget = GetCameraTarget();
+                if (camTarget != null)
+                {
+                    _thirdPersonController.ResetTargetRotation(camTarget.eulerAngles.y, camTarget.eulerAngles.x);
+                }
+                else if (Camera.main != null)
+                {
+                    _thirdPersonController.ResetTargetRotation(Camera.main.transform.eulerAngles.y, Camera.main.transform.eulerAngles.x);
+                }
+
                 var camField = typeof(ThirdPersonController).GetField("_mainCamera",
                     System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
                 if (camField != null && Camera.main != null)
@@ -342,7 +437,13 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         }
         else
         {
-            // Victim regained ownership: hide blackout overlay and re-enable local controls
+            // Victim regained ownership
+            if (IsTargetDead())
+            {
+                EnforceDeadState();
+                return;
+            }
+
             if (TryGetComponent<NetworkPlayer>(out var np))
             {
                 np.SetupOwnerInput();
@@ -369,11 +470,6 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
 
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
-
-            if (PlayerHUD.Instance != null)
-            {
-                PlayerHUD.Instance.RestoreGirlHUD();
-            }
         }
     }
 
@@ -381,7 +477,13 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
     {
         base.OnLostOwnership();
 
+        bool isGirl = NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == possessingClientId.Value;
         bool isVictim = NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == originalOwnerClientId.Value;
+
+        if (isGirl)
+        {
+            TeardownGirlControl();
+        }
 
         if (isPossessed.Value)
         {
@@ -401,6 +503,12 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             // Restored to victim
             if (isVictim)
             {
+                if (IsTargetDead())
+                {
+                    EnforceDeadState();
+                    return;
+                }
+
                 if (TryGetComponent<NetworkPlayer>(out var np))
                 {
                     np.SetupOwnerInput();
@@ -521,6 +629,7 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
 
     public void Release()
     {
+        TeardownGirlControl();
         if (IsServer)
         {
             ulong victimId = originalOwnerClientId.Value;
@@ -550,6 +659,12 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         if (NetworkManager.Singleton == null) return;
         ulong localId = NetworkManager.Singleton.LocalClientId;
 
+        // Clean up puppet controls on the Girl's client
+        if (localId == possessingClientId.Value || (NetworkManager.Singleton.LocalClient != null && NetworkManager.Singleton.LocalClient.PlayerObject != null && NetworkManager.Singleton.LocalClient.PlayerObject.GetComponent<GirlPossession>() != null))
+        {
+            TeardownGirlControl();
+        }
+
         bool isVictim = (localId == victimClientId) || (localId == originalOwnerClientId.Value);
         if (isVictim)
         {
@@ -557,6 +672,17 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             {
                 StopCoroutine(_priestRejectionCoroutine);
                 _priestRejectionCoroutine = null;
+            }
+
+            if (PossessionBlackoutOverlay.Instance != null)
+            {
+                PossessionBlackoutOverlay.Instance.SetBlackout(false);
+            }
+
+            if (IsTargetDead())
+            {
+                EnforceDeadState();
+                return;
             }
 
             if (TryGetComponent<NetworkPlayer>(out var np))
@@ -576,11 +702,6 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
                 inputs.enabled = true;
                 inputs.cursorLocked = true;
                 inputs.cursorInputForLook = true;
-            }
-
-            if (PossessionBlackoutOverlay.Instance != null)
-            {
-                PossessionBlackoutOverlay.Instance.SetBlackout(false);
             }
 
             Cursor.lockState = CursorLockMode.Locked;
@@ -606,6 +727,7 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
 
     public void OnRelease()
     {
+        TeardownGirlControl();
         Release();
     }
 

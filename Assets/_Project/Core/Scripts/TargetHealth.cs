@@ -75,9 +75,12 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
             // Only show death screen if the local player is truly this character
             // (prevents server host adopting an orphaned object from falsely showing YOU DIED)
             bool isGirl = GetComponent<GirlStealth>() != null || GetComponent<GirlMaterialController>() != null;
+            bool isPossessedVictim = TryGetComponent<PlayerPossessableNet>(out var pnet) && 
+                                     (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == pnet.originalOwnerClientId.Value);
             bool isLocalCharacter = (NetworkManager.Singleton != null && 
                                      NetworkManager.Singleton.LocalClient != null && 
-                                     NetworkManager.Singleton.LocalClient.PlayerObject == GetComponent<NetworkObject>());
+                                     NetworkManager.Singleton.LocalClient.PlayerObject == GetComponent<NetworkObject>())
+                                     || isPossessedVictim;
 
             if (isLocalCharacter && DeathUI.Instance != null)
             {
