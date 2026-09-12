@@ -85,6 +85,11 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
                     ? "The Vengeful Spirit has been banished." 
                     : "Your soul has fallen. Allies can still loot your body.");
             }
+
+            if (isLocalCharacter && PlayerHUD.Instance != null)
+            {
+                PlayerHUD.Instance.HandleLocalPlayerDied();
+            }
         }
     }
 
@@ -199,11 +204,11 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
     {
         Debug.Log($"{gameObject.name} has died.");
 
-        // If possessed, immediately auto-exit possession!
+        // If possessed, auto-exit possession after brief death animation!
         if (TryGetComponent<PlayerPossessableNet>(out var possessable) && possessable.isPossessed.Value)
         {
-            Debug.Log($"[TargetHealth] Possessed character {gameObject.name} died! Releasing possession immediately.");
-            possessable.Release();
+            Debug.Log($"[TargetHealth] Possessed character {gameObject.name} died! Triggering possession death auto-exit.");
+            possessable.HandlePossessedTargetDied();
         }
         
         // Disable player tag, character controller, and name tag
@@ -225,6 +230,10 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
         {
             isCorpse.Value = true;
             // The corpse is NOT destroyed or despawned so other players can loot it
+            if (TryGetComponent<CorpseLootableNet>(out var lootable))
+            {
+                lootable.HandleDeath();
+            }
         }
     }
 

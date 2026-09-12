@@ -287,12 +287,28 @@ public class GirlPossession : NetworkBehaviour
         var comp = target as Component;
         if (comp != null)
         {
-            var no = comp.GetComponent<NetworkObject>();
-            if (no != null)
+            if (comp.TryGetComponent<NetworkPlayerName>(out var netName) && 
+                !string.IsNullOrEmpty(netName.playerName.Value.ToString()) && 
+                !netName.playerName.Value.ToString().StartsWith("Player "))
             {
-                victimName = GirlRevealManager.GetRegisteredPlayerName(no.OwnerClientId);
-                if (string.IsNullOrEmpty(victimName)) victimName = PlayerNameManager.GetPlayerName(no.OwnerClientId);
-                if (string.IsNullOrEmpty(victimName)) victimName = comp.gameObject.name.Replace("(Clone)", "").Trim();
+                victimName = netName.playerName.Value.ToString();
+            }
+            else
+            {
+                var no = comp.GetComponent<NetworkObject>();
+                if (no != null)
+                {
+                    victimName = GirlRevealManager.GetRegisteredPlayerName(no.OwnerClientId);
+                    if (string.IsNullOrEmpty(victimName) || victimName.StartsWith("Player "))
+                    {
+                        victimName = PlayerNameManager.GetPlayerName(no.OwnerClientId);
+                    }
+                }
+
+                if (string.IsNullOrEmpty(victimName) || victimName.StartsWith("Player "))
+                {
+                    victimName = comp.gameObject.name.Replace("(Clone)", "").Trim();
+                }
             }
         }
 

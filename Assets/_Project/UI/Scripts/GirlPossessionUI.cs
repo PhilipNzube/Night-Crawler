@@ -205,9 +205,41 @@ public class GirlPossessionUI : MonoBehaviour
                 continue; // Skip dead bodies
             }
 
-            string charName = GirlRevealManager.GetRegisteredPlayerName(clientId);
-            if (string.IsNullOrEmpty(charName)) charName = PlayerNameManager.GetPlayerName(clientId);
-            if (string.IsNullOrEmpty(charName)) charName = $"Investigator {clientId}";
+            string charName = null;
+            if (clientObj.TryGetComponent<NetworkPlayerName>(out var netName) && 
+                !string.IsNullOrEmpty(netName.playerName.Value.ToString()) && 
+                !netName.playerName.Value.ToString().StartsWith("Player "))
+            {
+                charName = netName.playerName.Value.ToString();
+            }
+
+            if (string.IsNullOrEmpty(charName))
+            {
+                string registered = GirlRevealManager.GetRegisteredPlayerName(clientId);
+                if (!string.IsNullOrEmpty(registered) && !registered.StartsWith("Player "))
+                {
+                    charName = registered;
+                }
+            }
+
+            if (string.IsNullOrEmpty(charName))
+            {
+                string pnmName = PlayerNameManager.GetPlayerName(clientId);
+                if (!string.IsNullOrEmpty(pnmName) && !pnmName.StartsWith("Player "))
+                {
+                    charName = pnmName;
+                }
+            }
+
+            if (string.IsNullOrEmpty(charName))
+            {
+                charName = clientObj.name.Replace("(Clone)", "").Trim();
+            }
+
+            if (string.IsNullOrEmpty(charName))
+            {
+                charName = $"Investigator {clientId}";
+            }
 
             string roleName = clientObj.name.Replace("(Clone)", "").Trim();
 

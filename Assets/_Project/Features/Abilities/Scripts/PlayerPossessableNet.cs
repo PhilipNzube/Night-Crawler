@@ -80,7 +80,7 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         }
     }
 
-    private void HandlePossessedTargetDied()
+    public void HandlePossessedTargetDied()
     {
         if (isPossessed.Value)
         {
@@ -105,8 +105,21 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             }
             else
             {
-                Release();
+                ulong girlId = possessingClientId.Value;
+                if (girlId != ulong.MaxValue)
+                {
+                    foreach (var gp in FindObjectsByType<GirlPossession>(FindObjectsSortMode.None))
+                    {
+                        if (gp.OwnerClientId == girlId)
+                        {
+                            gp.ForceEjectOnTargetDeath();
+                            break;
+                        }
+                    }
+                }
             }
+
+            Release();
         }
     }
 

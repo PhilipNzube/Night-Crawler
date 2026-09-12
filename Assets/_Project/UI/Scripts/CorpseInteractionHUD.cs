@@ -30,6 +30,27 @@ public class CorpseInteractionHUD : MonoBehaviour
             return;
         }
 
+        // The Girl character cannot loot corpses — suppress prompt completely
+        if (localPlayer.GetComponent<GirlPossession>() != null || 
+            localPlayer.GetComponent<GirlMovement>() != null || 
+            localPlayer.GetComponent<GirlStealth>() != null)
+        {
+            SetPromptVisible(false);
+            return;
+        }
+
+        // Dead players cannot loot
+        if (localPlayer.TryGetComponent<TargetHealth>(out var myHealth) && (myHealth.isCorpse.Value || myHealth.CurrentHealth <= 0))
+        {
+            SetPromptVisible(false);
+            return;
+        }
+        if (localPlayer.TryGetComponent<HealthSystem>(out var myHs) && myHs.IsDead)
+        {
+            SetPromptVisible(false);
+            return;
+        }
+
         // Find nearest corpse with loot
         CorpseLootableNet nearestLootable = null;
         float nearestDist = maxPromptDistance;
@@ -38,6 +59,13 @@ public class CorpseInteractionHUD : MonoBehaviour
         foreach (var corpse in allLootables)
         {
             if (corpse.gameObject == localPlayer.gameObject) continue;
+
+            // Only actual dead corpses can be looted!
+            bool isDead = false;
+            if (corpse.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) isDead = true;
+            else if (corpse.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) isDead = true;
+            if (!isDead) continue;
+
             if (!corpse.HasLoot) continue;
 
             float dist = Vector3.Distance(localPlayer.transform.position, corpse.transform.position);

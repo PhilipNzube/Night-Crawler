@@ -77,7 +77,7 @@ public class CorpseLootableNet : NetworkBehaviour
         }
     }
 
-    private void HandleDeath()
+    public void HandleDeath()
     {
         if (!IsServer) return;
 
@@ -114,10 +114,21 @@ public class CorpseLootableNet : NetworkBehaviour
         var localPlayer = NetworkManager.Singleton.LocalClient?.PlayerObject;
         if (localPlayer == null || localPlayer.gameObject == gameObject) return;
 
+        // The Girl character CANNOT loot corpses
+        if (localPlayer.GetComponent<GirlPossession>() != null ||
+            localPlayer.GetComponent<GirlMovement>() != null ||
+            localPlayer.GetComponent<GirlStealth>() != null)
+        {
+            return;
+        }
+
         var localHealth = localPlayer.GetComponent<HealthSystem>();
         if (localHealth != null && localHealth.IsDead) return;
+        if (localPlayer.TryGetComponent<TargetHealth>(out var localTh) && (localTh.isCorpse.Value || localTh.CurrentHealth <= 0)) return;
 
-        if (_healthSystem == null || !_healthSystem.IsDead || !HasLoot) return;
+        bool isCorpseDead = (_healthSystem != null && _healthSystem.IsDead) ||
+                            (TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0));
+        if (!isCorpseDead || !HasLoot) return;
 
         // Proximity check
         float dist = Vector3.Distance(localPlayer.transform.position, transform.position);
@@ -137,6 +148,15 @@ public class CorpseLootableNet : NetworkBehaviour
 
         if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(looterNetId, out var looterObj))
         {
+            // The Girl character CANNOT loot corpses
+            if (looterObj.GetComponent<GirlPossession>() != null ||
+                looterObj.GetComponent<GirlMovement>() != null ||
+                looterObj.GetComponent<GirlStealth>() != null)
+            {
+                Debug.Log("[CorpseLootableNet] The Girl character cannot loot a corpse!");
+                return;
+            }
+
             int vialsGained = lootableVials.Value;
             bool weaponGained = false;
             bool exorcismGained = false;

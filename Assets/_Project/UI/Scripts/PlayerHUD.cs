@@ -206,6 +206,8 @@ public class PlayerHUD : MonoBehaviour
         RefreshHealth();
     }
 
+    private bool _isDead = false;
+
     /// <summary>
     /// Restores the Girl's native HUD when possession ends.
     /// </summary>
@@ -213,6 +215,11 @@ public class PlayerHUD : MonoBehaviour
     {
         if (!_isPossessingOverride) return;
         _isPossessingOverride = false;
+        _isDead = false;
+
+        if (healthSlider != null) healthSlider.gameObject.SetActive(true);
+        if (healthText != null) healthText.gameObject.SetActive(true);
+        if (roleLabel != null) roleLabel.gameObject.SetActive(true);
 
         UnsubscribeHealthEvents();
         AdventurerMinimapSetup.OnPossessionChanged(null, false);
@@ -225,11 +232,17 @@ public class PlayerHUD : MonoBehaviour
     }
 
     /// <summary>
-    /// Hides all active HUD elements (explorer panel, weapons, ammo, vials, minimap)
+    /// Hides all active HUD elements (health bar, explorer panel, weapons, ammo, vials, minimap)
     /// when the local character dies, leaving the screen clean for DeathUI.
     /// </summary>
     public void HandleLocalPlayerDied()
     {
+        _isDead = true;
+        UnsubscribeHealthEvents();
+
+        if (healthSlider != null) healthSlider.gameObject.SetActive(false);
+        if (healthText != null) healthText.gameObject.SetActive(false);
+        if (roleLabel != null) roleLabel.gameObject.SetActive(false);
         if (explorerPanel != null) explorerPanel.SetActive(false);
         if (demonPanel != null) demonPanel.SetActive(false);
         if (hudRoot != null && hudRoot != gameObject) hudRoot.SetActive(false);
@@ -246,12 +259,6 @@ public class PlayerHUD : MonoBehaviour
         if (corpseHUD != null)
         {
             corpseHUD.gameObject.SetActive(false);
-        }
-
-        if (roleLabel != null)
-        {
-            roleLabel.text = "<color=#E53935>|</color> DECEASED";
-            roleLabel.color = Color.red;
         }
     }
 
@@ -301,6 +308,8 @@ public class PlayerHUD : MonoBehaviour
 
     void Update()
     {
+        if (_isDead) return;
+
         if (!_isBound)
         {
             TryBindToLocalPlayer();
@@ -325,6 +334,18 @@ public class PlayerHUD : MonoBehaviour
 
         var localPlayer = NetworkManager.Singleton.LocalClient?.PlayerObject;
         if (localPlayer == null) return;
+
+        // Check if player is dead
+        if (localPlayer.TryGetComponent<TargetHealth>(out var checkHealth) && checkHealth.isCorpse.Value)
+        {
+            HandleLocalPlayerDied();
+            return;
+        }
+
+        _isDead = false;
+        if (healthSlider != null) healthSlider.gameObject.SetActive(true);
+        if (healthText != null) healthText.gameObject.SetActive(true);
+        if (roleLabel != null) roleLabel.gameObject.SetActive(true);
 
         // Determine role
         _isDemon = localPlayer.TryGetComponent<GirlStealth>(out _localStealth);
