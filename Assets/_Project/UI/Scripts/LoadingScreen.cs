@@ -271,7 +271,7 @@ public class LoadingScreen : MonoBehaviour
                 if (op.progress >= 0.9f && elapsed >= minDuration)
                 {
                     SetProgress(1f);
-                    yield return new WaitForSeconds(holdAfterComplete);
+                    yield return new WaitForSecondsRealtime(holdAfterComplete);
                     op.allowSceneActivation = true;
                 }
 
@@ -289,7 +289,7 @@ public class LoadingScreen : MonoBehaviour
                 SetProgress(currentDisplayedProgress);
                 yield return null;
             }
-            yield return new WaitForSeconds(holdAfterComplete);
+            yield return new WaitForSecondsRealtime(holdAfterComplete);
         }
 
         yield return StartCoroutine(FadeOutAndComplete());

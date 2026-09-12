@@ -192,16 +192,29 @@ public class PauseUI : MonoBehaviour
 
     public void ConfirmDisconnect()
     {
-        // Unpause game & restore time scale before leaving
-        PauseManager pauseMgr = FindFirstObjectByType<PauseManager>();
-        if (pauseMgr != null)
-            pauseMgr.SetPaused(false);
+        // Unpause time scale & restore cursor
+        Time.timeScale = 1f;
 
-        StartCoroutine(DisconnectRoutine());
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+
+        // Start coroutine on GameManager or this object BEFORE modifying pause UI
+        if (GameManager.Instance != null && GameManager.Instance.gameObject.activeInHierarchy)
+        {
+            GameManager.Instance.StartCoroutine(DisconnectRoutine());
+        }
+        else
+        {
+            StartCoroutine(DisconnectRoutine());
+        }
     }
 
     private IEnumerator DisconnectRoutine()
     {
+        // Hide pause menu panels visually
+        if (firstMenu != null) firstMenu.SetActive(false);
+        if (exitMenu != null) exitMenu.SetActive(false);
+
         if (NetworkManager.Singleton != null)
         {
             if (NetworkManager.Singleton.IsServer && GameManager.Instance != null)
@@ -215,13 +228,20 @@ public class PauseUI : MonoBehaviour
                     Debug.LogWarning($"[PauseUI] Broadcast error: {ex.Message}");
                 }
                 // Brief pause so transport flushes the RPC packet to clients before server teardown
-                yield return new WaitForSecondsRealtime(0.12f);
+                yield return new WaitForSecondsRealtime(0.15f);
             }
 
-            GameObject netObj = NetworkManager.Singleton.gameObject;
-            NetworkManager.Singleton.Shutdown();
-            Destroy(netObj);
+            try
+            {
+                NetworkManager.Singleton.Shutdown();
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"[PauseUI] Shutdown exception (handled): {ex.Message}");
+            }
         }
+
+        yield return new WaitForSecondsRealtime(0.05f);
 
         if (LoadingScreen.Instance != null)
         {

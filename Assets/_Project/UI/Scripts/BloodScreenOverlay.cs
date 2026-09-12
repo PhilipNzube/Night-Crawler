@@ -139,6 +139,40 @@ public class BloodScreenOverlay : MonoBehaviour
             _localHealthSystem.OnHealthChanged -= OnHealthSystemChanged;
     }
 
+    /// <summary>
+    /// Dynamically binds the blood overlay to a target (or re-binds to local player if target is null).
+    /// </summary>
+    public void BindToTarget(GameObject target)
+    {
+        UnbindFromPlayer();
+
+        if (target == null)
+        {
+            _isBound = false;
+            TryBindToLocalPlayer();
+            return;
+        }
+
+        target.TryGetComponent<HealthSystem>(out _localHealthSystem);
+        target.TryGetComponent<TargetHealth>(out _localTargetHealth);
+
+        if (_localHealthSystem != null)
+        {
+            _maxHealth = _localHealthSystem.MaxHealth > 0 ? _localHealthSystem.MaxHealth : 100f;
+            _localHealthSystem.OnHealthChanged += OnHealthSystemChanged;
+            UpdateHealthFraction(_localHealthSystem.CurrentHealth, _maxHealth);
+            _isBound = true;
+        }
+        else if (_localTargetHealth != null)
+        {
+            _maxHealth = _localTargetHealth.MaxHealth;
+            _localTargetHealth.currentHealth.OnValueChanged += OnTargetHealthChanged;
+            _localTargetHealth.maxHealth.OnValueChanged     += OnTargetHealthChanged;
+            UpdateHealthFraction(_localTargetHealth.CurrentHealth, _maxHealth);
+            _isBound = true;
+        }
+    }
+
     // =========================================================================
     //  Health Change Handlers
     // =========================================================================

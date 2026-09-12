@@ -15,10 +15,10 @@ public class PossessionBlackoutOverlay : MonoBehaviour
             if (_instance == null)
             {
                 _instance = FindFirstObjectByType<PossessionBlackoutOverlay>(FindObjectsInactive.Include);
-                if (_instance != null && !_instance.gameObject.activeInHierarchy)
-                {
-                    _instance.gameObject.SetActive(true);
-                }
+            }
+            if (_instance != null && !_instance.gameObject.activeInHierarchy)
+            {
+                _instance.gameObject.SetActive(true);
             }
             return _instance;
         }
@@ -160,6 +160,9 @@ public class PossessionBlackoutOverlay : MonoBehaviour
             HideRejectionPrompt();
         }
 
+        if (blackoutCanvasGroup == null)
+            blackoutCanvasGroup = GetComponent<CanvasGroup>();
+
         if (blackoutCanvasGroup != null)
         {
             blackoutCanvasGroup.alpha = active ? 1f : 0f;
@@ -184,6 +187,10 @@ public class PossessionBlackoutOverlay : MonoBehaviour
             timerText.gameObject.SetActive(active);
         }
 
-        gameObject.SetActive(active);
+        // If no CanvasGroup exists, fallback to GameObject active state
+        if (blackoutCanvasGroup == null)
+        {
+            gameObject.SetActive(active);
+        }
     }
 }

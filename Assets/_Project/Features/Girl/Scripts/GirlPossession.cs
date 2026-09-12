@@ -346,6 +346,28 @@ public class GirlPossession : NetworkBehaviour
         }
     }
 
+    /// <summary>
+    /// Smoothly forces the Girl out of a possessed body when the target dies.
+    /// Does NOT deduct an exorcism penalty.
+    /// </summary>
+    public void ForceEjectOnTargetDeath()
+    {
+        if (IsServer)
+        {
+            EjectFromCurrentTarget();
+        }
+        else
+        {
+            ForceEjectOnTargetDeathServerRpc();
+        }
+    }
+
+    [Rpc(SendTo.Server)]
+    private void ForceEjectOnTargetDeathServerRpc()
+    {
+        EjectFromCurrentTarget();
+    }
+
     private void EjectFromCurrentTarget()
     {
         if (!isPossessing.Value) return;
@@ -366,6 +388,14 @@ public class GirlPossession : NetworkBehaviour
         if (PossessionActiveHUD.Instance != null)
         {
             PossessionActiveHUD.Instance.Hide();
+        }
+
+        // The Girl is alive — ensure 'YOU DIED' is never shown on the Girl's screen
+        if (DeathUI.Instance != null && DeathUI.Instance.deathCanvasGroup != null)
+        {
+            DeathUI.Instance.deathCanvasGroup.alpha = 0f;
+            DeathUI.Instance.deathCanvasGroup.blocksRaycasts = false;
+            DeathUI.Instance.deathCanvasGroup.interactable = false;
         }
 
         ToggleRenderers(true);
@@ -397,10 +427,25 @@ public class GirlPossession : NetworkBehaviour
                 vcam.OnTargetObjectWarped(_girlCameraRoot, Vector3.zero);
             }
 
-            // Re-enable Girl controls
+            // Re-enable Girl controls with synchronized camera rotation
+            if (_starterAssets != null)
+            {
+                _starterAssets.ResetTargetRotation(transform.eulerAngles.y, 0f);
+                _starterAssets.enabled = true;
+            }
             if (_controller != null) _controller.enabled = true;
-            if (_starterAssets != null) _starterAssets.enabled = true;
             if (TryGetComponent<GirlMovement>(out var gm)) gm.enabled = true;
+
+            var inputs = GetComponent<StarterAssetsInputs>();
+            if (inputs != null)
+            {
+                inputs.move = Vector2.zero;
+                inputs.look = Vector2.zero;
+                inputs.jump = false;
+                inputs.sprint = false;
+                inputs.cursorLocked = true;
+                inputs.cursorInputForLook = true;
+            }
 
             if (PlayerHUD.Instance != null)
             {

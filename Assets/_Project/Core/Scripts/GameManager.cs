@@ -577,6 +577,17 @@ public class GameManager : NetworkBehaviour
 
         bool isGirl = (victim == _girlPlayer);
         ulong victimClientId = victim.OwnerClientId;
+
+        // If the dead entity is an investigator currently possessed by the Girl,
+        // the true victim who died is the original investigator owner, NOT the Girl!
+        if (victim.TryGetComponent<PlayerPossessableNet>(out var possessable) && possessable.isPossessed.Value)
+        {
+            if (possessable.originalOwnerClientId.Value != ulong.MaxValue)
+            {
+                victimClientId = possessable.originalOwnerClientId.Value;
+            }
+        }
+
         string victimName;
 
         if (isGirl)
@@ -616,6 +627,23 @@ public class GameManager : NetworkBehaviour
     [ClientRpc]
     public void BroadcastDeathMessageClientRpc(ulong victimClientId, string victimName, bool isGirl)
     {
+        // The Girl player should NEVER see 'YOU DIED' when an investigator/puppet dies!
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null)
+        {
+            var localObj = NetworkManager.Singleton.LocalClient.PlayerObject;
+            bool localIsGirl = localObj != null && (localObj.GetComponent<GirlPossession>() != null || localObj.name.ToLower().Contains("girl"));
+            if (localIsGirl && !isGirl)
+            {
+                if (DeathUI.Instance != null && DeathUI.Instance.deathCanvasGroup != null)
+                {
+                    DeathUI.Instance.deathCanvasGroup.alpha = 0f;
+                    DeathUI.Instance.deathCanvasGroup.blocksRaycasts = false;
+                    DeathUI.Instance.deathCanvasGroup.interactable = false;
+                }
+                return;
+            }
+        }
+
         bool isLocalVictim = (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == victimClientId);
 
         if (isLocalVictim)
@@ -626,6 +654,12 @@ public class GameManager : NetworkBehaviour
                 DeathUI.Instance.ShowDeathScreen("YOU DIED", isGirl 
                     ? "The Vengeful Spirit has been banished." 
                     : "Your soul has fallen. Allies can still loot your body.");
+            }
+
+            // Hide the dead investigator's HUD (minimap, vials, ammo, explorer panel)
+            if (PlayerHUD.Instance != null)
+            {
+                PlayerHUD.Instance.HandleLocalPlayerDied();
             }
         }
         else

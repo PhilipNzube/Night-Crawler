@@ -189,6 +189,12 @@ public class PlayerHUD : MonoBehaviour
         // Turn on minimap if target is an Adventurer/Explorer
         AdventurerMinimapSetup.OnPossessionChanged(targetObj, true);
 
+        // Bind blood screen overlay to the possessed target
+        if (bloodScreenOverlay != null)
+        {
+            bloodScreenOverlay.BindToTarget(targetObj);
+        }
+
         string targetName = targetObj.name.Replace("(Clone)", "").Trim();
         if (roleLabel != null)
         {
@@ -196,6 +202,7 @@ public class PlayerHUD : MonoBehaviour
             roleLabel.color = new Color(0.7f, 0.4f, 1f);
         }
 
+        _isBound = true;
         RefreshHealth();
     }
 
@@ -209,8 +216,43 @@ public class PlayerHUD : MonoBehaviour
 
         UnsubscribeHealthEvents();
         AdventurerMinimapSetup.OnPossessionChanged(null, false);
+        if (bloodScreenOverlay != null)
+        {
+            bloodScreenOverlay.BindToTarget(null);
+        }
         _isBound = false;
         TryBindToLocalPlayer();
+    }
+
+    /// <summary>
+    /// Hides all active HUD elements (explorer panel, weapons, ammo, vials, minimap)
+    /// when the local character dies, leaving the screen clean for DeathUI.
+    /// </summary>
+    public void HandleLocalPlayerDied()
+    {
+        if (explorerPanel != null) explorerPanel.SetActive(false);
+        if (demonPanel != null) demonPanel.SetActive(false);
+        if (hudRoot != null && hudRoot != gameObject) hudRoot.SetActive(false);
+
+        // Hide minimap for dead explorer
+        AdventurerMinimapSetup.OnPossessionChanged(null, false);
+
+        if (bloodScreenOverlay != null)
+        {
+            bloodScreenOverlay.gameObject.SetActive(false);
+        }
+
+        var corpseHUD = GetComponentInChildren<CorpseInteractionHUD>(true);
+        if (corpseHUD != null)
+        {
+            corpseHUD.gameObject.SetActive(false);
+        }
+
+        if (roleLabel != null)
+        {
+            roleLabel.text = "<color=#E53935>|</color> DECEASED";
+            roleLabel.color = Color.red;
+        }
     }
 
     private void UnsubscribeHealthEvents()
@@ -278,6 +320,7 @@ public class PlayerHUD : MonoBehaviour
     /// </summary>
     private void TryBindToLocalPlayer()
     {
+        if (_isPossessingOverride) return;
         if (NetworkManager.Singleton == null) return;
 
         var localPlayer = NetworkManager.Singleton.LocalClient?.PlayerObject;

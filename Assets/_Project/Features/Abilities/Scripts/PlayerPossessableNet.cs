@@ -26,28 +26,88 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
 
     public bool IsPossessed => isPossessed.Value;
 
+    private HealthSystem _healthSystem;
+    private TargetHealth _targetHealth;
+
     private void Awake()
     {
         _characterController = GetComponent<CharacterController>();
         _thirdPersonController = GetComponent<ThirdPersonController>();
         _combatNet = GetComponent<InvestigatorCombatNet>();
+        _healthSystem = GetComponent<HealthSystem>();
+        _targetHealth = GetComponent<TargetHealth>();
     }
 
     public override void OnNetworkSpawn()
     {
         isPossessed.OnValueChanged += HandlePossessionChanged;
+        if (IsServer && originalOwnerClientId.Value == ulong.MaxValue)
+        {
+            originalOwnerClientId.Value = OwnerClientId;
+        }
+
+        if (_healthSystem != null)
+        {
+            _healthSystem.OnDied += HandlePossessedTargetDied;
+        }
     }
 
     public override void OnNetworkDespawn()
     {
         isPossessed.OnValueChanged -= HandlePossessionChanged;
+        if (_healthSystem != null)
+        {
+            _healthSystem.OnDied -= HandlePossessedTargetDied;
+        }
     }
 
     private Coroutine _priestRejectionCoroutine;
 
     private void HandlePossessionChanged(bool previous, bool current)
     {
-        // Network state synced. Specific UI/controls handled via targeted RPCs
+        if (!current)
+        {
+            // Safeguard: whenever isPossessed becomes false, any non-girl client MUST hide the blackout overlay
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null)
+            {
+                var localObj = NetworkManager.Singleton.LocalClient.PlayerObject;
+                bool isGirl = localObj != null && (localObj.GetComponent<GirlPossession>() != null || localObj.name.ToLower().Contains("girl"));
+                if (!isGirl && PossessionBlackoutOverlay.Instance != null)
+                {
+                    PossessionBlackoutOverlay.Instance.SetBlackout(false);
+                }
+            }
+        }
+    }
+
+    private void HandlePossessedTargetDied()
+    {
+        if (isPossessed.Value)
+        {
+            if (IsServer)
+            {
+                StartCoroutine(PossessedTargetDeathRoutine());
+            }
+        }
+    }
+
+    private System.Collections.IEnumerator PossessedTargetDeathRoutine()
+    {
+        // Allow death animation and ragdoll to play out (~1.8s)
+        yield return new WaitForSeconds(1.8f);
+
+        if (isPossessed.Value)
+        {
+            Debug.Log("[PlayerPossessableNet] Possessed target died -> Returning Girl to spirit form.");
+            if (_activeGirlRef != null)
+            {
+                _activeGirlRef.ForceEjectOnTargetDeath();
+            }
+            else
+            {
+                Release();
+            }
+        }
     }
 
     private System.Collections.IEnumerator PriestRejectionWindowRoutine(float windowDuration)
@@ -104,7 +164,7 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
     }
 
     public NetworkVariable<ulong> originalOwnerClientId = new NetworkVariable<ulong>(
-        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+        ulong.MaxValue, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
     [Rpc(SendTo.Server)]
     private void RejectPossessionServerRpc()
@@ -206,6 +266,12 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             if (NotificationManager.Instance != null)
             {
                 NotificationManager.Instance.ShowNotification($"<color=#B388FF>|</color> [POSSESSED] You took possession of {victimName}!", 3f);
+            }
+
+            // Immediately switch Girl's HUD to the possessed target!
+            if (PlayerHUD.Instance != null)
+            {
+                PlayerHUD.Instance.BindToPossessedTarget(gameObject);
             }
         }
     }
@@ -349,8 +415,20 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         _activeGirlRef = girl;
         if (IsServer)
         {
-            ulong victimId = OwnerClientId;
-            originalOwnerClientId.Value = victimId;
+            if (originalOwnerClientId.Value == ulong.MaxValue || originalOwnerClientId.Value == girl.OwnerClientId)
+            {
+                if (OwnerClientId != girl.OwnerClientId)
+                {
+                    originalOwnerClientId.Value = OwnerClientId;
+                }
+            }
+
+            ulong victimId = originalOwnerClientId.Value;
+            if (victimId == ulong.MaxValue || victimId == girl.OwnerClientId)
+            {
+                victimId = (OwnerClientId != girl.OwnerClientId) ? OwnerClientId : 0;
+            }
+
             isPossessed.Value = true;
             possessingClientId.Value = girl.OwnerClientId;
 
@@ -433,11 +511,16 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         if (IsServer)
         {
             ulong victimId = originalOwnerClientId.Value;
+            if (victimId == ulong.MaxValue || victimId == possessingClientId.Value)
+            {
+                victimId = (OwnerClientId != possessingClientId.Value) ? OwnerClientId : 0;
+            }
+
             isPossessed.Value = false;
-            possessingClientId.Value = 0;
+            possessingClientId.Value = ulong.MaxValue;
 
             var netObj = GetComponent<NetworkObject>();
-            if (netObj != null && victimId != 0 && netObj.OwnerClientId != victimId)
+            if (netObj != null && victimId != ulong.MaxValue && netObj.OwnerClientId != victimId)
             {
                 netObj.ChangeOwnership(victimId);
             }
@@ -451,7 +534,11 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
     [Rpc(SendTo.ClientsAndHost)]
     private void NotifyPossessionEndedClientRpc(ulong victimClientId)
     {
-        if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == victimClientId)
+        if (NetworkManager.Singleton == null) return;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+
+        bool isVictim = (localId == victimClientId) || (localId == originalOwnerClientId.Value);
+        if (isVictim)
         {
             if (_priestRejectionCoroutine != null)
             {
