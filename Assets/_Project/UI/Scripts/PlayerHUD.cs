@@ -334,19 +334,6 @@ public class PlayerHUD : MonoBehaviour
         RefreshHealth();
     }
 
-    private void OnDestroy()
-    {
-        PauseManager.OnPauseStateChanged -= SetHUDVisible;
-
-        if (_localHealth != null)
-        {
-            _localHealth.currentHealth.OnValueChanged -= OnTargetHealthChanged;
-            _localHealth.maxHealth.OnValueChanged     -= OnTargetHealthChanged;
-        }
-
-        if (_localHealthSys != null)
-            _localHealthSys.OnHealthChanged -= OnHealthSysChanged;
-    }
 
     private void OnTargetHealthChanged(float previous, float current)
     {
