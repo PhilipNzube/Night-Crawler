@@ -31,9 +31,13 @@ public class InvestigatorCombatNet : NetworkBehaviour
     
     [Header("Combo Settings")]
     [Tooltip("Maximum window in seconds between clicks to continue the melee combo.")]
-    public float comboWindow = 1.25f;
-    [Tooltip("Total number of combo steps in the attack chain (e.g. 2 for 2-hit, 3 for 3-hit, 4 for 4-hit).")]
-    public int maxComboSteps = 2;
+    public float comboWindow = 1.35f;
+    [Tooltip("Total number of combo steps in the attack chain (e.g. 3 for 3-hit combo).")]
+    public int maxComboSteps = 3;
+    [Tooltip("Minimum time in seconds between normal combo strikes to allow swing follow-through.")]
+    public float comboHitInterval = 0.45f;
+    [Tooltip("Recovery duration in seconds after the final finisher hit before a new combo can begin.")]
+    public float comboFinisherRecovery = 1.05f;
 
     [Header("Equip Animation Settings")]
     [Tooltip("If true, plays draw/equip and holster/disarm animations. If false (default), weapons appear instantly in hand upon deal/pickup.")]
@@ -163,8 +167,18 @@ public class InvestigatorCombatNet : NetworkBehaviour
 
     void Start()
     {
+        if (startArmed || IsMiner)
+        {
+            hasUnlockedWeapon = true;
+        }
+
         // Immediately set animator state on the first frame
-        int initialIndex = IsMiner ? 0 : (currentWeaponIndex.Value >= 0 ? currentWeaponIndex.Value : -1);
+        int initialIndex = (startArmed || IsMiner) ? 0 : (currentWeaponIndex.Value >= 0 ? currentWeaponIndex.Value : -1);
+        if (currentWeaponIndex.Value != initialIndex && IsOwner)
+        {
+            currentWeaponIndex.Value = initialIndex;
+        }
+
         UpdateAnimatorWeaponState(initialIndex);
         ApplyWeaponVisuals(initialIndex);
     }
@@ -377,14 +391,19 @@ public class InvestigatorCombatNet : NetworkBehaviour
             return;
         }
 
-        _attackTimer = activeStats.fireRate;
-
         if (currentWeaponIndex.Value == 0)
         {
-            // Melee Combo Logic
+            // Melee Combo Logic: step through 0 -> 1 -> 2
             if (Time.time - _lastAttackTime <= comboWindow)
             {
-                _currentComboStep = (_currentComboStep + 1) % Mathf.Max(1, maxComboSteps);
+                if (_currentComboStep < maxComboSteps - 1)
+                {
+                    _currentComboStep++;
+                }
+                else
+                {
+                    _currentComboStep = 0;
+                }
             }
             else
             {
@@ -392,12 +411,17 @@ public class InvestigatorCombatNet : NetworkBehaviour
             }
             _lastAttackTime = Time.time;
 
+            // Lock out attacks: normal interval for intermediate strikes, full recovery for the finisher
+            bool isFinisher = (_currentComboStep == maxComboSteps - 1);
+            _attackTimer = isFinisher ? comboFinisherRecovery : comboHitInterval;
+
             SafeSetInteger(_comboStepHash, _currentComboStep);
             SafeSetTrigger(_attackHash);
             PerformMeleeHit(activeStats);
         }
         else
         {
+            _attackTimer = activeStats.fireRate;
             _currentComboStep = 0;
             SafeSetTrigger(_attackHash);
             PerformRangedShot(activeStats);
@@ -477,22 +501,35 @@ public class InvestigatorCombatNet : NetworkBehaviour
 
     private void SafeSetInteger(int hash, int value)
     {
-        if (_animator != null && _animatorParameterHashes.Contains(hash))
+        if (_animator == null) _animator = GetComponentInChildren<Animator>();
+        if (_animator != null)
         {
-            _animator.SetInteger(hash, value);
+            if (_animatorParameterHashes.Count == 0) CacheAnimatorParameters();
+            if (_animatorParameterHashes.Contains(hash))
+            {
+                _animator.SetInteger(hash, value);
+            }
         }
     }
 
     private void SafeSetBool(int hash, bool value)
     {
-        if (_animator != null && _animatorParameterHashes.Contains(hash))
+        if (_animator == null) _animator = GetComponentInChildren<Animator>();
+        if (_animator != null)
         {
-            _animator.SetBool(hash, value);
+            if (_animatorParameterHashes.Count == 0) CacheAnimatorParameters();
+            if (_animatorParameterHashes.Contains(hash))
+            {
+                _animator.SetBool(hash, value);
+            }
         }
     }
 
     private void SafeSetTrigger(int hash)
     {
+        if (_animator == null) _animator = GetComponentInChildren<Animator>();
+        if (_animatorParameterHashes.Count == 0) CacheAnimatorParameters();
+
         if (_animatorParameterHashes.Contains(hash))
         {
             if (_networkAnimator != null)
