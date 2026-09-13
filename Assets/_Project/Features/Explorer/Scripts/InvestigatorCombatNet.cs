@@ -35,9 +35,11 @@ public class InvestigatorCombatNet : NetworkBehaviour
     [Tooltip("Total number of combo steps in the attack chain (e.g. 3 for 3-hit combo).")]
     public int maxComboSteps = 3;
     [Tooltip("Minimum time in seconds between normal combo strikes to allow swing follow-through.")]
-    public float comboHitInterval = 0.45f;
+    public float comboHitInterval = 0.40f;
     [Tooltip("Recovery duration in seconds after the final finisher hit before a new combo can begin.")]
-    public float comboFinisherRecovery = 1.05f;
+    public float comboFinisherRecovery = 0.40f;
+    [Tooltip("Buffer window in seconds to queue an attack if clicked slightly before recovery ends.")]
+    public float inputBufferWindow = 0.25f;
 
     [Header("Equip Animation Settings")]
     [Tooltip("If true, plays draw/equip and holster/disarm animations. If false (default), weapons appear instantly in hand upon deal/pickup.")]
@@ -61,6 +63,7 @@ public class InvestigatorCombatNet : NetworkBehaviour
     private int _currentComboStep = 0;
     private float _lastAttackTime = -10f;
     private bool _isReloading;
+    private bool _hasBufferedAttack;
     private Coroutine _weaponEquipRoutine;
     private Animator _animator;
     private NetworkAnimator _networkAnimator;
@@ -274,7 +277,15 @@ public class InvestigatorCombatNet : NetworkBehaviour
     {
         if (!IsOwner || PauseManager.IsGamePaused) return;
 
-        if (_attackTimer > 0) _attackTimer -= Time.deltaTime;
+        if (_attackTimer > 0)
+        {
+            _attackTimer -= Time.deltaTime;
+        }
+        else if (_hasBufferedAttack && !_isReloading && HasWeapon && currentWeaponIndex.Value >= 0)
+        {
+            _hasBufferedAttack = false;
+            PerformAttack();
+        }
 
         // Weapon hide/holster toggle [X] — only non-miners can hide
         if (Keyboard.current != null && Keyboard.current.xKey != null && Keyboard.current.xKey.wasPressedThisFrame)
@@ -302,7 +313,7 @@ public class InvestigatorCombatNet : NetworkBehaviour
         }
 
         // Attack (Left Click) — suppressed if clicking over UI or if weapon is hidden
-        if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame && _attackTimer <= 0 && !_isReloading)
+        if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame && !_isReloading)
         {
             if (UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
             {
@@ -315,7 +326,14 @@ public class InvestigatorCombatNet : NetworkBehaviour
 
             if (HasWeapon && currentWeaponIndex.Value >= 0)
             {
-                PerformAttack();
+                if (_attackTimer <= 0)
+                {
+                    PerformAttack();
+                }
+                else if (_attackTimer <= inputBufferWindow)
+                {
+                    _hasBufferedAttack = true;
+                }
             }
         }
 
