@@ -151,6 +151,19 @@ public class DealNotificationUI : MonoBehaviour
 
     public void DisplayDealOffer(ulong senderId, string title, string terms, string reward, bool grantWeapon)
     {
+        // If local player is dead, reject/ignore immediately
+        var localObj = Unity.Netcode.NetworkManager.Singleton?.LocalClient?.PlayerObject;
+        if (localObj != null)
+        {
+            if ((localObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) ||
+                (localObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead))
+            {
+                Debug.Log("[DealNotificationUI] Local player is dead; suppressing deal offer display.");
+                SetVisible(false);
+                return;
+            }
+        }
+
         _currentGirlSenderId = senderId;
         _grantWeapon = grantWeapon;
         _timer = timeoutSeconds;

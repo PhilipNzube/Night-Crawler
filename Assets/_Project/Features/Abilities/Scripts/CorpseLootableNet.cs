@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Unity.Netcode;
 using UnityEngine.InputSystem;
+using StarterAssets;
 
 /// <summary>
 /// SOLID — SRP: Manages lootable items and role abilities on a dead player's corpse across the network.
@@ -19,8 +20,41 @@ public class CorpseLootableNet : NetworkBehaviour
     [Tooltip("Maximum interaction distance to loot the body.")]
     public float interactionDistance = 2.5f;
 
+    [Tooltip("Interaction hotkey to trigger looting (default [E]).")]
+    public Key lootKey = Key.E;
+
     [Tooltip("Layer mask for player corpses.")]
     public LayerMask corpseLayer;
+
+    [Header("Loot Animation Options (Inspector Toggle)")]
+    [Tooltip("If true, triggers a picking/looting animation on the character before transferring items. If false, looting is instant.")]
+    public bool playLootAnimation = true;
+
+    [Tooltip("The trigger parameter name in the looter's Animator (e.g. 'Pickup', 'Loot', 'Planting').")]
+    public string lootAnimationTrigger = "Loot";
+
+    [Tooltip("Base duration in seconds of the looting animation before items transfer.")]
+    public float lootDuration = 1.2f;
+
+    [Tooltip("Speed multiplier for the animation playback / wait time. Increase (e.g. 1.5 - 2.0) to speed up slow Mixamo clips!")]
+    public float animationSpeedMultiplier = 1.5f;
+
+    [Tooltip("If true, freezes character movement input while the looting animation is playing.")]
+    public bool freezeMovementWhileLooting = true;
+
+    [Header("Dead Player Accessories (Visual Inheritance)")]
+    [Tooltip("Enable to attach visual cosmetic accessories of the dead player onto the looter.")]
+    public bool attachDeadAccessories = false;
+
+    [Tooltip("Optional prefab accessories to mount on looter bone slots (e.g. helmet, gas mask, pickaxe on back, relic pouch).")]
+    public GameObject[] accessoryPrefabs;
+
+    [Tooltip("Bone names to mount accessories on in order (e.g. 'Head', 'Spine2', 'Hips', 'RightHand'). If empty, defaults to looter root/chest.")]
+    public string[] accessoryMountBones;
+
+    public static event System.Action<GameObject, GameObject> OnCorpseLootedWithAccessories;
+
+    private bool _isLootingInProgress = false;
 
     [Header("Network State (Items & Inherited Abilities)")]
     public NetworkVariable<int> lootableVials = new NetworkVariable<int>(
@@ -150,15 +184,90 @@ public class CorpseLootableNet : NetworkBehaviour
         float dist = Vector3.Distance(activePlayer.transform.position, transform.position);
         if (dist <= interactionDistance)
         {
-            if (Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame)
+            if (Keyboard.current != null && Keyboard.current[lootKey].wasPressedThisFrame)
             {
                 var netObj = activePlayer.GetComponent<NetworkObject>();
                 if (netObj != null)
                 {
-                    RequestLootServerRpc(netObj.NetworkObjectId);
+                    StartLooting(activePlayer, netObj);
                 }
             }
         }
+    }
+
+    private void StartLooting(GameObject activePlayer, NetworkObject looterNetObj)
+    {
+        if (_isLootingInProgress || !HasLoot) return;
+
+        if (playLootAnimation)
+        {
+            StartCoroutine(LootAnimationRoutine(activePlayer, looterNetObj));
+        }
+        else
+        {
+            RequestLootServerRpc(looterNetObj.NetworkObjectId);
+        }
+    }
+
+    private IEnumerator LootAnimationRoutine(GameObject activePlayer, NetworkObject looterNetObj)
+    {
+        _isLootingInProgress = true;
+
+        // 1. Temporarily freeze movement if requested
+        StarterAssetsInputs inputs = activePlayer.GetComponent<StarterAssetsInputs>();
+        ThirdPersonController controller = activePlayer.GetComponent<ThirdPersonController>();
+
+        if (freezeMovementWhileLooting)
+        {
+            if (inputs != null)
+            {
+                inputs.move = Vector2.zero;
+                inputs.sprint = false;
+            }
+            if (controller != null)
+            {
+                controller.enabled = false;
+            }
+        }
+
+        // 2. Play Loot Animation on Animator
+        var anim = activePlayer.GetComponentInChildren<Animator>();
+        if (anim != null && !string.IsNullOrEmpty(lootAnimationTrigger))
+        {
+            bool hasParam = false;
+            foreach (var p in anim.parameters)
+            {
+                if (p.name == lootAnimationTrigger)
+                {
+                    hasParam = true;
+                    break;
+                }
+            }
+
+            if (hasParam)
+            {
+                anim.SetTrigger(lootAnimationTrigger);
+            }
+            else
+            {
+                Debug.LogWarning($"[CorpseLootableNet] Animator does not have parameter '{lootAnimationTrigger}'. Create a Trigger parameter named '{lootAnimationTrigger}' in your Animator Controller.");
+            }
+        }
+
+        // 3. Wait for the looting action to finish (scaled by speed multiplier)
+        float waitTime = Mathf.Max(0.2f, lootDuration / Mathf.Max(0.1f, animationSpeedMultiplier));
+        yield return new WaitForSeconds(waitTime);
+
+        // 4. Send RPC to server to grant items & abilities
+        RequestLootServerRpc(looterNetObj.NetworkObjectId);
+
+        // 5. Restore movement
+        if (controller != null)
+        {
+            controller.enabled = true;
+        }
+
+        _isLootingInProgress = false;
     }
 
     [Rpc(SendTo.Server)]
@@ -257,7 +366,52 @@ public class CorpseLootableNet : NetworkBehaviour
             {
                 NotificationManager.Instance.ShowNotification(msg, 4.5f);
             }
+
+            // Visual dead accessories attachment
+            var activePlayer = GetActiveControlledCharacter();
+            if (activePlayer != null)
+            {
+                if (attachDeadAccessories)
+                {
+                    MountAccessoriesOnCharacter(activePlayer);
+                }
+                OnCorpseLootedWithAccessories?.Invoke(activePlayer, gameObject);
+            }
         }
+    }
+
+    private void MountAccessoriesOnCharacter(GameObject looter)
+    {
+        if (accessoryPrefabs == null || accessoryPrefabs.Length == 0) return;
+
+        for (int i = 0; i < accessoryPrefabs.Length; i++)
+        {
+            var prefab = accessoryPrefabs[i];
+            if (prefab == null) continue;
+
+            Transform targetParent = looter.transform;
+            if (accessoryMountBones != null && i < accessoryMountBones.Length && !string.IsNullOrEmpty(accessoryMountBones[i]))
+            {
+                var foundBone = FindChildRecursive(looter.transform, accessoryMountBones[i]);
+                if (foundBone != null) targetParent = foundBone;
+            }
+
+            var spawned = Instantiate(prefab, targetParent);
+            spawned.transform.localPosition = Vector3.zero;
+            spawned.transform.localRotation = Quaternion.identity;
+            Debug.Log($"[CorpseLootableNet] Attached accessory '{prefab.name}' to '{targetParent.name}' on {looter.name}");
+        }
+    }
+
+    private Transform FindChildRecursive(Transform parent, string childName)
+    {
+        if (parent.name.Equals(childName, System.StringComparison.OrdinalIgnoreCase)) return parent;
+        foreach (Transform child in parent)
+        {
+            var found = FindChildRecursive(child, childName);
+            if (found != null) return found;
+        }
+        return null;
     }
 
     /// <summary>

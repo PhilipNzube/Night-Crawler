@@ -15,6 +15,11 @@ public class CorpseInteractionHUD : MonoBehaviour
     [Header("Detection Settings")]
     public float maxPromptDistance = 3.0f;
 
+    [Header("Prompt Formatting")]
+    [Tooltip("Format string for the prompt text. {0} is the key, {1} is the loot summary.")]
+    public string promptFormat = "Press [{0}] to loot body";
+    public bool showLootSummaryInPrompt = false;
+
     private void Awake()
     {
         SetPromptVisible(false);
@@ -98,8 +103,13 @@ public class CorpseInteractionHUD : MonoBehaviour
 
         if (nearestLootable != null)
         {
+            string keyName = nearestLootable.lootKey.ToString();
             string lootDesc = nearestLootable.GetLootDescription();
-            SetPromptVisible(true, $"[E] Loot Corpse ({lootDesc})");
+            string msg = showLootSummaryInPrompt && !string.IsNullOrEmpty(lootDesc) && lootDesc != "Empty"
+                ? string.Format(promptFormat, keyName) + $" ({lootDesc})"
+                : string.Format(promptFormat, keyName);
+
+            SetPromptVisible(true, msg);
         }
         else
         {

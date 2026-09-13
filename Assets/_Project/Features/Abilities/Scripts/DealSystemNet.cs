@@ -155,6 +155,21 @@ public class DealSystemNet : MonoBehaviour
 
     private void DeliverOfferToTarget(ulong senderId, ulong targetClientId, string title, string terms, string reward, bool grantWeapon)
     {
+        // Suppress deal delivery if target player is dead
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.ConnectedClients.TryGetValue(targetClientId, out var client))
+        {
+            var targetObj = client.PlayerObject;
+            if (targetObj != null)
+            {
+                if ((targetObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) ||
+                    (targetObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead))
+                {
+                    Debug.Log($"[DealSystemNet] Target client {targetClientId} is dead; suppressing deal offer delivery.");
+                    return;
+                }
+            }
+        }
+
         if (targetClientId == NetworkManager.Singleton.LocalClientId)
         {
             var notif = DealNotificationUI.Instance ?? FindFirstObjectByType<DealNotificationUI>(FindObjectsInactive.Include);

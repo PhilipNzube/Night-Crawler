@@ -192,6 +192,19 @@ public class GirlDealUI : MonoBehaviour
             ulong id = kvp.Key;
             if (id == localId) continue; // Don't send deal to self
 
+            var clientObj = kvp.Value.PlayerObject;
+            if (clientObj == null) continue;
+
+            // Check if investigator is dead
+            if (clientObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0))
+            {
+                continue; // Skip dead bodies
+            }
+            if (clientObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead)
+            {
+                continue; // Skip dead players
+            }
+
             string pName = PlayerNameManager.GetPlayerName(id);
             if (string.IsNullOrEmpty(pName)) pName = $"Investigator {id}";
 
@@ -201,7 +214,12 @@ public class GirlDealUI : MonoBehaviour
 
         if (options.Count == 0)
         {
-            options.Add("No active teammates");
+            options.Add("No living investigators");
+            if (sendDealButton != null) sendDealButton.interactable = false;
+        }
+        else
+        {
+            if (sendDealButton != null) sendDealButton.interactable = true;
         }
 
         playerDropdown.AddOptions(options);
@@ -259,7 +277,7 @@ public class GirlDealUI : MonoBehaviour
         if (_connectedPlayerIds.Count == 0)
         {
             if (NotificationManager.Instance != null)
-                NotificationManager.Instance.ShowNotification("No eligible players found.", 2f);
+                NotificationManager.Instance.ShowNotification("No eligible living players found.", 2f);
             return;
         }
 
@@ -267,6 +285,22 @@ public class GirlDealUI : MonoBehaviour
         if (selectedIdx < 0 || selectedIdx >= _connectedPlayerIds.Count) return;
 
         ulong targetId = _connectedPlayerIds[selectedIdx];
+
+        // Double check target is still alive right now
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.ConnectedClients.TryGetValue(targetId, out var targetClient))
+        {
+            var targetObj = targetClient.PlayerObject;
+            if (targetObj == null || 
+                (targetObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) ||
+                (targetObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead))
+            {
+                if (NotificationManager.Instance != null)
+                    NotificationManager.Instance.ShowNotification("That investigator is dead and cannot receive pacts.", 2.5f);
+                RefreshConnectedPlayers();
+                return;
+            }
+        }
+
         string title = titleInput != null && !string.IsNullOrEmpty(titleInput.text) ? titleInput.text : "PACT WITH THE SHADOWS";
         string terms = termsInput != null ? termsInput.text : "";
         string reward = rewardInput != null ? rewardInput.text : "Melee Pickaxe Weapon";
