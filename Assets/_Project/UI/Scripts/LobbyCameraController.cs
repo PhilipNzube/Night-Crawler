@@ -83,19 +83,24 @@ public class LobbyCameraController : MonoBehaviour
     [Range(2f, 30f)]
     public float charSelectSwayAmplitude = 12f;
 
+    [Header("Global Lens Settings")]
+    [Tooltip("Universal Far Clip Plane applied across all virtual cameras and the Main Camera.")]
+    public float farClipPlane = 2500f;
+
     // =========================================================================
-    //  Inspector — Squad Spline Dolly Pan
+    //  Inspector — Squad Camera Settings
     // =========================================================================
 
-    [Header("Squad — Orbital Camera (recommended)")]
-    [Tooltip("Transform at the center of the squad formation. The squad camera will orbit around this point. " +
-             "Create an empty 'SquadOrbitTarget' positioned between all your squad pivots and drag it here. " +
-             "When assigned, the orbital camera is used instead of the dolly pan.")]
+    [Header("Squad — Camera Motion Settings")]
+    [Tooltip("If true, the squad camera spins around the squad formation. If false (default), camera stays stationary at your configured position/angle.")]
+    public bool enableSquadOrbit = false;
+
+    [Tooltip("Transform at the center of the squad formation. Used when enableSquadOrbit is true.")]
     public Transform orbitalTarget;
 
     [Tooltip("How many degrees the camera sweeps around the target per second during the squad showcase.")]
-    [Range(5f, 60f)]
-    public float squadOrbitalSpeed = 18f;
+    [Range(0f, 60f)]
+    public float squadOrbitalSpeed = 16f;
 
     [Tooltip("Radius (world units) of the orbit arc around the squad center.")]
     public float squadOrbitalRadius = 6f;
@@ -175,6 +180,9 @@ public class LobbyCameraController : MonoBehaviour
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
 
+        // Apply universal far clip plane to all cameras
+        ApplyGlobalFarClip();
+
         // Deactivate all cameras, then set lobby as the starting active cam
         SetAllPriorities(INACTIVE_PRIORITY);
         if (lobbyCam != null)
@@ -220,12 +228,18 @@ public class LobbyCameraController : MonoBehaviour
 
             case CameraPhase.Squad:
                 BlendTo(squadCam, squadBlendTime);
-                // Prefer orbital if a target is assigned, otherwise fall back to dolly
-                if (orbitalTarget != null)
-                    _dollyCoroutine = StartCoroutine(RunSquadOrbitalCamera());
-                else
+                // Orbit only if explicitly enabled and target assigned
+                if (enableSquadOrbit && orbitalTarget != null)
                 {
-                    if (squadDollyComp != null) squadDollyComp.CameraPosition = 0f;
+                    _dollyCoroutine = StartCoroutine(RunSquadOrbitalCamera());
+                }
+                else if (!enableSquadOrbit)
+                {
+                    // Clean, stationary cinematic camera — no spinning, no glitching
+                }
+                else if (squadDollyComp != null)
+                {
+                    squadDollyComp.CameraPosition = 0f;
                     _dollyCoroutine = StartCoroutine(RunDollyPan());
                 }
                 break;
@@ -252,7 +266,7 @@ public class LobbyCameraController : MonoBehaviour
     }
 
     // =========================================================================
-    //  Private — Blending
+    //  Private — Blending & Global Lens
     // =========================================================================
 
     private void BlendTo(CinemachineCamera targetCam, float blendTime)
@@ -265,7 +279,41 @@ public class LobbyCameraController : MonoBehaviour
         // Lower all cameras then raise the target
         SetAllPriorities(INACTIVE_PRIORITY);
         if (targetCam != null)
+        {
+            ApplyFarClipToCamera(targetCam);
             targetCam.Priority = ACTIVE_PRIORITY;
+        }
+    }
+
+    /// <summary>
+    /// Applies the configured Far Clip Plane across all lobby virtual cameras and Camera.main
+    /// to prevent Cinemachine from resetting the far view distance back to 500.
+    /// </summary>
+    public void ApplyGlobalFarClip()
+    {
+        ApplyFarClipToCamera(lobbyCam);
+        ApplyFarClipToCamera(revealCam);
+        ApplyFarClipToCamera(charSelectCam);
+        ApplyFarClipToCamera(squadCam);
+        ApplyFarClipToCamera(girlCam);
+        if (Camera.main != null)
+        {
+            Camera.main.farClipPlane = farClipPlane;
+        }
+    }
+
+    private void ApplyFarClipToCamera(CinemachineCamera cam)
+    {
+        if (cam != null)
+        {
+            var lens = cam.Lens;
+            lens.FarClipPlane = farClipPlane;
+            cam.Lens = lens;
+        }
+        if (Camera.main != null)
+        {
+            Camera.main.farClipPlane = farClipPlane;
+        }
     }
 
     private void SetAllPriorities(int priority)
@@ -321,6 +369,9 @@ public class LobbyCameraController : MonoBehaviour
 
         while (true)
         {
+            yield return new WaitForEndOfFrame();
+            if (orbitalTarget == null || squadCam == null) yield break;
+
             angle += squadOrbitalSpeed * Time.deltaTime;
             t     += squadOrbitalBreathSpeed * Time.deltaTime;
 
@@ -336,8 +387,6 @@ public class LobbyCameraController : MonoBehaviour
             // Move the VCam transform directly — Cinemachine body will follow
             squadCam.transform.position = orbitPos;
             squadCam.transform.LookAt(orbitalTarget.position + Vector3.up * 0.9f);
-
-            yield return null;
         }
     }
 
