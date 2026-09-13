@@ -235,6 +235,12 @@ public class NetworkRagdollController : NetworkBehaviour
         // Final resting angle locked in place
         _cameraTarget.rotation = Quaternion.Euler(targetPitch, currentYaw + totalOrbitDegrees, 0f);
         _deathOrbitCoroutine = null;
+
+        // Engage spectator mode after death orbit completes (fail-safe)
+        if (SpectatorController.Instance != null && !SpectatorController.Instance.IsSpectating)
+        {
+            SpectatorController.Instance.StartSpectating();
+        }
     }
 
     public void ResetRagdoll()

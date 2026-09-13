@@ -42,6 +42,9 @@ public class DeathUI : MonoBehaviour
     [Tooltip("Subtitle text element explaining corpse lootability / match status.")]
     public TMP_Text subtitleText;
 
+    [Tooltip("Optional prompt element on death screen showing '[SPACE / CLICK] Spectate Survivors'.")]
+    public TMP_Text spectatePromptText;
+
     [Header("Optional Ally Death Banner (Other Players)")]
     [Tooltip("Banner displayed when a teammate dies.")]
     public GameObject allyDeathBanner;
@@ -152,7 +155,17 @@ public class DeathUI : MonoBehaviour
 
         if (deathPanel != null) deathPanel.SetActive(true);
         if (titleText != null) titleText.text = title;
-        if (subtitleText != null) subtitleText.text = subtitle;
+
+        if (spectatePromptText != null)
+        {
+            if (subtitleText != null) subtitleText.text = subtitle;
+            spectatePromptText.gameObject.SetActive(true);
+            spectatePromptText.text = "<color=#00E5FF><b>[SPACE / CLICK]</b></color> TO SPECTATE";
+        }
+        else if (subtitleText != null)
+        {
+            subtitleText.text = $"{subtitle}\n\n<size=85%><color=#00E5FF><b>Press [SPACE] or [CLICK] to Spectate</b></color></size>";
+        }
 
         if (_fadeCoroutine != null) StopCoroutine(_fadeCoroutine);
         _fadeCoroutine = StartCoroutine(FadeInDeathScreenRoutine());
@@ -167,6 +180,11 @@ public class DeathUI : MonoBehaviour
         {
             StopCoroutine(_fadeCoroutine);
             _fadeCoroutine = null;
+        }
+
+        if (spectatePromptText != null)
+        {
+            spectatePromptText.gameObject.SetActive(false);
         }
 
         if (deathCanvasGroup != null)
@@ -189,6 +207,7 @@ public class DeathUI : MonoBehaviour
         deathCanvasGroup.gameObject.SetActive(true);
         deathCanvasGroup.blocksRaycasts = false; // Don't block camera orbit
 
+        // 1. Fade in dramatic "YOU DIED" screen
         float elapsed = 0f;
         while (elapsed < fadeInDuration)
         {
@@ -197,6 +216,35 @@ public class DeathUI : MonoBehaviour
             yield return null;
         }
         deathCanvasGroup.alpha = 1f;
+
+        // 2. Hold death screen for emotional weight (or allow player to skip immediately with Space/Click)
+        float holdTimer = 2.5f;
+        while (holdTimer > 0f)
+        {
+            holdTimer -= Time.deltaTime;
+            if (UnityEngine.InputSystem.Keyboard.current != null && UnityEngine.InputSystem.Keyboard.current.anyKey.wasPressedThisFrame) break;
+            if (UnityEngine.InputSystem.Mouse.current != null && UnityEngine.InputSystem.Mouse.current.leftButton.wasPressedThisFrame) break;
+            yield return null;
+        }
+
+        // 3. Smoothly fade out the black death curtain to reveal the live match
+        float fadeOutDuration = 0.8f;
+        float fadeOutElapsed = 0f;
+        while (fadeOutElapsed < fadeOutDuration)
+        {
+            fadeOutElapsed += Time.deltaTime;
+            deathCanvasGroup.alpha = Mathf.Clamp01(1f - (fadeOutElapsed / fadeOutDuration));
+            yield return null;
+        }
+        deathCanvasGroup.alpha = 0f;
+        deathCanvasGroup.blocksRaycasts = false;
+        if (deathPanel != null) deathPanel.SetActive(false);
+
+        // 4. Engage Spectator Mode seamlessly
+        if (SpectatorController.Instance != null)
+        {
+            SpectatorController.Instance.StartSpectating();
+        }
     }
 
     /// <summary>

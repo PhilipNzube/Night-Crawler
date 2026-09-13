@@ -35,11 +35,11 @@ public class InvestigatorCombatNet : NetworkBehaviour
     [Tooltip("Total number of combo steps in the attack chain (e.g. 3 for 3-hit combo).")]
     public int maxComboSteps = 3;
     [Tooltip("Minimum time in seconds between normal combo strikes to allow swing follow-through.")]
-    public float comboHitInterval = 0.40f;
+    public float comboHitInterval = 0.35f;
     [Tooltip("Recovery duration in seconds after the final finisher hit before a new combo can begin.")]
-    public float comboFinisherRecovery = 0.40f;
+    public float comboFinisherRecovery = 0.35f;
     [Tooltip("Buffer window in seconds to queue an attack if clicked slightly before recovery ends.")]
-    public float inputBufferWindow = 0.25f;
+    public float inputBufferWindow = 0.30f;
 
     [Header("Equip Animation Settings")]
     [Tooltip("If true, plays draw/equip and holster/disarm animations. If false (default), weapons appear instantly in hand upon deal/pickup.")]
@@ -312,8 +312,11 @@ public class InvestigatorCombatNet : NetworkBehaviour
             SwitchWeapon(1);
         }
 
-        // Attack (Left Click) — suppressed if clicking over UI or if weapon is hidden
-        if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame && !_isReloading)
+        // Attack (Left Click) — support both click-spam and holding left click for continuous combos
+        bool clickDown = Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame;
+        bool clickHeld = Mouse.current != null && Mouse.current.leftButton.isPressed;
+
+        if ((clickDown || clickHeld) && !_isReloading)
         {
             if (UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
             {
@@ -330,7 +333,7 @@ public class InvestigatorCombatNet : NetworkBehaviour
                 {
                     PerformAttack();
                 }
-                else if (_attackTimer <= inputBufferWindow)
+                else if (clickDown || _attackTimer <= inputBufferWindow)
                 {
                     _hasBufferedAttack = true;
                 }
