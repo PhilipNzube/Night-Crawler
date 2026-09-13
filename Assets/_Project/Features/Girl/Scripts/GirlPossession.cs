@@ -56,6 +56,7 @@ public class GirlPossession : NetworkBehaviour
         {
             remainingPossessionTime.Value = maxPossessionTimePool;
         }
+        ResetGirlAnimatorState();
     }
 
     void Update()
@@ -249,6 +250,7 @@ public class GirlPossession : NetworkBehaviour
     {
         _currentTarget = target;
         UpdatePossessionVisuals(true);
+        ResetGirlAnimatorState();
 
         Transform targetCamera = target.GetCameraTarget();
 
@@ -391,11 +393,45 @@ public class GirlPossession : NetworkBehaviour
 
         if (_currentTarget != null)
         {
+            if (_currentTarget is Component comp && comp.TryGetComponent<PlayerPossessableNet>(out var pnet))
+            {
+                pnet.TeardownGirlControl();
+            }
             _currentTarget.Release();
             _currentTarget = null;
         }
 
         ReturnToSpiritFormClientRpc();
+    }
+
+    public void ResetGirlAnimatorState()
+    {
+        var anim = GetComponentInChildren<Animator>();
+        if (anim == null) return;
+
+        foreach (var p in anim.parameters)
+        {
+            if (p.name == "HasWeapon") anim.SetBool(p.nameHash, false);
+            else if (p.name == "WeaponID") anim.SetInteger(p.nameHash, -1);
+            else if (p.name == "ComboStep") anim.SetInteger(p.nameHash, 0);
+            else if (p.name == "Speed") anim.SetFloat(p.nameHash, 0f);
+            else if (p.name == "MotionSpeed") anim.SetFloat(p.nameHash, 1f);
+            else if (p.name == "Grounded") anim.SetBool(p.nameHash, true);
+            else if (p.name == "FreeFall") anim.SetBool(p.nameHash, false);
+            else if (p.name == "Jump") anim.ResetTrigger(p.nameHash);
+            else if (p.name == "Attack") anim.ResetTrigger(p.nameHash);
+            else if (p.name == "SwitchWeapon") anim.ResetTrigger(p.nameHash);
+            else if (p.name == "Disarm") anim.ResetTrigger(p.nameHash);
+            else if (p.name == "HitReact") anim.ResetTrigger(p.nameHash);
+        }
+
+        int upperBodyLayer = anim.GetLayerIndex("UpperBody_Combat");
+        if (upperBodyLayer >= 0)
+        {
+            anim.SetLayerWeight(upperBodyLayer, 0f);
+        }
+
+        anim.CrossFadeInFixedTime("Idle Walk Run Blend", 0.1f, 0);
     }
 
     [Rpc(SendTo.ClientsAndHost)]
@@ -417,6 +453,9 @@ public class GirlPossession : NetworkBehaviour
 
         // Restore correct visibility: preserves player's chosen manifestation state
         UpdatePossessionVisuals(false);
+
+        // Sanitize Girl's animator state back to unarmed spirit form
+        ResetGirlAnimatorState();
 
         if (IsOwner)
         {

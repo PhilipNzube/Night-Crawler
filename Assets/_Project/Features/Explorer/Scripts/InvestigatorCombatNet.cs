@@ -72,6 +72,13 @@ public class InvestigatorCombatNet : NetworkBehaviour
 
     void Awake()
     {
+        bool isGirl = GetComponent<GirlPossession>() != null || gameObject.name.ToLower().Contains("girl") || gameObject.name.ToLower().Contains("demon");
+        if (isGirl)
+        {
+            enabled = false;
+            return;
+        }
+
         _animator = GetComponentInChildren<Animator>();
         _networkAnimator = GetComponent<NetworkAnimator>();
         _audioSource = gameObject.AddComponent<AudioSource>();

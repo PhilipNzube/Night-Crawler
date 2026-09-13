@@ -18,11 +18,44 @@ public class GirlMovement : NetworkBehaviour
     private Vector3 _velocity;
     private readonly int _speedHash = Animator.StringToHash("Speed");
     private float _lastAnimSpeed = -1f;
+    private int _upperBodyLayer = -2;
+    private readonly int _hasWeaponHash = Animator.StringToHash("HasWeapon");
+    private readonly int _weaponIdHash   = Animator.StringToHash("WeaponID");
+    private readonly int _comboStepHash  = Animator.StringToHash("ComboStep");
 
     private void Awake()
     {
         if (controller == null) controller = GetComponent<CharacterController>();
         if (animator == null) animator = GetComponentInChildren<Animator>();
+        SanitizeGirlAnimator();
+    }
+
+    /// <summary>
+    /// Enforces that the Girl NEVER takes any weapon or combat pose.
+    /// Clamps UpperBody_Combat layer weight to 0 and forces HasWeapon = false.
+    /// Runs on all machines so anyone who looks at the Girl sees her natural spirit form.
+    /// </summary>
+    public void SanitizeGirlAnimator()
+    {
+        if (animator == null) return;
+
+        if (_upperBodyLayer == -2)
+        {
+            _upperBodyLayer = animator.GetLayerIndex("UpperBody_Combat");
+        }
+
+        if (_upperBodyLayer >= 0 && animator.GetLayerWeight(_upperBodyLayer) > 0f)
+        {
+            animator.SetLayerWeight(_upperBodyLayer, 0f);
+        }
+
+        if (animator.GetBool(_hasWeaponHash) || animator.GetInteger(_weaponIdHash) != -1)
+        {
+            animator.SetBool(_hasWeaponHash, false);
+            animator.SetInteger(_weaponIdHash, -1);
+            animator.SetInteger(_comboStepHash, 0);
+            animator.CrossFadeInFixedTime("Idle Walk Run Blend", 0.05f, 0);
+        }
     }
 
     private bool _isCurrentlyVisible = false;
@@ -64,12 +97,20 @@ public class GirlMovement : NetworkBehaviour
 
     private void Start()
     {
+        SanitizeGirlAnimator();
+
         // Synchronize entity stats to ThirdPersonController if present
         if (TryGetComponent<ThirdPersonController>(out var tpc) && stats != null)
         {
             tpc.MoveSpeed = stats.walkSpeed;
             tpc.SprintSpeed = stats.runSpeed;
         }
+    }
+
+    private void LateUpdate()
+    {
+        // Enforce unarmed spirit pose on all machines every frame
+        SanitizeGirlAnimator();
     }
 
     void Update()

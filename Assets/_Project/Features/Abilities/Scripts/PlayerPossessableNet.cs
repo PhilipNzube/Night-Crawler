@@ -62,6 +62,7 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
     }
 
     private Coroutine _priestRejectionCoroutine;
+    private Coroutine _priestServerTimerCoroutine;
 
     private void HandlePossessionChanged(bool previous, bool current)
     {
@@ -182,6 +183,12 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
     [Rpc(SendTo.Server)]
     private void RejectPossessionServerRpc()
     {
+        if (_priestServerTimerCoroutine != null)
+        {
+            StopCoroutine(_priestServerTimerCoroutine);
+            _priestServerTimerCoroutine = null;
+        }
+
         ulong victimId = originalOwnerClientId.Value;
         ulong girlClientId = possessingClientId.Value;
 
@@ -254,11 +261,25 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         }
     }
 
-    [Rpc(SendTo.Server)]
-    private void NotifyPossessionAcceptedServerRpc()
+    private System.Collections.IEnumerator PriestRejectionServerTimerRoutine(ulong victimId, ulong girlClientId, float duration)
     {
-        ulong victimId = originalOwnerClientId.Value;
-        ulong girlClientId = possessingClientId.Value;
+        float elapsed = 0f;
+        while (elapsed < duration && isPossessed.Value && possessingClientId.Value == girlClientId)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            yield return null;
+        }
+
+        if (isPossessed.Value && possessingClientId.Value == girlClientId)
+        {
+            ConfirmPossessionOnServer(victimId, girlClientId);
+        }
+        _priestServerTimerCoroutine = null;
+    }
+
+    private void ConfirmPossessionOnServer(ulong victimId, ulong girlClientId)
+    {
+        if (!IsServer) return;
 
         string victimName = GirlRevealManager.GetRegisteredPlayerName(victimId);
         if (string.IsNullOrEmpty(victimName)) victimName = PlayerNameManager.GetPlayerName(victimId);
@@ -270,7 +291,21 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             netObj.ChangeOwnership(girlClientId);
         }
 
+        NotifyVictimPossessedClientRpc(victimId);
         NotifyPossessionConfirmedClientRpc(victimId, girlClientId, victimName);
+    }
+
+    [Rpc(SendTo.Server)]
+    private void NotifyPossessionAcceptedServerRpc()
+    {
+        if (_priestServerTimerCoroutine != null)
+        {
+            StopCoroutine(_priestServerTimerCoroutine);
+            _priestServerTimerCoroutine = null;
+        }
+        ulong victimId = originalOwnerClientId.Value;
+        ulong girlClientId = possessingClientId.Value;
+        ConfirmPossessionOnServer(victimId, girlClientId);
     }
 
     [Rpc(SendTo.ClientsAndHost)]
@@ -390,14 +425,53 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         if (isPossessed.Value)
         {
             // Girl took over control: dynamically wire up StarterAssetsInputs to local input
+            bool inputBound = false;
             if (TryGetComponent<NetworkPlayer>(out var np))
             {
                 np.SetupOwnerInput();
+                inputBound = true;
             }
 
             if (TryGetComponent<UnityEngine.InputSystem.PlayerInput>(out var pi))
             {
                 pi.enabled = true;
+                if (!inputBound && TryGetComponent<StarterAssets.StarterAssetsInputs>(out var sai))
+                {
+                    pi.notificationBehavior = UnityEngine.InputSystem.PlayerNotifications.InvokeCSharpEvents;
+                    pi.defaultActionMap = "Player";
+                    var playerMap = pi.actions?.FindActionMap("Player");
+                    if (playerMap != null && !playerMap.enabled) playerMap.Enable();
+
+                    var moveAct = pi.actions?.FindAction("Move");
+                    if (moveAct != null)
+                    {
+                        moveAct.performed += ctx => sai.MoveInput(ctx.ReadValue<Vector2>());
+                        moveAct.canceled += ctx => sai.MoveInput(Vector2.zero);
+                        moveAct.Enable();
+                    }
+                    var lookAct = pi.actions?.FindAction("Look");
+                    if (lookAct != null)
+                    {
+                        lookAct.performed += ctx => sai.LookInput(ctx.ReadValue<Vector2>());
+                        lookAct.canceled += ctx => sai.LookInput(Vector2.zero);
+                        lookAct.Enable();
+                    }
+                    var jumpAct = pi.actions?.FindAction("Jump");
+                    if (jumpAct != null)
+                    {
+                        jumpAct.performed += ctx => sai.JumpInput(true);
+                        jumpAct.canceled += ctx => sai.JumpInput(false);
+                        jumpAct.Enable();
+                    }
+                    var sprintAct = pi.actions?.FindAction("Sprint");
+                    if (sprintAct != null)
+                    {
+                        sprintAct.performed += ctx => sai.SprintInput(ctx.ReadValueAsButton());
+                        sprintAct.canceled += ctx => sai.SprintInput(false);
+                        sprintAct.Enable();
+                    }
+                    pi.ActivateInput();
+                }
             }
 
             if (TryGetComponent<CharacterController>(out var cc))
@@ -577,19 +651,14 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             if (isPriest)
             {
                 float penalty = girl != null ? girl.exorcismPenaltySeconds : 30f;
+                if (_priestServerTimerCoroutine != null) StopCoroutine(_priestServerTimerCoroutine);
+                _priestServerTimerCoroutine = StartCoroutine(PriestRejectionServerTimerRoutine(victimId, girl.OwnerClientId, 4.0f));
                 // Priest resistance window: ownership stays with Priest during resistance
                 NotifyPriestRejectionWindowClientRpc(victimId, girl.OwnerClientId, 4.0f, penalty);
             }
             else
             {
-                var netObj = GetComponent<NetworkObject>();
-                if (netObj != null && netObj.OwnerClientId != girl.OwnerClientId)
-                {
-                    netObj.ChangeOwnership(girl.OwnerClientId);
-                }
-
-                NotifyVictimPossessedClientRpc(victimId);
-                NotifyPossessionAcceptedServerRpc();
+                ConfirmPossessionOnServer(victimId, girl.OwnerClientId);
             }
         }
     }
@@ -647,6 +716,12 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
 
     public void Release()
     {
+        if (_priestServerTimerCoroutine != null)
+        {
+            StopCoroutine(_priestServerTimerCoroutine);
+            _priestServerTimerCoroutine = null;
+        }
+
         TeardownGirlControl();
         if (IsServer)
         {
