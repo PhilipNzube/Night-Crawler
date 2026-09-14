@@ -76,11 +76,31 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
             // (prevents server host adopting an orphaned object from falsely showing YOU DIED)
             bool isGirl = GetComponent<GirlStealth>() != null || GetComponent<GirlMaterialController>() != null;
             bool isPossessedVictim = TryGetComponent<PlayerPossessableNet>(out var pnet) && 
+                                     pnet.isPossessed.Value &&
+                                     pnet.originalOwnerClientId.Value != ulong.MaxValue &&
                                      (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == pnet.originalOwnerClientId.Value);
             bool isLocalCharacter = (NetworkManager.Singleton != null && 
                                      NetworkManager.Singleton.LocalClient != null && 
                                      NetworkManager.Singleton.LocalClient.PlayerObject == GetComponent<NetworkObject>())
                                      || isPossessedVictim;
+
+            // Absolute safeguard: if the local player has an active player object that is still ALIVE,
+            // they are not the victim and must never see 'YOU DIED' or enter spectator mode!
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null)
+            {
+                var myObj = NetworkManager.Singleton.LocalClient.PlayerObject;
+                if (myObj != null && myObj != GetComponent<NetworkObject>())
+                {
+                    if (myObj.TryGetComponent<TargetHealth>(out var myTh) && !myTh.isCorpse.Value && myTh.CurrentHealth > 0)
+                    {
+                        isLocalCharacter = false;
+                    }
+                    else if (myObj.TryGetComponent<HealthSystem>(out var myHs) && !myHs.IsDead && myHs.CurrentHealth > 0)
+                    {
+                        isLocalCharacter = false;
+                    }
+                }
+            }
 
             if (isLocalCharacter && DeathUI.Instance != null)
             {

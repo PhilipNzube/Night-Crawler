@@ -345,9 +345,25 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null)
         {
             var localPlayerObj = NetworkManager.Singleton.LocalClient.PlayerObject;
-            if (localPlayerObj != null && (localPlayerObj.GetComponent<GirlPossession>() != null || localPlayerObj.name.ToLower().Contains("girl")))
+            if (localPlayerObj != null)
             {
-                return;
+                if (localPlayerObj.GetComponent<GirlPossession>() != null || localPlayerObj.name.ToLower().Contains("girl"))
+                {
+                    return;
+                }
+
+                // If local player is playing their own character and is ALIVE, do not show death screen!
+                if (localPlayerObj.gameObject != gameObject)
+                {
+                    if (localPlayerObj.TryGetComponent<TargetHealth>(out var myTh) && !myTh.isCorpse.Value && myTh.CurrentHealth > 0)
+                    {
+                        return;
+                    }
+                    if (localPlayerObj.TryGetComponent<HealthSystem>(out var myHs) && !myHs.IsDead && myHs.CurrentHealth > 0)
+                    {
+                        return;
+                    }
+                }
             }
         }
 
@@ -765,7 +781,20 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         if (localIsGirl) return;
 
         bool isVictim = (victimClientId != ulong.MaxValue && localId == victimClientId) || 
-                        (originalOwnerClientId.Value != ulong.MaxValue && localId == originalOwnerClientId.Value);
+                        (isPossessed.Value && originalOwnerClientId.Value != ulong.MaxValue && localId == originalOwnerClientId.Value);
+
+        // Living player safeguard: if local player has their own active living player object, they are not the victim
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null)
+        {
+            var myObj = NetworkManager.Singleton.LocalClient.PlayerObject;
+            if (myObj != null && myObj.gameObject != gameObject)
+            {
+                if (myObj.TryGetComponent<TargetHealth>(out var myTh) && !myTh.isCorpse.Value && myTh.CurrentHealth > 0)
+                {
+                    isVictim = false;
+                }
+            }
+        }
         if (isVictim)
         {
             if (_priestRejectionCoroutine != null)

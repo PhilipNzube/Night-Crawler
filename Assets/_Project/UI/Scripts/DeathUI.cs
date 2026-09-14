@@ -133,20 +133,19 @@ public class DeathUI : MonoBehaviour
     /// </summary>
     public void ShowDeathScreen(string title = "YOU DIED", string subtitle = "Your soul has fallen. Allies can still loot your body.")
     {
-        // Safety guard: The Girl player must NEVER see 'YOU DIED' when an investigator dies!
+        // Safety guard: ANY living player (Investigator or Girl) must NEVER see 'YOU DIED' or trigger spectator mode!
         if (Unity.Netcode.NetworkManager.Singleton != null && Unity.Netcode.NetworkManager.Singleton.LocalClient != null)
         {
             var localPlayerObj = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject;
-            if (localPlayerObj != null && (localPlayerObj.GetComponent<GirlPossession>() != null || localPlayerObj.name.ToLower().Contains("girl")))
+            if (localPlayerObj != null)
             {
-                // Only allow death screen if the Girl herself is actually dead
-                bool girlDead = false;
-                if (localPlayerObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) girlDead = true;
-                if (localPlayerObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) girlDead = true;
+                bool isDead = false;
+                if (localPlayerObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) isDead = true;
+                if (localPlayerObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) isDead = true;
 
-                if (!girlDead)
+                if (!isDead)
                 {
-                    Debug.Log("[DeathUI] Suppressed ShowDeathScreen — Local player is the alive Girl.");
+                    Debug.Log("[DeathUI] Suppressed ShowDeathScreen — Local player is still ALIVE!");
                     HideDeathScreen();
                     return;
                 }

@@ -127,11 +127,41 @@ public class SpectatorController : MonoBehaviour
     }
 
     /// <summary>
+    /// Checks if the local player is truly dead (TargetHealth or HealthSystem).
+    /// Living players must NEVER enter or remain in Spectator Mode!
+    /// </summary>
+    public bool IsLocalPlayerDead()
+    {
+        if (NetworkManager.Singleton == null || NetworkManager.Singleton.LocalClient == null) return false;
+        var playerObj = NetworkManager.Singleton.LocalClient.PlayerObject;
+        if (playerObj == null) return false;
+
+        // If possessed, check the active possessed target
+        if (playerObj.TryGetComponent<GirlPossession>(out var gp) && gp.isPossessing.Value)
+        {
+            return false;
+        }
+
+        bool dead = false;
+        if (playerObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) dead = true;
+        if (playerObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) dead = true;
+
+        return dead;
+    }
+
+    /// <summary>
     /// Activates spectator mode for the local player. Called when death completes.
     /// </summary>
     public void StartSpectating()
     {
         if (_isSpectating) return;
+
+        // Living players MUST NEVER enter spectator mode!
+        if (!IsLocalPlayerDead())
+        {
+            Debug.LogWarning("[SpectatorController] Suppressed StartSpectating — Local player is still ALIVE!");
+            return;
+        }
 
         // Verify local player is not the Girl
         if (IsLocalPlayerGirl())
@@ -175,6 +205,21 @@ public class SpectatorController : MonoBehaviour
         _isSpectating = false;
         _currentTarget = null;
 
+        // Restore camera priority & binding so local player's camera resumes normally
+        if (_cinemachineCam != null)
+        {
+            _cinemachineCam.Priority = 10;
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null && NetworkManager.Singleton.LocalClient.PlayerObject != null)
+            {
+                var localObj = NetworkManager.Singleton.LocalClient.PlayerObject;
+                Transform camTarget = (localObj.TryGetComponent<StarterAssets.ThirdPersonController>(out var tpc) && tpc.CinemachineCameraTarget != null)
+                    ? tpc.CinemachineCameraTarget.transform
+                    : (localObj.transform.Find("PlayerCameraRoot") ?? localObj.transform);
+                _cinemachineCam.Follow = camTarget;
+                _cinemachineCam.LookAt = camTarget;
+            }
+        }
+
         if (_canvasGroup != null)
         {
             StartCoroutine(FadeCanvasGroup(_canvasGroup, 1f, 0f, 0.4f, () =>
@@ -190,6 +235,14 @@ public class SpectatorController : MonoBehaviour
     private void Update()
     {
         if (!_isSpectating) return;
+
+        // Living players MUST NEVER stay in spectator mode!
+        if (!IsLocalPlayerDead())
+        {
+            Debug.Log("[SpectatorController] Local player is alive — Exiting Spectator Mode immediately.");
+            StopSpectating();
+            return;
+        }
 
         // 1. Handle Navigation & Controls
         HandleInput();
@@ -440,7 +493,7 @@ public class SpectatorController : MonoBehaviour
     {
         if (_cinemachineCam == null)
         {
-            // 1. Check local NetworkPlayer camera
+            // 1. Check local player's OWN NetworkPlayer camera strictly
             if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null && NetworkManager.Singleton.LocalClient.PlayerObject != null)
             {
                 var netPlayer = NetworkManager.Singleton.LocalClient.PlayerObject.GetComponent<NetworkPlayer>();
@@ -450,10 +503,14 @@ public class SpectatorController : MonoBehaviour
                 }
             }
 
-            // 2. Search scene for active CinemachineCamera
-            if (_cinemachineCam == null)
+            // 2. If null, create/bind a dedicated spectator camera on the spectator anchor (never hijack teammate cameras!)
+            if (_cinemachineCam == null && _spectatorAnchor != null)
             {
-                _cinemachineCam = FindFirstObjectByType<CinemachineVirtualCameraBase>();
+                _cinemachineCam = _spectatorAnchor.GetComponent<CinemachineVirtualCameraBase>();
+                if (_cinemachineCam == null)
+                {
+                    _cinemachineCam = _spectatorAnchor.gameObject.AddComponent<CinemachineCamera>();
+                }
             }
         }
     }
