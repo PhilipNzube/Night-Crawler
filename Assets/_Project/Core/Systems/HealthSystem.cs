@@ -113,6 +113,10 @@ public class HealthSystem : NetworkBehaviour, IDamageReceiver
     {
         if (_isDead) return;
         _networkHealth.Value = Mathf.Clamp(_networkHealth.Value + amount, 0, maxHealth);
+        if (TryGetComponent<TargetHealth>(out var th) && !th.isCorpse.Value && th.CurrentHealth < _networkHealth.Value)
+        {
+            th.Heal(amount);
+        }
     }
 
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]

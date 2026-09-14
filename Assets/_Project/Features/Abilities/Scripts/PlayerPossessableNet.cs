@@ -332,11 +332,14 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
 
     private bool IsTargetDead()
     {
-        if (_targetHealth != null && (_targetHealth.isCorpse.Value || _targetHealth.CurrentHealth <= 0)) return true;
-        if (_healthSystem != null && _healthSystem.IsDead) return true;
-        if (TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) return true;
-        if (TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) return true;
-        return false;
+        var targetTh = _targetHealth != null ? _targetHealth : GetComponent<TargetHealth>();
+        var targetHs = _healthSystem != null ? _healthSystem : GetComponent<HealthSystem>();
+
+        bool isThAlive = targetTh != null && !targetTh.isCorpse.Value && targetTh.CurrentHealth > 0f;
+        bool isHsAlive = targetHs != null && !targetHs.IsDead && targetHs.CurrentHealth > 0f;
+
+        if (isThAlive || isHsAlive) return false;
+        return true;
     }
 
     private void EnforceDeadState()

@@ -30,10 +30,12 @@ public class SuffocationSystemNet : NetworkBehaviour
     private TargetHealth _targetHealth;
     private float _damageInterval = 1.0f;
     private float _effectiveLifespan;
-    private bool _isHazardSpecialist = false;
+    [Header("Network State")]
+    public NetworkVariable<bool> isHazardSpecialistNet = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
     public float EffectiveLifespan => _effectiveLifespan;
-    public bool IsHazardSpecialist => _isHazardSpecialist;
+    public bool IsHazardSpecialist => isHazardSpecialistNet.Value || _isHazardSpecialist;
 
     private void Awake()
     {
@@ -68,11 +70,8 @@ public class SuffocationSystemNet : NetworkBehaviour
 
         // Check if player is Hazard Specialist
         // We check character name, attached components, or saved character index
-        if (gameObject.name.ToLower().Contains("hazard") || gameObject.name.ToLower().Contains("protector"))
-        {
-            _isHazardSpecialist = true;
-        }
-        else if (CharacterSelectManager.Instance != null && NetworkManager.Singleton != null)
+        bool isHazardRole = gameObject.name.ToLower().Contains("hazard") || gameObject.name.ToLower().Contains("protector");
+        if (!isHazardRole && CharacterSelectManager.Instance != null && NetworkManager.Singleton != null)
         {
             int charIndex = CharacterSelectManager.Instance.GetSelectedCharacterIndex(OwnerClientId);
             if (charIndex >= 0 && CharacterSelectManager.Instance.availableCharacters != null 
@@ -81,25 +80,66 @@ public class SuffocationSystemNet : NetworkBehaviour
                 var charData = CharacterSelectManager.Instance.availableCharacters[charIndex];
                 if (charData != null && charData.profession == InvestigatorProfession.HazardSpecialist)
                 {
-                    _isHazardSpecialist = true;
+                    isHazardRole = true;
                 }
             }
         }
 
-        _effectiveLifespan = _isHazardSpecialist ? baseLifespanSeconds * hazardMultiplier : baseLifespanSeconds;
+        if (isHazardRole)
+        {
+            _isHazardSpecialist = true;
+            if (IsServer)
+            {
+                isHazardSpecialistNet.Value = true;
+                ApplyDoubledHealth();
+            }
+        }
+
+        _effectiveLifespan = IsHazardSpecialist ? baseLifespanSeconds * hazardMultiplier : baseLifespanSeconds;
+    }
+
+    /// <summary>
+    /// Doubles max health and current health because the player is wearing the protective gas mask.
+    /// </summary>
+    public void ApplyDoubledHealth()
+    {
+        if (_targetHealth != null)
+        {
+            float baseMax = _targetHealth.baseMaxHealth > 0 ? _targetHealth.baseMaxHealth : 100f;
+            float newMax = baseMax * 2f;
+            if (_targetHealth.maxHealth.Value < newMax)
+            {
+                _targetHealth.maxHealth.Value = newMax;
+                _targetHealth.currentHealth.Value = newMax;
+            }
+        }
+        if (_healthSystem != null)
+        {
+            float newMax = 200f;
+            if (_healthSystem.maxHealth < newMax)
+            {
+                _healthSystem.maxHealth = newMax;
+                _healthSystem.Heal(newMax);
+            }
+        }
     }
 
     /// <summary>
     /// Inherits the Hazard Specialist's gas mask / respirator filter when looted from their corpse.
-    /// Extends lifespan by the hazard multiplier.
+    /// Extends lifespan by the hazard multiplier and doubles health because the looter just wore the mask.
     /// </summary>
     public void InheritHazardFilter()
     {
-        if (!_isHazardSpecialist)
+        if (!IsHazardSpecialist)
         {
             _isHazardSpecialist = true;
-            _effectiveLifespan *= hazardMultiplier;
-            Debug.Log($"[SuffocationSystemNet] Inherited Hazard Specialist gas filter! Lifespan extended to {_effectiveLifespan}s.");
+            if (IsServer)
+            {
+                isHazardSpecialistNet.Value = true;
+                ApplyDoubledHealth();
+            }
+            _effectiveLifespan = baseLifespanSeconds * hazardMultiplier;
+            Debug.Log($"[SuffocationSystemNet] Inherited Hazard Specialist gas mask! Health doubled & lifespan extended to {_effectiveLifespan}s.");
         }
     }
 

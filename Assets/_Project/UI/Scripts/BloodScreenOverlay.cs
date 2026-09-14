@@ -107,24 +107,23 @@ public class BloodScreenOverlay : MonoBehaviour
         var localPlayer = NetworkManager.Singleton.LocalClient?.PlayerObject;
         if (localPlayer == null) return;
 
+        UnbindFromPlayer();
+
         localPlayer.TryGetComponent<HealthSystem>(out _localHealthSystem);
         localPlayer.TryGetComponent<TargetHealth>(out _localTargetHealth);
 
         if (_localHealthSystem != null)
         {
-            _maxHealth = _localHealthSystem.MaxHealth > 0 ? _localHealthSystem.MaxHealth : 100f;
             _localHealthSystem.OnHealthChanged += OnHealthSystemChanged;
-            UpdateHealthFraction(_localHealthSystem.CurrentHealth, _maxHealth);
-            _isBound = true;
         }
-        else if (_localTargetHealth != null)
+        if (_localTargetHealth != null)
         {
-            _maxHealth = _localTargetHealth.MaxHealth;
             _localTargetHealth.currentHealth.OnValueChanged += OnTargetHealthChanged;
             _localTargetHealth.maxHealth.OnValueChanged     += OnTargetHealthChanged;
-            UpdateHealthFraction(_localTargetHealth.CurrentHealth, _maxHealth);
-            _isBound = true;
         }
+
+        RefreshCurrentHealth();
+        _isBound = true;
     }
 
     private void UnbindFromPlayer()
@@ -158,19 +157,16 @@ public class BloodScreenOverlay : MonoBehaviour
 
         if (_localHealthSystem != null)
         {
-            _maxHealth = _localHealthSystem.MaxHealth > 0 ? _localHealthSystem.MaxHealth : 100f;
             _localHealthSystem.OnHealthChanged += OnHealthSystemChanged;
-            UpdateHealthFraction(_localHealthSystem.CurrentHealth, _maxHealth);
-            _isBound = true;
         }
-        else if (_localTargetHealth != null)
+        if (_localTargetHealth != null)
         {
-            _maxHealth = _localTargetHealth.MaxHealth;
             _localTargetHealth.currentHealth.OnValueChanged += OnTargetHealthChanged;
             _localTargetHealth.maxHealth.OnValueChanged     += OnTargetHealthChanged;
-            UpdateHealthFraction(_localTargetHealth.CurrentHealth, _maxHealth);
-            _isBound = true;
         }
+
+        RefreshCurrentHealth();
+        _isBound = true;
     }
 
     // =========================================================================
@@ -178,15 +174,45 @@ public class BloodScreenOverlay : MonoBehaviour
     // =========================================================================
     private void OnTargetHealthChanged(float previous, float current)
     {
-        if (_localTargetHealth != null)
-        {
-            _maxHealth = _localTargetHealth.MaxHealth;
-            UpdateHealthFraction(_localTargetHealth.CurrentHealth, _maxHealth);
-        }
+        RefreshCurrentHealth();
     }
 
     private void OnHealthSystemChanged(float current, float max)
     {
+        RefreshCurrentHealth();
+    }
+
+    private void RefreshCurrentHealth()
+    {
+        float current = 100f;
+        float max = 100f;
+
+        bool isCorpse = (_localTargetHealth != null && _localTargetHealth.isCorpse.Value) ||
+                        (_localHealthSystem != null && _localHealthSystem.IsDead);
+
+        if (isCorpse)
+        {
+            current = 0f;
+            max = _localTargetHealth != null ? _localTargetHealth.MaxHealth : (_localHealthSystem != null ? _localHealthSystem.MaxHealth : 100f);
+        }
+        else if (_localTargetHealth != null && _localHealthSystem != null)
+        {
+            max = Mathf.Max(_localTargetHealth.MaxHealth, _localHealthSystem.MaxHealth);
+            // If the character is alive, use the active higher health value so UI never desyncs to 0
+            current = Mathf.Max(_localTargetHealth.CurrentHealth, _localHealthSystem.CurrentHealth);
+            if (current <= 0f) current = 1f;
+        }
+        else if (_localHealthSystem != null)
+        {
+            current = _localHealthSystem.CurrentHealth;
+            max = _localHealthSystem.MaxHealth;
+        }
+        else if (_localTargetHealth != null)
+        {
+            current = _localTargetHealth.CurrentHealth;
+            max = _localTargetHealth.MaxHealth;
+        }
+
         _maxHealth = max > 0 ? max : 100f;
         UpdateHealthFraction(current, _maxHealth);
     }

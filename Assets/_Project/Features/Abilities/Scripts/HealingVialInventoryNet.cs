@@ -71,12 +71,23 @@ public class HealingVialInventoryNet : NetworkBehaviour
         if (IsServer)
         {
             // Auto-detect if this character is the Field Medic
-            int startCount = initialVials;
-            if (gameObject.name.ToLower().Contains("medic") || startCount > 0)
+            bool isMedic = gameObject.name.ToLower().Contains("medic");
+            if (!isMedic && CharacterSelectManager.Instance != null)
             {
-                startCount = Mathf.Max(4, startCount);
+                int idx = CharacterSelectManager.Instance.GetSelectedCharacterIndex(OwnerClientId);
+                if (idx >= 0 && CharacterSelectManager.Instance.availableCharacters != null && idx < CharacterSelectManager.Instance.availableCharacters.Count)
+                {
+                    var data = CharacterSelectManager.Instance.availableCharacters[idx];
+                    if (data != null && data.profession == InvestigatorProfession.FieldMedic)
+                    {
+                        isMedic = true;
+                    }
+                }
             }
-            currentVials.Value = startCount;
+
+            // Only Medic starts with 4 vials. All other investigators start with 0 vials unless looted from a corpse.
+            currentVials.Value = isMedic ? (initialVials > 0 ? initialVials : 4) : 0;
+            Debug.Log($"[HealingVialInventoryNet] '{gameObject.name}' spawned with {currentVials.Value} vials (isMedic: {isMedic}).");
         }
     }
 

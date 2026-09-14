@@ -81,6 +81,22 @@ public class CorpseLootableNet : NetworkBehaviour
     private PriestExorcismNet _priestExorcism;
     private SuffocationSystemNet _suffocationNet;
 
+    // Persistent inherited ability flags (transfers down the chain of deaths)
+    private bool _hasInheritedWeapon = false;
+    private bool _hasInheritedExorcism = false;
+    private bool _hasInheritedHazardMask = false;
+    private bool _hasInheritedMinimap = false;
+
+    public void InheritWeapon() => _hasInheritedWeapon = true;
+    public void InheritExorcism() => _hasInheritedExorcism = true;
+    public void InheritHazardMask() => _hasInheritedHazardMask = true;
+    public void InheritMinimapGear() => _hasInheritedMinimap = true;
+
+    public bool HasInheritedWeapon => _hasInheritedWeapon;
+    public bool HasInheritedExorcism => _hasInheritedExorcism;
+    public bool HasInheritedHazardMask => _hasInheritedHazardMask;
+    public bool HasInheritedMinimap => _hasInheritedMinimap;
+
     public bool HasLoot => !isLooted.Value && (lootableVials.Value > 0 || hasWeaponLoot.Value 
                            || hasExorcismRelic.Value || hasHazardFilter.Value || hasMinimapGear.Value);
 
@@ -111,31 +127,87 @@ public class CorpseLootableNet : NetworkBehaviour
         }
     }
 
+    /// <summary>
+    /// Returns the exact physical position of the corpse, tracking the ragdoll hips if active.
+    /// </summary>
+    public Vector3 GetCorpsePosition()
+    {
+        if (TryGetComponent<NetworkRagdollController>(out var ragdoll))
+        {
+            if (ragdoll.ragdollRoot != null) return ragdoll.ragdollRoot.position;
+        }
+        var rb = GetComponentInChildren<Rigidbody>();
+        if (rb != null && rb.gameObject != gameObject) return rb.position;
+        return transform.position;
+    }
+
     public void HandleDeath()
     {
         if (!IsServer) return;
 
         string charName = gameObject.name.ToLower();
 
-        // 1. Vials
+        // 1. Vials: Strictly the exact number of vials currently carried in inventory.
+        // Non-medics drop 0 vials unless they looted them prior to death.
+        // Medic drops whatever remains of their 4 starting vials (exhaustible down to 0).
         int remaining = _vialInventory != null ? _vialInventory.VialCount : 0;
-        lootableVials.Value = remaining;
+        lootableVials.Value = Mathf.Max(0, remaining);
 
-        // 2. Weapon (Miner or armed investigator)
-        hasWeaponLoot.Value = (_combatNet != null && _combatNet.HasWeapon) || charName.Contains("miner");
+        // 2. Weapon: Miner or investigator who carries/unlocked/inherited a weapon
+        bool isMiner = charName.Contains("miner") || charName.Contains("worker") || (_combatNet != null && _combatNet.IsMiner);
+        if (!isMiner && CharacterSelectManager.Instance != null)
+        {
+            int idx = CharacterSelectManager.Instance.GetSelectedCharacterIndex(OwnerClientId);
+            if (idx >= 0 && CharacterSelectManager.Instance.availableCharacters != null && idx < CharacterSelectManager.Instance.availableCharacters.Count)
+            {
+                var data = CharacterSelectManager.Instance.availableCharacters[idx];
+                if (data != null && data.profession == InvestigatorProfession.MineWorker) isMiner = true;
+            }
+        }
+        hasWeaponLoot.Value = isMiner || (_combatNet != null && (_combatNet.HasWeapon || _combatNet.hasUnlockedWeapon)) || _hasInheritedWeapon;
 
-        // 3. Exorcism Relic (Cursed Priest)
-        hasExorcismRelic.Value = (_priestExorcism != null && _priestExorcism.isUnlocked) || charName.Contains("priest");
+        // 3. Exorcism Relic: Cursed Priest or investigator who unlocked/inherited Holy Relic
+        bool isPriest = charName.Contains("priest") || (_priestExorcism != null && _priestExorcism.isUnlocked);
+        if (!isPriest && CharacterSelectManager.Instance != null)
+        {
+            int idx = CharacterSelectManager.Instance.GetSelectedCharacterIndex(OwnerClientId);
+            if (idx >= 0 && CharacterSelectManager.Instance.availableCharacters != null && idx < CharacterSelectManager.Instance.availableCharacters.Count)
+            {
+                var data = CharacterSelectManager.Instance.availableCharacters[idx];
+                if (data != null && data.profession == InvestigatorProfession.CursedPriest) isPriest = true;
+            }
+        }
+        hasExorcismRelic.Value = isPriest || _hasInheritedExorcism;
 
-        // 4. Hazard Filter (Hazard Specialist)
-        hasHazardFilter.Value = (_suffocationNet != null && _suffocationNet.IsHazardSpecialist) || charName.Contains("hazard") || charName.Contains("protector");
+        // 4. Hazard Filter: Hazard Specialist or investigator who inherited Gas Mask
+        bool isHazard = charName.Contains("hazard") || charName.Contains("protector") || (_suffocationNet != null && _suffocationNet.IsHazardSpecialist);
+        if (!isHazard && CharacterSelectManager.Instance != null)
+        {
+            int idx = CharacterSelectManager.Instance.GetSelectedCharacterIndex(OwnerClientId);
+            if (idx >= 0 && CharacterSelectManager.Instance.availableCharacters != null && idx < CharacterSelectManager.Instance.availableCharacters.Count)
+            {
+                var data = CharacterSelectManager.Instance.availableCharacters[idx];
+                if (data != null && data.profession == InvestigatorProfession.HazardSpecialist) isHazard = true;
+            }
+        }
+        hasHazardFilter.Value = isHazard || _hasInheritedHazardMask;
 
-        // 5. Minimap Gear (Explorer / Adventurer)
-        hasMinimapGear.Value = charName.Contains("adventure") || charName.Contains("explorer");
+        // 5. Minimap Gear: Explorer / Adventurer or investigator who inherited Minimap gear
+        bool isAdventurer = charName.Contains("adventure") || charName.Contains("explorer");
+        if (!isAdventurer && CharacterSelectManager.Instance != null)
+        {
+            int idx = CharacterSelectManager.Instance.GetSelectedCharacterIndex(OwnerClientId);
+            if (idx >= 0 && CharacterSelectManager.Instance.availableCharacters != null && idx < CharacterSelectManager.Instance.availableCharacters.Count)
+            {
+                var data = CharacterSelectManager.Instance.availableCharacters[idx];
+                if (data != null && data.profession == InvestigatorProfession.Explorer) isAdventurer = true;
+            }
+        }
+        hasMinimapGear.Value = isAdventurer || _hasInheritedMinimap;
 
         isLooted.Value = !HasLoot;
 
-        Debug.Log($"[CorpseLootableNet] '{name}' died. Loot available: Vials={remaining}, Weapon={hasWeaponLoot.Value}, Exorcism={hasExorcismRelic.Value}, Hazard={hasHazardFilter.Value}, Minimap={hasMinimapGear.Value}");
+        Debug.Log($"[CorpseLootableNet] '{name}' died. Loot available: Vials={lootableVials.Value}, Weapon={hasWeaponLoot.Value}, Exorcism={hasExorcismRelic.Value}, Hazard={hasHazardFilter.Value}, Minimap={hasMinimapGear.Value}");
     }
 
     private GameObject GetActiveControlledCharacter()
@@ -180,8 +252,8 @@ public class CorpseLootableNet : NetworkBehaviour
                             (TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0));
         if (!isCorpseDead || !HasLoot) return;
 
-        // Proximity check
-        float dist = Vector3.Distance(activePlayer.transform.position, transform.position);
+        // Proximity check (measured to the physical ragdoll bone position if fallen)
+        float dist = Vector3.Distance(activePlayer.transform.position, GetCorpsePosition());
         if (dist <= interactionDistance)
         {
             if (Keyboard.current != null && Keyboard.current[lootKey].wasPressedThisFrame)
@@ -292,40 +364,72 @@ public class CorpseLootableNet : NetworkBehaviour
             bool hazardGained = false;
             bool minimapGained = false;
 
+            var looterCorpse = looterObj.GetComponent<CorpseLootableNet>();
+
             // 1. Transfer Vials
             var looterVials = looterObj.GetComponent<HealingVialInventoryNet>();
-            if (looterVials != null && vialsGained > 0)
+            if (vialsGained > 0)
             {
+                if (looterVials == null)
+                {
+                    looterVials = looterObj.AddComponent<HealingVialInventoryNet>();
+                }
                 looterVials.AddVialsServer(vialsGained);
             }
 
             // 2. Transfer Weapon
             var looterCombat = looterObj.GetComponent<InvestigatorCombatNet>();
-            if (looterCombat != null && hasWeaponLoot.Value && !looterCombat.HasWeapon)
+            if (hasWeaponLoot.Value)
             {
-                looterCombat.GrantMeleeWeapon();
+                if (looterCombat != null && !looterCombat.HasWeapon)
+                {
+                    looterCombat.GrantMeleeWeapon();
+                }
+                if (looterCorpse != null)
+                {
+                    looterCorpse.InheritWeapon();
+                }
                 weaponGained = true;
             }
 
             // 3. Inherit Exorcism Ability (Cursed Priest)
             var looterPriest = looterObj.GetComponent<PriestExorcismNet>();
-            if (looterPriest != null && hasExorcismRelic.Value)
+            if (hasExorcismRelic.Value)
             {
+                if (looterPriest == null)
+                {
+                    looterPriest = looterObj.AddComponent<PriestExorcismNet>();
+                }
                 looterPriest.InheritExorcismAbility();
+                if (looterCorpse != null)
+                {
+                    looterCorpse.InheritExorcism();
+                }
                 exorcismGained = true;
             }
 
             // 4. Inherit Hazard Filter (Hazard Specialist)
             var looterSuffocation = looterObj.GetComponent<SuffocationSystemNet>();
-            if (looterSuffocation != null && hasHazardFilter.Value)
+            if (hasHazardFilter.Value)
             {
-                looterSuffocation.InheritHazardFilter();
+                if (looterSuffocation != null)
+                {
+                    looterSuffocation.InheritHazardFilter();
+                }
+                if (looterCorpse != null)
+                {
+                    looterCorpse.InheritHazardMask();
+                }
                 hazardGained = true;
             }
 
             // 5. Inherit Minimap (Explorer / Adventurer)
             if (hasMinimapGear.Value)
             {
+                if (looterCorpse != null)
+                {
+                    looterCorpse.InheritMinimapGear();
+                }
                 minimapGained = true;
             }
 
@@ -346,11 +450,20 @@ public class CorpseLootableNet : NetworkBehaviour
     {
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == looterNetId)
         {
+            var activePlayer = GetActiveControlledCharacter();
+            if (activePlayer != null && activePlayer.TryGetComponent<CorpseLootableNet>(out var localCorpse))
+            {
+                if (weapon) localCorpse.InheritWeapon();
+                if (exorcism) localCorpse.InheritExorcism();
+                if (hazard) localCorpse.InheritHazardMask();
+                if (minimap) localCorpse.InheritMinimapGear();
+            }
+
             List<string> gained = new List<string>();
             if (vials > 0) gained.Add($"{vials} Healing Vial{(vials > 1 ? "s" : "")}");
             if (weapon) gained.Add("Melee Pickaxe");
-            if (exorcism) gained.Add("Exorcism Rite ([R])");
-            if (hazard) gained.Add("Gas Mask Filter (2x Lifespan)");
+            if (exorcism) gained.Add("Exorcism Rite ([R]) & Possession Resistance");
+            if (hazard) gained.Add("Gas Mask (Doubled Health & Lifespan)");
             if (minimap)
             {
                 gained.Add("Minimap Unlocked");
@@ -368,7 +481,6 @@ public class CorpseLootableNet : NetworkBehaviour
             }
 
             // Visual dead accessories attachment
-            var activePlayer = GetActiveControlledCharacter();
             if (activePlayer != null)
             {
                 if (attachDeadAccessories)
@@ -420,7 +532,7 @@ public class CorpseLootableNet : NetworkBehaviour
     public string GetLootDescription()
     {
         List<string> items = new List<string>();
-        if (lootableVials.Value > 0) items.Add($"{lootableVials.Value} Vials");
+        if (lootableVials.Value > 0) items.Add($"{lootableVials.Value} Vial{(lootableVials.Value > 1 ? "s" : "")}");
         if (hasWeaponLoot.Value) items.Add("Pickaxe");
         if (hasExorcismRelic.Value) items.Add("Holy Relic");
         if (hasHazardFilter.Value) items.Add("Gas Mask");

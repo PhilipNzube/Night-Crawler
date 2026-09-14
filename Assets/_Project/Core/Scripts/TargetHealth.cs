@@ -174,6 +174,10 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
     {
         if (!IsServer) return;
         currentHealth.Value = Mathf.Clamp(currentHealth.Value + amount, 0f, MaxHealth);
+        if (TryGetComponent<HealthSystem>(out var hs) && !hs.IsDead && hs.CurrentHealth < currentHealth.Value)
+        {
+            hs.Heal(amount);
+        }
     }
 
     [ClientRpc]
@@ -226,6 +230,12 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
     private void Die()
     {
         Debug.Log($"{gameObject.name} has died.");
+
+        // Synchronize with HealthSystem if present
+        if (TryGetComponent<HealthSystem>(out var hs) && !hs.IsDead)
+        {
+            hs.TakeDamage(hs.CurrentHealth + 10f);
+        }
 
         // If possessed, auto-exit possession after brief death animation!
         if (TryGetComponent<PlayerPossessableNet>(out var possessable) && possessable.isPossessed.Value)

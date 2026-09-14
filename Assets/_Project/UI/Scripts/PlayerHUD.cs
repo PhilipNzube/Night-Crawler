@@ -144,6 +144,22 @@ public class PlayerHUD : MonoBehaviour
             bloodScreenOverlay.gameObject.SetActive(true);
             Debug.Log("[PlayerHUD] Activated inactive BloodScreenOverlay on HUD Canvas.");
         }
+
+        // Auto-ensure CorpseInteractionHUD is present on the HUD Canvas
+        var corpseHUD = GetComponentInChildren<CorpseInteractionHUD>(true);
+        if (corpseHUD == null)
+        {
+            corpseHUD = FindFirstObjectByType<CorpseInteractionHUD>(FindObjectsInactive.Include);
+        }
+        if (corpseHUD == null)
+        {
+            corpseHUD = gameObject.AddComponent<CorpseInteractionHUD>();
+            Debug.Log("[PlayerHUD] Auto-created CorpseInteractionHUD component on PlayerHUD Canvas.");
+        }
+        if (corpseHUD != null && !corpseHUD.gameObject.activeSelf)
+        {
+            corpseHUD.gameObject.SetActive(true);
+        }
     }
 
     private void OnDestroy()
@@ -171,12 +187,10 @@ public class PlayerHUD : MonoBehaviour
 
         if (_localHealthSys != null)
         {
-            _maxHealth = _localHealthSys.MaxHealth > 0 ? _localHealthSys.MaxHealth : 100f;
             _localHealthSys.OnHealthChanged += OnHealthSysChanged;
         }
-        else if (_localHealth != null)
+        if (_localHealth != null)
         {
-            _maxHealth = _localHealth.MaxHealth;
             _localHealth.currentHealth.OnValueChanged += OnTargetHealthChanged;
             _localHealth.maxHealth.OnValueChanged     += OnTargetHealthChanged;
         }
@@ -357,12 +371,10 @@ public class PlayerHUD : MonoBehaviour
 
         if (_localHealthSys != null)
         {
-            _maxHealth = _localHealthSys.MaxHealth > 0 ? _localHealthSys.MaxHealth : 100f;
             _localHealthSys.OnHealthChanged += OnHealthSysChanged;
         }
-        else if (_localHealth != null)
+        if (_localHealth != null)
         {
-            _maxHealth = _localHealth.MaxHealth;
             _localHealth.currentHealth.OnValueChanged += OnTargetHealthChanged;
             _localHealth.maxHealth.OnValueChanged     += OnTargetHealthChanged;
         }
@@ -430,7 +442,26 @@ public class PlayerHUD : MonoBehaviour
         float current = 100f;
         float max = 100f;
 
-        if (_localHealthSys != null)
+        bool isCorpse = (_localHealth != null && _localHealth.isCorpse.Value) ||
+                        (_localHealthSys != null && _localHealthSys.IsDead);
+
+        if (isCorpse)
+        {
+            current = 0f;
+            max = _localHealth != null ? _localHealth.MaxHealth : (_localHealthSys != null ? _localHealthSys.MaxHealth : 100f);
+        }
+        else if (_localHealth != null && _localHealthSys != null)
+        {
+            max = Mathf.Max(_localHealth.MaxHealth, _localHealthSys.MaxHealth);
+            // If the character is alive and not a corpse, take the highest synchronized health value
+            current = Mathf.Max(_localHealth.CurrentHealth, _localHealthSys.CurrentHealth);
+            // Safeguard: alive investigator must never be displayed with 0 HP and max blood while running around
+            if (current <= 0f && !_isDead)
+            {
+                current = 1f;
+            }
+        }
+        else if (_localHealthSys != null)
         {
             current = _localHealthSys.CurrentHealth;
             max = _localHealthSys.MaxHealth;

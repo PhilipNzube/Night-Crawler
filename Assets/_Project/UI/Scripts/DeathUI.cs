@@ -139,11 +139,13 @@ public class DeathUI : MonoBehaviour
             var localPlayerObj = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject;
             if (localPlayerObj != null)
             {
-                bool isDead = false;
-                if (localPlayerObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) isDead = true;
-                if (localPlayerObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) isDead = true;
+                bool hasTh = localPlayerObj.TryGetComponent<TargetHealth>(out var th);
+                bool hasHs = localPlayerObj.TryGetComponent<HealthSystem>(out var hs);
 
-                if (!isDead)
+                bool isThAlive = hasTh && !th.isCorpse.Value && th.CurrentHealth > 0f;
+                bool isHsAlive = hasHs && !hs.IsDead && hs.CurrentHealth > 0f;
+
+                if (isThAlive || isHsAlive)
                 {
                     Debug.Log("[DeathUI] Suppressed ShowDeathScreen — Local player is still ALIVE!");
                     HideDeathScreen();

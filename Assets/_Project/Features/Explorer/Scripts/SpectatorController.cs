@@ -142,11 +142,19 @@ public class SpectatorController : MonoBehaviour
             return false;
         }
 
-        bool dead = false;
-        if (playerObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) dead = true;
-        if (playerObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) dead = true;
+        bool hasTh = playerObj.TryGetComponent<TargetHealth>(out var th);
+        bool hasHs = playerObj.TryGetComponent<HealthSystem>(out var hs);
 
-        return dead;
+        // If either component confirms player is still alive, they are NOT dead!
+        bool isThAlive = hasTh && !th.isCorpse.Value && th.CurrentHealth > 0f;
+        bool isHsAlive = hasHs && !hs.IsDead && hs.CurrentHealth > 0f;
+
+        if (isThAlive || isHsAlive)
+        {
+            return false;
+        }
+
+        return true;
     }
 
     /// <summary>

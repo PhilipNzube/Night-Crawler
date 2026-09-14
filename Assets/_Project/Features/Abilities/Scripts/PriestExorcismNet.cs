@@ -28,8 +28,11 @@ public class PriestExorcismNet : NetworkBehaviour
     private AudioSource _audioSource;
     private Transform _cameraTransform;
 
-    [Tooltip("If true, this character can cast Exorcism. Automatically true for Priest; unlocked for others when looting Priest corpse.")]
-    public bool isUnlocked = false;
+    [Tooltip("If true, this character can cast Exorcism and resist possession. Automatically true for Priest; unlocked for others when looting Priest corpse.")]
+    public NetworkVariable<bool> isExorcismUnlocked = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    public bool isUnlocked => isExorcismUnlocked.Value;
 
     public float CooldownRemaining => _cooldownTimer;
     public bool CanCast => isUnlocked && _cooldownTimer <= 0f;
@@ -47,22 +50,43 @@ public class PriestExorcismNet : NetworkBehaviour
         {
             _cameraTransform = Camera.main.transform;
         }
+    }
 
-        // Auto-unlock for Priest character
-        if (gameObject.name.ToLower().Contains("priest"))
+    public override void OnNetworkSpawn()
+    {
+        if (IsServer)
         {
-            isUnlocked = true;
+            bool isPriest = gameObject.name.ToLower().Contains("priest");
+            if (!isPriest && CharacterSelectManager.Instance != null)
+            {
+                int idx = CharacterSelectManager.Instance.GetSelectedCharacterIndex(OwnerClientId);
+                if (idx >= 0 && CharacterSelectManager.Instance.availableCharacters != null && idx < CharacterSelectManager.Instance.availableCharacters.Count)
+                {
+                    var data = CharacterSelectManager.Instance.availableCharacters[idx];
+                    if (data != null && data.profession == InvestigatorProfession.CursedPriest)
+                    {
+                        isPriest = true;
+                    }
+                }
+            }
+            if (isPriest)
+            {
+                isExorcismUnlocked.Value = true;
+            }
         }
     }
 
     /// <summary>
-    /// Unlocks the Exorcism rite on this character when looting the Cursed Priest's corpse.
+    /// Unlocks the Exorcism rite and possession resistance on this character when looting the Cursed Priest's corpse.
     /// </summary>
     public void InheritExorcismAbility()
     {
-        isUnlocked = true;
+        if (IsServer)
+        {
+            isExorcismUnlocked.Value = true;
+        }
         enabled = true;
-        Debug.Log("[PriestExorcismNet] Inherited Holy Relic! Exorcism rite unlocked ([R] key).");
+        Debug.Log("[PriestExorcismNet] Inherited Holy Relic! Exorcism rite unlocked ([R] key) & Possession resistance enabled.");
     }
 
     private void Update()
