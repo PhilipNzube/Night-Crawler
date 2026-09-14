@@ -372,7 +372,7 @@ public class CorpseLootableNet : NetworkBehaviour
             {
                 if (looterVials == null)
                 {
-                    looterVials = looterObj.AddComponent<HealingVialInventoryNet>();
+                    looterVials = looterObj.gameObject.AddComponent<HealingVialInventoryNet>();
                 }
                 looterVials.AddVialsServer(vialsGained);
             }
@@ -398,7 +398,7 @@ public class CorpseLootableNet : NetworkBehaviour
             {
                 if (looterPriest == null)
                 {
-                    looterPriest = looterObj.AddComponent<PriestExorcismNet>();
+                    looterPriest = looterObj.gameObject.AddComponent<PriestExorcismNet>();
                 }
                 looterPriest.InheritExorcismAbility();
                 if (looterCorpse != null)

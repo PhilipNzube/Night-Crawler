@@ -34,6 +34,8 @@ public class SuffocationSystemNet : NetworkBehaviour
     public NetworkVariable<bool> isHazardSpecialistNet = new NetworkVariable<bool>(
         false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
+    private bool _isHazardSpecialist = false;
+
     public float EffectiveLifespan => _effectiveLifespan;
     public bool IsHazardSpecialist => isHazardSpecialistNet.Value || _isHazardSpecialist;
 
