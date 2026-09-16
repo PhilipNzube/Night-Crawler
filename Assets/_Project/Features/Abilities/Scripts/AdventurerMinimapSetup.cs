@@ -393,7 +393,8 @@ public class AdventurerMinimapSetup : MonoBehaviour
         // Ensure main cameras never render the floating marker in the 3D scene
         ExcludeMinimapLayerFromPlayerCameras(playerObj, minimapLayer);
 
-        Debug.Log($"[AdventurerMinimapSetup] Player Map Icon created on '{playerObj.name}' at offset {markerHeightOffset} on layer {(minimapLayer != -1 ? 'Minimap' : 'Default')}");
+        string layerName = minimapLayer != -1 ? "Minimap" : "Default";
+        Debug.Log($"[AdventurerMinimapSetup] Player Map Icon created on '{playerObj.name}' at offset {markerHeightOffset} on layer {layerName}");
     }
 
     /// <summary>
