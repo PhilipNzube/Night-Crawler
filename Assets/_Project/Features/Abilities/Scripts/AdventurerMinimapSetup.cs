@@ -340,12 +340,12 @@ public class AdventurerMinimapSetup : MonoBehaviour
             _spawnedMarkerObj.layer = minimapLayer;
         }
 
-        // Create Quad visual laying flat facing up towards camera (+Y)
+        // Create Quad visual laying flat facing up towards camera (+Y), with texture pointing forward (+Z)
         GameObject visuals = GameObject.CreatePrimitive(PrimitiveType.Quad);
         visuals.name = "Visuals";
         visuals.transform.SetParent(_spawnedMarkerObj.transform, false);
         visuals.transform.localPosition = Vector3.zero;
-        visuals.transform.localRotation = Quaternion.Euler(90f, 0f, 0f);
+        visuals.transform.localRotation = Quaternion.Euler(90f, 180f, 0f);
         visuals.transform.localScale = markerScale;
         if (minimapLayer != -1)
         {
@@ -357,7 +357,9 @@ public class AdventurerMinimapSetup : MonoBehaviour
         if (collider != null) Destroy(collider);
 
         // Prepare texture
-        Texture iconTex = playerMarkerTexture != null ? playerMarkerTexture : CreateDefaultArrowTexture();
+        bool isCustomTexture = playerMarkerTexture != null;
+        Texture iconTex = isCustomTexture ? playerMarkerTexture : CreateDefaultArrowTexture();
+        Color tint = playerMarkerColor;
 
         // Create Unlit material with alpha transparency (never pink, never pitch black)
         Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
@@ -367,8 +369,8 @@ public class AdventurerMinimapSetup : MonoBehaviour
         Material iconMat = new Material(shader);
         if (iconMat.HasProperty("_BaseMap")) iconMat.SetTexture("_BaseMap", iconTex);
         if (iconMat.HasProperty("_MainTex")) iconMat.SetTexture("_MainTex", iconTex);
-        if (iconMat.HasProperty("_BaseColor")) iconMat.SetColor("_BaseColor", playerMarkerColor);
-        if (iconMat.HasProperty("_Color")) iconMat.SetColor("_Color", playerMarkerColor);
+        if (iconMat.HasProperty("_BaseColor")) iconMat.SetColor("_BaseColor", tint);
+        if (iconMat.HasProperty("_Color")) iconMat.SetColor("_Color", tint);
 
         var mr = visuals.GetComponent<MeshRenderer>();
         if (mr != null)
