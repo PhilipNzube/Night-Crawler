@@ -13,8 +13,11 @@ public class AdventurerMinimapSetup : MonoBehaviour
     public static AdventurerMinimapSetup Instance { get; private set; }
 
     [Header("Minimap References")]
-    [Tooltip("The MiniMapView component in your HUD scene.")]
+    [Tooltip("The MiniMapView component in your HUD scene (legacy).")]
     public MiniMapView miniMapView;
+
+    [Tooltip("The MinimapManager component from AA Map and Minimap System.")]
+    public AAMAP.MinimapManager aaMinimapManager;
 
     [Tooltip("The root UI GameObject of the minimap (panel/canvas).")]
     public GameObject minimapRoot;
@@ -34,6 +37,12 @@ public class AdventurerMinimapSetup : MonoBehaviour
         if (_canvasGroup == null)
         {
             _canvasGroup = gameObject.AddComponent<CanvasGroup>();
+        }
+
+        // Auto-detect aaMinimapManager in scene if not assigned
+        if (aaMinimapManager == null)
+        {
+            aaMinimapManager = FindFirstObjectByType<AAMAP.MinimapManager>(FindObjectsInactive.Include);
         }
 
         // Ensure initially hidden via canvas group so GameObject stays active to run coroutines
@@ -62,6 +71,15 @@ public class AdventurerMinimapSetup : MonoBehaviour
         {
             minimapRoot.SetActive(visible);
         }
+
+        if (aaMinimapManager != null)
+        {
+            aaMinimapManager.gameObject.SetActive(visible);
+            if (aaMinimapManager.minimapCamera != null)
+            {
+                aaMinimapManager.minimapCamera.SetActive(visible);
+            }
+        }
     }
 
     /// <summary>
@@ -73,10 +91,18 @@ public class AdventurerMinimapSetup : MonoBehaviour
         {
             Instance.SetMinimapVisibility(true);
 
-            if (Instance.miniMapView != null && NetworkManager.Singleton != null && 
+            if (NetworkManager.Singleton != null && 
                 NetworkManager.Singleton.LocalClient != null && NetworkManager.Singleton.LocalClient.PlayerObject != null)
             {
-                Instance.miniMapView.FollowCentered(NetworkManager.Singleton.LocalClient.PlayerObject.transform);
+                var playerTransform = NetworkManager.Singleton.LocalClient.PlayerObject.transform;
+                if (Instance.miniMapView != null)
+                {
+                    Instance.miniMapView.FollowCentered(playerTransform);
+                }
+                if (Instance.aaMinimapManager != null)
+                {
+                    Instance.aaMinimapManager.SetTargetObject(playerTransform.gameObject);
+                }
             }
 
             Debug.Log("[AdventurerMinimapSetup] Minimap inherited and unlocked from Explorer corpse!");
@@ -99,6 +125,10 @@ public class AdventurerMinimapSetup : MonoBehaviour
                 if (Instance.miniMapView != null)
                 {
                     Instance.miniMapView.FollowCentered(possessedTarget.transform);
+                }
+                if (Instance.aaMinimapManager != null)
+                {
+                    Instance.aaMinimapManager.SetTargetObject(possessedTarget);
                 }
             }
             else
@@ -140,6 +170,10 @@ public class AdventurerMinimapSetup : MonoBehaviour
             if (miniMapView != null)
             {
                 miniMapView.FollowCentered(localPlayerObj.transform);
+            }
+            if (aaMinimapManager != null)
+            {
+                aaMinimapManager.SetTargetObject(localPlayerObj);
             }
         }
         else
