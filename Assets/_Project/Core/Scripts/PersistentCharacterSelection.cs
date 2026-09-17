@@ -36,4 +36,27 @@ public static class PersistentCharacterSelection
         PlayerPrefs.Save();
         Debug.Log($"[PersistentCharacterSelection] Saved role isVengefulSpirit: {isGirl}");
     }
+
+    private const string PREF_KEY_STAKE_AMOUNT = "NightCrawler_SavedMatchStake";
+
+    /// <summary>Gets the saved match stake entered in the lobby. Returns -1 if not set.</summary>
+    public static int GetSavedMatchStake()
+    {
+        return PlayerPrefs.GetInt(PREF_KEY_STAKE_AMOUNT, -1);
+    }
+
+    /// <summary>Saves the player's stake entered in the lobby so it carries into the match.</summary>
+    public static void SetSavedMatchStake(int stake)
+    {
+        PlayerPrefs.SetInt(PREF_KEY_STAKE_AMOUNT, stake);
+        PlayerPrefs.Save();
+        Debug.Log($"[PersistentCharacterSelection] Saved match stake: {stake}");
+    }
+
+    /// <summary>Clears the saved match stake after match ends or resets.</summary>
+    public static void ClearSavedMatchStake()
+    {
+        PlayerPrefs.DeleteKey(PREF_KEY_STAKE_AMOUNT);
+        PlayerPrefs.Save();
+    }
 }

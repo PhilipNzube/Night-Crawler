@@ -1,14 +1,30 @@
+using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using Unity.Netcode;
 using UnityEngine.InputSystem;
+using NightCrawler.Economy;
+using NightCrawler.Systems;
 
 /// <summary>
-/// SOLID — SRP: Deal creation interface for the Girl player.
-/// Allows selecting an active connected player, picking a premade template or typing
-/// custom terms, configuring rewards (e.g. weapon grant), and sending the deal across the network.
+/// Supported pact card templates available to the Vengeful Spirit.
+/// </summary>
+public enum PactCardType
+{
+    KillPlayer,
+    LootCorpse,
+    ManipulateSquad,
+    LeadToShadows,
+    CustomPact
+}
+
+/// <summary>
+/// SOLID — SRP: Scrollable Card Deal Creation Interface for the Vengeful Spirit (Girl).
+/// Features selectable pact cards (Kill Player, Loot a Body, Manipulate, etc.)
+/// with dynamic subject dropdowns, strictly bounded time limit sliders (60s-180s),
+/// and automatic stake deduction penalty configuration.
 /// </summary>
 public class GirlDealUI : MonoBehaviour
 {
@@ -16,30 +32,48 @@ public class GirlDealUI : MonoBehaviour
 
     [Header("UI Panels")]
     public GameObject mainPanel;
+    public CanvasGroup canvasGroup;
 
-    [Header("Player Target Selection")]
-    public TMP_Dropdown playerDropdown;
+    [Header("Recipient Selection")]
+    [Tooltip("Dropdown to select which living investigator receives the dark pact.")]
+    public TMP_Dropdown recipientDropdown;
 
-    [Header("Template Selection")]
-    public TMP_Dropdown templateDropdown;
+    [Header("Scrollable Card Container")]
+    [Tooltip("Parent with HorizontalLayoutGroup where pact cards are spawned.")]
+    public Transform cardsContainer;
+    public GameObject pactCardPrefab;
 
-    [Header("Deal Configuration Inputs")]
-    public TMP_InputField titleInput;
-    public TMP_InputField termsInput;
-    public TMP_InputField rewardInput;
+    [Header("Dynamic Sub-Configuration Panel")]
+    public GameObject subConfigPanel;
+    public TextMeshProUGUI selectedPactTitleText;
+    public TextMeshProUGUI subjectDropdownLabel;
+    public TMP_Dropdown subjectDropdown; // Used for "Target Player to Kill" or "Dead Corpse to Loot"
+    public TMP_InputField customTitleInput;
+    public TMP_InputField customTermsInput;
+
+    [Header("Time Limit & Penalty (Controlled Bounded Slider)")]
+    [Tooltip("Slider for pact timer. Clamped between 60s and 180s to prevent unfair timeframes.")]
+    public Slider timeLimitSlider;
+    public TextMeshProUGUI timeLimitText;
+    public TextMeshProUGUI penaltyPreviewText;
     public Toggle grantWeaponToggle;
 
-    [Header("Buttons")]
+    [Header("Action Buttons")]
     public Button sendDealButton;
     public Button closeButton;
 
     [Header("Hotkeys")]
-    [Tooltip("Primary toggle hotkey (default [B] for Bargain/Deal or [P] for Pact).")]
+    [Tooltip("Primary toggle hotkey (default [B] for Bargain/Pact).")]
     public Key toggleKey = Key.B;
 
-    private readonly List<ulong> _connectedPlayerIds = new List<ulong>();
-    private CanvasGroup _canvasGroup;
+    private readonly List<ulong> _livingPlayerIds = new List<ulong>();
+    private readonly List<ulong> _targetSubjectIds = new List<ulong>();
+    private PactCardType _selectedCard = PactCardType.KillPlayer;
+    private int _selectedTimeLimit = 120;
+    private const int PENALTY_CREDITS = 15;
     private bool _isOpen = false;
+    private readonly List<Button> _cardButtons = new List<Button>();
+    private readonly List<Image> _cardFrames = new List<Image>();
 
     private void Awake()
     {
@@ -50,28 +84,31 @@ public class GirlDealUI : MonoBehaviour
         }
         Instance = this;
 
-        _canvasGroup = GetComponent<CanvasGroup>();
-        if (_canvasGroup == null)
-        {
-            _canvasGroup = gameObject.AddComponent<CanvasGroup>();
-        }
+        if (canvasGroup == null) canvasGroup = GetComponent<CanvasGroup>();
+        if (canvasGroup == null) canvasGroup = gameObject.AddComponent<CanvasGroup>();
 
         if (sendDealButton != null) sendDealButton.onClick.AddListener(OnSendDealClicked);
         if (closeButton != null) closeButton.onClick.AddListener(CloseUI);
-        if (templateDropdown != null) templateDropdown.onValueChanged.AddListener(OnTemplateSelected);
 
-        // Hide UI initially without disabling this GameObject/script
+        if (timeLimitSlider != null)
+        {
+            timeLimitSlider.minValue = 60f;
+            timeLimitSlider.maxValue = 180f;
+            timeLimitSlider.value = 120f;
+            timeLimitSlider.onValueChanged.AddListener(OnTimeLimitChanged);
+        }
+
         SetVisible(false);
+    }
+
+    private void Start()
+    {
+        BuildPactCards();
     }
 
     private void OnDestroy()
     {
         if (Instance == this) Instance = null;
-    }
-
-    private void Start()
-    {
-        PopulateTemplateOptions();
     }
 
     public bool IsOpen => _isOpen;
@@ -93,7 +130,6 @@ public class GirlDealUI : MonoBehaviour
             return;
         }
 
-        // When typing in text fields, do NOT process UI toggles or hotkeys
         if (IsAnyInputFocused())
         {
             if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame && _isOpen)
@@ -103,7 +139,6 @@ public class GirlDealUI : MonoBehaviour
             return;
         }
 
-        // Toggle deal menu with hotkey (press [B] or configured toggleKey - NEVER [T])
         if (Keyboard.current != null)
         {
             bool keyMatch = (toggleKey != Key.T && Keyboard.current[toggleKey].wasPressedThisFrame);
@@ -126,7 +161,6 @@ public class GirlDealUI : MonoBehaviour
         var playerObj = NetworkManager.Singleton.LocalClient.PlayerObject;
         if (playerObj == null) return false;
 
-        // Disabled while actively possessing another character
         if (playerObj.TryGetComponent<GirlPossession>(out var possession) && possession.isPossessing.Value)
         {
             return false;
@@ -153,11 +187,11 @@ public class GirlDealUI : MonoBehaviour
     {
         _isOpen = visible;
 
-        if (_canvasGroup != null)
+        if (canvasGroup != null)
         {
-            _canvasGroup.alpha = visible ? 1f : 0f;
-            _canvasGroup.interactable = visible;
-            _canvasGroup.blocksRaycasts = visible;
+            canvasGroup.alpha = visible ? 1f : 0f;
+            canvasGroup.interactable = visible;
+            canvasGroup.blocksRaycasts = visible;
         }
 
         if (mainPanel != null && mainPanel != gameObject)
@@ -167,7 +201,9 @@ public class GirlDealUI : MonoBehaviour
 
         if (visible)
         {
-            RefreshConnectedPlayers();
+            RefreshLivingPlayers();
+            SelectPactCard(_selectedCard);
+            UpdateTimeLimitLabel();
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
         }
@@ -178,37 +214,51 @@ public class GirlDealUI : MonoBehaviour
         }
     }
 
-    private void RefreshConnectedPlayers()
+    private void OnTimeLimitChanged(float val)
     {
-        _connectedPlayerIds.Clear();
-        if (playerDropdown == null || NetworkManager.Singleton == null) return;
+        _selectedTimeLimit = Mathf.RoundToInt(val);
+        UpdateTimeLimitLabel();
+    }
 
-        playerDropdown.ClearOptions();
+    private void UpdateTimeLimitLabel()
+    {
+        if (timeLimitText != null)
+        {
+            timeLimitText.text = $"⏱ Time to Complete: <b>{_selectedTimeLimit}s</b> <size=11><color=#BDC3C7>(Allowed: 60s – 180s)</color></size>";
+        }
+
+        if (penaltyPreviewText != null)
+        {
+            penaltyPreviewText.text = $"⚠ <color=#E74C3C>Failure Penalty: -{PENALTY_CREDITS} {CurrencyConfig.CurrencySymbol}</color> (Deducted from recipient's Stake)";
+        }
+    }
+
+    private void RefreshLivingPlayers()
+    {
+        _livingPlayerIds.Clear();
+        if (recipientDropdown == null || NetworkManager.Singleton == null) return;
+
+        recipientDropdown.ClearOptions();
         List<string> options = new List<string>();
 
         ulong localId = NetworkManager.Singleton.LocalClientId;
         foreach (var kvp in NetworkManager.Singleton.ConnectedClients)
         {
             ulong id = kvp.Key;
-            if (id == localId) continue; // Don't send deal to self
+            if (id == localId) continue;
 
             var clientObj = kvp.Value.PlayerObject;
             if (clientObj == null) continue;
 
-            // Check if investigator is dead
             if (clientObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0))
-            {
-                continue; // Skip dead bodies
-            }
+                continue;
             if (clientObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead)
-            {
-                continue; // Skip dead players
-            }
+                continue;
 
             string pName = PlayerNameManager.GetPlayerName(id);
             if (string.IsNullOrEmpty(pName)) pName = $"Investigator {id}";
 
-            _connectedPlayerIds.Add(id);
+            _livingPlayerIds.Add(id);
             options.Add(pName);
         }
 
@@ -222,99 +272,231 @@ public class GirlDealUI : MonoBehaviour
             if (sendDealButton != null) sendDealButton.interactable = true;
         }
 
-        playerDropdown.AddOptions(options);
+        recipientDropdown.AddOptions(options);
     }
 
-    private void PopulateTemplateOptions()
-    {
-        if (templateDropdown == null) return;
+    // =========================================================================
+    //  Card Generation & Selection
+    // =========================================================================
 
-        templateDropdown.ClearOptions();
-        List<string> templates = new List<string>
-        {
-            "Choose a Premade Deal...",
-            "1. Blood Pact — Eliminate an Investigator",
-            "2. Grave Robber — Loot the Medic's Vials",
-            "3. The Betrayer — Sabotage the Squad",
-            "4. Dark Escape — Lead Them Into the Shadows",
-            "5. Custom Pact"
-        };
-        templateDropdown.AddOptions(templates);
+    private void BuildPactCards()
+    {
+        if (cardsContainer == null) return;
+
+        foreach (Transform child in cardsContainer)
+            Destroy(child.gameObject);
+
+        _cardButtons.Clear();
+        _cardFrames.Clear();
+
+        CreateCardInstance(PactCardType.KillPlayer, "BLOOD PACT", "Eliminate a squad member within the time limit.");
+        CreateCardInstance(PactCardType.LootCorpse, "GRAVE ROBBER", "Locate and loot a fallen investigator's corpse.");
+        CreateCardInstance(PactCardType.ManipulateSquad, "THE BETRAYER", "Sow chaos and guide investigators into danger.");
+        CreateCardInstance(PactCardType.LeadToShadows, "DARK GUIDE", "Lure squad members into dark unlit mine tunnels.");
+        CreateCardInstance(PactCardType.CustomPact, "CUSTOM PACT", "Type custom dark terms for the investigator.");
+
+        SelectPactCard(PactCardType.KillPlayer);
     }
 
-    private void OnTemplateSelected(int index)
+    private void CreateCardInstance(PactCardType type, string title, string description)
     {
-        switch (index)
+        GameObject cardObj = null;
+        if (pactCardPrefab != null)
         {
-            case 1:
-                SetDealFields("BLOOD PACT", "Eliminate one of your fellow investigators before the mine's air runs out.", "Melee Pickaxe Weapon Granted", true);
-                break;
-            case 2:
-                SetDealFields("GRAVE ROBBER", "Locate the Medic's body, loot all remaining healing vials, and survive.", "Pickaxe Weapon + Life Support", true);
-                break;
-            case 3:
-                SetDealFields("THE BETRAYER", "Separate from the squad and lead them into the deep shafts.", "Melee Pickaxe Weapon Granted", true);
-                break;
-            case 4:
-                SetDealFields("DARK ESCAPE", "Follow my whispers in the dark to find the secret way out of the mine.", "Melee Weapon + Ghost Guidance", true);
-                break;
-            case 5:
-                SetDealFields("CUSTOM PACT", "", "Melee Pickaxe Weapon Granted", true);
-                break;
+            cardObj = Instantiate(pactCardPrefab, cardsContainer);
+        }
+        else
+        {
+            cardObj = new GameObject($"Card_{type}", typeof(RectTransform), typeof(Image), typeof(Button));
+            cardObj.transform.SetParent(cardsContainer, false);
+
+            var rect = cardObj.GetComponent<RectTransform>();
+            rect.sizeDelta = new Vector2(150, 190);
+
+            var img = cardObj.GetComponent<Image>();
+            img.color = new Color(0.12f, 0.12f, 0.15f, 0.95f);
+
+            var vGroup = cardObj.AddComponent<VerticalLayoutGroup>();
+            vGroup.padding = new RectOffset(10, 10, 10, 10);
+            vGroup.spacing = 6;
+            vGroup.childControlWidth = true;
+            vGroup.childControlHeight = true;
+
+            // Title
+            var titleObj = new GameObject("Title", typeof(RectTransform), typeof(TextMeshProUGUI));
+            titleObj.transform.SetParent(cardObj.transform, false);
+            var titleTmp = titleObj.GetComponent<TextMeshProUGUI>();
+            titleTmp.text = $"<b>{title}</b>";
+            titleTmp.fontSize = 13;
+            titleTmp.alignment = TextAlignmentOptions.Center;
+            titleTmp.color = new Color(0.9f, 0.2f, 0.2f);
+
+            // Description
+            var descObj = new GameObject("Desc", typeof(RectTransform), typeof(TextMeshProUGUI));
+            descObj.transform.SetParent(cardObj.transform, false);
+            var descTmp = descObj.GetComponent<TextMeshProUGUI>();
+            descTmp.text = description;
+            descTmp.fontSize = 11;
+            descTmp.color = new Color(0.8f, 0.8f, 0.8f);
+        }
+
+        var btn = cardObj.GetComponent<Button>() ?? cardObj.GetComponentInChildren<Button>();
+        if (btn != null)
+        {
+            btn.onClick.AddListener(() => SelectPactCard(type));
+            _cardButtons.Add(btn);
+            _cardFrames.Add(btn.GetComponent<Image>());
         }
     }
 
-    private void SetDealFields(string title, string terms, string reward, bool grantWeapon)
+    public void SelectPactCard(PactCardType type)
     {
-        if (titleInput != null) titleInput.text = title;
-        if (termsInput != null) termsInput.text = terms;
-        if (rewardInput != null) rewardInput.text = reward;
-        if (grantWeaponToggle != null) grantWeaponToggle.isOn = grantWeapon;
-    }
+        _selectedCard = type;
 
-    private void OnSendDealClicked()
-    {
-        if (_connectedPlayerIds.Count == 0)
+        // Highlight selected card frame
+        for (int i = 0; i < _cardFrames.Count; i++)
         {
-            if (NotificationManager.Instance != null)
-                NotificationManager.Instance.ShowNotification("No eligible living players found.", 2f);
-            return;
-        }
-
-        int selectedIdx = playerDropdown != null ? playerDropdown.value : 0;
-        if (selectedIdx < 0 || selectedIdx >= _connectedPlayerIds.Count) return;
-
-        ulong targetId = _connectedPlayerIds[selectedIdx];
-
-        // Double check target is still alive right now
-        if (NetworkManager.Singleton != null && NetworkManager.Singleton.ConnectedClients.TryGetValue(targetId, out var targetClient))
-        {
-            var targetObj = targetClient.PlayerObject;
-            if (targetObj == null || 
-                (targetObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) ||
-                (targetObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead))
+            if (_cardFrames[i] != null)
             {
-                if (NotificationManager.Instance != null)
-                    NotificationManager.Instance.ShowNotification("That investigator is dead and cannot receive pacts.", 2.5f);
-                RefreshConnectedPlayers();
-                return;
+                bool isSelected = (i == (int)type);
+                _cardFrames[i].color = isSelected ? new Color(0.85f, 0.15f, 0.15f, 1f) : new Color(0.15f, 0.15f, 0.18f, 0.95f);
             }
         }
 
-        string title = titleInput != null && !string.IsNullOrEmpty(titleInput.text) ? titleInput.text : "PACT WITH THE SHADOWS";
-        string terms = termsInput != null ? termsInput.text : "";
-        string reward = rewardInput != null ? rewardInput.text : "Melee Pickaxe Weapon";
+        if (selectedPactTitleText != null)
+        {
+            selectedPactTitleText.text = $"SELECTED PACT: <color=#E74C3C>{type}</color>";
+        }
+
+        ConfigureSubPanelForType(type);
+    }
+
+    private void ConfigureSubPanelForType(PactCardType type)
+    {
+        _targetSubjectIds.Clear();
+
+        bool isKill = (type == PactCardType.KillPlayer);
+        bool isLoot = (type == PactCardType.LootCorpse);
+        bool isCustom = (type == PactCardType.CustomPact);
+
+        if (subjectDropdown != null)
+        {
+            subjectDropdown.gameObject.SetActive(isKill || isLoot);
+            subjectDropdown.ClearOptions();
+            List<string> options = new List<string>();
+
+            if (isKill)
+            {
+                if (subjectDropdownLabel != null) subjectDropdownLabel.text = "Target to be Eliminated:";
+                foreach (var id in _livingPlayerIds)
+                {
+                    string pName = PlayerNameManager.GetPlayerName(id);
+                    options.Add(string.IsNullOrEmpty(pName) ? $"Investigator {id}" : pName);
+                    _targetSubjectIds.Add(id);
+                }
+                if (options.Count == 0) options.Add("No targets available");
+            }
+            else if (isLoot)
+            {
+                if (subjectDropdownLabel != null) subjectDropdownLabel.text = "Deceased Player's Corpse to Loot:";
+                var dead = DeadPlayerTracker.GetDeadPlayers();
+                if (dead != null && dead.Count > 0)
+                {
+                    foreach (var d in dead)
+                    {
+                        options.Add($"{d.playerName} (Corpse)");
+                        _targetSubjectIds.Add(d.clientId);
+                    }
+                }
+                else
+                {
+                    options.Add("No deceased investigators yet");
+                }
+            }
+
+            subjectDropdown.AddOptions(options);
+        }
+
+        if (customTitleInput != null) customTitleInput.gameObject.SetActive(isCustom);
+        if (customTermsInput != null) customTermsInput.gameObject.SetActive(isCustom || type == PactCardType.ManipulateSquad || type == PactCardType.LeadToShadows);
+
+        if (grantWeaponToggle != null)
+        {
+            grantWeaponToggle.isOn = (type == PactCardType.KillPlayer || type == PactCardType.LootCorpse);
+        }
+    }
+
+    // =========================================================================
+    //  Dispatch Deal
+    // =========================================================================
+
+    private void OnSendDealClicked()
+    {
+        if (_livingPlayerIds.Count == 0)
+        {
+            if (NotificationManager.Instance != null)
+                NotificationManager.Instance.ShowNotification("No eligible living players found.", 2.5f);
+            return;
+        }
+
+        int recipientIdx = recipientDropdown != null ? recipientDropdown.value : 0;
+        if (recipientIdx < 0 || recipientIdx >= _livingPlayerIds.Count) return;
+
+        ulong targetRecipientId = _livingPlayerIds[recipientIdx];
+
+        string title = "DARK PACT";
+        string terms = "";
+        string reward = grantWeaponToggle != null && grantWeaponToggle.isOn ? "Melee Pickaxe / Weapon" : "Immunity";
         bool grantWeapon = grantWeaponToggle != null ? grantWeaponToggle.isOn : true;
+
+        string subjectName = "a teammate";
+        if (subjectDropdown != null && subjectDropdown.options.Count > 0)
+        {
+            int subIdx = Mathf.Clamp(subjectDropdown.value, 0, subjectDropdown.options.Count - 1);
+            subjectName = subjectDropdown.options[subIdx].text;
+        }
+
+        switch (_selectedCard)
+        {
+            case PactCardType.KillPlayer:
+                title = $"BLOOD PACT: Eliminate {subjectName}";
+                terms = $"Eliminate your fellow investigator '{subjectName}' before the timer expires.\nReward: Melee Axe Weapon.";
+                break;
+
+            case PactCardType.LootCorpse:
+                title = $"GRAVE ROBBER: Loot {subjectName}";
+                terms = $"Locate and loot all supplies from the corpse of '{subjectName}' before the timer expires.";
+                break;
+
+            case PactCardType.ManipulateSquad:
+                title = "THE BETRAYER: Mislead the Squad";
+                string extraTerms = (customTermsInput != null && !string.IsNullOrEmpty(customTermsInput.text)) ? customTermsInput.text : "Separate from your squad and guide them away from the ritual site.";
+                terms = $"{extraTerms}";
+                break;
+
+            case PactCardType.LeadToShadows:
+                title = "DARK GUIDE: Lure into the Deep";
+                terms = "Guide investigators into the unlit tunnels of the mine.";
+                break;
+
+            case PactCardType.CustomPact:
+                title = customTitleInput != null && !string.IsNullOrEmpty(customTitleInput.text) ? customTitleInput.text : "CUSTOM PACT";
+                terms = customTermsInput != null ? customTermsInput.text : "";
+                break;
+        }
+
+        // Clamp time limit strictly between 60s and 180s
+        int clampedTime = Mathf.Clamp(_selectedTimeLimit, 60, 180);
 
         if (DealSystemNet.Instance != null)
         {
-            DealSystemNet.Instance.SendDeal(targetId, title, terms, reward, grantWeapon);
+            DealSystemNet.Instance.SendDeal(targetRecipientId, title, terms, reward, grantWeapon, clampedTime, PENALTY_CREDITS);
         }
 
-        string targetName = playerDropdown.options[selectedIdx].text;
+        string recipientName = recipientDropdown.options[recipientIdx].text;
         if (NotificationManager.Instance != null)
         {
-            NotificationManager.Instance.ShowNotification($"Pact sent to {targetName}!", 3f);
+            NotificationManager.Instance.ShowNotification($"Dark Pact dispatched to {recipientName} with {clampedTime}s timer!", 3.5f);
         }
 
         CloseUI();

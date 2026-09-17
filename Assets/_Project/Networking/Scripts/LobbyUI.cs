@@ -239,6 +239,33 @@ public class LobbyUI : MonoBehaviour
         EnsureRelayManager();
     }
 
+    private void OnEnable()
+    {
+        CloudCharacterSaveManager.OnProfileLoaded += HandleProfileLoaded;
+    }
+
+    private void OnDisable()
+    {
+        CloudCharacterSaveManager.OnProfileLoaded -= HandleProfileLoaded;
+    }
+
+    private void HandleProfileLoaded(PlayerProfileData profile)
+    {
+        if (profile == null) return;
+        if (nameEntryInputField != null && (string.IsNullOrEmpty(nameEntryInputField.text) || nameEntryInputField.text == "Investigator"))
+        {
+            nameEntryInputField.text = profile.playerName;
+        }
+        if (connectionPlayerNameLabel != null)
+        {
+            connectionPlayerNameLabel.text = profile.playerName;
+        }
+        if (PlayerNameManager.HasSavedName() && nameEntryPanel != null && nameEntryPanel.activeSelf)
+        {
+            ShowConnectionPanel();
+        }
+    }
+
     void Start()
     {
         WireButtonListeners();
@@ -345,19 +372,7 @@ public class LobbyUI : MonoBehaviour
     // =========================================================================
     private void OnNameInputChanged(string value)
     {
-        if (PlayerNameManager.ContainsEmoji(value))
-        {
-            string sanitized = PlayerNameManager.SanitizePlayerName(value);
-            nameEntryInputField.text = sanitized;
-            nameEntryInputField.caretPosition = sanitized.Length;
-
-            if (nameEntryErrorText != null)
-            {
-                nameEntryErrorText.text = "Emojis are not allowed in player names.";
-                nameEntryErrorText.gameObject.SetActive(true);
-            }
-        }
-        else if (nameEntryErrorText != null && nameEntryErrorText.gameObject.activeSelf)
+        if (nameEntryErrorText != null && nameEntryErrorText.gameObject.activeSelf)
         {
             nameEntryErrorText.gameObject.SetActive(false);
         }
@@ -367,29 +382,17 @@ public class LobbyUI : MonoBehaviour
     {
         string rawName = nameEntryInputField != null ? nameEntryInputField.text : string.Empty;
 
-        if (PlayerNameManager.ContainsEmoji(rawName))
+        if (!PlayerNameManager.ValidatePlayerName(rawName, out string sanitizedName, out string errorMessage))
         {
             if (nameEntryErrorText != null)
             {
-                nameEntryErrorText.text = "Player name cannot contain emojis.";
+                nameEntryErrorText.text = errorMessage;
                 nameEntryErrorText.gameObject.SetActive(true);
             }
             return;
         }
 
-        string enteredName = rawName.Trim();
-
-        if (string.IsNullOrWhiteSpace(enteredName))
-        {
-            if (nameEntryErrorText != null)
-            {
-                nameEntryErrorText.text = "Please enter a valid name before continuing.";
-                nameEntryErrorText.gameObject.SetActive(true);
-            }
-            return;
-        }
-
-        PlayerNameManager.SetPlayerName(enteredName);
+        PlayerNameManager.SetPlayerName(sanitizedName);
 
         if (nameEntryErrorText != null)
             nameEntryErrorText.gameObject.SetActive(false);

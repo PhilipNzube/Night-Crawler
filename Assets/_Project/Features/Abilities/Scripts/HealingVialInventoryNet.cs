@@ -3,6 +3,7 @@ using System.Collections;
 using UnityEngine;
 using Unity.Netcode;
 using UnityEngine.InputSystem;
+using NightCrawler.Economy;
 
 /// <summary>
 /// SOLID — SRP: Manages healing vials carried by a player, healing interactions with teammates or self,
@@ -85,9 +86,11 @@ public class HealingVialInventoryNet : NetworkBehaviour
                 }
             }
 
-            // Only Medic starts with 4 vials. All other investigators start with 0 vials unless looted from a corpse.
-            currentVials.Value = isMedic ? (initialVials > 0 ? initialVials : 4) : 0;
-            Debug.Log($"[HealingVialInventoryNet] '{gameObject.name}' spawned with {currentVials.Value} vials (isMedic: {isMedic}).");
+            // Only Medic starts with vials. Scale starting capacity by persistent VialCountLevel.
+            int vialCountLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.VialCount) : 0;
+            int startingVials = UpgradeStatFormulas.GetStartingVialCount(vialCountLvl);
+            currentVials.Value = isMedic ? startingVials : 0;
+            Debug.Log($"[HealingVialInventoryNet] '{gameObject.name}' spawned with {currentVials.Value} vials (isMedic: {isMedic}, VialCountLevel: {vialCountLvl}).");
         }
     }
 
@@ -184,8 +187,18 @@ public class HealingVialInventoryNet : NetworkBehaviour
             if (targetHp != null && !targetHp.IsDead)
             {
                 currentVials.Value--;
-                targetHp.Heal(healAmount);
-                NotifyHealPerformedClientRpc(targetNetId, healAmount);
+
+                int healLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.VialHealingPower) : 0;
+                float finalHeal = UpgradeStatFormulas.GetVialHealAmount(healLvl);
+
+                targetHp.Heal(finalHeal);
+                NotifyHealPerformedClientRpc(targetNetId, finalHeal);
+
+                // Log contribution for Medic
+                if (MatchEconomyManager.Instance != null)
+                {
+                    MatchEconomyManager.Instance.LogHeal(OwnerClientId);
+                }
             }
         }
     }

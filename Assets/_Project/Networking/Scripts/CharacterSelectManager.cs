@@ -14,6 +14,10 @@ public class CharacterSelectManager : NetworkBehaviour
 {
     public static CharacterSelectManager Instance { get; private set; }
 
+    [Header("Roster Configuration")]
+    [Tooltip("Toggle whether Hazard Specialist is included in character selection. Defaults to false.")]
+    public bool includeHazardSpecialist = false;
+
     [Header("Available Investigator Characters")]
     public List<InvestigatorCharacterData> availableCharacters = new List<InvestigatorCharacterData>();
 
@@ -199,5 +203,10 @@ public class CharacterSelectManager : NetworkBehaviour
                 specialAbilities = "• First Aid Healing\n• Autopsy Examination\n• Revive Assistance"
             }
         };
+
+        if (!includeHazardSpecialist)
+        {
+            availableCharacters.RemoveAll(c => c != null && (c.profession == InvestigatorProfession.HazardSpecialist || c.characterName.ToLower().Contains("hazard")));
+        }
     }
 }

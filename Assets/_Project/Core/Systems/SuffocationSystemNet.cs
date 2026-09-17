@@ -1,6 +1,7 @@
 using System.Collections;
 using UnityEngine;
 using Unity.Netcode;
+using NightCrawler.Economy;
 
 /// <summary>
 /// SOLID — SRP: Manages environmental poison / suffocation damage over time.
@@ -158,6 +159,14 @@ public class SuffocationSystemNet : NetworkBehaviour
 
             float damagePerSecond = _healthSystem.MaxHealth / _effectiveLifespan;
             float damageThisTick = damagePerSecond * _damageInterval;
+
+            // Apply persistent Mask Filter Level: reduces poison tick damage over time (NOT duration)
+            int maskFilterLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.MaskFilter) : 0;
+            if (maskFilterLvl > 0)
+            {
+                float poisonReduction = UpgradeStatFormulas.GetMaskPoisonDamageReduction(maskFilterLvl);
+                damageThisTick *= (1.0f - poisonReduction);
+            }
 
             // If remaining health is very low (at or near 0), execute immediate lethal kill
             if (_healthSystem.CurrentHealth <= Mathf.Max(2.5f, damageThisTick * 1.25f))

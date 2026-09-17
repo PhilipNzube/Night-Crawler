@@ -2,6 +2,7 @@ using System.Collections;
 using UnityEngine;
 using Unity.Netcode;
 using UnityEngine.InputSystem;
+using NightCrawler.Economy;
 
 /// <summary>
 /// SOLID — SRP: Cursed Priest Exorcism Ability.
@@ -140,7 +141,10 @@ public class PriestExorcismNet : NetworkBehaviour
 
         if (targetPossessed != null && targetPossessed.IsPossessed)
         {
-            _cooldownTimer = cooldownSeconds;
+            int spiritualLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.SpiritualLevel) : 0;
+            float speedMult = UpgradeStatFormulas.GetExorcismSpeedMultiplier(spiritualLvl);
+            _cooldownTimer = cooldownSeconds / speedMult;
+
             NetworkObject targetNetObj = targetPossessed.GetComponent<NetworkObject>();
             if (targetNetObj != null)
             {
@@ -170,6 +174,12 @@ public class PriestExorcismNet : NetworkBehaviour
             {
                 targetPossessable.ForceExorcise();
                 NotifyExorcismSucceededClientRpc(targetObj.transform.position);
+
+                // Log exorcism completion contribution for Priest
+                if (MatchEconomyManager.Instance != null)
+                {
+                    MatchEconomyManager.Instance.LogExorcismComplete(OwnerClientId);
+                }
             }
         }
     }

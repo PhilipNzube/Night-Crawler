@@ -123,7 +123,7 @@ public class DealSystemNet : MonoBehaviour
     //  Dispatch Deal
     // =========================================================================
 
-    public void SendDeal(ulong targetClientId, string title, string terms, string reward, bool grantWeapon)
+    public void SendDeal(ulong targetClientId, string title, string terms, string reward, bool grantWeapon, int timeLimitSeconds = 120, int penaltyCredits = 15)
     {
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening)
         {
@@ -132,12 +132,12 @@ public class DealSystemNet : MonoBehaviour
         }
 
         ulong localId = NetworkManager.Singleton.LocalClientId;
-        Debug.Log($"[DealSystemNet] Sending deal '{title}' to client {targetClientId} from sender {localId}");
+        Debug.Log($"[DealSystemNet] Sending deal '{title}' to client {targetClientId} (time={timeLimitSeconds}s, penalty={penaltyCredits})");
 
         if (NetworkManager.Singleton.IsServer)
         {
             // Server (Host) sends offer directly
-            DeliverOfferToTarget(localId, targetClientId, title, terms, reward, grantWeapon);
+            DeliverOfferToTarget(localId, targetClientId, title, terms, reward, grantWeapon, timeLimitSeconds, penaltyCredits);
         }
         else
         {
@@ -148,12 +148,14 @@ public class DealSystemNet : MonoBehaviour
             writer.WriteValueSafe(terms ?? "");
             writer.WriteValueSafe(reward ?? "");
             writer.WriteValueSafe(grantWeapon);
+            writer.WriteValueSafe(timeLimitSeconds);
+            writer.WriteValueSafe(penaltyCredits);
 
             NetworkManager.Singleton.CustomMessagingManager.SendNamedMessage(MSG_SEND_OFFER, NetworkManager.ServerClientId, writer);
         }
     }
 
-    private void DeliverOfferToTarget(ulong senderId, ulong targetClientId, string title, string terms, string reward, bool grantWeapon)
+    private void DeliverOfferToTarget(ulong senderId, ulong targetClientId, string title, string terms, string reward, bool grantWeapon, int timeLimitSeconds = 120, int penaltyCredits = 15)
     {
         // Suppress deal delivery if target player is dead
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.ConnectedClients.TryGetValue(targetClientId, out var client))
@@ -176,7 +178,7 @@ public class DealSystemNet : MonoBehaviour
             if (notif != null)
             {
                 notif.gameObject.SetActive(true);
-                notif.DisplayDealOffer(senderId, title, terms, reward, grantWeapon);
+                notif.DisplayDealOffer(senderId, title, terms, reward, grantWeapon, timeLimitSeconds, penaltyCredits);
             }
             else
             {
@@ -191,6 +193,8 @@ public class DealSystemNet : MonoBehaviour
             writer.WriteValueSafe(terms ?? "");
             writer.WriteValueSafe(reward ?? "");
             writer.WriteValueSafe(grantWeapon);
+            writer.WriteValueSafe(timeLimitSeconds);
+            writer.WriteValueSafe(penaltyCredits);
 
             NetworkManager.Singleton.CustomMessagingManager.SendNamedMessage(MSG_DELIVER_OFFER, targetClientId, writer);
             Debug.Log($"[DealSystemNet] Sent MSG_DELIVER_OFFER to client {targetClientId}");
@@ -208,8 +212,10 @@ public class DealSystemNet : MonoBehaviour
         reader.ReadValueSafe(out string terms);
         reader.ReadValueSafe(out string reward);
         reader.ReadValueSafe(out bool grantWeapon);
+        reader.ReadValueSafe(out int timeLimitSeconds);
+        reader.ReadValueSafe(out int penaltyCredits);
 
-        DeliverOfferToTarget(senderClientId, targetClientId, title, terms, reward, grantWeapon);
+        DeliverOfferToTarget(senderClientId, targetClientId, title, terms, reward, grantWeapon, timeLimitSeconds, penaltyCredits);
     }
 
     private void OnClientReceivedDeliverOffer(ulong senderClientId, FastBufferReader reader)
@@ -219,13 +225,15 @@ public class DealSystemNet : MonoBehaviour
         reader.ReadValueSafe(out string terms);
         reader.ReadValueSafe(out string reward);
         reader.ReadValueSafe(out bool grantWeapon);
+        reader.ReadValueSafe(out int timeLimitSeconds);
+        reader.ReadValueSafe(out int penaltyCredits);
 
-        Debug.Log($"[DealSystemNet] Received deal offer from {girlSenderId}: '{title}'");
+        Debug.Log($"[DealSystemNet] Received deal offer from {girlSenderId}: '{title}' (time={timeLimitSeconds}s)");
         var notif = DealNotificationUI.Instance ?? FindFirstObjectByType<DealNotificationUI>(FindObjectsInactive.Include);
         if (notif != null)
         {
             notif.gameObject.SetActive(true);
-            notif.DisplayDealOffer(girlSenderId, title, terms, reward, grantWeapon);
+            notif.DisplayDealOffer(girlSenderId, title, terms, reward, grantWeapon, timeLimitSeconds, penaltyCredits);
         }
         else
         {
@@ -275,7 +283,7 @@ public class DealSystemNet : MonoBehaviour
 
         if (accepted)
         {
-            // 1. Grant weapon if applicable
+            // 1. Grant weapon if applicable (flagged as DealGranted so it cannot harm monsters)
             if (grantWeapon && NetworkManager.Singleton.ConnectedClients.TryGetValue(responderId, out var client))
             {
                 if (client.PlayerObject != null)
@@ -283,9 +291,15 @@ public class DealSystemNet : MonoBehaviour
                     var combat = client.PlayerObject.GetComponent<InvestigatorCombatNet>();
                     if (combat != null)
                     {
-                        combat.GrantMeleeWeapon();
+                        combat.GrantMeleeWeapon(true);
                     }
                 }
+            }
+
+            // Register traitor with MatchEconomyManager
+            if (NightCrawler.Economy.MatchEconomyManager.Instance != null)
+            {
+                NightCrawler.Economy.MatchEconomyManager.Instance.TagPlayerAcceptedDeal(responderId);
             }
 
             // 2. Play private sinister laughter strictly on recipient client

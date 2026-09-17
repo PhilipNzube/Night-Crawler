@@ -4,6 +4,7 @@ using TMPro;
 using Unity.Netcode;
 using System.Collections;
 using System.Collections.Generic;
+using NightCrawler.Economy;
 
 /// <summary>
 /// SOLID — SRP: Manages Character Selection UI view inside the InvestigatorFlow panel.
@@ -90,8 +91,33 @@ public class CharacterSelectUI : MonoBehaviour
     public Button confirmButton;
 
     // =========================================================================
-    //  Inspector — Character Data (ScriptableObjects & Inline List)
+    //  Inspector — Staking & Upgrades (Economy)
     // =========================================================================
+
+    [Header("Match Stake (Lobby Staking)")]
+    [Tooltip("Input field for entering credit stake. Confirm button is disabled until valid stake is entered.")]
+    public TMP_InputField stakeInputField;
+
+    [Tooltip("Text displaying stake validation errors (e.g. empty or less than minimum).")]
+    public TextMeshProUGUI stakeErrorText;
+
+    [Tooltip("Optional label displaying player's current credit balance.")]
+    public TextMeshProUGUI creditBalanceText;
+
+    [Header("Investigator Persistent Upgrades")]
+    [Tooltip("Button to open the Investigator Upgrades modal/panel.")]
+    public Button openUpgradesButton;
+
+    [Tooltip("Reference to the Investigator Upgrades panel GameObject.")]
+    public GameObject upgradePanel;
+
+    // =========================================================================
+    //  Inspector — Character Data & Filters
+    // =========================================================================
+
+    [Header("Roster Filter")]
+    [Tooltip("Toggle to include or exclude Hazard Specialist. Defaults to false (hidden) for clean roster.")]
+    public bool includeHazardSpecialist = false;
 
     [Header("Character Roster (ScriptableObjects — Recommended)")]
     [Tooltip("Drag your CharacterDefinitionSO assets here. " +
@@ -156,6 +182,11 @@ public class CharacterSelectUI : MonoBehaviour
         if (detailsDescriptionText != null) detailsDescriptionText.gameObject.SetActive(true);
         if (sideDetailsPanel != null)       sideDetailsPanel.SetActive(true);
 
+        if (stakeInputField != null)   stakeInputField.gameObject.SetActive(true);
+        if (stakeErrorText != null)     stakeErrorText.gameObject.SetActive(false);
+        if (creditBalanceText != null)  creditBalanceText.gameObject.SetActive(true);
+        if (openUpgradesButton != null) openUpgradesButton.gameObject.SetActive(true);
+
         bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
         if (forceInvestigator)
         {
@@ -176,6 +207,7 @@ public class CharacterSelectUI : MonoBehaviour
             InitialSetup();
 
         CheckLocalRole();
+        SetupStakingAndUpgrades();
 
         // Refresh UI state when enabled
         SelectProfession(_selectedIndex);
@@ -228,14 +260,148 @@ public class CharacterSelectUI : MonoBehaviour
 
         CheckLocalRole();
         BuildSlotCards();
+        SetupStakingAndUpgrades();
 
         int savedIndex = PersistentCharacterSelection.GetSelectedCharacterIndex();
         SelectProfession(savedIndex);
     }
 
     // =========================================================================
-    //  Public API & Slot Navigation
+    //  Staking & Upgrades Setup & Validation
     // =========================================================================
+
+    private void SetupStakingAndUpgrades()
+    {
+        if (stakeInputField != null)
+        {
+            stakeInputField.onValueChanged.RemoveAllListeners();
+            stakeInputField.onValueChanged.AddListener(_ => ValidateStake());
+            stakeInputField.text = ""; // Force empty on start so player must fill
+        }
+
+        if (creditBalanceText != null)
+        {
+            int credits = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
+            creditBalanceText.text = $"Credits: {credits} {CurrencyConfig.CurrencySymbol}";
+        }
+
+        if (openUpgradesButton != null && upgradePanel != null)
+        {
+            openUpgradesButton.onClick.RemoveAllListeners();
+            openUpgradesButton.onClick.AddListener(() =>
+            {
+                upgradePanel.SetActive(!upgradePanel.activeSelf);
+                if (creditBalanceText != null && CloudCharacterSaveManager.Instance != null)
+                {
+                    creditBalanceText.text = $"Credits: {CloudCharacterSaveManager.Instance.CurrentCredits} {CurrencyConfig.CurrencySymbol}";
+                }
+            });
+        }
+
+        ValidateStake();
+    }
+
+    public bool ValidateStake()
+    {
+        if (stakeInputField == null)
+        {
+            // If inspector field not assigned yet, don't permanently lock confirmButton
+            return true;
+        }
+
+        string raw = stakeInputField.text.Trim();
+        if (string.IsNullOrEmpty(raw))
+        {
+            if (confirmButton != null) confirmButton.interactable = false;
+            if (stakeErrorText != null)
+            {
+                stakeErrorText.gameObject.SetActive(true);
+                stakeErrorText.text = $"Stake cannot be empty! (Min: {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol})";
+            }
+            return false;
+        }
+
+        if (!int.TryParse(raw, out int stake))
+        {
+            if (confirmButton != null) confirmButton.interactable = false;
+            if (stakeErrorText != null)
+            {
+                stakeErrorText.gameObject.SetActive(true);
+                stakeErrorText.text = "Please enter a valid numeric stake!";
+            }
+            return false;
+        }
+
+        if (stake < CurrencyConfig.MinimumStake)
+        {
+            if (confirmButton != null) confirmButton.interactable = false;
+            if (stakeErrorText != null)
+            {
+                stakeErrorText.gameObject.SetActive(true);
+                stakeErrorText.text = $"Minimum stake required is {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}!";
+            }
+            return false;
+        }
+
+        int currentCredits = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
+        if (stake > currentCredits)
+        {
+            if (confirmButton != null) confirmButton.interactable = false;
+            if (stakeErrorText != null)
+            {
+                stakeErrorText.gameObject.SetActive(true);
+                stakeErrorText.text = $"Insufficient credits! Balance: {currentCredits} {CurrencyConfig.CurrencySymbol}";
+            }
+            return false;
+        }
+
+        // All checks passed!
+        if (confirmButton != null) confirmButton.interactable = true;
+        if (stakeErrorText != null)
+        {
+            stakeErrorText.text = "";
+            stakeErrorText.gameObject.SetActive(false);
+        }
+        return true;
+    }
+
+    // =========================================================================
+    //  Public API & Slot Navigation (With Hazard Specialist Filter)
+    // =========================================================================
+
+    private readonly List<CharacterDefinitionSO> _filteredDefinitions = new List<CharacterDefinitionSO>();
+    private readonly List<InvestigatorCharacterData> _filteredInlineData = new List<InvestigatorCharacterData>();
+
+    private void RefreshFilteredRoster()
+    {
+        _filteredDefinitions.Clear();
+        if (characterDefinitions != null)
+        {
+            foreach (var so in characterDefinitions)
+            {
+                if (so == null) continue;
+                if (!includeHazardSpecialist && (so.profession == InvestigatorProfession.HazardSpecialist || so.characterName.ToLower().Contains("hazard")))
+                    continue;
+                _filteredDefinitions.Add(so);
+            }
+        }
+
+        _filteredInlineData.Clear();
+        var rawList = (characterDataList != null && characterDataList.Count > 0)
+            ? characterDataList
+            : (CharacterSelectManager.Instance != null ? CharacterSelectManager.Instance.availableCharacters : null);
+
+        if (rawList != null)
+        {
+            foreach (var d in rawList)
+            {
+                if (d == null) continue;
+                if (!includeHazardSpecialist && (d.profession == InvestigatorProfession.HazardSpecialist || d.characterName.ToLower().Contains("hazard")))
+                    continue;
+                _filteredInlineData.Add(d);
+            }
+        }
+    }
 
     public void SelectNext()
     {
@@ -253,13 +419,15 @@ public class CharacterSelectUI : MonoBehaviour
 
     public int GetTotalCharacterCount()
     {
-        if (characterDefinitions != null && characterDefinitions.Count > 0)
-            return characterDefinitions.Count;
-        return characterDataList != null ? characterDataList.Count : 0;
+        RefreshFilteredRoster();
+        if (_filteredDefinitions.Count > 0)
+            return _filteredDefinitions.Count;
+        return _filteredInlineData.Count;
     }
 
     public void SelectProfession(int index)
     {
+        RefreshFilteredRoster();
         int count = GetTotalCharacterCount();
         if (count == 0) return;
         _selectedIndex = Mathf.Clamp(index, 0, count - 1);
@@ -268,9 +436,9 @@ public class CharacterSelectUI : MonoBehaviour
         PersistentCharacterSelection.SetIsVengefulSpirit(false);
 
         // 1. Check ScriptableObjects list first
-        if (characterDefinitions != null && _selectedIndex < characterDefinitions.Count && characterDefinitions[_selectedIndex] != null)
+        if (_filteredDefinitions.Count > 0 && _selectedIndex < _filteredDefinitions.Count && _filteredDefinitions[_selectedIndex] != null)
         {
-            CharacterDefinitionSO so = characterDefinitions[_selectedIndex];
+            CharacterDefinitionSO so = _filteredDefinitions[_selectedIndex];
 
             if (detailsTitleText       != null) detailsTitleText.text       = so.characterName;
             if (detailsDescriptionText != null) detailsDescriptionText.text = so.description;
@@ -338,15 +506,9 @@ public class CharacterSelectUI : MonoBehaviour
 
     public InvestigatorCharacterData GetCharacterData(int index)
     {
-        if (characterDataList != null && index >= 0 && index < characterDataList.Count)
-            return characterDataList[index];
-
-        if (CharacterSelectManager.Instance != null &&
-            CharacterSelectManager.Instance.availableCharacters != null &&
-            index >= 0 && index < CharacterSelectManager.Instance.availableCharacters.Count)
-        {
-            return CharacterSelectManager.Instance.availableCharacters[index];
-        }
+        RefreshFilteredRoster();
+        if (index >= 0 && index < _filteredInlineData.Count)
+            return _filteredInlineData[index];
 
         return null;
     }
@@ -366,7 +528,8 @@ public class CharacterSelectUI : MonoBehaviour
         _slotCardFrames.Clear();
         _slotCards.Clear();
 
-        bool useSO = characterDefinitions != null && characterDefinitions.Count > 0;
+        RefreshFilteredRoster();
+        bool useSO = _filteredDefinitions.Count > 0;
         int count = GetTotalCharacterCount();
 
         for (int i = 0; i < count; i++)
@@ -375,10 +538,10 @@ public class CharacterSelectUI : MonoBehaviour
             string charName = "";
             Sprite portrait = null;
 
-            if (useSO && i < characterDefinitions.Count && characterDefinitions[i] != null)
+            if (useSO && i < _filteredDefinitions.Count && _filteredDefinitions[i] != null)
             {
-                charName = characterDefinitions[i].characterName;
-                portrait = characterDefinitions[i].portrait;
+                charName = _filteredDefinitions[i].characterName;
+                portrait = _filteredDefinitions[i].portrait;
             }
             else
             {
@@ -541,6 +704,21 @@ public class CharacterSelectUI : MonoBehaviour
     private void OnConfirmSelection()
     {
         if (_localConfirmed) return; // don't double-confirm
+        if (!ValidateStake()) return;
+
+        // Extract and record the match stake
+        int stake = CurrencyConfig.MinimumStake;
+        if (stakeInputField != null && int.TryParse(stakeInputField.text.Trim(), out int parsed))
+        {
+            stake = parsed;
+        }
+
+        PersistentCharacterSelection.SetSavedMatchStake(stake);
+        if (CloudCharacterSaveManager.Instance != null)
+        {
+            CloudCharacterSaveManager.Instance.SpendCredits(stake);
+        }
+
         _localConfirmed = true;
 
         PersistentCharacterSelection.SetSelectedCharacterIndex(_selectedIndex);
@@ -558,6 +736,13 @@ public class CharacterSelectUI : MonoBehaviour
         if (arrowLeft  != null)        arrowLeft.gameObject.SetActive(false);
         if (arrowRight != null)        arrowRight.gameObject.SetActive(false);
         if (confirmButton != null)     confirmButton.gameObject.SetActive(false);
+
+        // Hide staking & upgrade controls on confirm
+        if (stakeInputField != null)   stakeInputField.gameObject.SetActive(false);
+        if (stakeErrorText != null)     stakeErrorText.gameObject.SetActive(false);
+        if (creditBalanceText != null)  creditBalanceText.gameObject.SetActive(false);
+        if (openUpgradesButton != null) openUpgradesButton.gameObject.SetActive(false);
+        if (upgradePanel != null)       upgradePanel.SetActive(false);
 
         // Disable character abilities and details text/panel
         if (detailsAbilitiesText != null)   detailsAbilitiesText.gameObject.SetActive(false);

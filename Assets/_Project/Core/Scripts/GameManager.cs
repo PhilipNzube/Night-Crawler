@@ -617,10 +617,18 @@ public class GameManager : NetworkBehaviour
         {
             EndMatch(WinReason.DemonSlain);
         }
-        else if (_aliveExplorers.Contains(victim))
+        else
         {
-            _aliveExplorers.Remove(victim);
-            // Match does NOT end when investigators die; only ends when the girl dies.
+            if (NightCrawler.Systems.DeadPlayerTracker.Instance != null)
+            {
+                NightCrawler.Systems.DeadPlayerTracker.Instance.RegisterDeath(victimClientId, victimName, victim.transform.position);
+            }
+
+            if (_aliveExplorers.Contains(victim))
+            {
+                _aliveExplorers.Remove(victim);
+                // Match does NOT end when investigators die; only ends when the girl dies.
+            }
         }
     }
 
@@ -729,11 +737,17 @@ public class GameManager : NetworkBehaviour
     {
         gameEnded.Value = true;
 
+        bool investigatorsWon = (reason == WinReason.DemonSlain);
+        if (NightCrawler.Economy.MatchEconomyManager.Instance != null)
+        {
+            NightCrawler.Economy.MatchEconomyManager.Instance.ResolveMatchEconomy(investigatorsWon);
+        }
+
         // OCP: message looked up from dictionary — no switch/case to modify
         string resultMessage = WinMessages.TryGetValue(reason, out string msg) ? msg : "Match Over";
 
         EndMatchClientRpc(resultMessage);
-        Invoke(nameof(ReturnToLobby), 6f);
+        Invoke(nameof(ReturnToLobby), 8f);
     }
 
     [ClientRpc]

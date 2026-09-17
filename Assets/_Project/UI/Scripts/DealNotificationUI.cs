@@ -149,7 +149,12 @@ public class DealNotificationUI : MonoBehaviour
         }
     }
 
-    public void DisplayDealOffer(ulong senderId, string title, string terms, string reward, bool grantWeapon)
+    private int _currentTimeLimitSeconds = 120;
+    private int _currentPenaltyCredits = 15;
+    private string _currentTitle = "DARK PACT";
+    private string _currentTerms = "";
+
+    public void DisplayDealOffer(ulong senderId, string title, string terms, string reward, bool grantWeapon, int timeLimitSeconds = 120, int penaltyCredits = 15)
     {
         // If local player is dead, reject/ignore immediately
         var localObj = Unity.Netcode.NetworkManager.Singleton?.LocalClient?.PlayerObject;
@@ -166,10 +171,17 @@ public class DealNotificationUI : MonoBehaviour
 
         _currentGirlSenderId = senderId;
         _grantWeapon = grantWeapon;
+        _currentTimeLimitSeconds = timeLimitSeconds;
+        _currentPenaltyCredits = penaltyCredits;
+        _currentTitle = title;
+        _currentTerms = terms;
         _timer = timeoutSeconds;
 
         if (titleText != null) titleText.text = title;
-        if (termsText != null) termsText.text = terms;
+        if (termsText != null)
+        {
+            termsText.text = $"{terms}\n\n<color=#F1C40F>⏱ Time Limit: {timeLimitSeconds}s</color>\n<color=#E74C3C>⚠ Penalty on Failure: -{penaltyCredits} {CurrencyConfig.CurrencySymbol} (Deducted from Stake)</color>";
+        }
         if (rewardText != null) rewardText.text = $"REWARD: {reward}";
 
         // Crucial: Make sure the GameObject itself is ACTIVE in the hierarchy!
@@ -177,7 +189,7 @@ public class DealNotificationUI : MonoBehaviour
         if (panel != null) panel.SetActive(true);
 
         SetVisible(true);
-        Debug.Log($"[DealNotificationUI] Displaying deal '{title}' from {senderId} to local player! (grantWeapon={grantWeapon})");
+        Debug.Log($"[DealNotificationUI] Displaying deal '{title}' from {senderId} to local player! (grantWeapon={grantWeapon}, time={timeLimitSeconds}s)");
     }
 
     private void Update()
@@ -234,9 +246,20 @@ public class DealNotificationUI : MonoBehaviour
                 var combat = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject.GetComponent<InvestigatorCombatNet>();
                 if (combat != null)
                 {
-                    combat.GrantMeleeWeapon();
+                    combat.GrantMeleeWeapon(true);
+                }
+
+                if (NotificationManager.Instance != null)
+                {
+                    NotificationManager.Instance.ShowNotification("Pact Sealed: Axe granted! (Note: pact weapons cannot harm cave monsters, only investigators)", 4.5f);
                 }
             }
+        }
+
+        // Start active deal timer HUD
+        if (ActiveDealMissionHUD.Instance != null)
+        {
+            ActiveDealMissionHUD.Instance.StartMission(_currentTitle, _currentTerms, _currentTimeLimitSeconds, _currentPenaltyCredits);
         }
 
         if (DealSystemNet.Instance != null)

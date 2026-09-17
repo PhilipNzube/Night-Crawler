@@ -1,5 +1,6 @@
 using UnityEngine;
 using Unity.Netcode;
+using NightCrawler.Economy;
 
 public class TargetHealth : NetworkBehaviour, IDamageReceiver
 {
@@ -157,6 +158,21 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
     public void TakeDamage(float amount, bool isSoulAttack = false)
     {
         if (!IsServer) return;
+
+        // Apply persistent Damage Resistance on incoming physical damage (non-lethal instant kills)
+        if (!isSoulAttack && amount < 9000f)
+        {
+            int resistanceLvl = 0;
+            if (CloudCharacterSaveManager.Instance != null && IsOwner)
+            {
+                resistanceLvl = CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.DamageResistance);
+            }
+            if (resistanceLvl > 0)
+            {
+                float reduction = UpgradeStatFormulas.GetDamageResistanceFraction(resistanceLvl);
+                amount *= (1.0f - reduction);
+            }
+        }
 
         currentHealth.Value = Mathf.Clamp(currentHealth.Value - amount, 0f, MaxHealth);
         Debug.Log($"{gameObject.name} took {amount} {(isSoulAttack ? "SOUL" : "PHYSICAL")} damage. Remaining: {currentHealth.Value}/{MaxHealth}");

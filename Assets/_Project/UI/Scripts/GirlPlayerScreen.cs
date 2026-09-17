@@ -3,6 +3,7 @@ using UnityEngine.UI;
 using TMPro;
 using System.Collections;
 using System.Collections.Generic;
+using NightCrawler.Economy;
 
 /// <summary>
 /// SOLID — SRP: The exclusive cinematic screen shown only to the player chosen
@@ -45,6 +46,26 @@ public class GirlPlayerScreen : MonoBehaviour
 
     [Tooltip("Status line that changes after READY is pressed.")]
     public TextMeshProUGUI waitingText;
+
+    // -------------------------------------------------------------------------
+    //  Inspector — Staking & Upgrades (Economy)
+    // -------------------------------------------------------------------------
+    [Header("Match Stake (Lobby Staking)")]
+    [Tooltip("Input field where the Girl player enters her match stake. READY button remains disabled until valid stake is entered.")]
+    public TMP_InputField stakeInputField;
+
+    [Tooltip("Text displaying stake validation errors (e.g. empty or less than minimum).")]
+    public TextMeshProUGUI stakeErrorText;
+
+    [Tooltip("Text displaying current persistent credit balance.")]
+    public TextMeshProUGUI creditBalanceText;
+
+    [Header("The Girl Persistent Upgrades")]
+    [Tooltip("Button to open the Vengeful Spirit Upgrades panel.")]
+    public Button openUpgradesButton;
+
+    [Tooltip("Reference to the Vengeful Spirit Upgrades panel GameObject.")]
+    public GameObject upgradePanel;
 
     // -------------------------------------------------------------------------
     //  Inspector — READY Button
@@ -124,6 +145,7 @@ public class GirlPlayerScreen : MonoBehaviour
 
         PopulateTexts();
         SpawnGirlModel();
+        SetupStakingAndUpgrades();
 
         if (LobbyCameraController.Instance != null)
             LobbyCameraController.Instance.SetPhase(LobbyCameraController.CameraPhase.GirlScreen);
@@ -134,6 +156,109 @@ public class GirlPlayerScreen : MonoBehaviour
         // Subscribe to live ready-state updates so investigators' status is visible here too
         if (PlayerReadyTracker.Instance != null)
             PlayerReadyTracker.Instance.OnReadyStatesUpdated += HandleReadyStatesUpdated;
+    }
+
+    private void SetupStakingAndUpgrades()
+    {
+        if (stakeInputField != null)
+        {
+            stakeInputField.gameObject.SetActive(true);
+            stakeInputField.onValueChanged.RemoveAllListeners();
+            stakeInputField.onValueChanged.AddListener(_ => ValidateStake());
+            stakeInputField.text = ""; // Force user to enter stake
+        }
+
+        if (creditBalanceText != null)
+        {
+            creditBalanceText.gameObject.SetActive(true);
+            int credits = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
+            creditBalanceText.text = $"Credits: {credits} {CurrencyConfig.CurrencySymbol}";
+        }
+
+        if (openUpgradesButton != null)
+        {
+            openUpgradesButton.gameObject.SetActive(true);
+            if (upgradePanel != null)
+            {
+                openUpgradesButton.onClick.RemoveAllListeners();
+                openUpgradesButton.onClick.AddListener(() =>
+                {
+                    upgradePanel.SetActive(!upgradePanel.activeSelf);
+                    if (creditBalanceText != null && CloudCharacterSaveManager.Instance != null)
+                    {
+                        creditBalanceText.text = $"Credits: {CloudCharacterSaveManager.Instance.CurrentCredits} {CurrencyConfig.CurrencySymbol}";
+                    }
+                });
+            }
+        }
+
+        ValidateStake();
+    }
+
+    public bool ValidateStake()
+    {
+        if (readyButton == null) return true;
+
+        if (stakeInputField == null)
+        {
+            // If inspector reference not assigned, keep readyButton interactable once delay passes
+            return true;
+        }
+
+        string raw = stakeInputField.text.Trim();
+        if (string.IsNullOrEmpty(raw))
+        {
+            readyButton.interactable = false;
+            if (stakeErrorText != null)
+            {
+                stakeErrorText.gameObject.SetActive(true);
+                stakeErrorText.text = $"Stake cannot be empty! (Min: {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol})";
+            }
+            return false;
+        }
+
+        if (!int.TryParse(raw, out int stake))
+        {
+            readyButton.interactable = false;
+            if (stakeErrorText != null)
+            {
+                stakeErrorText.gameObject.SetActive(true);
+                stakeErrorText.text = "Please enter a valid numeric stake!";
+            }
+            return false;
+        }
+
+        if (stake < CurrencyConfig.MinimumStake)
+        {
+            readyButton.interactable = false;
+            if (stakeErrorText != null)
+            {
+                stakeErrorText.gameObject.SetActive(true);
+                stakeErrorText.text = $"Minimum stake required is {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}!";
+            }
+            return false;
+        }
+
+        int currentCredits = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
+        if (stake > currentCredits)
+        {
+            readyButton.interactable = false;
+            if (stakeErrorText != null)
+            {
+                stakeErrorText.gameObject.SetActive(true);
+                stakeErrorText.text = $"Insufficient credits! Balance: {currentCredits} {CurrencyConfig.CurrencySymbol}";
+            }
+            return false;
+        }
+
+        // All checks passed!
+        readyButton.interactable = true;
+        if (stakeErrorText != null)
+        {
+            stakeErrorText.text = "";
+            stakeErrorText.gameObject.SetActive(false);
+        }
+        return true;
     }
 
     public void Hide()
@@ -224,7 +349,7 @@ public class GirlPlayerScreen : MonoBehaviour
         if (readyButton != null)
         {
             readyButton.gameObject.SetActive(true);
-            readyButton.interactable = true;
+            ValidateStake();
         }
         _readyDelayCoroutine = null;
     }
@@ -232,6 +357,21 @@ public class GirlPlayerScreen : MonoBehaviour
     private void OnReadyPressed()
     {
         if (_readySent) return;
+        if (!ValidateStake()) return;
+
+        // Save persistent stake and spend credits locally
+        int stake = CurrencyConfig.MinimumStake;
+        if (stakeInputField != null && int.TryParse(stakeInputField.text.Trim(), out int parsed))
+        {
+            stake = parsed;
+        }
+
+        PersistentCharacterSelection.SetSavedMatchStake(stake);
+        if (CloudCharacterSaveManager.Instance != null)
+        {
+            CloudCharacterSaveManager.Instance.SpendCredits(stake);
+        }
+
         _readySent = true;
 
         // Hide abilities, info section, flavour text, and READY button so they don't overlap the status panel
@@ -247,6 +387,13 @@ public class GirlPlayerScreen : MonoBehaviour
         if (readyButton != null) readyButton.gameObject.SetActive(false);
         if (flavourText != null) flavourText.gameObject.SetActive(false);
         if (roleTitleText != null) roleTitleText.gameObject.SetActive(false);
+
+        // Hide staking & upgrade controls on ready
+        if (stakeInputField != null)   stakeInputField.gameObject.SetActive(false);
+        if (stakeErrorText != null)     stakeErrorText.gameObject.SetActive(false);
+        if (creditBalanceText != null)  creditBalanceText.gameObject.SetActive(false);
+        if (openUpgradesButton != null) openUpgradesButton.gameObject.SetActive(false);
+        if (upgradePanel != null)       upgradePanel.SetActive(false);
 
         if (waitingText != null)
         {

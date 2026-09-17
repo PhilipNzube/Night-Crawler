@@ -4,6 +4,7 @@ using Unity.Netcode;
 using Unity.Cinemachine;
 using StarterAssets;
 using UnityEngine.InputSystem;
+using NightCrawler.Economy;
 
 /// <summary>
 /// SOLID — SRP: Manages the Girl's possession ability, 5-minute total possession time pool,
@@ -54,7 +55,10 @@ public class GirlPossession : NetworkBehaviour
     {
         if (IsServer)
         {
+            int durationLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.PossessionDuration) : 0;
+            maxPossessionTimePool = UpgradeStatFormulas.GetGirlPossessionTimePool(durationLvl);
             remainingPossessionTime.Value = maxPossessionTimePool;
+            Debug.Log($"[GirlPossession] Initialized possession time pool: {maxPossessionTimePool:0}s (Lvl {durationLvl}).");
         }
         ResetGirlAnimatorState();
     }

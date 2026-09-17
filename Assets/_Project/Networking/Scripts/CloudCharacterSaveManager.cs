@@ -4,9 +4,11 @@ using System.Threading.Tasks;
 using UnityEngine;
 using Unity.Services.Authentication;
 using Unity.Services.CloudSave;
+using NightCrawler.Economy;
 
 /// <summary>
-/// Serializable data model representing a player's profile and character selection state.
+/// Serializable data model representing a player's profile, character selection state,
+/// and persistent credit economy / upgrade stats.
 /// </summary>
 [System.Serializable]
 public class PlayerProfileData
@@ -17,12 +19,15 @@ public class PlayerProfileData
     public int playerLevel = 1;
     public int matchesSurvived = 0;
     public string lastSavedUtc = string.Empty;
+
+    // Embedded Persistent Economy Profile (Credits + Persistent Upgrades)
+    public PlayerEconomyProfile economy = new PlayerEconomyProfile();
 }
 
 /// <summary>
-/// SOLID — SRP: Manages saving and loading player profile and character data.
+/// SOLID — SRP: Manages saving and loading player profile and persistent economy data.
 /// Supports both Unity Gaming Services Cloud Save (when online/authenticated)
-/// and automatic local PlayerPrefs fallback (for offline/dev use).
+/// and automatic local PlayerPrefs fallback (for instant boot and offline/dev use).
 /// </summary>
 public class CloudCharacterSaveManager : MonoBehaviour
 {
@@ -32,6 +37,11 @@ public class CloudCharacterSaveManager : MonoBehaviour
     private const string CLOUD_PROFILE_KEY = "PlayerProfile";
 
     public PlayerProfileData CurrentProfile { get; private set; } = new PlayerProfileData();
+
+    public static event Action<PlayerProfileData> OnProfileLoaded;
+    public static event Action<int> OnCreditsChanged;
+
+    public int CurrentCredits => CurrentProfile?.economy?.credits ?? 0;
 
     private void Awake()
     {
@@ -45,9 +55,110 @@ public class CloudCharacterSaveManager : MonoBehaviour
         if (transform.parent == null)
             DontDestroyOnLoad(gameObject);
 
-        // Load cached local profile immediately on boot
+        // 1. Instant local load on boot
         LoadFromLocalPlayerPrefs();
     }
+
+    private void Start()
+    {
+        // 2. Automatically listen to UGS authentication to fetch cloud data seamlessly
+        if (AuthenticationService.Instance != null)
+        {
+            AuthenticationService.Instance.SignedIn += HandleSignedIn;
+            if (AuthenticationService.Instance.IsSignedIn)
+            {
+                _ = LoadProfileAsync();
+            }
+        }
+    }
+
+    private void OnDestroy()
+    {
+        if (AuthenticationService.Instance != null)
+        {
+            AuthenticationService.Instance.SignedIn -= HandleSignedIn;
+        }
+    }
+
+    private void HandleSignedIn()
+    {
+        Debug.Log("[CloudSaveManager] Authentication completed. Loading latest cloud profile...");
+        _ = LoadProfileAsync();
+    }
+
+    // =========================================================================
+    //  Economy Operations
+    // =========================================================================
+
+    /// <summary>
+    /// Checks if the player can afford an amount of credits.
+    /// </summary>
+    public bool CanAfford(int amount)
+    {
+        if (CurrentProfile == null || CurrentProfile.economy == null) return false;
+        return CurrentProfile.economy.credits >= amount;
+    }
+
+    /// <summary>
+    /// Attempts to deduct credits from the persistent balance and saves.
+    /// </summary>
+    public bool TryDeductCredits(int amount)
+    {
+        if (amount <= 0) return true;
+        if (!CanAfford(amount)) return false;
+
+        CurrentProfile.economy.credits -= amount;
+        OnCreditsChanged?.Invoke(CurrentProfile.economy.credits);
+        _ = SaveProfileAsync(CurrentProfile);
+        return true;
+    }
+
+    /// <summary>
+    /// Adds credits (e.g. match winnings, stake return, bonuses) to the persistent balance and saves.
+    /// </summary>
+    public void AddCredits(int amount)
+    {
+        if (amount <= 0 || CurrentProfile == null || CurrentProfile.economy == null) return;
+
+        CurrentProfile.economy.credits += amount;
+        OnCreditsChanged?.Invoke(CurrentProfile.economy.credits);
+        _ = SaveProfileAsync(CurrentProfile);
+    }
+
+    /// <summary>
+    /// Gets the current upgrade level for any investigator or girl stat.
+    /// </summary>
+    public int GetUpgradeLevel(UpgradeStatType stat)
+    {
+        if (CurrentProfile == null || CurrentProfile.economy == null) return 0;
+        return CurrentProfile.economy.GetLevel(stat);
+    }
+
+    /// <summary>
+    /// Purchases the next level for a specific upgrade stat if affordable.
+    /// </summary>
+    public bool TryPurchaseUpgrade(UpgradeStatType stat)
+    {
+        if (CurrentProfile == null || CurrentProfile.economy == null) return false;
+
+        int currentLvl = CurrentProfile.economy.GetLevel(stat);
+        int cost = UpgradeStatFormulas.CalculateUpgradeCost(stat, currentLvl);
+
+        if (!TryDeductCredits(cost))
+        {
+            Debug.LogWarning($"[CloudSaveManager] Cannot afford upgrade for {stat}. Required: {cost}, Current: {CurrentProfile.economy.credits}");
+            return false;
+        }
+
+        CurrentProfile.economy.SetLevel(stat, currentLvl + 1);
+        _ = SaveProfileAsync(CurrentProfile);
+        Debug.Log($"[CloudSaveManager] Upgraded {stat} to Level {currentLvl + 1} for {cost} Cinders.");
+        return true;
+    }
+
+    // =========================================================================
+    //  Cloud & Local Persistence
+    // =========================================================================
 
     /// <summary>
     /// Saves the current profile to Cloud Save if authenticated, and always updates local PlayerPrefs.
@@ -74,7 +185,7 @@ public class CloudCharacterSaveManager : MonoBehaviour
                 };
 
                 await CloudSaveService.Instance.Data.Player.SaveAsync(data);
-                Debug.Log($"[CloudSaveManager] Profile synced to UGS Cloud Save for player: {profile.playerName}");
+                Debug.Log($"[CloudSaveManager] Profile synced to UGS Cloud Save for player: {profile.playerName} (Credits: {profile.economy.credits})");
                 return true;
             }
             catch (Exception ex)
@@ -85,7 +196,6 @@ public class CloudCharacterSaveManager : MonoBehaviour
         }
         else
         {
-            Debug.Log("[CloudSaveManager] Player not signed into UGS. Profile saved to local storage only.");
             return true;
         }
     }
@@ -108,10 +218,24 @@ public class CloudCharacterSaveManager : MonoBehaviour
                     string json = item.Value.GetAs<string>();
                     if (!string.IsNullOrEmpty(json))
                     {
-                        CurrentProfile = JsonUtility.FromJson<PlayerProfileData>(json);
-                        SaveToLocalPlayerPrefs(CurrentProfile); // Update local cache
-                        Debug.Log($"[CloudSaveManager] Profile loaded from UGS Cloud Save: {CurrentProfile.playerName}");
-                        return CurrentProfile;
+                        var loaded = JsonUtility.FromJson<PlayerProfileData>(json);
+                        if (loaded != null)
+                        {
+                            CurrentProfile = loaded;
+                            if (CurrentProfile.economy == null) CurrentProfile.economy = new PlayerEconomyProfile();
+                            SaveToLocalPlayerPrefs(CurrentProfile); // Update local cache
+
+                            // Synchronize player name if present in cloud
+                            if (!string.IsNullOrWhiteSpace(CurrentProfile.playerName))
+                            {
+                                PlayerNameManager.SetPlayerNameSilently(CurrentProfile.playerName);
+                            }
+
+                            OnProfileLoaded?.Invoke(CurrentProfile);
+                            OnCreditsChanged?.Invoke(CurrentProfile.economy.credits);
+                            Debug.Log($"[CloudSaveManager] Profile loaded from UGS Cloud Save: {CurrentProfile.playerName} | Credits: {CurrentProfile.economy.credits}");
+                            return CurrentProfile;
+                        }
                     }
                 }
             }
@@ -148,6 +272,7 @@ public class CloudCharacterSaveManager : MonoBehaviour
             {
                 string json = PlayerPrefs.GetString(LOCAL_SAVE_KEY);
                 CurrentProfile = JsonUtility.FromJson<PlayerProfileData>(json) ?? new PlayerProfileData();
+                if (CurrentProfile.economy == null) CurrentProfile.economy = new PlayerEconomyProfile();
             }
             catch
             {
@@ -162,5 +287,13 @@ public class CloudCharacterSaveManager : MonoBehaviour
                 CurrentProfile.playerName = PlayerNameManager.GetPlayerName();
             }
         }
+
+        if (!string.IsNullOrWhiteSpace(CurrentProfile.playerName))
+        {
+            PlayerNameManager.SetPlayerNameSilently(CurrentProfile.playerName);
+        }
+
+        OnProfileLoaded?.Invoke(CurrentProfile);
+        OnCreditsChanged?.Invoke(CurrentProfile.economy.credits);
     }
 }

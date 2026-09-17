@@ -4,6 +4,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Unity.Netcode;
 using UnityEngine.InputSystem;
+using NightCrawler.Economy;
 
 /// <summary>
 /// SOLID — SRP: Controls the Girl's spectral invisibility, distortion effects, and dissolve manifestation.
@@ -53,15 +54,29 @@ public class GirlMaterialController : NetworkBehaviour
         }
     }
 
+    private int _remainingManifestCharges = 3;
+    private float _manifestDurationSeconds = 8f;
+    private Coroutine _manifestTimerRoutine;
+
     public override void OnNetworkSpawn()
     {
         isManifested.OnValueChanged += HandleManifestationChanged;
         ApplyVisualState(isManifested.Value, immediate: true);
+
+        if (IsOwner)
+        {
+            int countLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.VisibilityCount) : 0;
+            int durationLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.VisibilityDuration) : 0;
+            _remainingManifestCharges = UpgradeStatFormulas.GetGirlVisibilityCharges(countLvl);
+            _manifestDurationSeconds = UpgradeStatFormulas.GetGirlVisibilityDuration(durationLvl);
+            Debug.Log($"[GirlMaterialController] Manifestation initialized with {_remainingManifestCharges} charges, {_manifestDurationSeconds:0}s duration.");
+        }
     }
 
     public override void OnNetworkDespawn()
     {
         isManifested.OnValueChanged -= HandleManifestationChanged;
+        if (_manifestTimerRoutine != null) StopCoroutine(_manifestTimerRoutine);
     }
 
     private void HandleManifestationChanged(bool previous, bool current)
@@ -113,18 +128,38 @@ public class GirlMaterialController : NetworkBehaviour
 
                 if (tPressed)
                 {
-                    bool newState = !isManifested.Value;
-                    SetManifested(newState);
-
-                    string statusMsg = newState
-                        ? "[MANIFESTATION] You are now VISIBLE to all players!"
-                        : "[SPIRIT FORM] You are INVISIBLE to investigators.";
-
-                    if (NotificationManager.Instance != null)
+                    if (!isManifested.Value)
                     {
-                        NotificationManager.Instance.ShowNotification(statusMsg, 2.5f);
+                        if (_remainingManifestCharges <= 0)
+                        {
+                            if (NotificationManager.Instance != null)
+                            {
+                                NotificationManager.Instance.ShowNotification("No manifestation charges remaining!", 2f);
+                            }
+                            return;
+                        }
+
+                        _remainingManifestCharges--;
+                        SetManifested(true);
+
+                        if (_manifestTimerRoutine != null) StopCoroutine(_manifestTimerRoutine);
+                        _manifestTimerRoutine = StartCoroutine(ManifestationTimerRoutine(_manifestDurationSeconds));
+
+                        string statusMsg = $"[MANIFESTATION] Visible for {_manifestDurationSeconds:0}s! ({_remainingManifestCharges} charges left)";
+                        if (NotificationManager.Instance != null)
+                        {
+                            NotificationManager.Instance.ShowNotification(statusMsg, 2.5f);
+                        }
                     }
-                    Debug.Log($"[GirlMaterialController] [T] toggled manifestation -> {newState}");
+                    else
+                    {
+                        if (_manifestTimerRoutine != null) StopCoroutine(_manifestTimerRoutine);
+                        SetManifested(false);
+                        if (NotificationManager.Instance != null)
+                        {
+                            NotificationManager.Instance.ShowNotification("[SPIRIT FORM] Returned to shadows.", 2f);
+                        }
+                    }
                 }
             }
         }
@@ -149,6 +184,16 @@ public class GirlMaterialController : NetworkBehaviour
             {
                 Physics.IgnoreCollision(_characterController, otherCc, enablePassThrough);
             }
+        }
+    }
+
+    private IEnumerator ManifestationTimerRoutine(float duration)
+    {
+        yield return new WaitForSeconds(duration);
+        SetManifested(false);
+        if (IsOwner && NotificationManager.Instance != null)
+        {
+            NotificationManager.Instance.ShowNotification("[SPIRIT FORM] Manifestation ended. You are invisible.", 2f);
         }
     }
 

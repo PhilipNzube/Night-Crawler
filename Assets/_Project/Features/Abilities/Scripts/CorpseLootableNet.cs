@@ -153,7 +153,7 @@ public class CorpseLootableNet : NetworkBehaviour
         int remaining = _vialInventory != null ? _vialInventory.VialCount : 0;
         lootableVials.Value = Mathf.Max(0, remaining);
 
-        // 2. Weapon: Miner or investigator who carries/unlocked/inherited a weapon
+        // 2. Weapon: Miner or investigator with native weapon. Deal-granted weapons CANNOT be looted!
         bool isMiner = charName.Contains("miner") || charName.Contains("worker") || (_combatNet != null && _combatNet.IsMiner);
         if (!isMiner && CharacterSelectManager.Instance != null)
         {
@@ -164,20 +164,11 @@ public class CorpseLootableNet : NetworkBehaviour
                 if (data != null && data.profession == InvestigatorProfession.MineWorker) isMiner = true;
             }
         }
-        hasWeaponLoot.Value = isMiner || (_combatNet != null && (_combatNet.HasWeapon || _combatNet.hasUnlockedWeapon)) || _hasInheritedWeapon;
+        bool isDealWeapon = _combatNet != null && _combatNet.IsDealWeapon;
+        hasWeaponLoot.Value = !isDealWeapon && (isMiner || (_combatNet != null && (_combatNet.HasWeapon || _combatNet.hasUnlockedWeapon)) || _hasInheritedWeapon);
 
-        // 3. Exorcism Relic: Cursed Priest or investigator who unlocked/inherited Holy Relic
-        bool isPriest = charName.Contains("priest") || (_priestExorcism != null && _priestExorcism.isUnlocked);
-        if (!isPriest && CharacterSelectManager.Instance != null)
-        {
-            int idx = CharacterSelectManager.Instance.GetSelectedCharacterIndex(OwnerClientId);
-            if (idx >= 0 && CharacterSelectManager.Instance.availableCharacters != null && idx < CharacterSelectManager.Instance.availableCharacters.Count)
-            {
-                var data = CharacterSelectManager.Instance.availableCharacters[idx];
-                if (data != null && data.profession == InvestigatorProfession.CursedPriest) isPriest = true;
-            }
-        }
-        hasExorcismRelic.Value = isPriest || _hasInheritedExorcism;
+        // 3. Exorcism Relic: Priest's exorcism ability CANNOT be looted (exclusive role ability)
+        hasExorcismRelic.Value = false;
 
         // 4. Hazard Filter: Hazard Specialist or investigator who inherited Gas Mask
         bool isHazard = charName.Contains("hazard") || charName.Contains("protector") || (_suffocationNet != null && _suffocationNet.IsHazardSpecialist);
@@ -440,6 +431,10 @@ public class CorpseLootableNet : NetworkBehaviour
             hasHazardFilter.Value = false;
             hasMinimapGear.Value = false;
             isLooted.Value = true;
+            if (NightCrawler.Systems.DeadPlayerTracker.Instance != null)
+            {
+                NightCrawler.Systems.DeadPlayerTracker.Instance.MarkCorpseLooted(OwnerClientId);
+            }
 
             NotifyLootSuccessClientRpc(vialsGained, weaponGained, exorcismGained, hazardGained, minimapGained, looterNetId);
         }

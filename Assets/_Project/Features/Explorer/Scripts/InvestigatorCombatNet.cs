@@ -4,6 +4,7 @@ using Unity.Netcode.Components;
 using UnityEngine.InputSystem;
 using System.Collections;
 using System.Collections.Generic;
+using NightCrawler.Economy;
 
 /// <summary>
 /// SOLID — SRP: Manages combat, weapon switching (Melee/Ranged), ammo, and network sync
@@ -12,8 +13,13 @@ using System.Collections.Generic;
 /// Cleanly verifies Animator parameters before setting triggers so missing controller parameters
 /// never crash network spawning or freeze character animations.
 /// </summary>
-public class InvestigatorCombatNet : NetworkBehaviour
+public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
 {
+    [Header("Weapon Economy & Origin")]
+    public WeaponOrigin weaponOrigin = WeaponOrigin.Native;
+    public WeaponOrigin Origin => weaponOrigin;
+    public bool IsDealWeapon => weaponOrigin == WeaponOrigin.DealGranted;
+
     [Header("Configuration")]
     public WeaponStats axeStats;
     public WeaponStats gunStats;
@@ -239,12 +245,14 @@ public class InvestigatorCombatNet : NetworkBehaviour
     /// Grants and equips the melee axe weapon (e.g. from accepting a deal with the Girl or looting).
     /// Safe to invoke from server (routes via ClientRpc) or directly on the owner client.
     /// </summary>
-    public void GrantMeleeWeapon()
+    public void GrantMeleeWeapon(bool isFromDeal = false)
     {
         hasUnlockedWeapon = true;
+        weaponOrigin = isFromDeal ? WeaponOrigin.DealGranted : WeaponOrigin.Native;
+
         if (IsServer && !IsOwner)
         {
-            GrantMeleeWeaponClientRpc();
+            GrantMeleeWeaponClientRpc(isFromDeal);
         }
         else if (IsOwner)
         {
@@ -253,9 +261,11 @@ public class InvestigatorCombatNet : NetworkBehaviour
     }
 
     [ClientRpc]
-    public void GrantMeleeWeaponClientRpc()
+    public void GrantMeleeWeaponClientRpc(bool isFromDeal = false)
     {
         hasUnlockedWeapon = true;
+        weaponOrigin = isFromDeal ? WeaponOrigin.DealGranted : WeaponOrigin.Native;
+
         if (IsOwner)
         {
             SwitchWeapon(0);
@@ -459,18 +469,43 @@ public class InvestigatorCombatNet : NetworkBehaviour
             _audioSource.PlayOneShot(activeStats.fireSound);
     }
 
+    private bool _hasWarnedMonsterDealWeapon = false;
+
     private void PerformMeleeHit(WeaponStats stats)
     {
         Vector3 origin = transform.position + Vector3.up * 1.2f;
         Collider[] hits = Physics.OverlapSphere(origin + transform.forward * stats.range, stats.meleeRadius);
 
+        int attackerWpnLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.WeaponDamage) : 0;
+
         foreach (var hit in hits)
         {
             if (hit.gameObject == gameObject) continue;
 
+            // Combat Economy Check: Deal-granted weapons cannot harm monsters (warn once)
+            if (!CombatEconomyFilter.CanDealDamage(weaponOrigin, hit.gameObject))
+            {
+                if (IsOwner && !_hasWarnedMonsterDealWeapon)
+                {
+                    _hasWarnedMonsterDealWeapon = true;
+                    if (NotificationManager.Instance != null)
+                    {
+                        NotificationManager.Instance.ShowNotification("Pact weapon cannot harm cave monsters!", 3.5f);
+                    }
+                }
+                continue;
+            }
+
             if (hit.TryGetComponent<IDamageReceiver>(out var receiver))
             {
-                receiver.TakeDamage(stats.damage);
+                float finalDamage = CombatEconomyFilter.CalculateEffectiveDamage(stats.damage, attackerWpnLvl, 0, true);
+                receiver.TakeDamage(finalDamage);
+
+                // Log monster kill for Miner / weapon holder bonus
+                if (hit.CompareTag("Monster") && MatchEconomyManager.Instance != null)
+                {
+                    MatchEconomyManager.Instance.LogMonsterKill(OwnerClientId);
+                }
             }
         }
     }
@@ -482,11 +517,33 @@ public class InvestigatorCombatNet : NetworkBehaviour
         Vector3 rayOrigin = shootPoint != null ? shootPoint.position : transform.position + Vector3.up * 1.5f;
         Vector3 rayDir = transform.forward;
 
+        int attackerWpnLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.WeaponDamage) : 0;
+
         if (Physics.Raycast(rayOrigin, rayDir, out RaycastHit hit, stats.range))
         {
+            // Combat Economy Check: Deal-granted weapons cannot harm monsters (warn once)
+            if (!CombatEconomyFilter.CanDealDamage(weaponOrigin, hit.collider.gameObject))
+            {
+                if (IsOwner && !_hasWarnedMonsterDealWeapon)
+                {
+                    _hasWarnedMonsterDealWeapon = true;
+                    if (NotificationManager.Instance != null)
+                    {
+                        NotificationManager.Instance.ShowNotification("Pact weapon cannot harm cave monsters!", 3.5f);
+                    }
+                }
+                return;
+            }
+
             if (hit.collider.TryGetComponent<IDamageReceiver>(out var receiver))
             {
-                receiver.TakeDamage(stats.damage);
+                float finalDamage = CombatEconomyFilter.CalculateEffectiveDamage(stats.damage, attackerWpnLvl, 0, true);
+                receiver.TakeDamage(finalDamage);
+
+                if (hit.collider.CompareTag("Monster") && MatchEconomyManager.Instance != null)
+                {
+                    MatchEconomyManager.Instance.LogMonsterKill(OwnerClientId);
+                }
             }
         }
     }
