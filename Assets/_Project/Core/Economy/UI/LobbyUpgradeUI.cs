@@ -79,20 +79,14 @@ namespace NightCrawler.Economy.UI
 
         private void Start()
         {
-            if (CloudCharacterSaveManager.Instance != null)
-            {
-                CloudCharacterSaveManager.Instance.OnCreditsChanged += HandleCreditsChanged;
-                CloudCharacterSaveManager.Instance.OnProfileLoaded += RefreshUI;
-            }
+            CloudCharacterSaveManager.OnCreditsChanged += HandleCreditsChanged;
+            CloudCharacterSaveManager.OnProfileLoaded += HandleProfileLoaded;
         }
 
         private void OnDestroy()
         {
-            if (CloudCharacterSaveManager.Instance != null)
-            {
-                CloudCharacterSaveManager.Instance.OnCreditsChanged -= HandleCreditsChanged;
-                CloudCharacterSaveManager.Instance.OnProfileLoaded -= RefreshUI;
-            }
+            CloudCharacterSaveManager.OnCreditsChanged -= HandleCreditsChanged;
+            CloudCharacterSaveManager.OnProfileLoaded -= HandleProfileLoaded;
         }
 
         private void OnEnable()
@@ -101,6 +95,11 @@ namespace NightCrawler.Economy.UI
         }
 
         private void HandleCreditsChanged(int newBalance)
+        {
+            RefreshUI();
+        }
+
+        private void HandleProfileLoaded(PlayerProfileData profile)
         {
             RefreshUI();
         }
@@ -247,11 +246,10 @@ namespace NightCrawler.Economy.UI
         {
             if (CloudCharacterSaveManager.Instance == null) return;
 
-            if (CloudCharacterSaveManager.Instance.SpendCredits(cost))
+            if (CloudCharacterSaveManager.Instance.TryPurchaseUpgrade(stat))
             {
                 int currentLevel = CloudCharacterSaveManager.Instance.GetUpgradeLevel(stat);
-                CloudCharacterSaveManager.Instance.SetUpgradeLevel(stat, currentLevel + 1);
-                Debug.Log($"[LobbyUpgradeUI] Upgraded {stat} to Level {currentLevel + 1} for {cost} {CurrencyConfig.CurrencyName}!");
+                Debug.Log($"[LobbyUpgradeUI] Upgraded {stat} to Level {currentLevel} for {cost} {CurrencyConfig.CurrencyName}!");
                 RefreshUI();
             }
         }

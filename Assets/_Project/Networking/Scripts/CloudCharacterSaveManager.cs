@@ -114,6 +114,24 @@ public class CloudCharacterSaveManager : MonoBehaviour
     }
 
     /// <summary>
+    /// Spends/deducts credits from the persistent balance and saves.
+    /// </summary>
+    public bool SpendCredits(int amount)
+    {
+        return TryDeductCredits(amount);
+    }
+
+    /// <summary>
+    /// Sets the persistent upgrade level for a stat and saves.
+    /// </summary>
+    public void SetUpgradeLevel(UpgradeStatType stat, int level)
+    {
+        if (CurrentProfile == null || CurrentProfile.economy == null) return;
+        CurrentProfile.economy.SetLevel(stat, level);
+        _ = SaveProfileAsync(CurrentProfile);
+    }
+
+    /// <summary>
     /// Adds credits (e.g. match winnings, stake return, bonuses) to the persistent balance and saves.
     /// </summary>
     public void AddCredits(int amount)

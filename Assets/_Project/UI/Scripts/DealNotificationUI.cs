@@ -2,6 +2,8 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using UnityEngine.InputSystem;
+using NightCrawler.Economy;
+using NightCrawler.UI;
 
 /// <summary>
 /// SOLID — SRP: Displays an incoming dark deal proposal to an Investigator.

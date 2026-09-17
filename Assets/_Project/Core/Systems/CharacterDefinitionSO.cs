@@ -19,6 +19,7 @@ public class CharacterDefinitionSO : ScriptableObject
 
     [Header("Role")]
     public CharacterRole role = CharacterRole.Investigator;
+    public InvestigatorProfession profession = InvestigatorProfession.MineWorker;
 
     [Header("Visuals")]
     [Tooltip("The 3D prefab spawned for preview in the Character Select scene.")]
