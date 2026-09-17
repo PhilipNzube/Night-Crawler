@@ -84,8 +84,14 @@ public class LobbyCameraController : MonoBehaviour
     public float charSelectSwayAmplitude = 12f;
 
     [Header("Global Lens Settings")]
+    [Tooltip("Universal Near Clip Plane. Raising this (e.g. 0.3 - 0.5) significantly increases depth buffer precision and stops distant mesh flickering/Z-fighting.")]
+    public float nearClipPlane = 0.4f;
+
     [Tooltip("Universal Far Clip Plane applied across all virtual cameras and the Main Camera.")]
-    public float farClipPlane = 2500f;
+    public float farClipPlane = 1000f;
+
+    [Tooltip("Disable occlusion culling on the Main Camera in the lobby scene to prevent distant background models/trees popping in and out.")]
+    public bool disableOcclusionCullingInLobby = true;
 
     // =========================================================================
     //  Inspector — Squad Camera Settings
@@ -286,8 +292,8 @@ public class LobbyCameraController : MonoBehaviour
     }
 
     /// <summary>
-    /// Applies the configured Far Clip Plane across all lobby virtual cameras and Camera.main
-    /// to prevent Cinemachine from resetting the far view distance back to 500.
+    /// Applies configured Near/Far Clip Planes across all lobby virtual cameras and Camera.main
+    /// to prevent Cinemachine from resetting clipping and eliminate distant Z-fighting flickering.
     /// </summary>
     public void ApplyGlobalFarClip()
     {
@@ -298,7 +304,12 @@ public class LobbyCameraController : MonoBehaviour
         ApplyFarClipToCamera(girlCam);
         if (Camera.main != null)
         {
+            Camera.main.nearClipPlane = nearClipPlane;
             Camera.main.farClipPlane = farClipPlane;
+            if (disableOcclusionCullingInLobby)
+            {
+                Camera.main.useOcclusionCulling = false;
+            }
         }
     }
 
@@ -307,12 +318,18 @@ public class LobbyCameraController : MonoBehaviour
         if (cam != null)
         {
             var lens = cam.Lens;
+            lens.NearClipPlane = nearClipPlane;
             lens.FarClipPlane = farClipPlane;
             cam.Lens = lens;
         }
         if (Camera.main != null)
         {
+            Camera.main.nearClipPlane = nearClipPlane;
             Camera.main.farClipPlane = farClipPlane;
+            if (disableOcclusionCullingInLobby)
+            {
+                Camera.main.useOcclusionCulling = false;
+            }
         }
     }
 

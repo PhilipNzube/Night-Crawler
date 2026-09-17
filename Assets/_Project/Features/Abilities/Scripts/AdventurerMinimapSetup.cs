@@ -26,29 +26,46 @@ public class AdventurerMinimapSetup : MonoBehaviour
     [Tooltip("The root UI GameObject of the minimap (panel/canvas).")]
     public GameObject minimapRoot;
 
+    [Header("Minimap Camera & Heading Rotation")]
+    [Tooltip("If true, the minimap rotates with the player's facing direction (heading-up). If false, minimap stays fixed North-up.")]
+    public bool rotateMapWithPlayer = true;
+
+    [Tooltip("Height of the camera above the player's floor level inside mine tunnels.")]
+    [Range(2f, 25f)]
+    public float cameraHeightAbovePlayer = 7.0f;
+
+    [Tooltip("Zoom distance (orthographic half-size) of the minimap camera for underground tunnels.")]
+    [Range(5f, 60f)]
+    public float tunnelOrthographicSize = 20.0f;
+
     [Header("Player Marker Settings")]
     [Tooltip("Custom texture for the player icon. If left blank, a crisp directional arrow is auto-generated.")]
     public Texture playerMarkerTexture;
 
     [Tooltip("Tint color of the player marker.")]
-    public Color playerMarkerColor = new Color(0.2f, 0.95f, 0.3f, 1f); // Bright radar green
+    public Color playerMarkerColor = new Color(1f, 1f, 1f, 1f);
 
-    [Tooltip("Scale of the player marker quad.")]
-    public Vector3 markerScale = new Vector3(2.5f, 1f, 2.5f);
+    [Tooltip("Width of the player arrow on the minimap.")]
+    [Range(0.2f, 8f)]
+    public float markerWidth = 1.6f;
+
+    [Tooltip("Length of the player arrow on the minimap.")]
+    [Range(0.2f, 8f)]
+    public float markerLength = 2.2f;
+
+    [Tooltip("Rotation offset around Y in degrees. Default 90 aligns arrow pointing straight forward.")]
+    [Range(-180f, 180f)]
+    public float markerRotationOffset = 90f;
 
     [Tooltip("Height offset of the marker above the player.")]
+    [Range(0.5f, 10f)]
     public float markerHeightOffset = 2.2f;
-
-    [Header("Camera & View Tuning")]
-    [Tooltip("Height of the camera above the player's floor level inside mine tunnels.")]
-    public float cameraHeightAbovePlayer = 7.0f;
-
-    [Tooltip("Zoom distance (orthographic half-size) of the minimap camera for underground tunnels.")]
-    public float tunnelOrthographicSize = 20.0f;
 
     private CanvasGroup _canvasGroup;
     private Transform _currentFollowTarget;
     private GameObject _spawnedMarkerObj;
+    private GameObject _spawnedVisuals;
+    private Material _markerMaterial;
     private bool _previousFogState;
 
     private void Awake()
@@ -132,6 +149,7 @@ public class AdventurerMinimapSetup : MonoBehaviour
     {
         if (aaMinimapManager == null) return;
 
+        aaMinimapManager.rotateWithTarget = rotateMapWithPlayer;
         aaMinimapManager.clearFlags = AAMAP.MinimapClearFlags.SolidColor;
         aaMinimapManager.backgroundColor = Color.black;
         aaMinimapManager.nearClippingPlane = 0.1f;
@@ -195,12 +213,73 @@ public class AdventurerMinimapSetup : MonoBehaviour
 
     private void LateUpdate()
     {
-        // Keep the minimap camera at a consistent height relative to the player inside underground tunnels
+        // Keep the minimap camera positioned above the player and update rotation
         if (_currentFollowTarget != null && aaMinimapManager != null && aaMinimapManager.minimapCamera != null)
         {
-            Vector3 camPos = aaMinimapManager.minimapCamera.transform.position;
-            camPos.y = _currentFollowTarget.position.y + cameraHeightAbovePlayer;
+            Vector3 camPos = _currentFollowTarget.position;
+            camPos.y += cameraHeightAbovePlayer;
             aaMinimapManager.minimapCamera.transform.position = camPos;
+
+            if (rotateMapWithPlayer)
+            {
+                aaMinimapManager.rotateWithTarget = true;
+                aaMinimapManager.minimapCamera.transform.rotation = Quaternion.Euler(90f, _currentFollowTarget.eulerAngles.y, 0f);
+            }
+            else
+            {
+                aaMinimapManager.rotateWithTarget = false;
+                aaMinimapManager.minimapCamera.transform.rotation = Quaternion.Euler(90f, 0f, 0f);
+            }
+        }
+
+        UpdateMarkerTransform();
+    }
+
+    private void OnValidate()
+    {
+        UpdateMarkerTransform();
+        ConfigureMinimapCamera();
+    }
+
+    /// <summary>
+    /// Updates the player marker's position, rotation, scale, and material live in real-time.
+    /// Called every frame in LateUpdate and on Inspector changes in OnValidate.
+    /// </summary>
+    public void UpdateMarkerTransform()
+    {
+        if (_spawnedMarkerObj == null) return;
+
+        _spawnedMarkerObj.transform.localPosition = new Vector3(0f, markerHeightOffset, 0f);
+        _spawnedMarkerObj.transform.localRotation = Quaternion.identity;
+        _spawnedMarkerObj.transform.localScale = Vector3.one;
+
+        if (_spawnedVisuals == null)
+        {
+            Transform v = _spawnedMarkerObj.transform.Find("Visuals");
+            if (v != null) _spawnedVisuals = v.gameObject;
+        }
+
+        if (_spawnedVisuals != null)
+        {
+            _spawnedVisuals.transform.localPosition = Vector3.zero;
+            _spawnedVisuals.transform.localRotation = Quaternion.Euler(90f, markerRotationOffset, 0f);
+            _spawnedVisuals.transform.localScale = new Vector3(markerWidth, markerLength, 1f);
+
+            if (_markerMaterial == null)
+            {
+                var mr = _spawnedVisuals.GetComponent<MeshRenderer>();
+                if (mr != null) _markerMaterial = mr.material;
+            }
+
+            if (_markerMaterial != null)
+            {
+                if (_markerMaterial.HasProperty("_BaseColor")) _markerMaterial.SetColor("_BaseColor", playerMarkerColor);
+                if (_markerMaterial.HasProperty("_Color")) _markerMaterial.SetColor("_Color", playerMarkerColor);
+
+                Texture iconTex = playerMarkerTexture != null ? playerMarkerTexture : CreateDefaultArrowTexture();
+                if (_markerMaterial.HasProperty("_BaseMap")) _markerMaterial.SetTexture("_BaseMap", iconTex);
+                if (_markerMaterial.HasProperty("_MainTex")) _markerMaterial.SetTexture("_MainTex", iconTex);
+            }
         }
     }
 
@@ -318,6 +397,14 @@ public class AdventurerMinimapSetup : MonoBehaviour
         if (existingMarker != null)
         {
             _spawnedMarkerObj = existingMarker.gameObject;
+
+            // Remove any legacy MapIcon script that might hijack world rotation
+            var oldMapIcon = _spawnedMarkerObj.GetComponent<AAMAP.MapIcon>();
+            if (oldMapIcon != null) Destroy(oldMapIcon);
+
+            Transform v = _spawnedMarkerObj.transform.Find("Visuals");
+            if (v != null) _spawnedVisuals = v.gameObject;
+
             if (minimapLayer != -1)
             {
                 _spawnedMarkerObj.layer = minimapLayer;
@@ -327,6 +414,7 @@ public class AdventurerMinimapSetup : MonoBehaviour
                 }
             }
             _spawnedMarkerObj.SetActive(true);
+            UpdateMarkerTransform();
             ExcludeMinimapLayerFromPlayerCameras(playerObj, minimapLayer);
             return;
         }
@@ -335,25 +423,27 @@ public class AdventurerMinimapSetup : MonoBehaviour
         _spawnedMarkerObj = new GameObject("Map Icon");
         _spawnedMarkerObj.transform.SetParent(playerObj.transform, false);
         _spawnedMarkerObj.transform.localPosition = new Vector3(0f, markerHeightOffset, 0f);
+        _spawnedMarkerObj.transform.localRotation = Quaternion.identity;
+        _spawnedMarkerObj.transform.localScale = Vector3.one;
         if (minimapLayer != -1)
         {
             _spawnedMarkerObj.layer = minimapLayer;
         }
 
         // Create Quad visual laying flat facing up towards camera (+Y), with texture pointing forward (+Z)
-        GameObject visuals = GameObject.CreatePrimitive(PrimitiveType.Quad);
-        visuals.name = "Visuals";
-        visuals.transform.SetParent(_spawnedMarkerObj.transform, false);
-        visuals.transform.localPosition = Vector3.zero;
-        visuals.transform.localRotation = Quaternion.Euler(90f, 180f, 0f);
-        visuals.transform.localScale = markerScale;
+        _spawnedVisuals = GameObject.CreatePrimitive(PrimitiveType.Quad);
+        _spawnedVisuals.name = "Visuals";
+        _spawnedVisuals.transform.SetParent(_spawnedMarkerObj.transform, false);
+        _spawnedVisuals.transform.localPosition = Vector3.zero;
+        _spawnedVisuals.transform.localRotation = Quaternion.Euler(90f, markerRotationOffset, 0f);
+        _spawnedVisuals.transform.localScale = new Vector3(markerWidth, markerLength, 1f);
         if (minimapLayer != -1)
         {
-            visuals.layer = minimapLayer;
+            _spawnedVisuals.layer = minimapLayer;
         }
 
         // Remove collider
-        var collider = visuals.GetComponent<Collider>();
+        var collider = _spawnedVisuals.GetComponent<Collider>();
         if (collider != null) Destroy(collider);
 
         // Prepare texture
@@ -361,36 +451,38 @@ public class AdventurerMinimapSetup : MonoBehaviour
         Texture iconTex = isCustomTexture ? playerMarkerTexture : CreateDefaultArrowTexture();
         Color tint = playerMarkerColor;
 
-        // Create Unlit material with alpha transparency (never pink, never pitch black)
-        Shader shader = Shader.Find("Universal Render Pipeline/Unlit");
-        if (shader == null) shader = Shader.Find("Sprites/Default");
+        // Create transparent unlit material (eliminates solid rectangle background around arrow)
+        Shader shader = Shader.Find("Sprites/Default");
+        if (shader == null) shader = Shader.Find("Universal Render Pipeline/Unlit");
         if (shader == null) shader = Shader.Find("Unlit/Transparent");
 
-        Material iconMat = new Material(shader);
-        if (iconMat.HasProperty("_BaseMap")) iconMat.SetTexture("_BaseMap", iconTex);
-        if (iconMat.HasProperty("_MainTex")) iconMat.SetTexture("_MainTex", iconTex);
-        if (iconMat.HasProperty("_BaseColor")) iconMat.SetColor("_BaseColor", tint);
-        if (iconMat.HasProperty("_Color")) iconMat.SetColor("_Color", tint);
+        _markerMaterial = new Material(shader);
+        if (_markerMaterial.HasProperty("_Surface"))
+        {
+            _markerMaterial.SetFloat("_Surface", 1f); // 1 = Transparent
+            _markerMaterial.SetFloat("_Blend", 0f);   // 0 = Alpha
+            _markerMaterial.SetInt("_SrcBlend", (int)UnityEngine.Rendering.BlendMode.SrcAlpha);
+            _markerMaterial.SetInt("_DstBlend", (int)UnityEngine.Rendering.BlendMode.OneMinusSrcAlpha);
+            _markerMaterial.SetInt("_ZWrite", 0);
+            _markerMaterial.EnableKeyword("_SURFACE_TYPE_TRANSPARENT");
+            _markerMaterial.renderQueue = (int)UnityEngine.Rendering.RenderQueue.Transparent;
+        }
 
-        var mr = visuals.GetComponent<MeshRenderer>();
+        if (_markerMaterial.HasProperty("_BaseMap")) _markerMaterial.SetTexture("_BaseMap", iconTex);
+        if (_markerMaterial.HasProperty("_MainTex")) _markerMaterial.SetTexture("_MainTex", iconTex);
+        if (_markerMaterial.HasProperty("_BaseColor")) _markerMaterial.SetColor("_BaseColor", tint);
+        if (_markerMaterial.HasProperty("_Color")) _markerMaterial.SetColor("_Color", tint);
+
+        var mr = _spawnedVisuals.GetComponent<MeshRenderer>();
         if (mr != null)
         {
-            mr.material = iconMat;
+            mr.material = _markerMaterial;
             mr.shadowCastingMode = UnityEngine.Rendering.ShadowCastingMode.Off;
             mr.receiveShadows = false;
         }
 
-        // Attach AAMAP MapIcon component for compatibility
-        var mapIcon = _spawnedMarkerObj.AddComponent<AAMAP.MapIcon>();
-        mapIcon.iconOffset = new Vector3(0f, markerHeightOffset, 0f);
-        mapIcon.iconScale = markerScale;
-        mapIcon.iconColor = playerMarkerColor;
-        mapIcon.iconTexture = iconTex;
-        mapIcon.rotateWithCamera = false; // Marker rotates with player's actual facing direction!
-        if (aaMinimapManager != null && aaMinimapManager.minimapCamera != null)
-        {
-            mapIcon.minimapCamera = aaMinimapManager.minimapCamera;
-        }
+        // Apply any real-time adjustments
+        UpdateMarkerTransform();
 
         // Ensure main cameras never render the floating marker in the 3D scene
         ExcludeMinimapLayerFromPlayerCameras(playerObj, minimapLayer);
