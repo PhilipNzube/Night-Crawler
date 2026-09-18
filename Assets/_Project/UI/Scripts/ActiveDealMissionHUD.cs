@@ -5,6 +5,7 @@ using UnityEngine.UI;
 using TMPro;
 using Unity.Netcode;
 using NightCrawler.Economy;
+using Michsky.UI.Heat;
 
 namespace NightCrawler.UI
 {
@@ -24,6 +25,9 @@ namespace NightCrawler.UI
         public TextMeshProUGUI missionTimerText;
         public TextMeshProUGUI penaltyWarningText;
         public Slider timeProgressBar;
+
+        [Header("Michsky Heat / Dark UI")]
+        public ProgressBar heatProgressBar;
 
         [Header("Audio Feedback")]
         public AudioClip urgentTickSound;
@@ -67,9 +71,9 @@ namespace NightCrawler.UI
 
             _timeRemaining -= Time.deltaTime;
 
-            if (timeProgressBar != null && _totalDuration > 0f)
+            if (_totalDuration > 0f)
             {
-                timeProgressBar.value = Mathf.Clamp01(_timeRemaining / _totalDuration);
+                MichskyUIBridge.SetProgress(timeProgressBar, heatProgressBar, Mathf.Clamp01(_timeRemaining / _totalDuration), 1f);
             }
 
             if (missionTimerText != null)

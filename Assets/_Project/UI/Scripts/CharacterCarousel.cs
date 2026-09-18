@@ -84,6 +84,13 @@ public class CharacterCarousel : MonoBehaviour
     [Tooltip("UI Button to scroll to the next character (right).")]
     public Button scrollButtonRight;
 
+    [Header("Michsky Heat / Dark UI")]
+    [Tooltip("Optional: Michsky ButtonManager to scroll left.")]
+    public Michsky.UI.Heat.ButtonManager heatScrollButtonLeft;
+
+    [Tooltip("Optional: Michsky ButtonManager to scroll right.")]
+    public Michsky.UI.Heat.ButtonManager heatScrollButtonRight;
+
     // =========================================================================
     //  Inspector — Notification
     // =========================================================================
@@ -111,8 +118,8 @@ public class CharacterCarousel : MonoBehaviour
 
     void Awake()
     {
-        if (scrollButtonLeft  != null) scrollButtonLeft.onClick.AddListener(ScrollLeft);
-        if (scrollButtonRight != null) scrollButtonRight.onClick.AddListener(ScrollRight);
+        NightCrawler.UI.MichskyUIBridge.BindButton(scrollButtonLeft, heatScrollButtonLeft, ScrollLeft);
+        NightCrawler.UI.MichskyUIBridge.BindButton(scrollButtonRight, heatScrollButtonRight, ScrollRight);
     }
 
     void OnEnable()

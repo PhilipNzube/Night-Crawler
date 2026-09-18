@@ -60,6 +60,13 @@ public class SpectatorController : MonoBehaviour
     public TMP_Text customSurvivorsCountText;
     public TMP_Text customToastText;
 
+    [Header("Michsky Heat / Dark UI")]
+    [Tooltip("Optional: Michsky ProgressBar to display spectated player's health.")]
+    public Michsky.UI.Heat.ProgressBar heatHealthProgressBar;
+
+    [Tooltip("Optional: Michsky SliderManager to display spectated player's health.")]
+    public Michsky.UI.Heat.SliderManager heatHealthSlider;
+
     // Runtime state
     private bool _isSpectating = false;
     public bool IsSpectating => _isSpectating;
@@ -587,6 +594,8 @@ public class SpectatorController : MonoBehaviour
             {
                 customHealthSlider.value = hpPercent;
             }
+            NightCrawler.UI.MichskyUIBridge.SetProgress(heatHealthProgressBar, hpPercent);
+            NightCrawler.UI.MichskyUIBridge.SetSliderValue(heatHealthSlider, hpPercent);
         }
         else
         {
@@ -598,6 +607,8 @@ public class SpectatorController : MonoBehaviour
             if (_healthReadoutText != null) _healthReadoutText.text = "Awaiting match outcome...";
             if (_healthFillImage != null) _healthFillImage.fillAmount = 0f;
             if (customHealthSlider != null) customHealthSlider.value = 0f;
+            NightCrawler.UI.MichskyUIBridge.SetProgress(heatHealthProgressBar, 0f);
+            NightCrawler.UI.MichskyUIBridge.SetSliderValue(heatHealthSlider, 0f);
         }
     }
 

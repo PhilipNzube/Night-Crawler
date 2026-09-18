@@ -47,6 +47,9 @@ public class NotificationManager : MonoBehaviour
     [Tooltip("Accent indicator line.")]
     public Image accentBar;
 
+    [Header("Michsky Heat / Dark UI")]
+    public Michsky.UI.Heat.NotificationManager heatNotification;
+
     [Header("Audio (Optional)")]
     public AudioClip hazardSound;
     public AudioClip criticalHealthSound;
@@ -135,6 +138,14 @@ public class NotificationManager : MonoBehaviour
 
     public void ShowStyledWarning(string badge, string message, Color accentColor, float duration, AudioClip sound = null, bool isPulsing = false)
     {
+        if (heatNotification != null)
+        {
+            heatNotification.notificationText = $"{badge}\n{message}";
+            heatNotification.minimizeAfter = duration;
+            heatNotification.UpdateUI();
+            heatNotification.OpenNotification();
+        }
+
         if (_displayCoroutine != null)
         {
             StopCoroutine(_displayCoroutine);

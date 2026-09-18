@@ -45,6 +45,10 @@ public class DeathUI : MonoBehaviour
     [Tooltip("Optional prompt element on death screen showing '[SPACE / CLICK] Spectate Survivors'.")]
     public TMP_Text spectatePromptText;
 
+    [Header("Michsky Heat / Dark UI")]
+    [Tooltip("Optional: ModalWindowManager to display death screen dialog.")]
+    public Michsky.UI.Heat.ModalWindowManager heatModalWindow;
+
     [Header("Optional Ally Death Banner (Other Players)")]
     [Tooltip("Banner displayed when a teammate dies.")]
     public GameObject allyDeathBanner;
@@ -157,6 +161,8 @@ public class DeathUI : MonoBehaviour
         if (deathPanel != null) deathPanel.SetActive(true);
         if (titleText != null) titleText.text = title;
 
+        NightCrawler.UI.MichskyUIBridge.OpenModal(heatModalWindow);
+
         if (spectatePromptText != null)
         {
             if (subtitleText != null) subtitleText.text = subtitle;
@@ -199,6 +205,8 @@ public class DeathUI : MonoBehaviour
         {
             deathPanel.SetActive(false);
         }
+
+        NightCrawler.UI.MichskyUIBridge.CloseModal(heatModalWindow);
     }
 
     private IEnumerator FadeInDeathScreenRoutine()

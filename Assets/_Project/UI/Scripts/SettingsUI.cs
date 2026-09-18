@@ -2,6 +2,8 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using System.Collections.Generic;
+using Michsky.UI.Heat;
+using NightCrawler.UI;
 
 /// <summary>
 /// SOLID — SRP: Settings UI Presenter, fully adapted to SlimUI Modern Menu 1.
@@ -161,6 +163,20 @@ public class SettingsUI : MonoBehaviour
     public Slider mouseSmoothSlider;
 
     // =========================================================================
+    //  Michsky Heat / Dark UI Components
+    // =========================================================================
+    [Header("Michsky Heat / Dark UI Sliders")]
+    public SliderManager heatMusicSlider;
+    public SliderManager heatSfxVolumeSlider;
+    public SliderManager heatMasterVolumeSlider;
+    public SliderManager heatSensitivityXSlider;
+    public SliderManager heatSensitivityYSlider;
+    public SliderManager heatMouseSmoothSlider;
+
+    [Header("Michsky Heat / Dark UI Navigation")]
+    public ButtonManager heatReturnButton;
+
+    // =========================================================================
     //  SlimUI Video Toggle Texts (TMP_Text components on toggle labels)
     // =========================================================================
 
@@ -239,6 +255,7 @@ public class SettingsUI : MonoBehaviour
     private void Awake()
     {
         _pauseUI = FindFirstObjectByType<PauseUI>();
+        MichskyUIBridge.BindButton(null, heatReturnButton, ReturnToPauseMenu);
         BindSliderEvents();
     }
 
@@ -448,75 +465,68 @@ public class SettingsUI : MonoBehaviour
     private void BindSliderEvents()
     {
         // Music Volume → AudioListener.volume via GameSettingsManager.musicVolume
-        if (musicSlider != null)
+        System.Action<float> onMusic = v =>
         {
-            musicSlider.onValueChanged.AddListener(v =>
-            {
-                GameSettingsManager gsm = GameSettingsManager.Instance;
-                if (gsm == null) return;
-                gsm.musicVolume = v;
-                // Apply immediately so user hears the change live
-                gsm.ApplySettings();
-                PlayerPrefs.SetFloat("MusicVolume", v);
-            });
-        }
+            GameSettingsManager gsm = GameSettingsManager.Instance;
+            if (gsm == null) return;
+            gsm.musicVolume = v;
+            gsm.ApplySettings();
+            PlayerPrefs.SetFloat("MusicVolume", v);
+        };
+        if (musicSlider != null) musicSlider.onValueChanged.AddListener(v => onMusic(v));
+        if (heatMusicSlider != null) heatMusicSlider.onValueChanged.AddListener(v => onMusic(v));
 
         // SFX Volume (only if you added the slider — safe to leave empty)
-        if (sfxVolumeSlider != null)
+        System.Action<float> onSfx = v =>
         {
-            sfxVolumeSlider.onValueChanged.AddListener(v =>
-            {
-                GameSettingsManager gsm = GameSettingsManager.Instance;
-                if (gsm == null) return;
-                gsm.sfxVolume = v;
-                gsm.ApplySettings();
-                PlayerPrefs.SetFloat("SFXVolume", v);
-            });
-        }
+            GameSettingsManager gsm = GameSettingsManager.Instance;
+            if (gsm == null) return;
+            gsm.sfxVolume = v;
+            gsm.ApplySettings();
+            PlayerPrefs.SetFloat("SFXVolume", v);
+        };
+        if (sfxVolumeSlider != null) sfxVolumeSlider.onValueChanged.AddListener(v => onSfx(v));
+        if (heatSfxVolumeSlider != null) heatSfxVolumeSlider.onValueChanged.AddListener(v => onSfx(v));
 
         // Master Volume (only if you added the slider)
-        if (masterVolumeSlider != null)
+        System.Action<float> onMaster = v =>
         {
-            masterVolumeSlider.onValueChanged.AddListener(v =>
-            {
-                GameSettingsManager gsm = GameSettingsManager.Instance;
-                if (gsm == null) return;
-                gsm.masterVolume = v;
-                AudioListener.volume = v; // Apply live immediately
-                PlayerPrefs.SetFloat("MasterVolume", v);
-            });
-        }
+            GameSettingsManager gsm = GameSettingsManager.Instance;
+            if (gsm == null) return;
+            gsm.masterVolume = v;
+            AudioListener.volume = v; // Apply live immediately
+            PlayerPrefs.SetFloat("MasterVolume", v);
+        };
+        if (masterVolumeSlider != null) masterVolumeSlider.onValueChanged.AddListener(v => onMaster(v));
+        if (heatMasterVolumeSlider != null) heatMasterVolumeSlider.onValueChanged.AddListener(v => onMaster(v));
 
         // Sensitivity X
-        if (sensitivityXSlider != null)
+        System.Action<float> onSensX = v =>
         {
-            sensitivityXSlider.onValueChanged.AddListener(v =>
-            {
-                GameSettingsManager gsm = GameSettingsManager.Instance;
-                if (gsm != null) { gsm.mouseSensitivity = v; gsm.SaveSettings(); }
-                PlayerPrefs.SetFloat("XSensitivity", v);
-            });
-        }
+            GameSettingsManager gsm = GameSettingsManager.Instance;
+            if (gsm != null) { gsm.mouseSensitivity = v; gsm.SaveSettings(); }
+            PlayerPrefs.SetFloat("XSensitivity", v);
+        };
+        if (sensitivityXSlider != null) sensitivityXSlider.onValueChanged.AddListener(v => onSensX(v));
+        if (heatSensitivityXSlider != null) heatSensitivityXSlider.onValueChanged.AddListener(v => onSensX(v));
 
         // Sensitivity Y
-        if (sensitivityYSlider != null)
+        System.Action<float> onSensY = v =>
         {
-            sensitivityYSlider.onValueChanged.AddListener(v =>
-            {
-                GameSettingsManager gsm = GameSettingsManager.Instance;
-                if (gsm != null) { gsm.mouseSensitivity = v; gsm.SaveSettings(); }
-                PlayerPrefs.SetFloat("YSensitivity", v);
-            });
-        }
+            GameSettingsManager gsm = GameSettingsManager.Instance;
+            if (gsm != null) { gsm.mouseSensitivity = v; gsm.SaveSettings(); }
+            PlayerPrefs.SetFloat("YSensitivity", v);
+        };
+        if (sensitivityYSlider != null) sensitivityYSlider.onValueChanged.AddListener(v => onSensY(v));
+        if (heatSensitivityYSlider != null) heatSensitivityYSlider.onValueChanged.AddListener(v => onSensY(v));
 
         // Mouse Smooth
-        if (mouseSmoothSlider != null)
+        System.Action<float> onSmooth = v =>
         {
-            mouseSmoothSlider.onValueChanged.AddListener(v =>
-            {
-                PlayerPrefs.SetFloat("MouseSmoothing", v);
-            });
-        }
+            PlayerPrefs.SetFloat("MouseSmoothing", v);
+        };
+        if (mouseSmoothSlider != null) mouseSmoothSlider.onValueChanged.AddListener(v => onSmooth(v));
+        if (heatMouseSmoothSlider != null) heatMouseSmoothSlider.onValueChanged.AddListener(v => onSmooth(v));
     }
 
     // =========================================================================
@@ -528,12 +538,19 @@ public class SettingsUI : MonoBehaviour
         GameSettingsManager gsm = GameSettingsManager.Instance;
 
         // Sliders
-        if (musicSlider        != null) musicSlider.value        = PlayerPrefs.GetFloat("MusicVolume", gsm != null ? gsm.musicVolume : 0.8f);
-        if (sfxVolumeSlider    != null) sfxVolumeSlider.value    = PlayerPrefs.GetFloat("SFXVolume",   gsm != null ? gsm.sfxVolume   : 1.0f);
-        if (masterVolumeSlider != null) masterVolumeSlider.value  = gsm != null ? gsm.masterVolume : 1.0f;
-        if (sensitivityXSlider != null) sensitivityXSlider.value  = PlayerPrefs.GetFloat("XSensitivity", gsm != null ? gsm.mouseSensitivity : 1f);
-        if (sensitivityYSlider != null) sensitivityYSlider.value  = PlayerPrefs.GetFloat("YSensitivity", gsm != null ? gsm.mouseSensitivity : 1f);
-        if (mouseSmoothSlider  != null) mouseSmoothSlider.value   = PlayerPrefs.GetFloat("MouseSmoothing", 0.5f);
+        float musicVal = PlayerPrefs.GetFloat("MusicVolume", gsm != null ? gsm.musicVolume : 0.8f);
+        float sfxVal = PlayerPrefs.GetFloat("SFXVolume", gsm != null ? gsm.sfxVolume : 1.0f);
+        float masterVal = gsm != null ? gsm.masterVolume : 1.0f;
+        float sensXVal = PlayerPrefs.GetFloat("XSensitivity", gsm != null ? gsm.mouseSensitivity : 1f);
+        float sensYVal = PlayerPrefs.GetFloat("YSensitivity", gsm != null ? gsm.mouseSensitivity : 1f);
+        float smoothVal = PlayerPrefs.GetFloat("MouseSmoothing", 0.5f);
+
+        MichskyUIBridge.SetSliderValue(musicSlider, heatMusicSlider, musicVal);
+        MichskyUIBridge.SetSliderValue(sfxVolumeSlider, heatSfxVolumeSlider, sfxVal);
+        MichskyUIBridge.SetSliderValue(masterVolumeSlider, heatMasterVolumeSlider, masterVal);
+        MichskyUIBridge.SetSliderValue(sensitivityXSlider, heatSensitivityXSlider, sensXVal);
+        MichskyUIBridge.SetSliderValue(sensitivityYSlider, heatSensitivityYSlider, sensYVal);
+        MichskyUIBridge.SetSliderValue(mouseSmoothSlider, heatMouseSmoothSlider, smoothVal);
 
         // Fullscreen
         if (fullscreentext != null)

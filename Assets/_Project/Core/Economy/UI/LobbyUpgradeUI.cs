@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using Michsky.UI.Heat;
+using NightCrawler.UI;
 
 namespace NightCrawler.Economy.UI
 {
@@ -30,11 +32,18 @@ namespace NightCrawler.Economy.UI
         [Tooltip("The root modal panel GameObject. Can be toggled open/closed.")]
         public GameObject panelRoot;
 
+        [Tooltip("Michsky Heat / Dark Modal Window Manager")]
+        public ModalWindowManager heatModalWindow;
+
         [Tooltip("Button used to open this upgrade panel.")]
         public Button openButton;
+        [Tooltip("Michsky Heat / Dark Button to open this panel.")]
+        public ButtonManager heatOpenButton;
 
         [Tooltip("Button used to close this upgrade panel.")]
         public Button closeButton;
+        [Tooltip("Michsky Heat / Dark Button to close this panel.")]
+        public ButtonManager heatCloseButton;
 
         [Tooltip("Header title text.")]
         public TextMeshProUGUI titleText;
@@ -71,8 +80,8 @@ namespace NightCrawler.Economy.UI
 
         private void Awake()
         {
-            if (openButton != null) openButton.onClick.AddListener(OpenPanel);
-            if (closeButton != null) closeButton.onClick.AddListener(ClosePanel);
+            MichskyUIBridge.BindButton(openButton, heatOpenButton, OpenPanel);
+            MichskyUIBridge.BindButton(closeButton, heatCloseButton, ClosePanel);
 
             if (panelRoot == null) panelRoot = gameObject;
         }
@@ -106,12 +115,14 @@ namespace NightCrawler.Economy.UI
 
         public void OpenPanel()
         {
+            if (heatModalWindow != null) heatModalWindow.OpenWindow();
             if (panelRoot != null) panelRoot.SetActive(true);
             RefreshUI();
         }
 
         public void ClosePanel()
         {
+            if (heatModalWindow != null) heatModalWindow.CloseWindow();
             if (panelRoot != null) panelRoot.SetActive(false);
         }
 

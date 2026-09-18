@@ -4,6 +4,8 @@ using TMPro;
 using System.Collections;
 using System.Collections.Generic;
 using NightCrawler.Economy;
+using Michsky.UI.Heat;
+using NightCrawler.UI;
 
 /// <summary>
 /// SOLID — SRP: The exclusive cinematic screen shown only to the player chosen
@@ -53,6 +55,8 @@ public class GirlPlayerScreen : MonoBehaviour
     [Header("Match Stake (Lobby Staking)")]
     [Tooltip("Input field where the Girl player enters her match stake. READY button remains disabled until valid stake is entered.")]
     public TMP_InputField stakeInputField;
+    [Tooltip("Michsky Heat/Dark UI Input Field for staking.")]
+    public InputFieldManager heatStakeInputField;
 
     [Tooltip("Text displaying stake validation errors (e.g. empty or less than minimum).")]
     public TextMeshProUGUI stakeErrorText;
@@ -63,6 +67,8 @@ public class GirlPlayerScreen : MonoBehaviour
     [Header("The Girl Persistent Upgrades")]
     [Tooltip("Button to open the Vengeful Spirit Upgrades panel.")]
     public Button openUpgradesButton;
+    [Tooltip("Michsky Heat/Dark UI Button to open the Vengeful Spirit Upgrades panel.")]
+    public ButtonManager heatOpenUpgradesButton;
 
     [Tooltip("Reference to the Vengeful Spirit Upgrades panel GameObject.")]
     public GameObject upgradePanel;
@@ -73,6 +79,8 @@ public class GirlPlayerScreen : MonoBehaviour
     [Header("UI — Ready Button")]
     [Tooltip("Button the girl presses when she is ready for the game to start.")]
     public Button readyButton;
+    [Tooltip("Michsky Heat/Dark UI Button for Ready.")]
+    public ButtonManager heatReadyButton;
 
     [Tooltip("Seconds after Show() before the READY button appears.")]
     public float readyButtonDelay = 3.5f;
@@ -103,11 +111,7 @@ public class GirlPlayerScreen : MonoBehaviour
         if (girlScreenPanel == null)
             girlScreenPanel = gameObject;
 
-        if (readyButton != null)
-        {
-            readyButton.onClick.RemoveAllListeners();
-            readyButton.onClick.AddListener(OnReadyPressed);
-        }
+        MichskyUIBridge.BindButton(readyButton, heatReadyButton, OnReadyPressed);
     }
 
     void OnEnable()
@@ -160,13 +164,10 @@ public class GirlPlayerScreen : MonoBehaviour
 
     private void SetupStakingAndUpgrades()
     {
-        if (stakeInputField != null)
-        {
-            stakeInputField.gameObject.SetActive(true);
-            stakeInputField.onValueChanged.RemoveAllListeners();
-            stakeInputField.onValueChanged.AddListener(_ => ValidateStake());
-            stakeInputField.text = ""; // Force user to enter stake
-        }
+        if (stakeInputField != null) stakeInputField.gameObject.SetActive(true);
+        if (heatStakeInputField != null) heatStakeInputField.gameObject.SetActive(true);
+        MichskyUIBridge.BindInputField(stakeInputField, heatStakeInputField, _ => ValidateStake());
+        MichskyUIBridge.SetInputText(stakeInputField, heatStakeInputField, "");
 
         if (creditBalanceText != null)
         {
@@ -175,40 +176,38 @@ public class GirlPlayerScreen : MonoBehaviour
             creditBalanceText.text = $"Credits: {credits} {CurrencyConfig.CurrencySymbol}";
         }
 
-        if (openUpgradesButton != null)
+        if (openUpgradesButton != null) openUpgradesButton.gameObject.SetActive(true);
+        if (heatOpenUpgradesButton != null) heatOpenUpgradesButton.gameObject.SetActive(true);
+
+        MichskyUIBridge.BindButton(openUpgradesButton, heatOpenUpgradesButton, () =>
         {
-            openUpgradesButton.gameObject.SetActive(true);
             if (upgradePanel != null)
             {
-                openUpgradesButton.onClick.RemoveAllListeners();
-                openUpgradesButton.onClick.AddListener(() =>
+                upgradePanel.SetActive(!upgradePanel.activeSelf);
+                if (creditBalanceText != null && CloudCharacterSaveManager.Instance != null)
                 {
-                    upgradePanel.SetActive(!upgradePanel.activeSelf);
-                    if (creditBalanceText != null && CloudCharacterSaveManager.Instance != null)
-                    {
-                        creditBalanceText.text = $"Credits: {CloudCharacterSaveManager.Instance.CurrentCredits} {CurrencyConfig.CurrencySymbol}";
-                    }
-                });
+                    creditBalanceText.text = $"Credits: {CloudCharacterSaveManager.Instance.CurrentCredits} {CurrencyConfig.CurrencySymbol}";
+                }
             }
-        }
+        });
 
         ValidateStake();
     }
 
     public bool ValidateStake()
     {
-        if (readyButton == null) return true;
+        if (readyButton == null && heatReadyButton == null) return true;
 
-        if (stakeInputField == null)
+        if (stakeInputField == null && heatStakeInputField == null)
         {
             // If inspector reference not assigned, keep readyButton interactable once delay passes
             return true;
         }
 
-        string raw = stakeInputField.text.Trim();
+        string raw = MichskyUIBridge.GetInputText(stakeInputField, heatStakeInputField).Trim();
         if (string.IsNullOrEmpty(raw))
         {
-            readyButton.interactable = false;
+            MichskyUIBridge.SetButtonInteractable(readyButton, heatReadyButton, false);
             if (stakeErrorText != null)
             {
                 stakeErrorText.gameObject.SetActive(true);
@@ -219,7 +218,7 @@ public class GirlPlayerScreen : MonoBehaviour
 
         if (!int.TryParse(raw, out int stake))
         {
-            readyButton.interactable = false;
+            MichskyUIBridge.SetButtonInteractable(readyButton, heatReadyButton, false);
             if (stakeErrorText != null)
             {
                 stakeErrorText.gameObject.SetActive(true);
@@ -230,7 +229,7 @@ public class GirlPlayerScreen : MonoBehaviour
 
         if (stake < CurrencyConfig.MinimumStake)
         {
-            readyButton.interactable = false;
+            MichskyUIBridge.SetButtonInteractable(readyButton, heatReadyButton, false);
             if (stakeErrorText != null)
             {
                 stakeErrorText.gameObject.SetActive(true);
@@ -242,7 +241,7 @@ public class GirlPlayerScreen : MonoBehaviour
         int currentCredits = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
         if (stake > currentCredits)
         {
-            readyButton.interactable = false;
+            MichskyUIBridge.SetButtonInteractable(readyButton, heatReadyButton, false);
             if (stakeErrorText != null)
             {
                 stakeErrorText.gameObject.SetActive(true);
@@ -252,7 +251,7 @@ public class GirlPlayerScreen : MonoBehaviour
         }
 
         // All checks passed!
-        readyButton.interactable = true;
+        MichskyUIBridge.SetButtonInteractable(readyButton, heatReadyButton, true);
         if (stakeErrorText != null)
         {
             stakeErrorText.text = "";
@@ -345,12 +344,11 @@ public class GirlPlayerScreen : MonoBehaviour
     private IEnumerator EnableReadyButtonAfterDelay()
     {
         if (readyButton != null) readyButton.gameObject.SetActive(false);
+        if (heatReadyButton != null) heatReadyButton.gameObject.SetActive(false);
         yield return new WaitForSecondsRealtime(readyButtonDelay);
-        if (readyButton != null)
-        {
-            readyButton.gameObject.SetActive(true);
-            ValidateStake();
-        }
+        if (readyButton != null) readyButton.gameObject.SetActive(true);
+        if (heatReadyButton != null) heatReadyButton.gameObject.SetActive(true);
+        ValidateStake();
         _readyDelayCoroutine = null;
     }
 
@@ -361,7 +359,8 @@ public class GirlPlayerScreen : MonoBehaviour
 
         // Save persistent stake and spend credits locally
         int stake = CurrencyConfig.MinimumStake;
-        if (stakeInputField != null && int.TryParse(stakeInputField.text.Trim(), out int parsed))
+        string rawStake = MichskyUIBridge.GetInputText(stakeInputField, heatStakeInputField).Trim();
+        if (!string.IsNullOrEmpty(rawStake) && int.TryParse(rawStake, out int parsed))
         {
             stake = parsed;
         }
@@ -385,14 +384,17 @@ public class GirlPlayerScreen : MonoBehaviour
         }
 
         if (readyButton != null) readyButton.gameObject.SetActive(false);
+        if (heatReadyButton != null) heatReadyButton.gameObject.SetActive(false);
         if (flavourText != null) flavourText.gameObject.SetActive(false);
         if (roleTitleText != null) roleTitleText.gameObject.SetActive(false);
 
         // Hide staking & upgrade controls on ready
         if (stakeInputField != null)   stakeInputField.gameObject.SetActive(false);
+        if (heatStakeInputField != null) heatStakeInputField.gameObject.SetActive(false);
         if (stakeErrorText != null)     stakeErrorText.gameObject.SetActive(false);
         if (creditBalanceText != null)  creditBalanceText.gameObject.SetActive(false);
         if (openUpgradesButton != null) openUpgradesButton.gameObject.SetActive(false);
+        if (heatOpenUpgradesButton != null) heatOpenUpgradesButton.gameObject.SetActive(false);
         if (upgradePanel != null)       upgradePanel.SetActive(false);
 
         if (waitingText != null)

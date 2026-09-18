@@ -4,6 +4,7 @@ using TMPro;
 using UnityEngine.InputSystem;
 using NightCrawler.Economy;
 using NightCrawler.UI;
+using Michsky.UI.Heat;
 
 /// <summary>
 /// SOLID — SRP: Displays an incoming dark deal proposal to an Investigator.
@@ -32,6 +33,11 @@ public class DealNotificationUI : MonoBehaviour
     public TMP_Text rewardText;
     public Button acceptButton;
     public Button declineButton;
+
+    [Header("Michsky Heat / Dark UI References")]
+    public ModalWindowManager heatModalWindow;
+    public ButtonManager heatAcceptButton;
+    public ButtonManager heatDeclineButton;
 
     [Header("Auto-Timeout")]
     public float timeoutSeconds = 15f;
@@ -84,8 +90,8 @@ public class DealNotificationUI : MonoBehaviour
             }
         }
 
-        if (acceptButton != null) acceptButton.onClick.AddListener(OnAcceptClicked);
-        if (declineButton != null) declineButton.onClick.AddListener(OnDeclineClicked);
+        MichskyUIBridge.BindButton(acceptButton, heatAcceptButton, OnAcceptClicked);
+        MichskyUIBridge.BindButton(declineButton, heatDeclineButton, OnDeclineClicked);
 
         SetVisible(false);
     }
@@ -100,6 +106,12 @@ public class DealNotificationUI : MonoBehaviour
     private void SetVisible(bool visible)
     {
         _isActive = visible;
+
+        if (heatModalWindow != null)
+        {
+            if (visible) heatModalWindow.OpenWindow();
+            else heatModalWindow.CloseWindow();
+        }
 
         if (_canvasGroup == null)
         {
@@ -185,6 +197,13 @@ public class DealNotificationUI : MonoBehaviour
             termsText.text = $"{terms}\n\n<color=#F1C40F>⏱ Time Limit: {timeLimitSeconds}s</color>\n<color=#E74C3C>⚠ Penalty on Failure: -{penaltyCredits} {CurrencyConfig.CurrencySymbol} (Deducted from Stake)</color>";
         }
         if (rewardText != null) rewardText.text = $"REWARD: {reward}";
+
+        if (heatModalWindow != null)
+        {
+            heatModalWindow.titleText = title;
+            heatModalWindow.descriptionText = $"{terms}\n\n⏱ Time Limit: {timeLimitSeconds}s | ⚠ Penalty: -{penaltyCredits} {CurrencyConfig.CurrencySymbol}\n\nREWARD: {reward}";
+            heatModalWindow.UpdateUI();
+        }
 
         // Crucial: Make sure the GameObject itself is ACTIVE in the hierarchy!
         gameObject.SetActive(true);

@@ -112,6 +112,24 @@ public class CharacterSelectUI : MonoBehaviour
     public GameObject upgradePanel;
 
     // =========================================================================
+    //  Inspector — Michsky UI Support (Heat & Dark Horror UI)
+    // =========================================================================
+
+    [Header("Michsky UI Support (Heat / Dark Horror UI)")]
+    [Tooltip("Optional: Assign Michsky ButtonManager to replace or enhance the Confirm Button.")]
+    public ButtonManager heatConfirmButton;
+
+    [Tooltip("Optional: Assign Michsky InputFieldManager to replace or enhance the Stake Input Field.")]
+    public InputFieldManager heatStakeInputField;
+
+    [Tooltip("Optional: Assign Michsky ButtonManager to open Upgrades.")]
+    public ButtonManager heatOpenUpgradesButton;
+
+    [Tooltip("Optional: Assign Michsky ButtonManager for left/right navigation.")]
+    public ButtonManager heatArrowLeft;
+    public ButtonManager heatArrowRight;
+
+    // =========================================================================
     //  Inspector — Character Data & Filters
     // =========================================================================
 
@@ -247,11 +265,9 @@ public class CharacterSelectUI : MonoBehaviour
         if (_initialized) return;
         _initialized = true;
 
-        if (confirmButton != null)
-            confirmButton.onClick.AddListener(OnConfirmSelection);
-
-        if (arrowLeft  != null) arrowLeft.onClick.AddListener(SelectPrevious);
-        if (arrowRight != null) arrowRight.onClick.AddListener(SelectNext);
+        MichskyUIBridge.BindButton(confirmButton, heatConfirmButton, OnConfirmSelection);
+        MichskyUIBridge.BindButton(arrowLeft, heatArrowLeft, SelectPrevious);
+        MichskyUIBridge.BindButton(arrowRight, heatArrowRight, SelectNext);
 
         if (CharacterSelectManager.Instance != null)
         {
@@ -272,12 +288,8 @@ public class CharacterSelectUI : MonoBehaviour
 
     private void SetupStakingAndUpgrades()
     {
-        if (stakeInputField != null)
-        {
-            stakeInputField.onValueChanged.RemoveAllListeners();
-            stakeInputField.onValueChanged.AddListener(_ => ValidateStake());
-            stakeInputField.text = ""; // Force empty on start so player must fill
-        }
+        MichskyUIBridge.BindInputField(stakeInputField, heatStakeInputField, _ => ValidateStake());
+        MichskyUIBridge.SetInputText(stakeInputField, heatStakeInputField, "");
 
         if (creditBalanceText != null)
         {
@@ -285,34 +297,30 @@ public class CharacterSelectUI : MonoBehaviour
             creditBalanceText.text = $"Credits: {credits} {CurrencyConfig.CurrencySymbol}";
         }
 
-        if (openUpgradesButton != null && upgradePanel != null)
+        MichskyUIBridge.BindButton(openUpgradesButton, heatOpenUpgradesButton, () =>
         {
-            openUpgradesButton.onClick.RemoveAllListeners();
-            openUpgradesButton.onClick.AddListener(() =>
+            if (upgradePanel != null) upgradePanel.SetActive(!upgradePanel.activeSelf);
+            if (creditBalanceText != null && CloudCharacterSaveManager.Instance != null)
             {
-                upgradePanel.SetActive(!upgradePanel.activeSelf);
-                if (creditBalanceText != null && CloudCharacterSaveManager.Instance != null)
-                {
-                    creditBalanceText.text = $"Credits: {CloudCharacterSaveManager.Instance.CurrentCredits} {CurrencyConfig.CurrencySymbol}";
-                }
-            });
-        }
+                creditBalanceText.text = $"Credits: {CloudCharacterSaveManager.Instance.CurrentCredits} {CurrencyConfig.CurrencySymbol}";
+            }
+        });
 
         ValidateStake();
     }
 
     public bool ValidateStake()
     {
-        if (stakeInputField == null)
+        string raw = MichskyUIBridge.GetInputText(stakeInputField, heatStakeInputField).Trim();
+        if (stakeInputField == null && heatStakeInputField == null)
         {
-            // If inspector field not assigned yet, don't permanently lock confirmButton
+            // If inspector fields not assigned yet, don't permanently lock confirmButton
             return true;
         }
 
-        string raw = stakeInputField.text.Trim();
         if (string.IsNullOrEmpty(raw))
         {
-            if (confirmButton != null) confirmButton.interactable = false;
+            MichskyUIBridge.SetButtonInteractable(confirmButton, heatConfirmButton, false);
             if (stakeErrorText != null)
             {
                 stakeErrorText.gameObject.SetActive(true);
@@ -323,7 +331,7 @@ public class CharacterSelectUI : MonoBehaviour
 
         if (!int.TryParse(raw, out int stake))
         {
-            if (confirmButton != null) confirmButton.interactable = false;
+            MichskyUIBridge.SetButtonInteractable(confirmButton, heatConfirmButton, false);
             if (stakeErrorText != null)
             {
                 stakeErrorText.gameObject.SetActive(true);
@@ -334,7 +342,7 @@ public class CharacterSelectUI : MonoBehaviour
 
         if (stake < CurrencyConfig.MinimumStake)
         {
-            if (confirmButton != null) confirmButton.interactable = false;
+            MichskyUIBridge.SetButtonInteractable(confirmButton, heatConfirmButton, false);
             if (stakeErrorText != null)
             {
                 stakeErrorText.gameObject.SetActive(true);
@@ -346,7 +354,7 @@ public class CharacterSelectUI : MonoBehaviour
         int currentCredits = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
         if (stake > currentCredits)
         {
-            if (confirmButton != null) confirmButton.interactable = false;
+            MichskyUIBridge.SetButtonInteractable(confirmButton, heatConfirmButton, false);
             if (stakeErrorText != null)
             {
                 stakeErrorText.gameObject.SetActive(true);
@@ -356,7 +364,7 @@ public class CharacterSelectUI : MonoBehaviour
         }
 
         // All checks passed!
-        if (confirmButton != null) confirmButton.interactable = true;
+        MichskyUIBridge.SetButtonInteractable(confirmButton, heatConfirmButton, true);
         if (stakeErrorText != null)
         {
             stakeErrorText.text = "";
@@ -708,7 +716,8 @@ public class CharacterSelectUI : MonoBehaviour
 
         // Extract and record the match stake
         int stake = CurrencyConfig.MinimumStake;
-        if (stakeInputField != null && int.TryParse(stakeInputField.text.Trim(), out int parsed))
+        string rawStake = NightCrawler.UI.MichskyUIBridge.GetInputText(stakeInputField, heatStakeInputField).Trim();
+        if (!string.IsNullOrEmpty(rawStake) && int.TryParse(rawStake, out int parsed))
         {
             stake = parsed;
         }

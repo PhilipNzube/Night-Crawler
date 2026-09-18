@@ -32,6 +32,10 @@ public class LoadingScreen : MonoBehaviour
     public TextMeshProUGUI progressText;
     public TextMeshProUGUI tipText;
 
+    [Header("Michsky Heat / Dark UI")]
+    [Tooltip("Optional: Heat/Dark UI ProgressBar to visualize scene loading.")]
+    public Michsky.UI.Heat.ProgressBar heatProgressBar;
+
     // =========================================================================
     //  Inspector — Timing Settings
     // =========================================================================
@@ -302,6 +306,8 @@ public class LoadingScreen : MonoBehaviour
     {
         if (progressFill != null)
             progressFill.fillAmount = fraction;
+
+        NightCrawler.UI.MichskyUIBridge.SetProgress(heatProgressBar, fraction);
 
         if (progressText != null)
             progressText.text = $"Loading...  {Mathf.RoundToInt(fraction * 100f)}%";

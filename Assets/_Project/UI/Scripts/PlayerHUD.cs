@@ -2,6 +2,7 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using Unity.Netcode;
+using Michsky.UI.Heat;
 
 /// <summary>
 /// SOLID — SRP: Manages the local player's in-game HUD display only.
@@ -31,6 +32,10 @@ public class PlayerHUD : MonoBehaviour
     [Header("Health")]
     [Tooltip("Slider that displays the player's current health.")]
     public Slider healthSlider;
+
+    [Header("Michsky Heat / Dark UI")]
+    [Tooltip("Michsky Heat/Dark UI Progress Bar for health display.")]
+    public ProgressBar heatHealthProgressBar;
 
     [Tooltip("Fills the health bar with color (optional gradient tinting done via script).")]
     public Image healthFill;
@@ -255,6 +260,7 @@ public class PlayerHUD : MonoBehaviour
         UnsubscribeHealthEvents();
 
         if (healthSlider != null) healthSlider.gameObject.SetActive(false);
+        if (heatHealthProgressBar != null) heatHealthProgressBar.gameObject.SetActive(false);
         if (healthText != null) healthText.gameObject.SetActive(false);
         if (roleLabel != null) roleLabel.gameObject.SetActive(false);
         if (explorerPanel != null) explorerPanel.SetActive(false);
@@ -486,6 +492,14 @@ public class PlayerHUD : MonoBehaviour
             {
                 healthFill = healthSlider.fillRect.GetComponent<Image>();
             }
+        }
+
+        if (heatHealthProgressBar != null)
+        {
+            heatHealthProgressBar.minValue = 0f;
+            heatHealthProgressBar.maxValue = _maxHealth;
+            heatHealthProgressBar.currentValue = current;
+            heatHealthProgressBar.UpdateUI();
         }
 
         if (healthFill != null)

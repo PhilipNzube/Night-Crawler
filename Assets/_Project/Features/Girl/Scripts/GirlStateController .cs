@@ -19,6 +19,13 @@ public class GirlStateController : MonoBehaviour
     public Image invisCooldownBar;
     public Image fearBar;
 
+    [Header("Michsky Heat / Dark UI")]
+    [Tooltip("Optional: Michsky ProgressBar for Invisibility Cooldown.")]
+    public Michsky.UI.Heat.ProgressBar heatInvisCooldownBar;
+
+    [Tooltip("Optional: Michsky ProgressBar for Fear Bar.")]
+    public Michsky.UI.Heat.ProgressBar heatFearBar;
+
     private float fearValue = 0f;
     private bool canUseInvis = true;
 
@@ -53,6 +60,7 @@ public class GirlStateController : MonoBehaviour
         fearValue = Mathf.Clamp01(fearValue);
 
         if (fearBar) fearBar.fillAmount = fearValue;
+        NightCrawler.UI.MichskyUIBridge.SetProgress(heatFearBar, fearValue);
     }
 
     void TryActivateInvisibility()
@@ -67,6 +75,7 @@ public class GirlStateController : MonoBehaviour
         SetState(GirlState.Invisible);
         
         if (invisCooldownBar) invisCooldownBar.fillAmount = 0f;
+        NightCrawler.UI.MichskyUIBridge.SetProgress(heatInvisCooldownBar, 0f);
 
         yield return new WaitForSeconds(stats.invisDuration);
 
@@ -76,11 +85,14 @@ public class GirlStateController : MonoBehaviour
         while (timer < stats.invisCooldown)
         {
             timer += Time.deltaTime;
-            if (invisCooldownBar) invisCooldownBar.fillAmount = timer / stats.invisCooldown;
+            float prog = timer / stats.invisCooldown;
+            if (invisCooldownBar) invisCooldownBar.fillAmount = prog;
+            NightCrawler.UI.MichskyUIBridge.SetProgress(heatInvisCooldownBar, prog);
             yield return null;
         }
 
         canUseInvis = true;
+        NightCrawler.UI.MichskyUIBridge.SetProgress(heatInvisCooldownBar, 1f);
     }
 
     void SetState(GirlState newState)

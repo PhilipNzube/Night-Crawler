@@ -7,6 +7,8 @@ using Unity.Netcode;
 using UnityEngine.InputSystem;
 using NightCrawler.Economy;
 using NightCrawler.Systems;
+using NightCrawler.UI;
+using Michsky.UI.Heat;
 
 /// <summary>
 /// Supported pact card templates available to the Vengeful Spirit.
@@ -50,10 +52,15 @@ public class GirlDealUI : MonoBehaviour
     public TMP_Dropdown subjectDropdown; // Used for "Target Player to Kill" or "Dead Corpse to Loot"
     public TMP_InputField customTitleInput;
     public TMP_InputField customTermsInput;
+    [Tooltip("Michsky Heat / Dark UI Inputs")]
+    public InputFieldManager heatCustomTitleInput;
+    public InputFieldManager heatCustomTermsInput;
 
     [Header("Time Limit & Penalty (Controlled Bounded Slider)")]
     [Tooltip("Slider for pact timer. Clamped between 60s and 180s to prevent unfair timeframes.")]
     public Slider timeLimitSlider;
+    [Tooltip("Michsky Heat / Dark UI Slider Manager")]
+    public SliderManager heatTimeLimitSlider;
     public TextMeshProUGUI timeLimitText;
     public TextMeshProUGUI penaltyPreviewText;
     public Toggle grantWeaponToggle;
@@ -61,6 +68,9 @@ public class GirlDealUI : MonoBehaviour
     [Header("Action Buttons")]
     public Button sendDealButton;
     public Button closeButton;
+    [Tooltip("Michsky Heat / Dark UI Action Buttons")]
+    public ButtonManager heatSendDealButton;
+    public ButtonManager heatCloseButton;
 
     [Header("Hotkeys")]
     [Tooltip("Primary toggle hotkey (default [B] for Bargain/Pact).")]
@@ -87,8 +97,8 @@ public class GirlDealUI : MonoBehaviour
         if (canvasGroup == null) canvasGroup = GetComponent<CanvasGroup>();
         if (canvasGroup == null) canvasGroup = gameObject.AddComponent<CanvasGroup>();
 
-        if (sendDealButton != null) sendDealButton.onClick.AddListener(OnSendDealClicked);
-        if (closeButton != null) closeButton.onClick.AddListener(CloseUI);
+        MichskyUIBridge.BindButton(sendDealButton, heatSendDealButton, OnSendDealClicked);
+        MichskyUIBridge.BindButton(closeButton, heatCloseButton, CloseUI);
 
         if (timeLimitSlider != null)
         {
@@ -96,6 +106,15 @@ public class GirlDealUI : MonoBehaviour
             timeLimitSlider.maxValue = 180f;
             timeLimitSlider.value = 120f;
             timeLimitSlider.onValueChanged.AddListener(OnTimeLimitChanged);
+        }
+
+        if (heatTimeLimitSlider != null)
+        {
+            heatTimeLimitSlider.minValue = 60f;
+            heatTimeLimitSlider.maxValue = 180f;
+            heatTimeLimitSlider.currentValue = 120f;
+            heatTimeLimitSlider.onValueChanged.AddListener(OnTimeLimitChanged);
+            heatTimeLimitSlider.UpdateUI();
         }
 
         SetVisible(false);
@@ -265,11 +284,11 @@ public class GirlDealUI : MonoBehaviour
         if (options.Count == 0)
         {
             options.Add("No living investigators");
-            if (sendDealButton != null) sendDealButton.interactable = false;
+            MichskyUIBridge.SetButtonInteractable(sendDealButton, heatSendDealButton, false);
         }
         else
         {
-            if (sendDealButton != null) sendDealButton.interactable = true;
+            MichskyUIBridge.SetButtonInteractable(sendDealButton, heatSendDealButton, true);
         }
 
         recipientDropdown.AddOptions(options);
@@ -318,124 +337,114 @@ public class GirlDealUI : MonoBehaviour
 
             var vGroup = cardObj.AddComponent<VerticalLayoutGroup>();
             vGroup.padding = new RectOffset(10, 10, 10, 10);
-            vGroup.spacing = 6;
+            vGroup.spacing = 8f;
             vGroup.childControlWidth = true;
-            vGroup.childControlHeight = true;
+            vGroup.childControlHeight = false;
 
-            // Title
-            var titleObj = new GameObject("Title", typeof(RectTransform), typeof(TextMeshProUGUI));
-            titleObj.transform.SetParent(cardObj.transform, false);
-            var titleTmp = titleObj.GetComponent<TextMeshProUGUI>();
-            titleTmp.text = $"<b>{title}</b>";
-            titleTmp.fontSize = 13;
-            titleTmp.alignment = TextAlignmentOptions.Center;
-            titleTmp.color = new Color(0.9f, 0.2f, 0.2f);
+            var titleGo = new GameObject("Title", typeof(RectTransform), typeof(TextMeshProUGUI));
+            titleGo.transform.SetParent(cardObj.transform, false);
+            var titleTxt = titleGo.GetComponent<TextMeshProUGUI>();
+            titleTxt.text = $"<b>{title}</b>";
+            titleTxt.fontSize = 13;
+            titleTxt.color = new Color(0.95f, 0.8f, 0.3f);
+            titleTxt.alignment = TextAlignmentOptions.Center;
 
-            // Description
-            var descObj = new GameObject("Desc", typeof(RectTransform), typeof(TextMeshProUGUI));
-            descObj.transform.SetParent(cardObj.transform, false);
-            var descTmp = descObj.GetComponent<TextMeshProUGUI>();
-            descTmp.text = description;
-            descTmp.fontSize = 11;
-            descTmp.color = new Color(0.8f, 0.8f, 0.8f);
+            var descGo = new GameObject("Desc", typeof(RectTransform), typeof(TextMeshProUGUI));
+            descGo.transform.SetParent(cardObj.transform, false);
+            var descTxt = descGo.GetComponent<TextMeshProUGUI>();
+            descTxt.text = description;
+            descTxt.fontSize = 10;
+            descTxt.color = new Color(0.8f, 0.8f, 0.8f);
+            descTxt.alignment = TextAlignmentOptions.Top;
+            descTxt.enableWordWrapping = true;
         }
 
-        var btn = cardObj.GetComponent<Button>() ?? cardObj.GetComponentInChildren<Button>();
+        var btn = cardObj.GetComponent<Button>();
+        var frameImg = cardObj.GetComponent<Image>();
         if (btn != null)
         {
             btn.onClick.AddListener(() => SelectPactCard(type));
             _cardButtons.Add(btn);
-            _cardFrames.Add(btn.GetComponent<Image>());
+        }
+        if (frameImg != null)
+        {
+            _cardFrames.Add(frameImg);
         }
     }
 
     public void SelectPactCard(PactCardType type)
     {
         _selectedCard = type;
-
-        // Highlight selected card frame
-        for (int i = 0; i < _cardFrames.Count; i++)
-        {
-            if (_cardFrames[i] != null)
-            {
-                bool isSelected = (i == (int)type);
-                _cardFrames[i].color = isSelected ? new Color(0.85f, 0.15f, 0.15f, 1f) : new Color(0.15f, 0.15f, 0.18f, 0.95f);
-            }
-        }
-
         if (selectedPactTitleText != null)
         {
-            selectedPactTitleText.text = $"SELECTED PACT: <color=#E74C3C>{type}</color>";
+            selectedPactTitleText.text = $"SELECTED: <color=#F1C40F>{type}</color>";
         }
 
-        ConfigureSubPanelForType(type);
-    }
-
-    private void ConfigureSubPanelForType(PactCardType type)
-    {
-        _targetSubjectIds.Clear();
-
-        bool isKill = (type == PactCardType.KillPlayer);
-        bool isLoot = (type == PactCardType.LootCorpse);
+        bool needsSubject = (type == PactCardType.KillPlayer || type == PactCardType.LootCorpse);
         bool isCustom = (type == PactCardType.CustomPact);
 
-        if (subjectDropdown != null)
-        {
-            subjectDropdown.gameObject.SetActive(isKill || isLoot);
-            subjectDropdown.ClearOptions();
-            List<string> options = new List<string>();
-
-            if (isKill)
-            {
-                if (subjectDropdownLabel != null) subjectDropdownLabel.text = "Target to be Eliminated:";
-                foreach (var id in _livingPlayerIds)
-                {
-                    string pName = PlayerNameManager.GetPlayerName(id);
-                    options.Add(string.IsNullOrEmpty(pName) ? $"Investigator {id}" : pName);
-                    _targetSubjectIds.Add(id);
-                }
-                if (options.Count == 0) options.Add("No targets available");
-            }
-            else if (isLoot)
-            {
-                if (subjectDropdownLabel != null) subjectDropdownLabel.text = "Deceased Player's Corpse to Loot:";
-                var dead = DeadPlayerTracker.GetDeadPlayers();
-                if (dead != null && dead.Count > 0)
-                {
-                    foreach (var d in dead)
-                    {
-                        options.Add($"{d.playerName} (Corpse)");
-                        _targetSubjectIds.Add(d.clientId);
-                    }
-                }
-                else
-                {
-                    options.Add("No deceased investigators yet");
-                }
-            }
-
-            subjectDropdown.AddOptions(options);
-        }
+        if (subjectDropdown != null) subjectDropdown.gameObject.SetActive(needsSubject);
+        if (subjectDropdownLabel != null) subjectDropdownLabel.gameObject.SetActive(needsSubject);
 
         if (customTitleInput != null) customTitleInput.gameObject.SetActive(isCustom);
-        if (customTermsInput != null) customTermsInput.gameObject.SetActive(isCustom || type == PactCardType.ManipulateSquad || type == PactCardType.LeadToShadows);
+        if (heatCustomTitleInput != null) heatCustomTitleInput.gameObject.SetActive(isCustom);
+        if (customTermsInput != null) customTermsInput.gameObject.SetActive(isCustom || type == PactCardType.ManipulateSquad);
+        if (heatCustomTermsInput != null) heatCustomTermsInput.gameObject.SetActive(isCustom || type == PactCardType.ManipulateSquad);
 
-        if (grantWeaponToggle != null)
+        if (needsSubject)
         {
-            grantWeaponToggle.isOn = (type == PactCardType.KillPlayer || type == PactCardType.LootCorpse);
+            RefreshSubjectDropdown(type);
         }
+    }
+
+    private void RefreshSubjectDropdown(PactCardType type)
+    {
+        if (subjectDropdown == null) return;
+        subjectDropdown.ClearOptions();
+        List<string> options = new List<string>();
+
+        if (type == PactCardType.KillPlayer)
+        {
+            if (subjectDropdownLabel != null) subjectDropdownLabel.text = "Target to Assassinate:";
+            foreach (ulong id in _livingPlayerIds)
+            {
+                string pName = PlayerNameManager.GetPlayerName(id);
+                if (string.IsNullOrEmpty(pName)) pName = $"Player {id}";
+                options.Add(pName);
+            }
+            if (options.Count == 0) options.Add("No valid targets");
+        }
+        else if (type == PactCardType.LootCorpse)
+        {
+            if (subjectDropdownLabel != null) subjectDropdownLabel.text = "Corpse to Desecrate/Loot:";
+            // Search dead corpses in scene
+            var allHealths = FindObjectsByType<TargetHealth>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
+            foreach (var h in allHealths)
+            {
+                if (h.isCorpse.Value || h.CurrentHealth <= 0)
+                {
+                    options.Add(h.gameObject.name.Replace("(Clone)", ""));
+                }
+            }
+            if (options.Count == 0) options.Add("No corpses discovered");
+        }
+
+        subjectDropdown.AddOptions(options);
     }
 
     // =========================================================================
     //  Dispatch Deal
     // =========================================================================
 
-    private void OnSendDealClicked()
+    public void OnSendDealClicked()
     {
+        if (NetworkManager.Singleton == null) return;
         if (_livingPlayerIds.Count == 0)
         {
             if (NotificationManager.Instance != null)
-                NotificationManager.Instance.ShowNotification("No eligible living players found.", 2.5f);
+            {
+                NotificationManager.Instance.ShowNotification("No living investigators available to receive pact!", 3f);
+            }
             return;
         }
 
@@ -470,7 +479,8 @@ public class GirlDealUI : MonoBehaviour
 
             case PactCardType.ManipulateSquad:
                 title = "THE BETRAYER: Mislead the Squad";
-                string extraTerms = (customTermsInput != null && !string.IsNullOrEmpty(customTermsInput.text)) ? customTermsInput.text : "Separate from your squad and guide them away from the ritual site.";
+                string termsInput = MichskyUIBridge.GetInputText(customTermsInput, heatCustomTermsInput);
+                string extraTerms = !string.IsNullOrEmpty(termsInput) ? termsInput : "Separate from your squad and guide them away from the ritual site.";
                 terms = $"{extraTerms}";
                 break;
 
@@ -480,8 +490,9 @@ public class GirlDealUI : MonoBehaviour
                 break;
 
             case PactCardType.CustomPact:
-                title = customTitleInput != null && !string.IsNullOrEmpty(customTitleInput.text) ? customTitleInput.text : "CUSTOM PACT";
-                terms = customTermsInput != null ? customTermsInput.text : "";
+                string customT = MichskyUIBridge.GetInputText(customTitleInput, heatCustomTitleInput);
+                title = !string.IsNullOrEmpty(customT) ? customT : "CUSTOM PACT";
+                terms = MichskyUIBridge.GetInputText(customTermsInput, heatCustomTermsInput);
                 break;
         }
 

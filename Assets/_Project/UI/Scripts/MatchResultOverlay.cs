@@ -3,6 +3,7 @@ using UnityEngine.UI;
 using TMPro;
 using System.Collections;
 using NightCrawler.Economy;
+using Michsky.UI.Heat;
 
 /// <summary>
 /// SOLID — SRP: Displays match outcome and detailed financial payout breakdown.
@@ -20,6 +21,9 @@ public class MatchResultOverlay : MonoBehaviour
     public TextMeshProUGUI resultText;
     public TextMeshProUGUI subText;
     public TextMeshProUGUI economyBreakdownText;
+
+    [Header("Michsky Heat / Dark UI")]
+    public ModalWindowManager heatModalWindow;
 
     private MatchPayoutSummary? _latestPayout;
 
@@ -125,6 +129,14 @@ public class MatchResultOverlay : MonoBehaviour
             subText.text = $"{outcome} • Returning to Lobby...";
         }
 
+        if (heatModalWindow != null)
+        {
+            heatModalWindow.titleText = msg;
+            heatModalWindow.descriptionText = subText != null ? subText.text : outcome;
+            heatModalWindow.UpdateUI();
+            heatModalWindow.OpenWindow();
+        }
+
         UpdateEconomyText();
 
         StartCoroutine(ResultsPulse());
@@ -132,8 +144,6 @@ public class MatchResultOverlay : MonoBehaviour
 
     private void UpdateEconomyText()
     {
-        if (economyBreakdownText == null) return;
-
         if (_latestPayout.HasValue)
         {
             var p = _latestPayout.Value;
@@ -161,11 +171,18 @@ public class MatchResultOverlay : MonoBehaviour
             }
 
             sb.AppendLine($"<size=14><color=#CCCCCC>Current Balance: <b>{p.newBalance} {CurrencyConfig.CurrencyName}</b></color></size>");
-            economyBreakdownText.text = sb.ToString();
+
+            if (economyBreakdownText != null) economyBreakdownText.text = sb.ToString();
+
+            if (heatModalWindow != null)
+            {
+                heatModalWindow.descriptionText = $"{subText?.text}\n\n{sb.ToString()}";
+                heatModalWindow.UpdateUI();
+            }
         }
         else
         {
-            economyBreakdownText.text = "Calculating match earnings...";
+            if (economyBreakdownText != null) economyBreakdownText.text = "Calculating match earnings...";
         }
     }
 

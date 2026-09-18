@@ -37,6 +37,16 @@ namespace NightCrawler.Monsters
         public Button summonButton;
         public Button closeButton;
 
+        [Header("Michsky Heat / Dark UI")]
+        [Tooltip("Optional: Michsky ButtonManager to confirm summon.")]
+        public Michsky.UI.Heat.ButtonManager heatSummonButton;
+
+        [Tooltip("Optional: Michsky ButtonManager to close summon HUD.")]
+        public Michsky.UI.Heat.ButtonManager heatCloseButton;
+
+        [Tooltip("Optional: Michsky ModalWindowManager to animate the summon dialog.")]
+        public Michsky.UI.Heat.ModalWindowManager heatModalWindow;
+
         [Header("Hotkeys")]
         [Tooltip("Hotkey to toggle this summon menu when playing as the Girl (default [X]).")]
         public Key toggleKey = Key.X;
@@ -58,8 +68,8 @@ namespace NightCrawler.Monsters
             Instance = this;
 
             if (canvasGroup == null) canvasGroup = GetComponent<CanvasGroup>();
-            if (summonButton != null) summonButton.onClick.AddListener(OnSummonClicked);
-            if (closeButton != null) closeButton.onClick.AddListener(CloseHUD);
+            NightCrawler.UI.MichskyUIBridge.BindButton(summonButton, heatSummonButton, OnSummonClicked);
+            NightCrawler.UI.MichskyUIBridge.BindButton(closeButton, heatCloseButton, CloseHUD);
 
             SetVisible(false);
         }
@@ -146,6 +156,7 @@ namespace NightCrawler.Monsters
 
             if (visible)
             {
+                NightCrawler.UI.MichskyUIBridge.OpenModal(heatModalWindow);
                 Cursor.lockState = CursorLockMode.None;
                 Cursor.visible = true;
                 UpdateChargesDisplay();
@@ -153,6 +164,7 @@ namespace NightCrawler.Monsters
             }
             else
             {
+                NightCrawler.UI.MichskyUIBridge.CloseModal(heatModalWindow);
                 Cursor.lockState = CursorLockMode.Locked;
                 Cursor.visible = false;
             }

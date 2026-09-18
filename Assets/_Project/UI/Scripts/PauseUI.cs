@@ -2,26 +2,12 @@ using System.Collections;
 using UnityEngine;
 using UnityEngine.UI;
 using Unity.Netcode;
+using Michsky.UI.Heat;
+using NightCrawler.UI;
 
 /// <summary>
 /// SOLID — SRP: Controls the In-Game Pause UI using the SlimUI Modern Menu prefab.
-///
-/// HOW THIS MAPS TO SLIMUI:
-///   pauseRootPanel    = the root Canvas / CanvasGroup of the SlimUI prefab (the whole thing)
-///   mainMenu          = SlimUI's "mainMenu" GameObject (holds all panels)
-///   firstMenu         = SlimUI's "firstMenu" (the first button list: Resume / Settings / Quit)
-///   exitMenu          = SlimUI's "exitMenu" (the "Are You Sure?" quit confirmation dialog)
-///   settingsMenuCanvas = The GameObject that holds SettingsUI (outside SlimUI's mainMenu)
-///   slimUIAnimator    = The Animator on the SlimUI root that drives "Animate" float (camera anim)
-///   hoverSound        = SlimUI's AudioSource for hover SFX
-///   swooshSound       = SlimUI's AudioSource for swoosh SFX when switching to Settings
-///
-/// FIELDS REMOVED FROM PREVIOUS VERSION that don't exist in SlimUI:
-///   - pausePanel (replaced by pauseRootPanel)
-///   - firstMenuPanel (replaced by firstMenu — matches SlimUI exactly)
-///   - exitMenuPanel  (replaced by exitMenu — matches SlimUI exactly)
-///   confirmDisconnectButton and cancelDisconnectButton remain — they ARE buttons
-///   that exist inside SlimUI's exitMenu panel.
+/// Also supports Michsky Heat & Dark UI components.
 /// </summary>
 public class PauseUI : MonoBehaviour
 {
@@ -68,6 +54,14 @@ public class PauseUI : MonoBehaviour
     [Tooltip("'No' button inside exitMenu.")]
     public Button cancelDisconnectButton;
 
+    [Header("Michsky Heat / Dark UI Components")]
+    public ButtonManager heatResumeButton;
+    public ButtonManager heatSettingsButton;
+    public ButtonManager heatDisconnectButton;
+    public ButtonManager heatConfirmDisconnectButton;
+    public ButtonManager heatCancelDisconnectButton;
+    public ModalWindowManager heatExitModal;
+
     [Header("SlimUI Audio SFX")]
     [Tooltip("AudioSource for hover SFX — found on SlimUI Manager as 'hoverSound'.")]
     public AudioSource hoverSound;
@@ -90,20 +84,11 @@ public class PauseUI : MonoBehaviour
     {
         _pauseManager = FindFirstObjectByType<PauseManager>();
 
-        if (resumeButton != null)
-            resumeButton.onClick.AddListener(OnResumePressed);
-
-        if (settingsButton != null)
-            settingsButton.onClick.AddListener(OnSettingsPressed);
-
-        if (disconnectButton != null)
-            disconnectButton.onClick.AddListener(OnDisconnectPressed);
-
-        if (confirmDisconnectButton != null)
-            confirmDisconnectButton.onClick.AddListener(ConfirmDisconnect);
-
-        if (cancelDisconnectButton != null)
-            cancelDisconnectButton.onClick.AddListener(CloseExitDialog);
+        MichskyUIBridge.BindButton(resumeButton, heatResumeButton, OnResumePressed);
+        MichskyUIBridge.BindButton(settingsButton, heatSettingsButton, OnSettingsPressed);
+        MichskyUIBridge.BindButton(disconnectButton, heatDisconnectButton, OnDisconnectPressed);
+        MichskyUIBridge.BindButton(confirmDisconnectButton, heatConfirmDisconnectButton, ConfirmDisconnect);
+        MichskyUIBridge.BindButton(cancelDisconnectButton, heatCancelDisconnectButton, CloseExitDialog);
 
         // Start hidden
         HidePauseMenu();
@@ -132,6 +117,7 @@ public class PauseUI : MonoBehaviour
         if (mainMenu  != null) mainMenu.SetActive(false);
         if (firstMenu != null) firstMenu.SetActive(false);
         if (exitMenu  != null) exitMenu.SetActive(false);
+        if (heatExitModal != null) heatExitModal.CloseWindow();
 
         if (settingsUI != null) settingsUI.HideSettings();
     }
@@ -149,6 +135,7 @@ public class PauseUI : MonoBehaviour
 
     public void CloseExitDialog()
     {
+        if (heatExitModal != null) heatExitModal.CloseWindow();
         if (exitMenu  != null) exitMenu.SetActive(false);
         if (firstMenu != null) firstMenu.SetActive(true);
     }
@@ -179,7 +166,12 @@ public class PauseUI : MonoBehaviour
     public void OnDisconnectPressed()
     {
         PlayHoverSFX();
-        if (exitMenu  != null)
+        if (heatExitModal != null)
+        {
+            if (firstMenu != null) firstMenu.SetActive(false);
+            heatExitModal.OpenWindow();
+        }
+        else if (exitMenu  != null)
         {
             if (firstMenu != null) firstMenu.SetActive(false);
             exitMenu.SetActive(true);

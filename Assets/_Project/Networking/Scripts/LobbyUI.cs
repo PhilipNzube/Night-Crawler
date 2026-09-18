@@ -6,6 +6,8 @@ using Unity.Netcode.Transports.UTP;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
+using Michsky.UI.Heat;
+using NightCrawler.UI;
 
 /// <summary>
 /// SOLID — SRP: Manages the pre-game lobby UI flow.
@@ -183,6 +185,25 @@ public class LobbyUI : MonoBehaviour
     public Button disconnectButton;
 
     // -------------------------------------------------------------------------
+    //  Inspector — Michsky Heat / Dark UI Components
+    // -------------------------------------------------------------------------
+    [Header("Michsky Heat / Dark UI Components")]
+    public InputFieldManager heatNameEntryInputField;
+    public ButtonManager heatNameConfirmButton;
+    public ButtonManager heatStartHostButton;
+    public ButtonManager heatStartClientButton;
+    public InputFieldManager heatJoinCodeInputField;
+    public ButtonManager heatJoinCodeSubmitButton;
+    public ButtonManager heatJoinCodeBackButton;
+    public ButtonManager heatHostStartMatchButton;
+    public ButtonManager heatHostCopyCodeButton;
+    public ButtonManager heatHostDisconnectButton;
+    public ButtonManager heatClientDisconnectButton;
+    public ButtonManager heatStartMatchButton;
+    public ButtonManager heatDisconnectButton;
+    public ButtonManager heatCopyJoinCodeButton;
+
+    // -------------------------------------------------------------------------
     //  Inspector — Match & Scene Settings
     // -------------------------------------------------------------------------
     [Header("Match & Scene Settings")]
@@ -252,9 +273,10 @@ public class LobbyUI : MonoBehaviour
     private void HandleProfileLoaded(PlayerProfileData profile)
     {
         if (profile == null) return;
-        if (nameEntryInputField != null && (string.IsNullOrEmpty(nameEntryInputField.text) || nameEntryInputField.text == "Investigator"))
+        string curName = MichskyUIBridge.GetInputText(nameEntryInputField, heatNameEntryInputField);
+        if (string.IsNullOrEmpty(curName) || curName == "Investigator")
         {
-            nameEntryInputField.text = profile.playerName;
+            MichskyUIBridge.SetInputText(nameEntryInputField, heatNameEntryInputField, profile.playerName);
         }
         if (connectionPlayerNameLabel != null)
         {
@@ -270,8 +292,7 @@ public class LobbyUI : MonoBehaviour
     {
         WireButtonListeners();
 
-        if (nameEntryInputField != null)
-            nameEntryInputField.text = PlayerNameManager.GetPlayerName();
+        MichskyUIBridge.SetInputText(nameEntryInputField, heatNameEntryInputField, PlayerNameManager.GetPlayerName());
 
         if (nameEntryErrorText != null)
             nameEntryErrorText.gameObject.SetActive(false);
@@ -342,29 +363,30 @@ public class LobbyUI : MonoBehaviour
     private void WireButtonListeners()
     {
         // 1. Name Entry
-        if (nameConfirmButton      != null) nameConfirmButton.onClick.AddListener(OnConfirmName);
-        if (nameEntryInputField    != null) nameEntryInputField.onValueChanged.AddListener(OnNameInputChanged);
+        MichskyUIBridge.BindButton(nameConfirmButton, heatNameConfirmButton, OnConfirmName);
+        MichskyUIBridge.BindInputField(nameEntryInputField, heatNameEntryInputField, OnNameInputChanged);
 
         // 2. Connection Panel
-        if (startHostButton        != null) startHostButton.onClick.AddListener(OnStartHost);
-        if (startClientButton      != null) startClientButton.onClick.AddListener(OnStartClientChoice);
+        MichskyUIBridge.BindButton(startHostButton, heatStartHostButton, OnStartHost);
+        MichskyUIBridge.BindButton(startClientButton, heatStartClientButton, OnStartClientChoice);
 
         // 3. Join Code Panel (Client)
-        if (joinCodeSubmitButton   != null) joinCodeSubmitButton.onClick.AddListener(OnSubmitJoinCode);
-        if (joinCodeBackButton     != null) joinCodeBackButton.onClick.AddListener(ShowConnectionPanel);
+        MichskyUIBridge.BindButton(joinCodeSubmitButton, heatJoinCodeSubmitButton, OnSubmitJoinCode);
+        MichskyUIBridge.BindButton(joinCodeBackButton, heatJoinCodeBackButton, ShowConnectionPanel);
+        MichskyUIBridge.BindInputField(joinCodeInputField, heatJoinCodeInputField, null);
 
         // 4. Host Lobby Panel
-        if (hostStartMatchButton   != null) hostStartMatchButton.onClick.AddListener(OnStartMatch);
-        if (hostDisconnectButton   != null) hostDisconnectButton.onClick.AddListener(OnDisconnect);
-        if (hostCopyCodeButton     != null) hostCopyCodeButton.onClick.AddListener(OnCopyJoinCode);
+        MichskyUIBridge.BindButton(hostStartMatchButton, heatHostStartMatchButton, OnStartMatch);
+        MichskyUIBridge.BindButton(hostDisconnectButton, heatHostDisconnectButton, OnDisconnect);
+        MichskyUIBridge.BindButton(hostCopyCodeButton, heatHostCopyCodeButton, OnCopyJoinCode);
 
         // 5. Client Lobby Panel
-        if (clientDisconnectButton != null) clientDisconnectButton.onClick.AddListener(OnDisconnect);
+        MichskyUIBridge.BindButton(clientDisconnectButton, heatClientDisconnectButton, OnDisconnect);
 
         // Fallback Lobby Panel
-        if (startMatchButton       != null) startMatchButton.onClick.AddListener(OnStartMatch);
-        if (disconnectButton       != null) disconnectButton.onClick.AddListener(OnDisconnect);
-        if (copyJoinCodeButton     != null) copyJoinCodeButton.onClick.AddListener(OnCopyJoinCode);
+        MichskyUIBridge.BindButton(startMatchButton, heatStartMatchButton, OnStartMatch);
+        MichskyUIBridge.BindButton(disconnectButton, heatDisconnectButton, OnDisconnect);
+        MichskyUIBridge.BindButton(copyJoinCodeButton, heatCopyJoinCodeButton, OnCopyJoinCode);
     }
 
     // =========================================================================
@@ -380,7 +402,7 @@ public class LobbyUI : MonoBehaviour
 
     private void OnConfirmName()
     {
-        string rawName = nameEntryInputField != null ? nameEntryInputField.text : string.Empty;
+        string rawName = MichskyUIBridge.GetInputText(nameEntryInputField, heatNameEntryInputField);
 
         if (!PlayerNameManager.ValidatePlayerName(rawName, out string sanitizedName, out string errorMessage))
         {
@@ -513,7 +535,7 @@ public class LobbyUI : MonoBehaviour
     // =========================================================================
     private async void OnSubmitJoinCode()
     {
-        string code = joinCodeInputField != null ? joinCodeInputField.text.Trim().ToUpper() : string.Empty;
+        string code = MichskyUIBridge.GetInputText(joinCodeInputField, heatJoinCodeInputField).Trim().ToUpper();
 
         if (string.IsNullOrWhiteSpace(code))
         {
@@ -656,14 +678,14 @@ public class LobbyUI : MonoBehaviour
 
     private void SetConnectionButtonsInteractable(bool interactable)
     {
-        if (startHostButton   != null) startHostButton.interactable = interactable;
-        if (startClientButton != null) startClientButton.interactable = interactable;
+        MichskyUIBridge.SetButtonInteractable(startHostButton, heatStartHostButton, interactable);
+        MichskyUIBridge.SetButtonInteractable(startClientButton, heatStartClientButton, interactable);
     }
 
     private void SetJoinCodeButtonsInteractable(bool interactable)
     {
-        if (joinCodeSubmitButton != null) joinCodeSubmitButton.interactable = interactable;
-        if (joinCodeBackButton   != null) joinCodeBackButton.interactable = interactable;
+        MichskyUIBridge.SetButtonInteractable(joinCodeSubmitButton, heatJoinCodeSubmitButton, interactable);
+        MichskyUIBridge.SetButtonInteractable(joinCodeBackButton, heatJoinCodeBackButton, interactable);
     }
 
     // =========================================================================
@@ -747,7 +769,7 @@ public class LobbyUI : MonoBehaviour
                 ? "All players connected — ready to start!"
                 : $"Waiting for {required - current} more player(s)...";
         }
-        if (hostStartMatchButton != null) hostStartMatchButton.interactable = canStart;
+        MichskyUIBridge.SetButtonInteractable(hostStartMatchButton, heatHostStartMatchButton, canStart);
 
         // Refresh Client Panel
         if (clientPlayerCountText != null) clientPlayerCountText.text = countString;
@@ -766,7 +788,7 @@ public class LobbyUI : MonoBehaviour
                 statusText.text = "Waiting for the host to start the match...";
         }
         if (hostOnlyElements != null) hostOnlyElements.SetActive(isServer);
-        if (startMatchButton != null) startMatchButton.interactable = canStart;
+        MichskyUIBridge.SetButtonInteractable(startMatchButton, heatStartMatchButton, canStart);
     }
 
     // =========================================================================
@@ -812,9 +834,9 @@ public class LobbyUI : MonoBehaviour
         if (joinCodeStatusText != null)
             joinCodeStatusText.gameObject.SetActive(false);
 
+        MichskyUIBridge.SetInputText(joinCodeInputField, heatJoinCodeInputField, string.Empty);
         if (joinCodeInputField != null)
         {
-            joinCodeInputField.text = string.Empty;
             joinCodeInputField.Select();
             joinCodeInputField.ActivateInputField();
         }

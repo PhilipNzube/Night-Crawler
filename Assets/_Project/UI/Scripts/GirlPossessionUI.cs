@@ -4,6 +4,8 @@ using UnityEngine.UI;
 using TMPro;
 using Unity.Netcode;
 using UnityEngine.InputSystem;
+using Michsky.UI.Heat;
+using NightCrawler.UI;
 
 /// <summary>
 /// SOLID — SRP: Dedicated Possession interface for the Vengeful Spirit (Girl).
@@ -29,6 +31,11 @@ public class GirlPossessionUI : MonoBehaviour
     public Button possessButton;
     public Button closeButton;
 
+    [Header("Michsky Heat / Dark UI Components")]
+    public ProgressBar heatTimeBankProgressBar;
+    public ButtonManager heatPossessButton;
+    public ButtonManager heatCloseButton;
+
     [Header("Hotkeys")]
     [Tooltip("Primary toggle hotkey (default [P] for Possession).")]
     public Key toggleKey = Key.P;
@@ -52,8 +59,8 @@ public class GirlPossessionUI : MonoBehaviour
             _canvasGroup = gameObject.AddComponent<CanvasGroup>();
         }
 
-        if (possessButton != null) possessButton.onClick.AddListener(OnPossessClicked);
-        if (closeButton != null) closeButton.onClick.AddListener(CloseUI);
+        MichskyUIBridge.BindButton(possessButton, heatPossessButton, OnPossessClicked);
+        MichskyUIBridge.BindButton(closeButton, heatCloseButton, CloseUI);
 
         // Auto-build visual UI if unassigned in Inspector
         if (mainPanel == null)
@@ -276,15 +283,11 @@ public class GirlPossessionUI : MonoBehaviour
             timeBankText.text = $"Possession Energy: {Mathf.CeilToInt(remaining)}s / {Mathf.CeilToInt(maxTime)}s";
         }
 
-        if (timeBankSlider != null)
-        {
-            timeBankSlider.maxValue = maxTime;
-            timeBankSlider.value = remaining;
-        }
+        MichskyUIBridge.SetProgress(timeBankSlider, heatTimeBankProgressBar, remaining, maxTime);
 
-        if (remaining <= 0f && possessButton != null)
+        if (remaining <= 0f)
         {
-            possessButton.interactable = false;
+            MichskyUIBridge.SetButtonInteractable(possessButton, heatPossessButton, false);
         }
     }
 

@@ -319,9 +319,13 @@ namespace NightCrawler.EditorTools
                         }
 
                         var ifm = heatInputGo.GetComponent<InputFieldManager>();
-                        if (ifm != null && ifm.inputText != null)
+                        if (ifm != null)
                         {
-                            ifm.inputText.placeholder.GetComponent<TextMeshProUGUI>().text = "Stake Cinders (Min: 2 ₵)...";
+                            charSelect.heatStakeInputField = ifm;
+                            if (ifm.inputText != null && ifm.inputText.placeholder != null)
+                            {
+                                ifm.inputText.placeholder.GetComponent<TextMeshProUGUI>().text = "Stake Cinders (Min: 2 ₵)...";
+                            }
                         }
                     }
                 }
@@ -346,6 +350,7 @@ namespace NightCrawler.EditorTools
                         {
                             bm.buttonText = "UPGRADES";
                             bm.UpdateUI();
+                            charSelect.heatOpenUpgradesButton = bm;
                         }
 
                         var uBtn = heatBtnGo.GetComponent<Button>() ?? heatBtnGo.GetComponentInChildren<Button>(true) ?? heatBtnGo.AddComponent<Button>();
@@ -426,6 +431,7 @@ namespace NightCrawler.EditorTools
                         {
                             ifm.inputText.placeholder.GetComponent<TextMeshProUGUI>().text = "Girl Stake (Min: 2 ₵)...";
                         }
+                        girlScreen.heatStakeInputField = ifm;
                     }
                 }
 
@@ -455,6 +461,7 @@ namespace NightCrawler.EditorTools
 
                         var uBtn = heatBtnGo.GetComponent<Button>() ?? heatBtnGo.GetComponentInChildren<Button>(true) ?? heatBtnGo.AddComponent<Button>();
                         girlScreen.openUpgradesButton = uBtn;
+                        girlScreen.heatOpenUpgradesButton = bm;
                     }
                 }
 

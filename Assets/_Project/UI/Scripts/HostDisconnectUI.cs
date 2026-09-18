@@ -54,6 +54,13 @@ public class HostDisconnectUI : MonoBehaviour
     [Tooltip("Optional countdown text for success panel.")]
     public TMP_Text successCountdownText;
 
+    [Header("Michsky Heat / Dark UI")]
+    [Tooltip("Optional: ModalWindowManager to display Disconnect dialog.")]
+    public Michsky.UI.Heat.ModalWindowManager heatDisconnectModal;
+
+    [Tooltip("Optional: ModalWindowManager to display Victory / Success dialog.")]
+    public Michsky.UI.Heat.ModalWindowManager heatSuccessModal;
+
     [Header("Settings")]
     public float returnDelaySeconds = 3.5f;
     public string lobbySceneName = "LobbyScene";
@@ -158,6 +165,7 @@ public class HostDisconnectUI : MonoBehaviour
         DisableLocalPlayerControls();
 
         // 4. Determine panel and text components
+        NightCrawler.UI.MichskyUIBridge.OpenModal(heatSuccessModal);
         GameObject activePanel = successPanel != null ? successPanel : disconnectPanel;
         TMP_Text titleComp = successTitleText != null ? successTitleText : titleText;
         TMP_Text subComp = successSubtitleText != null ? successSubtitleText : subtitleText;
@@ -238,6 +246,7 @@ public class HostDisconnectUI : MonoBehaviour
         DisableLocalPlayerControls();
 
         // 4. Display UI Overlay
+        NightCrawler.UI.MichskyUIBridge.OpenModal(heatDisconnectModal);
         if (disconnectPanel != null)
         {
             disconnectPanel.SetActive(true);

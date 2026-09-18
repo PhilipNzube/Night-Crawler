@@ -37,6 +37,13 @@ public class PossessionActiveHUD : MonoBehaviour
     [Tooltip("Optional button if kept, otherwise exit is performed with the hotkey.")]
     public Button releaseButton;
 
+    [Header("Michsky Heat / Dark UI")]
+    [Tooltip("Optional: Michsky ButtonManager to release possession.")]
+    public Michsky.UI.Heat.ButtonManager heatReleaseButton;
+
+    [Tooltip("Optional: Michsky ProgressBar to show possession time remaining.")]
+    public Michsky.UI.Heat.ProgressBar heatTimeRemainingBar;
+
     private GirlPossession _activeGirlPossession;
     private bool _isActive = false;
 
@@ -49,10 +56,7 @@ public class PossessionActiveHUD : MonoBehaviour
         }
         Instance = this;
 
-        if (releaseButton != null)
-        {
-            releaseButton.onClick.AddListener(OnReleaseClicked);
-        }
+        NightCrawler.UI.MichskyUIBridge.BindButton(releaseButton, heatReleaseButton, OnReleaseClicked);
 
         Hide();
     }
@@ -67,11 +71,13 @@ public class PossessionActiveHUD : MonoBehaviour
         if (!_isActive || _activeGirlPossession == null) return;
 
         // Update remaining time
+        float rem = _activeGirlPossession.RemainingPool;
         if (timeRemainingText != null)
         {
-            float rem = _activeGirlPossession.RemainingPool;
             timeRemainingText.text = $"{Mathf.CeilToInt(rem)}s left";
         }
+
+        NightCrawler.UI.MichskyUIBridge.SetProgress(heatTimeRemainingBar, Mathf.Clamp01(rem / 15f));
 
         if (_activeGirlPossession.RemainingPool <= 0.05f)
         {
