@@ -185,7 +185,7 @@ public class GirlPlayerScreen : MonoBehaviour
         {
             creditBalanceText.gameObject.SetActive(true);
             int credits = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
-            creditBalanceText.text = $"Credits: {credits} {CurrencyConfig.CurrencySymbol}";
+            creditBalanceText.text = CurrencyConfig.FormatBalance(credits);
         }
 
         if (openUpgradesButton != null) openUpgradesButton.gameObject.SetActive(true);
@@ -211,7 +211,7 @@ public class GirlPlayerScreen : MonoBehaviour
 
                 if (creditBalanceText != null && CloudCharacterSaveManager.Instance != null)
                 {
-                    creditBalanceText.text = $"Credits: {CloudCharacterSaveManager.Instance.CurrentCredits} {CurrencyConfig.CurrencySymbol}";
+                    creditBalanceText.text = CurrencyConfig.FormatBalance(CloudCharacterSaveManager.Instance.CurrentCredits);
                 }
             }
         };

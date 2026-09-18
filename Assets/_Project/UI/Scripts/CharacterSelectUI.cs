@@ -322,7 +322,7 @@ public class CharacterSelectUI : MonoBehaviour
         if (creditBalanceText != null)
         {
             int credits = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
-            creditBalanceText.text = $"Credits: {credits} {CurrencyConfig.CurrencySymbol}";
+            creditBalanceText.text = CurrencyConfig.FormatBalance(credits);
         }
 
         System.Action toggleUpgrades = () =>
@@ -343,7 +343,7 @@ public class CharacterSelectUI : MonoBehaviour
 
                 if (creditBalanceText != null && CloudCharacterSaveManager.Instance != null)
                 {
-                    creditBalanceText.text = $"Credits: {CloudCharacterSaveManager.Instance.CurrentCredits} {CurrencyConfig.CurrencySymbol}";
+                    creditBalanceText.text = CurrencyConfig.FormatBalance(CloudCharacterSaveManager.Instance.CurrentCredits);
                 }
             }
         };

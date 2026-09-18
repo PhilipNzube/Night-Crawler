@@ -26,17 +26,29 @@ namespace NightCrawler.Economy
     }
 
     /// <summary>
-    /// Currency configuration constants. Replaces plain dollars with thematic lore currency.
+    /// Centralized Currency Configuration.
+    /// Change CurrencyName and CurrencySymbol here to change the currency across the entire game and UI!
     /// </summary>
     public static class CurrencyConfig
     {
-        public const string CurrencyName = "Cinders";
-        public const string CurrencySymbol = "₵";
-        public const int DefaultStartingBalance = 60; // Enough for several starting matches & early upgrades
+        // -----------------------------------------------------------------
+        //  CHANGE YOUR CURRENCY NAME & SYMBOL HERE:
+        // -----------------------------------------------------------------
+        public const string CurrencyName = "Credits";
+        public const string CurrencyPlural = "Credits";
+        public const string CurrencySymbol = "C";
+
+        // Economic Constants
+        public const int DefaultStartingBalance = 60; // Enough for starting matches & early upgrades
         public const int MinimumStake = 2;
         public const float MaxStakeCapPercentage = 0.60f; // Max 60% of balance (no all-in)
         public const int GirlLossPenalty = 25; // Penalty deducted from Girl on loss and redistributed
         public const int TraitorPenalty = 15; // Penalty deducted from traitor if Girl loses
+
+        // Formatting Helpers
+        public static string Format(int amount) => $"{amount} {CurrencySymbol}";
+        public static string FormatFull(int amount) => $"{amount} {CurrencyName}";
+        public static string FormatBalance(int balance) => $"{CurrencyName}: {balance} {CurrencySymbol}";
     }
 
     /// <summary>

@@ -168,7 +168,7 @@ namespace NightCrawler.Economy.UI
 
             if (balanceText != null)
             {
-                balanceText.text = $"Credits: {balance} {CurrencyConfig.CurrencySymbol}";
+                balanceText.text = CurrencyConfig.FormatBalance(balance);
             }
 
             if (titleText != null)
