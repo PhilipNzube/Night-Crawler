@@ -61,8 +61,33 @@ namespace NightCrawler.Economy.UI
         [Tooltip("Displays current credit balance.")]
         public TextMeshProUGUI balanceText;
 
-        [Header("Item Container")]
-        [Tooltip("Vertical container where upgrade rows are placed.")]
+        [Header("Confirmation Modal (Michsky Heat UI)")]
+        [Tooltip("The Modal Window that pops up when tapping a stat to confirm the purchase.")]
+        public ModalWindowManager purchaseConfirmModal;
+
+        [System.Serializable]
+        public class ManualStatItem
+        {
+            public UpgradeStatType statType;
+            [Tooltip("The button/card in the list that the player clicks to select this stat.")]
+            public Button button;
+            public ButtonManager heatButton;
+            public ShopButtonManager heatShopButton;
+            public GameObject buttonObject;
+            [Tooltip("Text displaying the stat level/tier (e.g. 'Lv. 2/5').")]
+            public TextMeshProUGUI levelText;
+            [Tooltip("Text displaying the stat effect or cost.")]
+            public TextMeshProUGUI effectText;
+            [Tooltip("Optional ProgressBar visualizing the stat level.")]
+            public ProgressBar progressBar;
+        }
+
+        [Header("Manual Stat Rows (Optional - If building cards in Inspector)")]
+        [Tooltip("If you manually place stat cards in the hierarchy yourself, drag them here!")]
+        public List<ManualStatItem> manualStatItems = new List<ManualStatItem>();
+
+        [Header("Procedural Item Container (Fallback)")]
+        [Tooltip("Vertical container where upgrade rows are automatically placed if not using manual items.")]
         public Transform itemsContainer;
 
         [Tooltip("Optional custom prefab for upgrade rows. If null, procedural cards are generated.")]
@@ -152,7 +177,65 @@ namespace NightCrawler.Economy.UI
                     : "VENGEFUL SPIRIT UPGRADES";
             }
 
-            BuildStatRows(balance);
+            if (manualStatItems != null && manualStatItems.Count > 0)
+            {
+                RefreshManualStatItems(balance);
+            }
+            else
+            {
+                BuildStatRows(balance);
+            }
+        }
+
+        private void RefreshManualStatItems(int currentBalance)
+        {
+            foreach (var item in manualStatItems)
+            {
+                if (item == null) continue;
+
+                int currentLevel = CloudCharacterSaveManager.Instance != null
+                    ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(item.statType)
+                    : 0;
+
+                bool isMaxLevel = currentLevel >= 5;
+                int cost = isMaxLevel ? 0 : UpgradeStatFormulas.CalculateUpgradeCost(item.statType, currentLevel);
+                bool canAfford = !isMaxLevel && (currentBalance >= cost);
+
+                string statTitle = UpgradeStatFormulas.GetStatDisplayName(item.statType);
+                string statEffect = UpgradeStatFormulas.GetStatEffectDescription(item.statType, currentLevel);
+
+                if (item.levelText != null)
+                {
+                    item.levelText.text = isMaxLevel ? "MAX" : $"Lv. {currentLevel} / 5";
+                }
+
+                if (item.effectText != null)
+                {
+                    item.effectText.text = isMaxLevel ? "Max Level Reached" : $"{statEffect}\n<color=#F1C40F>Cost: {cost} {CurrencyConfig.CurrencySymbol}</color>";
+                }
+
+                if (item.progressBar != null)
+                {
+                    MichskyUIBridge.SetProgress(item.progressBar, currentLevel / 5f);
+                }
+
+                if (item.heatShopButton != null)
+                {
+                    item.heatShopButton.buttonTitle = statTitle;
+                    item.heatShopButton.buttonDescription = statEffect;
+                    item.heatShopButton.priceText = isMaxLevel ? "MAX" : $"{cost}";
+                    item.heatShopButton.isInteractable = canAfford;
+                    item.heatShopButton.UpdateUI();
+                }
+
+                MichskyUIBridge.SetAnyButtonInteractable(canAfford, item.button, item.heatButton, item.buttonObject);
+
+                // Bind click to open confirmation modal
+                MichskyUIBridge.BindAnyButton(() =>
+                {
+                    OnUpgradeClicked(item.statType, cost);
+                }, item.button, item.heatButton, item.heatShopButton, item.buttonObject);
+            }
         }
 
         private void BuildStatRows(int currentBalance)
@@ -266,11 +349,44 @@ namespace NightCrawler.Economy.UI
         private void OnUpgradeClicked(UpgradeStatType stat, int cost)
         {
             if (CloudCharacterSaveManager.Instance == null) return;
+            int currentLevel = CloudCharacterSaveManager.Instance.GetUpgradeLevel(stat);
+            if (currentLevel >= 5) return;
 
+            string statTitle = UpgradeStatFormulas.GetStatDisplayName(stat);
+            string nextEffect = UpgradeStatFormulas.GetStatEffectDescription(stat, currentLevel + 1);
+
+            // If a confirmation modal window is assigned, open it with details!
+            if (purchaseConfirmModal != null)
+            {
+                purchaseConfirmModal.titleText = $"UPGRADE {statTitle.ToUpper()}";
+                purchaseConfirmModal.descriptionText = $"Upgrade to Level {currentLevel + 1} for {cost} {CurrencyConfig.CurrencySymbol}?\n\n<b>Next Tier:</b> {nextEffect}";
+                purchaseConfirmModal.UpdateUI();
+
+                purchaseConfirmModal.onConfirm.RemoveAllListeners();
+                purchaseConfirmModal.onConfirm.AddListener(() =>
+                {
+                    if (CloudCharacterSaveManager.Instance.TryPurchaseUpgrade(stat))
+                    {
+                        purchaseConfirmModal.CloseWindow();
+                        RefreshUI();
+                    }
+                });
+
+                purchaseConfirmModal.onCancel.RemoveAllListeners();
+                purchaseConfirmModal.onCancel.AddListener(() =>
+                {
+                    purchaseConfirmModal.CloseWindow();
+                });
+
+                purchaseConfirmModal.OpenWindow();
+                return;
+            }
+
+            // Direct purchase fallback
             if (CloudCharacterSaveManager.Instance.TryPurchaseUpgrade(stat))
             {
-                int currentLevel = CloudCharacterSaveManager.Instance.GetUpgradeLevel(stat);
-                Debug.Log($"[LobbyUpgradeUI] Upgraded {stat} to Level {currentLevel} for {cost} {CurrencyConfig.CurrencyName}!");
+                int newLevel = CloudCharacterSaveManager.Instance.GetUpgradeLevel(stat);
+                Debug.Log($"[LobbyUpgradeUI] Upgraded {stat} to Level {newLevel} for {cost} {CurrencyConfig.CurrencyName}!");
                 RefreshUI();
             }
         }
