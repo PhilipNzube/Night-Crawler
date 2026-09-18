@@ -39,11 +39,21 @@ namespace NightCrawler.Economy.UI
         public Button openButton;
         [Tooltip("Michsky Heat / Dark Button to open this panel.")]
         public ButtonManager heatOpenButton;
+        [Tooltip("If using Button (Shop) to open this panel, drag it here!")]
+        public ShopButtonManager heatShopOpenButton;
+        [Tooltip("If using Button (Box) to open this panel, drag it here!")]
+        public BoxButtonManager heatBoxOpenButton;
+        [Tooltip("Or drag the Open button GameObject directly here!")]
+        public GameObject heatOpenButtonObject;
 
         [Tooltip("Button used to close this upgrade panel.")]
         public Button closeButton;
         [Tooltip("Michsky Heat / Dark Button to close this panel.")]
         public ButtonManager heatCloseButton;
+        [Tooltip("If using Button (Box) to close this panel, drag it here!")]
+        public BoxButtonManager heatBoxCloseButton;
+        [Tooltip("Or drag the Close button GameObject directly here!")]
+        public GameObject heatCloseButtonObject;
 
         [Tooltip("Header title text.")]
         public TextMeshProUGUI titleText;
@@ -80,8 +90,8 @@ namespace NightCrawler.Economy.UI
 
         private void Awake()
         {
-            MichskyUIBridge.BindButton(openButton, heatOpenButton, OpenPanel);
-            MichskyUIBridge.BindButton(closeButton, heatCloseButton, ClosePanel);
+            MichskyUIBridge.BindAnyButton(OpenPanel, openButton, heatOpenButton, heatShopOpenButton, heatBoxOpenButton, heatOpenButtonObject);
+            MichskyUIBridge.BindAnyButton(ClosePanel, closeButton, heatCloseButton, heatBoxCloseButton, heatCloseButtonObject);
 
             if (panelRoot == null) panelRoot = gameObject;
         }

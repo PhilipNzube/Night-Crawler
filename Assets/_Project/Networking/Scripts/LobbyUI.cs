@@ -190,18 +190,49 @@ public class LobbyUI : MonoBehaviour
     [Header("Michsky Heat / Dark UI Components")]
     public InputFieldManager heatNameEntryInputField;
     public ButtonManager heatNameConfirmButton;
+    [Tooltip("Or drag the Name Confirm button GameObject directly here!")]
+    public GameObject heatNameConfirmButtonObject;
+
     public ButtonManager heatStartHostButton;
+    [Tooltip("If using Button (Box) for Start Host, drag it here!")]
+    public BoxButtonManager heatBoxStartHostButton;
+    [Tooltip("Or drag the Start Host button GameObject directly here!")]
+    public GameObject heatStartHostButtonObject;
+
     public ButtonManager heatStartClientButton;
+    [Tooltip("If using Button (Box) for Join Game, drag it here!")]
+    public BoxButtonManager heatBoxStartClientButton;
+    [Tooltip("Or drag the Join Game button GameObject directly here!")]
+    public GameObject heatStartClientButtonObject;
+
     public InputFieldManager heatJoinCodeInputField;
     public ButtonManager heatJoinCodeSubmitButton;
+    [Tooltip("Or drag Join Code Submit button GameObject directly here!")]
+    public GameObject heatJoinCodeSubmitButtonObject;
     public ButtonManager heatJoinCodeBackButton;
+    [Tooltip("Or drag Join Code Back button GameObject directly here!")]
+    public GameObject heatJoinCodeBackButtonObject;
+
     public ButtonManager heatHostStartMatchButton;
+    [Tooltip("If using Button (Shop) for Host Start Match, drag it here!")]
+    public ShopButtonManager heatShopHostStartMatchButton;
+    [Tooltip("If using Button (Box) for Host Start Match, drag it here!")]
+    public BoxButtonManager heatBoxHostStartMatchButton;
+    [Tooltip("Or drag the Host Start Match button GameObject directly here!")]
+    public GameObject heatHostStartMatchButtonObject;
+
     public ButtonManager heatHostCopyCodeButton;
+    public GameObject heatHostCopyCodeButtonObject;
     public ButtonManager heatHostDisconnectButton;
+    public GameObject heatHostDisconnectButtonObject;
     public ButtonManager heatClientDisconnectButton;
+    public GameObject heatClientDisconnectButtonObject;
     public ButtonManager heatStartMatchButton;
+    public GameObject heatStartMatchButtonObject;
     public ButtonManager heatDisconnectButton;
+    public GameObject heatDisconnectButtonObject;
     public ButtonManager heatCopyJoinCodeButton;
+    public GameObject heatCopyJoinCodeButtonObject;
 
     // -------------------------------------------------------------------------
     //  Inspector — Match & Scene Settings
@@ -363,30 +394,30 @@ public class LobbyUI : MonoBehaviour
     private void WireButtonListeners()
     {
         // 1. Name Entry
-        MichskyUIBridge.BindButton(nameConfirmButton, heatNameConfirmButton, OnConfirmName);
+        MichskyUIBridge.BindAnyButton(OnConfirmName, nameConfirmButton, heatNameConfirmButton, heatNameConfirmButtonObject);
         MichskyUIBridge.BindInputField(nameEntryInputField, heatNameEntryInputField, OnNameInputChanged);
 
         // 2. Connection Panel
-        MichskyUIBridge.BindButton(startHostButton, heatStartHostButton, OnStartHost);
-        MichskyUIBridge.BindButton(startClientButton, heatStartClientButton, OnStartClientChoice);
+        MichskyUIBridge.BindAnyButton(OnStartHost, startHostButton, heatStartHostButton, heatBoxStartHostButton, heatStartHostButtonObject);
+        MichskyUIBridge.BindAnyButton(OnStartClientChoice, startClientButton, heatStartClientButton, heatBoxStartClientButton, heatStartClientButtonObject);
 
         // 3. Join Code Panel (Client)
-        MichskyUIBridge.BindButton(joinCodeSubmitButton, heatJoinCodeSubmitButton, OnSubmitJoinCode);
-        MichskyUIBridge.BindButton(joinCodeBackButton, heatJoinCodeBackButton, ShowConnectionPanel);
+        MichskyUIBridge.BindAnyButton(OnSubmitJoinCode, joinCodeSubmitButton, heatJoinCodeSubmitButton, heatJoinCodeSubmitButtonObject);
+        MichskyUIBridge.BindAnyButton(ShowConnectionPanel, joinCodeBackButton, heatJoinCodeBackButton, heatJoinCodeBackButtonObject);
         MichskyUIBridge.BindInputField(joinCodeInputField, heatJoinCodeInputField, null);
 
         // 4. Host Lobby Panel
-        MichskyUIBridge.BindButton(hostStartMatchButton, heatHostStartMatchButton, OnStartMatch);
-        MichskyUIBridge.BindButton(hostDisconnectButton, heatHostDisconnectButton, OnDisconnect);
-        MichskyUIBridge.BindButton(hostCopyCodeButton, heatHostCopyCodeButton, OnCopyJoinCode);
+        MichskyUIBridge.BindAnyButton(OnStartMatch, hostStartMatchButton, heatHostStartMatchButton, heatShopHostStartMatchButton, heatBoxHostStartMatchButton, heatHostStartMatchButtonObject);
+        MichskyUIBridge.BindAnyButton(OnDisconnect, hostDisconnectButton, heatHostDisconnectButton, heatHostDisconnectButtonObject);
+        MichskyUIBridge.BindAnyButton(OnCopyJoinCode, hostCopyCodeButton, heatHostCopyCodeButton, heatHostCopyCodeButtonObject);
 
         // 5. Client Lobby Panel
-        MichskyUIBridge.BindButton(clientDisconnectButton, heatClientDisconnectButton, OnDisconnect);
+        MichskyUIBridge.BindAnyButton(OnDisconnect, clientDisconnectButton, heatClientDisconnectButton, heatClientDisconnectButtonObject);
 
         // Fallback Lobby Panel
-        MichskyUIBridge.BindButton(startMatchButton, heatStartMatchButton, OnStartMatch);
-        MichskyUIBridge.BindButton(disconnectButton, heatDisconnectButton, OnDisconnect);
-        MichskyUIBridge.BindButton(copyJoinCodeButton, heatCopyJoinCodeButton, OnCopyJoinCode);
+        MichskyUIBridge.BindAnyButton(OnStartMatch, startMatchButton, heatStartMatchButton, heatStartMatchButtonObject);
+        MichskyUIBridge.BindAnyButton(OnDisconnect, disconnectButton, heatDisconnectButton, heatDisconnectButtonObject);
+        MichskyUIBridge.BindAnyButton(OnCopyJoinCode, copyJoinCodeButton, heatCopyJoinCodeButton, heatCopyJoinCodeButtonObject);
     }
 
     // =========================================================================
@@ -678,14 +709,14 @@ public class LobbyUI : MonoBehaviour
 
     private void SetConnectionButtonsInteractable(bool interactable)
     {
-        MichskyUIBridge.SetButtonInteractable(startHostButton, heatStartHostButton, interactable);
-        MichskyUIBridge.SetButtonInteractable(startClientButton, heatStartClientButton, interactable);
+        MichskyUIBridge.SetAnyButtonInteractable(interactable, startHostButton, heatStartHostButton, heatBoxStartHostButton, heatStartHostButtonObject);
+        MichskyUIBridge.SetAnyButtonInteractable(interactable, startClientButton, heatStartClientButton, heatBoxStartClientButton, heatStartClientButtonObject);
     }
 
     private void SetJoinCodeButtonsInteractable(bool interactable)
     {
-        MichskyUIBridge.SetButtonInteractable(joinCodeSubmitButton, heatJoinCodeSubmitButton, interactable);
-        MichskyUIBridge.SetButtonInteractable(joinCodeBackButton, heatJoinCodeBackButton, interactable);
+        MichskyUIBridge.SetAnyButtonInteractable(interactable, joinCodeSubmitButton, heatJoinCodeSubmitButton, heatJoinCodeSubmitButtonObject);
+        MichskyUIBridge.SetAnyButtonInteractable(interactable, joinCodeBackButton, heatJoinCodeBackButton, heatJoinCodeBackButtonObject);
     }
 
     // =========================================================================
@@ -769,7 +800,7 @@ public class LobbyUI : MonoBehaviour
                 ? "All players connected — ready to start!"
                 : $"Waiting for {required - current} more player(s)...";
         }
-        MichskyUIBridge.SetButtonInteractable(hostStartMatchButton, heatHostStartMatchButton, canStart);
+        MichskyUIBridge.SetAnyButtonInteractable(canStart, hostStartMatchButton, heatHostStartMatchButton, heatShopHostStartMatchButton, heatBoxHostStartMatchButton, heatHostStartMatchButtonObject);
 
         // Refresh Client Panel
         if (clientPlayerCountText != null) clientPlayerCountText.text = countString;
@@ -788,7 +819,7 @@ public class LobbyUI : MonoBehaviour
                 statusText.text = "Waiting for the host to start the match...";
         }
         if (hostOnlyElements != null) hostOnlyElements.SetActive(isServer);
-        MichskyUIBridge.SetButtonInteractable(startMatchButton, heatStartMatchButton, canStart);
+        MichskyUIBridge.SetAnyButtonInteractable(canStart, startMatchButton, heatStartMatchButton, heatStartMatchButtonObject);
     }
 
     // =========================================================================

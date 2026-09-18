@@ -33,6 +33,150 @@ namespace NightCrawler.UI
             }
         }
 
+        public static void BindButton(Button standardBtn, ShopButtonManager heatShopBtn, UnityAction onClick)
+        {
+            if (standardBtn != null)
+            {
+                standardBtn.onClick.RemoveAllListeners();
+                if (onClick != null) standardBtn.onClick.AddListener(onClick);
+            }
+
+            if (heatShopBtn != null)
+            {
+                heatShopBtn.onClick.RemoveAllListeners();
+                if (onClick != null) heatShopBtn.onClick.AddListener(onClick);
+            }
+        }
+
+        public static void BindButton(Button standardBtn, BoxButtonManager heatBoxBtn, UnityAction onClick)
+        {
+            if (standardBtn != null)
+            {
+                standardBtn.onClick.RemoveAllListeners();
+                if (onClick != null) standardBtn.onClick.AddListener(onClick);
+            }
+
+            if (heatBoxBtn != null)
+            {
+                heatBoxBtn.onClick.RemoveAllListeners();
+                if (onClick != null) heatBoxBtn.onClick.AddListener(onClick);
+            }
+        }
+
+        public static void BindButton(Button standardBtn, PanelButton heatPanelBtn, UnityAction onClick)
+        {
+            if (standardBtn != null)
+            {
+                standardBtn.onClick.RemoveAllListeners();
+                if (onClick != null) standardBtn.onClick.AddListener(onClick);
+            }
+
+            if (heatPanelBtn != null)
+            {
+                heatPanelBtn.onClick.RemoveAllListeners();
+                if (onClick != null) heatPanelBtn.onClick.AddListener(onClick);
+            }
+        }
+
+        public static void BindButton(Component buttonComp, UnityAction onClick)
+        {
+            if (buttonComp == null) return;
+
+            if (buttonComp is Button standardBtn)
+            {
+                standardBtn.onClick.RemoveAllListeners();
+                if (onClick != null) standardBtn.onClick.AddListener(onClick);
+                return;
+            }
+
+            if (buttonComp is ButtonManager bm)
+            {
+                bm.onClick.RemoveAllListeners();
+                if (onClick != null) bm.onClick.AddListener(onClick);
+                return;
+            }
+
+            if (buttonComp is ShopButtonManager sbm)
+            {
+                sbm.onClick.RemoveAllListeners();
+                if (onClick != null) sbm.onClick.AddListener(onClick);
+                return;
+            }
+
+            if (buttonComp is BoxButtonManager bbm)
+            {
+                bbm.onClick.RemoveAllListeners();
+                if (onClick != null) bbm.onClick.AddListener(onClick);
+                return;
+            }
+
+            if (buttonComp is PanelButton pb)
+            {
+                pb.onClick.RemoveAllListeners();
+                if (onClick != null) pb.onClick.AddListener(onClick);
+                return;
+            }
+
+            BindButton(buttonComp.gameObject, onClick);
+        }
+
+        public static void BindButton(GameObject buttonObj, UnityAction onClick)
+        {
+            if (buttonObj == null) return;
+
+            var bm = buttonObj.GetComponentInChildren<ButtonManager>(true);
+            if (bm != null)
+            {
+                bm.onClick.RemoveAllListeners();
+                if (onClick != null) bm.onClick.AddListener(onClick);
+            }
+
+            var sbm = buttonObj.GetComponentInChildren<ShopButtonManager>(true);
+            if (sbm != null)
+            {
+                sbm.onClick.RemoveAllListeners();
+                if (onClick != null) sbm.onClick.AddListener(onClick);
+            }
+
+            var bbm = buttonObj.GetComponentInChildren<BoxButtonManager>(true);
+            if (bbm != null)
+            {
+                bbm.onClick.RemoveAllListeners();
+                if (onClick != null) bbm.onClick.AddListener(onClick);
+            }
+
+            var pb = buttonObj.GetComponentInChildren<PanelButton>(true);
+            if (pb != null)
+            {
+                pb.onClick.RemoveAllListeners();
+                if (onClick != null) pb.onClick.AddListener(onClick);
+            }
+
+            var btn = buttonObj.GetComponentInChildren<Button>(true);
+            if (btn != null)
+            {
+                btn.onClick.RemoveAllListeners();
+                if (onClick != null) btn.onClick.AddListener(onClick);
+            }
+        }
+
+        public static void BindAnyButton(UnityAction onClick, params object[] buttonTargets)
+        {
+            if (buttonTargets == null) return;
+            foreach (var target in buttonTargets)
+            {
+                if (target == null) continue;
+                if (target is Component comp)
+                {
+                    BindButton(comp, onClick);
+                }
+                else if (target is GameObject go)
+                {
+                    BindButton(go, onClick);
+                }
+            }
+        }
+
         public static void SetButtonInteractable(Button standardBtn, ButtonManager heatBtn, bool interactable)
         {
             if (standardBtn != null)
@@ -44,6 +188,77 @@ namespace NightCrawler.UI
             {
                 heatBtn.isInteractable = interactable;
                 heatBtn.UpdateUI();
+            }
+        }
+
+        public static void SetButtonInteractable(Button standardBtn, ShopButtonManager heatShopBtn, bool interactable)
+        {
+            if (standardBtn != null)
+            {
+                standardBtn.interactable = interactable;
+            }
+
+            if (heatShopBtn != null)
+            {
+                heatShopBtn.isInteractable = interactable;
+                heatShopBtn.UpdateUI();
+            }
+        }
+
+        public static void SetButtonInteractable(Button standardBtn, BoxButtonManager heatBoxBtn, bool interactable)
+        {
+            if (standardBtn != null)
+            {
+                standardBtn.interactable = interactable;
+            }
+
+            if (heatBoxBtn != null)
+            {
+                heatBoxBtn.isInteractable = interactable;
+                heatBoxBtn.UpdateUI();
+            }
+        }
+
+        public static void SetButtonInteractable(Component buttonComp, bool interactable)
+        {
+            if (buttonComp == null) return;
+            if (buttonComp is Button btn) { btn.interactable = interactable; return; }
+            if (buttonComp is ButtonManager bm) { bm.isInteractable = interactable; bm.UpdateUI(); return; }
+            if (buttonComp is ShopButtonManager sbm) { sbm.isInteractable = interactable; sbm.UpdateUI(); return; }
+            if (buttonComp is BoxButtonManager bbm) { bbm.isInteractable = interactable; bbm.UpdateUI(); return; }
+            if (buttonComp is PanelButton pb) { pb.isInteractable = interactable; pb.UpdateUI(); return; }
+            SetButtonInteractable(buttonComp.gameObject, interactable);
+        }
+
+        public static void SetButtonInteractable(GameObject buttonObj, bool interactable)
+        {
+            if (buttonObj == null) return;
+            var bm = buttonObj.GetComponentInChildren<ButtonManager>(true);
+            if (bm != null) { bm.isInteractable = interactable; bm.UpdateUI(); }
+            var sbm = buttonObj.GetComponentInChildren<ShopButtonManager>(true);
+            if (sbm != null) { sbm.isInteractable = interactable; sbm.UpdateUI(); }
+            var bbm = buttonObj.GetComponentInChildren<BoxButtonManager>(true);
+            if (bbm != null) { bbm.isInteractable = interactable; bbm.UpdateUI(); }
+            var pb = buttonObj.GetComponentInChildren<PanelButton>(true);
+            if (pb != null) { pb.isInteractable = interactable; pb.UpdateUI(); }
+            var btn = buttonObj.GetComponentInChildren<Button>(true);
+            if (btn != null) { btn.interactable = interactable; }
+        }
+
+        public static void SetAnyButtonInteractable(bool interactable, params object[] buttonTargets)
+        {
+            if (buttonTargets == null) return;
+            foreach (var target in buttonTargets)
+            {
+                if (target == null) continue;
+                if (target is Component comp)
+                {
+                    SetButtonInteractable(comp, interactable);
+                }
+                else if (target is GameObject go)
+                {
+                    SetButtonInteractable(go, interactable);
+                }
             }
         }
 
@@ -59,6 +274,84 @@ namespace NightCrawler.UI
             {
                 heatBtn.buttonText = text;
                 heatBtn.UpdateUI();
+            }
+        }
+
+        public static void SetButtonText(Button standardBtn, ShopButtonManager heatShopBtn, string text)
+        {
+            if (standardBtn != null)
+            {
+                var tmp = standardBtn.GetComponentInChildren<TextMeshProUGUI>(true);
+                if (tmp != null) tmp.text = text;
+            }
+
+            if (heatShopBtn != null)
+            {
+                heatShopBtn.buttonTitle = text;
+                heatShopBtn.UpdateUI();
+            }
+        }
+
+        public static void SetButtonText(Button standardBtn, BoxButtonManager heatBoxBtn, string text)
+        {
+            if (standardBtn != null)
+            {
+                var tmp = standardBtn.GetComponentInChildren<TextMeshProUGUI>(true);
+                if (tmp != null) tmp.text = text;
+            }
+
+            if (heatBoxBtn != null)
+            {
+                heatBoxBtn.buttonTitle = text;
+                heatBoxBtn.UpdateUI();
+            }
+        }
+
+        public static void SetButtonText(Component buttonComp, string text)
+        {
+            if (buttonComp == null) return;
+            if (buttonComp is Button btn)
+            {
+                var tmp = btn.GetComponentInChildren<TextMeshProUGUI>(true);
+                if (tmp != null) tmp.text = text;
+                return;
+            }
+            if (buttonComp is ButtonManager bm) { bm.buttonText = text; bm.UpdateUI(); return; }
+            if (buttonComp is ShopButtonManager sbm) { sbm.buttonTitle = text; sbm.UpdateUI(); return; }
+            if (buttonComp is BoxButtonManager bbm) { bbm.buttonTitle = text; bbm.UpdateUI(); return; }
+            if (buttonComp is PanelButton pb) { pb.buttonText = text; pb.UpdateUI(); return; }
+            SetButtonText(buttonComp.gameObject, text);
+        }
+
+        public static void SetButtonText(GameObject buttonObj, string text)
+        {
+            if (buttonObj == null) return;
+            var bm = buttonObj.GetComponentInChildren<ButtonManager>(true);
+            if (bm != null) { bm.buttonText = text; bm.UpdateUI(); }
+            var sbm = buttonObj.GetComponentInChildren<ShopButtonManager>(true);
+            if (sbm != null) { sbm.buttonTitle = text; sbm.UpdateUI(); }
+            var bbm = buttonObj.GetComponentInChildren<BoxButtonManager>(true);
+            if (bbm != null) { bbm.buttonTitle = text; bbm.UpdateUI(); }
+            var pb = buttonObj.GetComponentInChildren<PanelButton>(true);
+            if (pb != null) { pb.buttonText = text; pb.UpdateUI(); }
+            var tmp = buttonObj.GetComponentInChildren<TextMeshProUGUI>(true);
+            if (tmp != null) tmp.text = text;
+        }
+
+        public static void SetAnyButtonText(string text, params object[] buttonTargets)
+        {
+            if (buttonTargets == null) return;
+            foreach (var target in buttonTargets)
+            {
+                if (target == null) continue;
+                if (target is Component comp)
+                {
+                    SetButtonText(comp, text);
+                }
+                else if (target is GameObject go)
+                {
+                    SetButtonText(go, text);
+                }
             }
         }
 
@@ -111,12 +404,30 @@ namespace NightCrawler.UI
         //  MODAL WINDOWS (GameObject Panel & ModalWindowManager)
         // =========================================================================
 
-        public static void OpenModal(GameObject standardModal, ModalWindowManager heatModal, string title, string description)
+        public static void OpenModal(ModalWindowManager heatModal)
         {
             if (heatModal != null)
             {
-                heatModal.titleText = title;
-                heatModal.descriptionText = description;
+                heatModal.OpenWindow();
+            }
+        }
+
+        public static void OpenModal(ModalWindowManager heatModal, string title, string description)
+        {
+            if (heatModal != null)
+            {
+                if (!string.IsNullOrEmpty(title)) heatModal.titleText = title;
+                if (!string.IsNullOrEmpty(description)) heatModal.descriptionText = description;
+                heatModal.OpenWindow();
+            }
+        }
+
+        public static void OpenModal(GameObject standardModal, ModalWindowManager heatModal, string title = null, string description = null)
+        {
+            if (heatModal != null)
+            {
+                if (!string.IsNullOrEmpty(title)) heatModal.titleText = title;
+                if (!string.IsNullOrEmpty(description)) heatModal.descriptionText = description;
                 heatModal.OpenWindow();
                 return;
             }
@@ -124,6 +435,14 @@ namespace NightCrawler.UI
             if (standardModal != null)
             {
                 standardModal.SetActive(true);
+            }
+        }
+
+        public static void CloseModal(ModalWindowManager heatModal)
+        {
+            if (heatModal != null)
+            {
+                heatModal.CloseWindow();
             }
         }
 
@@ -145,6 +464,25 @@ namespace NightCrawler.UI
         //  PROGRESS & SLIDERS (Slider & ProgressBar / SliderManager)
         // =========================================================================
 
+        public static void SetProgress(ProgressBar heatBar, float fraction)
+        {
+            if (heatBar != null)
+            {
+                float targetMax = heatBar.maxValue > 0f ? heatBar.maxValue : 100f;
+                heatBar.currentValue = Mathf.Clamp01(fraction) * targetMax;
+                heatBar.UpdateUI();
+            }
+        }
+
+        public static void SetProgress(Slider standardSlider, ProgressBar heatBar, float fraction)
+        {
+            if (standardSlider != null)
+            {
+                standardSlider.value = fraction;
+            }
+            SetProgress(heatBar, fraction);
+        }
+
         public static void SetProgress(Slider standardSlider, ProgressBar heatBar, float current, float max)
         {
             if (standardSlider != null)
@@ -164,9 +502,9 @@ namespace NightCrawler.UI
 
         public static float GetSliderValue(Slider standardSlider, SliderManager heatSlider)
         {
-            if (heatSlider != null)
+            if (heatSlider != null && heatSlider.mainSlider != null)
             {
-                return heatSlider.currentValue;
+                return heatSlider.mainSlider.value;
             }
             if (standardSlider != null)
             {
@@ -175,15 +513,37 @@ namespace NightCrawler.UI
             return 0f;
         }
 
+        public static void SetSliderValue(SliderManager heatSlider, float value)
+        {
+            if (heatSlider != null && heatSlider.mainSlider != null)
+            {
+                heatSlider.mainSlider.value = value;
+                heatSlider.UpdateUI();
+            }
+        }
+
         public static void SetSliderValue(Slider standardSlider, SliderManager heatSlider, float value)
         {
             if (standardSlider != null)
             {
                 standardSlider.value = value;
             }
-            if (heatSlider != null)
+            SetSliderValue(heatSlider, value);
+        }
+
+        public static void SetSliderLimits(Slider standardSlider, SliderManager heatSlider, float min, float max, bool wholeNumbers = false)
+        {
+            if (standardSlider != null)
             {
-                heatSlider.currentValue = value;
+                standardSlider.minValue = min;
+                standardSlider.maxValue = max;
+                standardSlider.wholeNumbers = wholeNumbers;
+            }
+            if (heatSlider != null && heatSlider.mainSlider != null)
+            {
+                heatSlider.mainSlider.minValue = min;
+                heatSlider.mainSlider.maxValue = max;
+                heatSlider.mainSlider.wholeNumbers = wholeNumbers;
                 heatSlider.UpdateUI();
             }
         }

@@ -175,6 +175,8 @@ public class SettingsUI : MonoBehaviour
 
     [Header("Michsky Heat / Dark UI Navigation")]
     public ButtonManager heatReturnButton;
+    public BoxButtonManager heatBoxReturnButton;
+    public GameObject heatReturnButtonObject;
 
     // =========================================================================
     //  SlimUI Video Toggle Texts (TMP_Text components on toggle labels)
@@ -255,7 +257,7 @@ public class SettingsUI : MonoBehaviour
     private void Awake()
     {
         _pauseUI = FindFirstObjectByType<PauseUI>();
-        MichskyUIBridge.BindButton(null, heatReturnButton, ReturnToPauseMenu);
+        MichskyUIBridge.BindAnyButton(ReturnToPauseMenu, heatReturnButton, heatBoxReturnButton, heatReturnButtonObject);
         BindSliderEvents();
     }
 

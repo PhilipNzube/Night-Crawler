@@ -70,7 +70,12 @@ public class GirlDealUI : MonoBehaviour
     public Button closeButton;
     [Tooltip("Michsky Heat / Dark UI Action Buttons")]
     public ButtonManager heatSendDealButton;
+    public BoxButtonManager heatBoxSendDealButton;
+    public GameObject heatSendDealButtonObject;
+
     public ButtonManager heatCloseButton;
+    public BoxButtonManager heatBoxCloseButton;
+    public GameObject heatCloseButtonObject;
 
     [Header("Hotkeys")]
     [Tooltip("Primary toggle hotkey (default [B] for Bargain/Pact).")]
@@ -97,24 +102,20 @@ public class GirlDealUI : MonoBehaviour
         if (canvasGroup == null) canvasGroup = GetComponent<CanvasGroup>();
         if (canvasGroup == null) canvasGroup = gameObject.AddComponent<CanvasGroup>();
 
-        MichskyUIBridge.BindButton(sendDealButton, heatSendDealButton, OnSendDealClicked);
-        MichskyUIBridge.BindButton(closeButton, heatCloseButton, CloseUI);
+        MichskyUIBridge.BindAnyButton(OnSendDealClicked, sendDealButton, heatSendDealButton, heatBoxSendDealButton, heatSendDealButtonObject);
+        MichskyUIBridge.BindAnyButton(CloseUI, closeButton, heatCloseButton, heatBoxCloseButton, heatCloseButtonObject);
+
+        MichskyUIBridge.SetSliderLimits(timeLimitSlider, heatTimeLimitSlider, 60f, 180f, false);
+        MichskyUIBridge.SetSliderValue(timeLimitSlider, heatTimeLimitSlider, 120f);
 
         if (timeLimitSlider != null)
         {
-            timeLimitSlider.minValue = 60f;
-            timeLimitSlider.maxValue = 180f;
-            timeLimitSlider.value = 120f;
             timeLimitSlider.onValueChanged.AddListener(OnTimeLimitChanged);
         }
 
         if (heatTimeLimitSlider != null)
         {
-            heatTimeLimitSlider.minValue = 60f;
-            heatTimeLimitSlider.maxValue = 180f;
-            heatTimeLimitSlider.currentValue = 120f;
             heatTimeLimitSlider.onValueChanged.AddListener(OnTimeLimitChanged);
-            heatTimeLimitSlider.UpdateUI();
         }
 
         SetVisible(false);
@@ -284,11 +285,11 @@ public class GirlDealUI : MonoBehaviour
         if (options.Count == 0)
         {
             options.Add("No living investigators");
-            MichskyUIBridge.SetButtonInteractable(sendDealButton, heatSendDealButton, false);
+            MichskyUIBridge.SetAnyButtonInteractable(false, sendDealButton, heatSendDealButton, heatBoxSendDealButton, heatSendDealButtonObject);
         }
         else
         {
-            MichskyUIBridge.SetButtonInteractable(sendDealButton, heatSendDealButton, true);
+            MichskyUIBridge.SetAnyButtonInteractable(true, sendDealButton, heatSendDealButton, heatBoxSendDealButton, heatSendDealButtonObject);
         }
 
         recipientDropdown.AddOptions(options);

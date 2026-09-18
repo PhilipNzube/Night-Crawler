@@ -143,7 +143,7 @@ public class NotificationManager : MonoBehaviour
             heatNotification.notificationText = $"{badge}\n{message}";
             heatNotification.minimizeAfter = duration;
             heatNotification.UpdateUI();
-            heatNotification.OpenNotification();
+            heatNotification.ExpandNotification();
         }
 
         if (_displayCoroutine != null)

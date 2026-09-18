@@ -5,6 +5,8 @@ using Unity.Netcode;
 using System.Collections;
 using System.Collections.Generic;
 using NightCrawler.Economy;
+using NightCrawler.UI;
+using Michsky.UI.Heat;
 
 /// <summary>
 /// SOLID — SRP: Manages Character Selection UI view inside the InvestigatorFlow panel.
@@ -118,16 +120,34 @@ public class CharacterSelectUI : MonoBehaviour
     [Header("Michsky UI Support (Heat / Dark Horror UI)")]
     [Tooltip("Optional: Assign Michsky ButtonManager to replace or enhance the Confirm Button.")]
     public ButtonManager heatConfirmButton;
+    [Tooltip("Optional: If using Button (Box) for Confirm, drag it here!")]
+    public BoxButtonManager heatBoxConfirmButton;
+    [Tooltip("Optional: Or drag the Confirm button GameObject directly here!")]
+    public GameObject heatConfirmButtonObject;
 
     [Tooltip("Optional: Assign Michsky InputFieldManager to replace or enhance the Stake Input Field.")]
     public InputFieldManager heatStakeInputField;
 
     [Tooltip("Optional: Assign Michsky ButtonManager to open Upgrades.")]
     public ButtonManager heatOpenUpgradesButton;
+    [Tooltip("Optional: If using Button (Shop) for Upgrades, drag it here!")]
+    public ShopButtonManager heatShopOpenUpgradesButton;
+    [Tooltip("Optional: Or drag the Upgrades button GameObject directly here!")]
+    public GameObject heatOpenUpgradesButtonObject;
 
     [Tooltip("Optional: Assign Michsky ButtonManager for left/right navigation.")]
     public ButtonManager heatArrowLeft;
     public ButtonManager heatArrowRight;
+    public BoxButtonManager heatBoxArrowLeft;
+    public BoxButtonManager heatBoxArrowRight;
+
+    [Header("Michsky Stat Progress Bars")]
+    [Tooltip("Optional: Heat/Dark ProgressBar for Speed stat.")]
+    public ProgressBar heatSpeedBar;
+    [Tooltip("Optional: Heat/Dark ProgressBar for Strength stat.")]
+    public ProgressBar heatStrengthBar;
+    [Tooltip("Optional: Heat/Dark ProgressBar for Stealth stat.")]
+    public ProgressBar heatStealthBar;
 
     // =========================================================================
     //  Inspector — Character Data & Filters
@@ -266,8 +286,14 @@ public class CharacterSelectUI : MonoBehaviour
         _initialized = true;
 
         MichskyUIBridge.BindButton(confirmButton, heatConfirmButton, OnConfirmSelection);
+        MichskyUIBridge.BindButton(null, heatBoxConfirmButton, OnConfirmSelection);
+        MichskyUIBridge.BindButton(heatConfirmButtonObject, OnConfirmSelection);
+
         MichskyUIBridge.BindButton(arrowLeft, heatArrowLeft, SelectPrevious);
+        MichskyUIBridge.BindButton(null, heatBoxArrowLeft, SelectPrevious);
+
         MichskyUIBridge.BindButton(arrowRight, heatArrowRight, SelectNext);
+        MichskyUIBridge.BindButton(null, heatBoxArrowRight, SelectNext);
 
         if (CharacterSelectManager.Instance != null)
         {
@@ -297,14 +323,18 @@ public class CharacterSelectUI : MonoBehaviour
             creditBalanceText.text = $"Credits: {credits} {CurrencyConfig.CurrencySymbol}";
         }
 
-        MichskyUIBridge.BindButton(openUpgradesButton, heatOpenUpgradesButton, () =>
+        System.Action toggleUpgrades = () =>
         {
             if (upgradePanel != null) upgradePanel.SetActive(!upgradePanel.activeSelf);
             if (creditBalanceText != null && CloudCharacterSaveManager.Instance != null)
             {
                 creditBalanceText.text = $"Credits: {CloudCharacterSaveManager.Instance.CurrentCredits} {CurrencyConfig.CurrencySymbol}";
             }
-        });
+        };
+
+        MichskyUIBridge.BindButton(openUpgradesButton, heatOpenUpgradesButton, new UnityEngine.Events.UnityAction(toggleUpgrades));
+        MichskyUIBridge.BindButton(null, heatShopOpenUpgradesButton, new UnityEngine.Events.UnityAction(toggleUpgrades));
+        MichskyUIBridge.BindButton(heatOpenUpgradesButtonObject, new UnityEngine.Events.UnityAction(toggleUpgrades));
 
         ValidateStake();
     }
@@ -320,7 +350,7 @@ public class CharacterSelectUI : MonoBehaviour
 
         if (string.IsNullOrEmpty(raw))
         {
-            MichskyUIBridge.SetButtonInteractable(confirmButton, heatConfirmButton, false);
+            SetConfirmButtonInteractable(false);
             if (stakeErrorText != null)
             {
                 stakeErrorText.gameObject.SetActive(true);
@@ -331,7 +361,7 @@ public class CharacterSelectUI : MonoBehaviour
 
         if (!int.TryParse(raw, out int stake))
         {
-            MichskyUIBridge.SetButtonInteractable(confirmButton, heatConfirmButton, false);
+            SetConfirmButtonInteractable(false);
             if (stakeErrorText != null)
             {
                 stakeErrorText.gameObject.SetActive(true);
@@ -342,7 +372,7 @@ public class CharacterSelectUI : MonoBehaviour
 
         if (stake < CurrencyConfig.MinimumStake)
         {
-            MichskyUIBridge.SetButtonInteractable(confirmButton, heatConfirmButton, false);
+            SetConfirmButtonInteractable(false);
             if (stakeErrorText != null)
             {
                 stakeErrorText.gameObject.SetActive(true);
@@ -354,7 +384,7 @@ public class CharacterSelectUI : MonoBehaviour
         int currentCredits = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
         if (stake > currentCredits)
         {
-            MichskyUIBridge.SetButtonInteractable(confirmButton, heatConfirmButton, false);
+            SetConfirmButtonInteractable(false);
             if (stakeErrorText != null)
             {
                 stakeErrorText.gameObject.SetActive(true);
@@ -364,13 +394,20 @@ public class CharacterSelectUI : MonoBehaviour
         }
 
         // All checks passed!
-        MichskyUIBridge.SetButtonInteractable(confirmButton, heatConfirmButton, true);
+        SetConfirmButtonInteractable(true);
         if (stakeErrorText != null)
         {
             stakeErrorText.text = "";
             stakeErrorText.gameObject.SetActive(false);
         }
         return true;
+    }
+
+    private void SetConfirmButtonInteractable(bool interactable)
+    {
+        MichskyUIBridge.SetButtonInteractable(confirmButton, heatConfirmButton, interactable);
+        MichskyUIBridge.SetButtonInteractable(null, heatBoxConfirmButton, interactable);
+        MichskyUIBridge.SetButtonInteractable(heatConfirmButtonObject, interactable);
     }
 
     // =========================================================================
@@ -462,6 +499,10 @@ public class CharacterSelectUI : MonoBehaviour
             if (strengthBar != null) strengthBar.value = so.strength / 10f;
             if (stealthBar  != null) stealthBar.value  = so.stealth / 10f;
 
+            MichskyUIBridge.SetProgress(heatSpeedBar, so.speed / 10f);
+            MichskyUIBridge.SetProgress(heatStrengthBar, so.strength / 10f);
+            MichskyUIBridge.SetProgress(heatStealthBar, so.stealth / 10f);
+
             if (so.characterPrefab != null)
                 SwapFeaturedModel(so.characterPrefab);
         }
@@ -484,6 +525,10 @@ public class CharacterSelectUI : MonoBehaviour
                 if (speedBar    != null) speedBar.value    = 0.7f;
                 if (strengthBar != null) strengthBar.value = 0.6f;
                 if (stealthBar  != null) stealthBar.value  = 0.5f;
+
+                MichskyUIBridge.SetProgress(heatSpeedBar, 0.7f);
+                MichskyUIBridge.SetProgress(heatStrengthBar, 0.6f);
+                MichskyUIBridge.SetProgress(heatStealthBar, 0.5f);
 
                 if (data.characterPrefab != null)
                     SwapFeaturedModel(data.characterPrefab);

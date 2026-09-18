@@ -32,6 +32,8 @@ namespace NightCrawler.UI
         public ModalWindowManager heatStakingModal;
         public SliderManager heatStakeSlider;
         public ButtonManager heatConfirmStakeButton;
+        public BoxButtonManager heatBoxConfirmStakeButton;
+        public GameObject heatConfirmStakeButtonObject;
 
         private bool _hasConfirmed = false;
         private int _selectedStake = CurrencyConfig.MinimumStake;
@@ -62,7 +64,7 @@ namespace NightCrawler.UI
                 heatStakeSlider.onValueChanged.AddListener(OnSliderChanged);
             }
 
-            MichskyUIBridge.BindButton(confirmStakeButton, heatConfirmStakeButton, OnConfirmClicked);
+            MichskyUIBridge.BindAnyButton(OnConfirmClicked, confirmStakeButton, heatConfirmStakeButton, heatBoxConfirmStakeButton, heatConfirmStakeButtonObject);
 
             // Hide initially until staking opens
             if (stakingModalPanel != null)
@@ -110,21 +112,8 @@ namespace NightCrawler.UI
             int minStake = CurrencyConfig.MinimumStake;
             _maxAllowedStake = Mathf.Max(minStake, Mathf.FloorToInt(_currentBalance * CurrencyConfig.MaxStakeCapPercentage));
 
-            if (stakeSlider != null)
-            {
-                stakeSlider.minValue = minStake;
-                stakeSlider.maxValue = _maxAllowedStake;
-                stakeSlider.wholeNumbers = true;
-                stakeSlider.value = minStake;
-            }
-
-            if (heatStakeSlider != null)
-            {
-                heatStakeSlider.minValue = minStake;
-                heatStakeSlider.maxValue = _maxAllowedStake;
-                heatStakeSlider.currentValue = minStake;
-                heatStakeSlider.UpdateUI();
-            }
+            MichskyUIBridge.SetSliderLimits(stakeSlider, heatStakeSlider, minStake, _maxAllowedStake, true);
+            MichskyUIBridge.SetSliderValue(stakeSlider, heatStakeSlider, minStake);
 
             _selectedStake = minStake;
             UpdateDisplay();
@@ -156,7 +145,7 @@ namespace NightCrawler.UI
             {
                 confirmButtonText.text = btnText;
             }
-            MichskyUIBridge.SetButtonText(confirmStakeButton, heatConfirmStakeButton, btnText);
+            MichskyUIBridge.SetAnyButtonText(btnText, confirmStakeButton, heatConfirmStakeButton, heatBoxConfirmStakeButton, heatConfirmStakeButtonObject);
         }
 
         private void OnConfirmClicked()
@@ -169,14 +158,14 @@ namespace NightCrawler.UI
                 MatchEconomyManager.Instance.SubmitStakeServerRpc(_selectedStake);
             }
 
-            MichskyUIBridge.SetButtonInteractable(confirmStakeButton, heatConfirmStakeButton, false);
+            MichskyUIBridge.SetAnyButtonInteractable(false, confirmStakeButton, heatConfirmStakeButton, heatBoxConfirmStakeButton, heatConfirmStakeButtonObject);
             if (stakeSlider != null) stakeSlider.interactable = false;
 
             if (confirmButtonText != null)
             {
                 confirmButtonText.text = "STAKE LOCKED ✓";
             }
-            MichskyUIBridge.SetButtonText(confirmStakeButton, heatConfirmStakeButton, "STAKE LOCKED ✓");
+            MichskyUIBridge.SetAnyButtonText("STAKE LOCKED ✓", confirmStakeButton, heatConfirmStakeButton, heatBoxConfirmStakeButton, heatConfirmStakeButtonObject);
 
             if (NotificationManager.Instance != null)
             {

@@ -56,10 +56,25 @@ public class PauseUI : MonoBehaviour
 
     [Header("Michsky Heat / Dark UI Components")]
     public ButtonManager heatResumeButton;
+    public BoxButtonManager heatBoxResumeButton;
+    public GameObject heatResumeButtonObject;
+
     public ButtonManager heatSettingsButton;
+    public BoxButtonManager heatBoxSettingsButton;
+    public GameObject heatSettingsButtonObject;
+
     public ButtonManager heatDisconnectButton;
+    public BoxButtonManager heatBoxDisconnectButton;
+    public GameObject heatDisconnectButtonObject;
+
     public ButtonManager heatConfirmDisconnectButton;
+    public BoxButtonManager heatBoxConfirmDisconnectButton;
+    public GameObject heatConfirmDisconnectButtonObject;
+
     public ButtonManager heatCancelDisconnectButton;
+    public BoxButtonManager heatBoxCancelDisconnectButton;
+    public GameObject heatCancelDisconnectButtonObject;
+
     public ModalWindowManager heatExitModal;
 
     [Header("SlimUI Audio SFX")]
@@ -84,11 +99,11 @@ public class PauseUI : MonoBehaviour
     {
         _pauseManager = FindFirstObjectByType<PauseManager>();
 
-        MichskyUIBridge.BindButton(resumeButton, heatResumeButton, OnResumePressed);
-        MichskyUIBridge.BindButton(settingsButton, heatSettingsButton, OnSettingsPressed);
-        MichskyUIBridge.BindButton(disconnectButton, heatDisconnectButton, OnDisconnectPressed);
-        MichskyUIBridge.BindButton(confirmDisconnectButton, heatConfirmDisconnectButton, ConfirmDisconnect);
-        MichskyUIBridge.BindButton(cancelDisconnectButton, heatCancelDisconnectButton, CloseExitDialog);
+        MichskyUIBridge.BindAnyButton(OnResumePressed, resumeButton, heatResumeButton, heatBoxResumeButton, heatResumeButtonObject);
+        MichskyUIBridge.BindAnyButton(OnSettingsPressed, settingsButton, heatSettingsButton, heatBoxSettingsButton, heatSettingsButtonObject);
+        MichskyUIBridge.BindAnyButton(OnDisconnectPressed, disconnectButton, heatDisconnectButton, heatBoxDisconnectButton, heatDisconnectButtonObject);
+        MichskyUIBridge.BindAnyButton(ConfirmDisconnect, confirmDisconnectButton, heatConfirmDisconnectButton, heatBoxConfirmDisconnectButton, heatConfirmDisconnectButtonObject);
+        MichskyUIBridge.BindAnyButton(CloseExitDialog, cancelDisconnectButton, heatCancelDisconnectButton, heatBoxCancelDisconnectButton, heatCancelDisconnectButtonObject);
 
         // Start hidden
         HidePauseMenu();
