@@ -518,6 +518,23 @@ namespace NightCrawler.UI
             }
         }
 
+        public static void SetProgress(Slider slider, float fraction)
+        {
+            if (slider != null)
+            {
+                slider.value = Mathf.Lerp(slider.minValue, slider.maxValue, Mathf.Clamp01(fraction));
+            }
+        }
+
+        public static void SetProgress(Image fillImage, float fraction)
+        {
+            if (fillImage != null)
+            {
+                fillImage.type = Image.Type.Filled;
+                fillImage.fillAmount = Mathf.Clamp01(fraction);
+            }
+        }
+
         public static float GetSliderValue(Slider standardSlider, SliderManager heatSlider)
         {
             if (heatSlider != null && heatSlider.mainSlider != null)

@@ -15,36 +15,42 @@ namespace NightCrawler.Economy
 
         /// <summary>
         /// Base cost in Cinders for Level 1 upgrades.
+        /// Balanced for high-stakes economy where upgrades are meaningful, premium milestones.
         /// </summary>
         public static int GetBaseCost(UpgradeStatType stat)
         {
             switch (stat)
             {
-                case UpgradeStatType.DamageResistance:     return 20;
-                case UpgradeStatType.WeaponDamage:        return 25;
-                case UpgradeStatType.MaskFilter:          return 20;
-                case UpgradeStatType.SpiritualLevel:      return 30;
-                case UpgradeStatType.MapPower:            return 15;
-                case UpgradeStatType.VialCount:           return 25;
-                case UpgradeStatType.VialHealingPower:    return 20;
+                case UpgradeStatType.DamageResistance:     return 40;
+                case UpgradeStatType.WeaponDamage:        return 50;
+                case UpgradeStatType.MaskFilter:          return 35;
+                case UpgradeStatType.SpiritualLevel:      return 60;
+                case UpgradeStatType.MapPower:            return 30;
+                case UpgradeStatType.VialCount:           return 50;
+                case UpgradeStatType.VialHealingPower:    return 40;
 
-                case UpgradeStatType.PossessionDuration:  return 35;
-                case UpgradeStatType.DealCapacity:        return 30;
-                case UpgradeStatType.VisibilityCount:     return 25;
-                case UpgradeStatType.VisibilityDuration:  return 20;
-                case UpgradeStatType.DeadSummonCharges:   return 30;
-                default: return 20;
+                case UpgradeStatType.PossessionDuration:  return 70;
+                case UpgradeStatType.DealCapacity:        return 60;
+                case UpgradeStatType.VisibilityCount:     return 50;
+                case UpgradeStatType.VisibilityDuration:  return 40;
+                case UpgradeStatType.DeadSummonCharges:   return 60;
+                default: return 40;
             }
         }
 
         /// <summary>
         /// Calculates the upgrade cost from currentLevel to (currentLevel + 1).
-        /// Cost(L) = BaseCost * (1.55)^L.
+        /// Uses a steep 2.15x exponential multiplier per tier:
+        /// - Tier 1: ~30-70 Cinders  (Accessible early milestone)
+        /// - Tier 2: ~80-150 Cinders (Requires saving from a good extraction)
+        /// - Tier 3: ~180-325 Cinders (Major build specialization)
+        /// - Tier 4: ~400-700 Cinders (High-stakes dedication)
+        /// - Tier 5: ~850-1,500 Cinders (Prestige apex capstone)
         /// </summary>
         public static int CalculateUpgradeCost(UpgradeStatType stat, int currentLevel)
         {
             float baseCost = GetBaseCost(stat);
-            float multiplier = Mathf.Pow(1.55f, currentLevel);
+            float multiplier = Mathf.Pow(2.15f, currentLevel);
             return Mathf.RoundToInt(baseCost * multiplier);
         }
 

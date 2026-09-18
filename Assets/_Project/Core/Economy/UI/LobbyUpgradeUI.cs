@@ -24,74 +24,75 @@ namespace NightCrawler.Economy.UI
     /// </summary>
     public class LobbyUpgradeUI : MonoBehaviour
     {
-        [Header("Configuration")]
+        [Header("1. Mode & Root Window")]
         [Tooltip("Select whether this panel upgrades Investigator stats or Girl stats.")]
         public UpgradeViewMode viewMode = UpgradeViewMode.InvestigatorStats;
 
-        [Header("Root & Controls")]
-        [Tooltip("The root modal panel GameObject. Can be toggled open/closed.")]
+        [Tooltip("The root modal panel GameObject (usually this GameObject).")]
         public GameObject panelRoot;
 
-        [Tooltip("Michsky Heat / Dark Modal Window Manager")]
+        [Tooltip("Michsky Heat Modal Window Manager on this window.")]
         public ModalWindowManager heatModalWindow;
 
-        [Tooltip("Button used to open this upgrade panel.")]
-        public Button openButton;
-        [Tooltip("Michsky Heat / Dark Button to open this panel.")]
+        [Header("2. Window Triggers (Optional)")]
+        [Tooltip("Michsky Heat Button to open this panel.")]
         public ButtonManager heatOpenButton;
-        [Tooltip("If using Button (Shop) to open this panel, drag it here!")]
-        public ShopButtonManager heatShopOpenButton;
-        [Tooltip("If using Button (Box) to open this panel, drag it here!")]
+        [Tooltip("Michsky Heat Box Button to open this panel.")]
         public BoxButtonManager heatBoxOpenButton;
-        [Tooltip("Or drag the Open button GameObject directly here!")]
-        public GameObject heatOpenButtonObject;
-
-        [Tooltip("Button used to close this upgrade panel.")]
-        public Button closeButton;
-        [Tooltip("Michsky Heat / Dark Button to close this panel.")]
+        [Tooltip("Michsky Heat Button to close this panel.")]
         public ButtonManager heatCloseButton;
-        [Tooltip("If using Button (Box) to close this panel, drag it here!")]
+        [Tooltip("Michsky Heat Box Button to close this panel.")]
         public BoxButtonManager heatBoxCloseButton;
-        [Tooltip("Or drag the Close button GameObject directly here!")]
-        public GameObject heatCloseButtonObject;
 
-        [Tooltip("Header title text.")]
-        public TextMeshProUGUI titleText;
-
-        [Tooltip("Displays current credit balance.")]
-        public TextMeshProUGUI balanceText;
-
-        [Header("Confirmation Modal (Michsky Heat UI)")]
+        [Header("3. Confirmation Modal (Michsky Heat UI)")]
         [Tooltip("The Modal Window that pops up when tapping a stat to confirm the purchase.")]
         public ModalWindowManager purchaseConfirmModal;
 
         [System.Serializable]
         public class ManualStatItem
         {
+            [Tooltip("The stat this card upgrades.")]
             public UpgradeStatType statType;
-            [Tooltip("The button/card in the list that the player clicks to select this stat.")]
-            public Button button;
-            public ButtonManager heatButton;
+            [Tooltip("The Heat Shop Button card for this stat.")]
             public ShopButtonManager heatShopButton;
-            public GameObject buttonObject;
-            [Tooltip("Text displaying the stat level/tier (e.g. 'Lv. 2/5').")]
+            [Tooltip("Alternative: Standard Heat Button.")]
+            public ButtonManager heatButton;
+            [Tooltip("Alternative: Heat Box Button.")]
+            public BoxButtonManager heatBoxButton;
+            [Tooltip("Optional text displaying tier (e.g. 'Lv. 2/5').")]
             public TextMeshProUGUI levelText;
-            [Tooltip("Text displaying the stat effect or cost.")]
+            [Tooltip("Optional text displaying effect or cost.")]
             public TextMeshProUGUI effectText;
-            [Tooltip("Optional ProgressBar visualizing the stat level.")]
+            [Tooltip("Optional: Heat UI ProgressBar visualizing tier level.")]
             public ProgressBar progressBar;
+            [Tooltip("Optional: Standard Unity UI Slider visualizing tier level.")]
+            public Slider sliderBar;
+            [Tooltip("Optional: Standard Unity UI filled Image visualizing tier level.")]
+            public Image fillImageBar;
+
+            // Hidden legacy fields to keep inspector clean
+            [HideInInspector] public Button button;
+            [HideInInspector] public GameObject buttonObject;
         }
 
-        [Header("Manual Stat Rows (Optional - If building cards in Inspector)")]
-        [Tooltip("If you manually place stat cards in the hierarchy yourself, drag them here!")]
+        [Header("4. Stat Cards (Drag & Drop Hierarchy)")]
+        [Tooltip("List of stat cards manually placed in the hierarchy.")]
         public List<ManualStatItem> manualStatItems = new List<ManualStatItem>();
 
-        [Header("Procedural Item Container (Fallback)")]
-        [Tooltip("Vertical container where upgrade rows are automatically placed if not using manual items.")]
-        public Transform itemsContainer;
+        [Header("5. Displays & Currency (Optional)")]
+        [Tooltip("Header title text.")]
+        public TextMeshProUGUI titleText;
+        [Tooltip("Displays current credit / cinder balance.")]
+        public TextMeshProUGUI balanceText;
 
-        [Tooltip("Optional custom prefab for upgrade rows. If null, procedural cards are generated.")]
-        public GameObject upgradeRowPrefab;
+        // Hidden legacy fields to prevent inspector clutter while preserving backwards compatibility
+        [HideInInspector] public Button openButton;
+        [HideInInspector] public ShopButtonManager heatShopOpenButton;
+        [HideInInspector] public GameObject heatOpenButtonObject;
+        [HideInInspector] public Button closeButton;
+        [HideInInspector] public GameObject heatCloseButtonObject;
+        [HideInInspector] public Transform itemsContainer;
+        [HideInInspector] public GameObject upgradeRowPrefab;
 
         private readonly List<UpgradeStatType> _investigatorStats = new List<UpgradeStatType>
         {
@@ -214,9 +215,18 @@ namespace NightCrawler.Economy.UI
                     item.effectText.text = isMaxLevel ? "Max Level Reached" : $"{statEffect}\n<color=#F1C40F>Cost: {cost} {CurrencyConfig.CurrencySymbol}</color>";
                 }
 
+                float progressFraction = currentLevel / 5f;
                 if (item.progressBar != null)
                 {
-                    MichskyUIBridge.SetProgress(item.progressBar, currentLevel / 5f);
+                    MichskyUIBridge.SetProgress(item.progressBar, progressFraction);
+                }
+                if (item.sliderBar != null)
+                {
+                    MichskyUIBridge.SetProgress(item.sliderBar, progressFraction);
+                }
+                if (item.fillImageBar != null)
+                {
+                    MichskyUIBridge.SetProgress(item.fillImageBar, progressFraction);
                 }
 
                 if (item.heatShopButton != null)
@@ -228,13 +238,27 @@ namespace NightCrawler.Economy.UI
                     item.heatShopButton.UpdateUI();
                 }
 
-                MichskyUIBridge.SetAnyButtonInteractable(canAfford, item.button, item.heatButton, item.buttonObject);
+                if (item.heatButton != null)
+                {
+                    item.heatButton.SetText($"{statTitle} {(isMaxLevel ? "[MAX]" : $"[Lv. {currentLevel}/5 - {cost}C]")}");
+                    item.heatButton.isInteractable = canAfford;
+                    item.heatButton.UpdateUI();
+                }
+
+                if (item.heatBoxButton != null)
+                {
+                    item.heatBoxButton.SetText($"{statTitle} {(isMaxLevel ? "[MAX]" : $"Lv.{currentLevel}")}");
+                    item.heatBoxButton.isInteractable = canAfford;
+                    item.heatBoxButton.UpdateUI();
+                }
+
+                MichskyUIBridge.SetAnyButtonInteractable(canAfford, item.button, item.heatButton, item.heatBoxButton, item.buttonObject);
 
                 // Bind click to open confirmation modal
                 MichskyUIBridge.BindAnyButton(() =>
                 {
                     OnUpgradeClicked(item.statType, cost);
-                }, item.button, item.heatButton, item.heatShopButton, item.buttonObject);
+                }, item.button, item.heatButton, item.heatBoxButton, item.heatShopButton, item.buttonObject);
             }
         }
 

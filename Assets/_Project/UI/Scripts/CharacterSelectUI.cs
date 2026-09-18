@@ -130,6 +130,8 @@ public class CharacterSelectUI : MonoBehaviour
 
     [Tooltip("Optional: Assign Michsky ButtonManager to open Upgrades.")]
     public ButtonManager heatOpenUpgradesButton;
+    [Tooltip("Optional: If using Button (Box) for Upgrades, drag it here!")]
+    public BoxButtonManager heatBoxOpenUpgradesButton;
     [Tooltip("Optional: If using Button (Shop) for Upgrades, drag it here!")]
     public ShopButtonManager heatShopOpenUpgradesButton;
     [Tooltip("Optional: Or drag the Upgrades button GameObject directly here!")]
@@ -325,14 +327,29 @@ public class CharacterSelectUI : MonoBehaviour
 
         System.Action toggleUpgrades = () =>
         {
-            if (upgradePanel != null) upgradePanel.SetActive(!upgradePanel.activeSelf);
-            if (creditBalanceText != null && CloudCharacterSaveManager.Instance != null)
+            if (upgradePanel != null)
             {
-                creditBalanceText.text = $"Credits: {CloudCharacterSaveManager.Instance.CurrentCredits} {CurrencyConfig.CurrencySymbol}";
+                var upgradeUI = upgradePanel.GetComponent<NightCrawler.Economy.UI.LobbyUpgradeUI>();
+                if (upgradeUI != null)
+                {
+                    upgradeUI.OpenPanel();
+                }
+                else
+                {
+                    var mw = upgradePanel.GetComponent<Michsky.UI.Heat.ModalWindowManager>();
+                    if (mw != null) mw.OpenWindow();
+                    else upgradePanel.SetActive(!upgradePanel.activeSelf);
+                }
+
+                if (creditBalanceText != null && CloudCharacterSaveManager.Instance != null)
+                {
+                    creditBalanceText.text = $"Credits: {CloudCharacterSaveManager.Instance.CurrentCredits} {CurrencyConfig.CurrencySymbol}";
+                }
             }
         };
 
         MichskyUIBridge.BindButton(openUpgradesButton, heatOpenUpgradesButton, new UnityEngine.Events.UnityAction(toggleUpgrades));
+        MichskyUIBridge.BindButton(null, heatBoxOpenUpgradesButton, new UnityEngine.Events.UnityAction(toggleUpgrades));
         MichskyUIBridge.BindButton(null, heatShopOpenUpgradesButton, new UnityEngine.Events.UnityAction(toggleUpgrades));
         MichskyUIBridge.BindButton(heatOpenUpgradesButtonObject, new UnityEngine.Events.UnityAction(toggleUpgrades));
 

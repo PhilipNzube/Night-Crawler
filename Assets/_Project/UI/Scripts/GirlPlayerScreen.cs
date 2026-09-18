@@ -69,6 +69,8 @@ public class GirlPlayerScreen : MonoBehaviour
     public Button openUpgradesButton;
     [Tooltip("Michsky Heat/Dark UI Button to open the Vengeful Spirit Upgrades panel.")]
     public ButtonManager heatOpenUpgradesButton;
+    [Tooltip("If using Button (Box) for Upgrades, drag it here!")]
+    public BoxButtonManager heatBoxOpenUpgradesButton;
     [Tooltip("If using Button (Shop) for Upgrades, drag it here!")]
     public ShopButtonManager heatShopOpenUpgradesButton;
     [Tooltip("Or drag the Upgrades button GameObject directly here!")]
@@ -195,7 +197,18 @@ public class GirlPlayerScreen : MonoBehaviour
         {
             if (upgradePanel != null)
             {
-                upgradePanel.SetActive(!upgradePanel.activeSelf);
+                var upgradeUI = upgradePanel.GetComponent<NightCrawler.Economy.UI.LobbyUpgradeUI>();
+                if (upgradeUI != null)
+                {
+                    upgradeUI.OpenPanel();
+                }
+                else
+                {
+                    var mw = upgradePanel.GetComponent<Michsky.UI.Heat.ModalWindowManager>();
+                    if (mw != null) mw.OpenWindow();
+                    else upgradePanel.SetActive(!upgradePanel.activeSelf);
+                }
+
                 if (creditBalanceText != null && CloudCharacterSaveManager.Instance != null)
                 {
                     creditBalanceText.text = $"Credits: {CloudCharacterSaveManager.Instance.CurrentCredits} {CurrencyConfig.CurrencySymbol}";
@@ -204,6 +217,7 @@ public class GirlPlayerScreen : MonoBehaviour
         };
 
         MichskyUIBridge.BindButton(openUpgradesButton, heatOpenUpgradesButton, new UnityEngine.Events.UnityAction(toggleUpgrades));
+        MichskyUIBridge.BindButton(null, heatBoxOpenUpgradesButton, new UnityEngine.Events.UnityAction(toggleUpgrades));
         MichskyUIBridge.BindButton(null, heatShopOpenUpgradesButton, new UnityEngine.Events.UnityAction(toggleUpgrades));
         MichskyUIBridge.BindButton(heatOpenUpgradesButtonObject, new UnityEngine.Events.UnityAction(toggleUpgrades));
 
