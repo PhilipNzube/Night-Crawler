@@ -45,6 +45,15 @@ namespace NightCrawler.UI
             {
                 heatShopBtn.onClick.RemoveAllListeners();
                 if (onClick != null) heatShopBtn.onClick.AddListener(onClick);
+
+                heatShopBtn.onPurchaseClick.RemoveAllListeners();
+                if (onClick != null) heatShopBtn.onPurchaseClick.AddListener(onClick);
+
+                if (heatShopBtn.purchaseButton != null)
+                {
+                    heatShopBtn.purchaseButton.onClick.RemoveAllListeners();
+                    if (onClick != null) heatShopBtn.purchaseButton.onClick.AddListener(onClick);
+                }
             }
         }
 
@@ -100,6 +109,15 @@ namespace NightCrawler.UI
             {
                 sbm.onClick.RemoveAllListeners();
                 if (onClick != null) sbm.onClick.AddListener(onClick);
+
+                sbm.onPurchaseClick.RemoveAllListeners();
+                if (onClick != null) sbm.onPurchaseClick.AddListener(onClick);
+
+                if (sbm.purchaseButton != null)
+                {
+                    sbm.purchaseButton.onClick.RemoveAllListeners();
+                    if (onClick != null) sbm.purchaseButton.onClick.AddListener(onClick);
+                }
                 return;
             }
 
