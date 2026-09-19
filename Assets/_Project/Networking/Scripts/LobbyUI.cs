@@ -1,5 +1,6 @@
 using System;
 using System.Collections;
+using System.Collections.Generic;
 using System.Threading.Tasks;
 using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
@@ -10,17 +11,18 @@ using Michsky.UI.Heat;
 using NightCrawler.UI;
 
 /// <summary>
-/// SOLID — SRP: Manages the pre-game lobby UI flow.
+/// SOLID — SRP: Manages the pre-game lobby UI flow using Michsky Heat UI.
 ///
-/// Supports dedicated screens:
-///   1. Name Entry Panel     — Name prompt shown first.
-///   2. Connection Panel     — Main menu to choose Host or Join.
-///   3. Join Code Panel      — Dedicated client screen to type/paste a Join Code.
-///   4. Host Lobby Panel     — Dedicated host screen displaying the generated Join Code, copy button, and match controls.
-///   5. Client Lobby Panel   — Dedicated client waiting room showing the room code, player count, and host status.
-///   6. Fallback Lobby Panel — Classic unified lobby panel (used in LocalLAN mode or if dedicated panels are unassigned).
-///
-/// Also supports instant Inspector toggle between Relay and Local LAN for dev testing.
+/// Flow:
+///   1. Splash Screen / Launch  -> Shows Name Entry if first time (with Cancel 'X' disabled),
+///                                 or straight to Connection Panel if player has a saved name.
+///   2. Bottom Profile Bar      -> Shows callsign if saved; hidden completely if not saved.
+///   3. Connection Panel        -> Choose Host or Join.
+///   4. Join Code Panel         -> Client types/pastes 6-char Relay code.
+///   5. Host Lobby Panel        -> Host waiting room with code, copy button, player counter, start match.
+///   6. Client Lobby Panel      -> Client waiting room with room code and player counter.
+///   7. Exit Modal Triggers     -> Multiple buttons (Top 'X', Bottom Quit, etc.) open the Exit Window.
+///   8. Match Start             -> Root Canvas hides completely, handing over smoothly to PreGameCanvas.
 /// </summary>
 public class LobbyUI : MonoBehaviour
 {
@@ -53,9 +55,6 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Michsky Input Field where the player types their name.")]
     public InputFieldManager heatNameEntryInputField;
 
-    [Tooltip("Optional UGUI input field fallback.")]
-    public TMP_InputField nameEntryInputField;
-
     [Tooltip("Placeholder text inside the input field (e.g. 'Enter your name...')")]
     public TextMeshProUGUI nameEntryPlaceholder;
 
@@ -64,76 +63,76 @@ public class LobbyUI : MonoBehaviour
 
     [Tooltip("Button that confirms the entered name and advances to the Connection Panel.")]
     public ButtonManager heatNameConfirmButton;
-    [Tooltip("Or drag the Name Confirm button GameObject directly here!")]
-    public GameObject heatNameConfirmButtonObject;
+
+    [Tooltip("Close / Cancel 'X' button on the Name Entry modal. Hidden for first-time users so they cannot dismiss without a name.")]
+    public GameObject nameEntryCancelButton;
 
     // -------------------------------------------------------------------------
-    //  Inspector — 2. Main Connection Panel (Host / Join Choice)
+    //  Inspector — 2. Connection Panel (Host / Join Choice)
     // -------------------------------------------------------------------------
     [Header("2. Connection Panel  ← Main menu to choose Host or Join")]
     [Tooltip("Root panel shown after name confirmation (Host / Join choice screen).")]
     public GameObject connectionPanel;
 
-    [Tooltip("Displays the currently saved player name on the connection screen (optional).")]
-    public TextMeshProUGUI connectionPlayerNameLabel;
-
-    [Header("Host Session Button")]
-    [Tooltip("Button that starts a Host session.")]
-    public ButtonManager heatStartHostButton;
-    [Tooltip("If using Button (Box) for Start Host, drag it here!")]
+    [Tooltip("Box Button for Start Host.")]
     public BoxButtonManager heatBoxStartHostButton;
-    [Tooltip("Or drag the Start Host button GameObject directly here!")]
-    public GameObject heatStartHostButtonObject;
 
-    [Header("Join Game Button")]
-    [Tooltip("Button that navigates to the Join Code panel (or connects directly if LocalLAN).")]
-    public ButtonManager heatStartClientButton;
-    [Tooltip("If using Button (Box) for Join Game, drag it here!")]
+    [Tooltip("Box Button for Join Game.")]
     public BoxButtonManager heatBoxStartClientButton;
-    [Tooltip("Or drag the Join Game button GameObject directly here!")]
-    public GameObject heatStartClientButtonObject;
-
-    [Header("Connection Status & Titles")]
-    [Tooltip("Status or error message on connection screen.")]
-    public TextMeshProUGUI connectionStatusText;
-
-    [Tooltip("Decorative title text on the connection screen, e.g. 'NIGHT CRAWLER'.")]
-    public TextMeshProUGUI gameTitleText;
-
-    [Tooltip("Subtitle / tagline beneath the title, e.g. 'Survive the dark.'")]
-    public TextMeshProUGUI taglineText;
 
     // -------------------------------------------------------------------------
-    //  Inspector — 3. Dedicated Client Join Code Panel
+    //  Inspector — 3. Bottom Profile Bar
     // -------------------------------------------------------------------------
-    [Header("3. Join Code Panel (Client)  ← Dedicated screen to enter code")]
+    [Header("3. Bottom Profile Bar")]
+    [Tooltip("The Profile GameObject in the Bottom Panel. Hidden until the player enters a valid name.")]
+    public GameObject profileSection;
+
+    [Tooltip("Text label inside the Profile section displaying the player's name.")]
+    public TextMeshProUGUI profileNameText;
+
+    // -------------------------------------------------------------------------
+    //  Inspector — 4. Exit / Leave Confirmation Modal
+    // -------------------------------------------------------------------------
+    [Header("4. Exit / Leave Confirmation Modal")]
+    [Tooltip("Michsky Modal Window Manager for confirming exit / disconnect.")]
+    public ModalWindowManager exitConfirmModal;
+
+    [Tooltip("Confirm button inside the Exit Confirmation modal (calls ConfirmDisconnect).")]
+    public ButtonManager heatExitConfirmButton;
+
+    [Tooltip("Optional single button that triggers the Exit Confirmation Modal (e.g. Top 'X' button).")]
+    public ButtonManager heatExitTriggerButton;
+
+    [Tooltip("Multiple Heat Buttons that trigger the Exit Confirmation Modal (e.g. Top 'X', Quit Button, Leave Button). Drag any number of buttons here!")]
+    public List<ButtonManager> exitTriggerButtons = new List<ButtonManager>();
+
+    [Tooltip("Multiple Heat Box Buttons that trigger the Exit Confirmation Modal.")]
+    public List<BoxButtonManager> boxExitTriggerButtons = new List<BoxButtonManager>();
+
+    [Tooltip("Multiple standard UI Buttons that trigger the Exit Confirmation Modal.")]
+    public List<Button> standardExitTriggerButtons = new List<Button>();
+
+    // -------------------------------------------------------------------------
+    //  Inspector — 5. Dedicated Client Join Code Panel
+    // -------------------------------------------------------------------------
+    [Header("5. Join Code Panel (Client)  ← Dedicated screen to enter code")]
     [Tooltip("Dedicated panel where client enters the Join Code. Opened when clicking 'Join Game' in Relay mode.")]
     public GameObject joinCodePanel;
 
     [Tooltip("Michsky Input field where client enters / pastes the 6-character Join Code.")]
     public InputFieldManager heatJoinCodeInputField;
 
-    [Tooltip("Optional UGUI input field fallback.")]
-    public TMP_InputField joinCodeInputField;
-
     [Tooltip("Button inside the Join Code panel that connects to the Relay room.")]
     public ButtonManager heatJoinCodeSubmitButton;
-    [Tooltip("Or drag Join Code Submit button GameObject directly here!")]
-    public GameObject heatJoinCodeSubmitButtonObject;
 
     [Tooltip("Button inside the Join Code panel that goes back to the main Connection screen.")]
     public ButtonManager heatJoinCodeBackButton;
-    [Tooltip("Or drag Join Code Back button GameObject directly here!")]
-    public GameObject heatJoinCodeBackButtonObject;
-
-    [Tooltip("Status or error message inside the Join Code panel (e.g. 'Connecting...', 'Invalid Code').")]
-    public TextMeshProUGUI joinCodeStatusText;
 
     // -------------------------------------------------------------------------
-    //  Inspector — 4. Dedicated Host Lobby Panel
+    //  Inspector — 6. Dedicated Host Lobby Panel
     // -------------------------------------------------------------------------
-    [Header("4. Host Lobby Panel  ← Dedicated screen for Host with code & start")]
-    [Tooltip("Dedicated panel shown to the host after creating a room. (Falls back to unified Lobby Panel if unassigned).")]
+    [Header("6. Host Lobby Panel  ← Dedicated screen for Host with code & start")]
+    [Tooltip("Dedicated panel shown to the host after creating a room.")]
     public GameObject hostLobbyPanel;
 
     [Tooltip("Displays the generated Join Code on the host panel (e.g. 'LOBBY CODE: A9F3X2').")]
@@ -141,11 +140,6 @@ public class LobbyUI : MonoBehaviour
 
     [Tooltip("Button that copies the session Join Code to the host's clipboard.")]
     public ButtonManager heatHostCopyCodeButton;
-    [Tooltip("Or drag Host Copy Code button GameObject directly here!")]
-    public GameObject heatHostCopyCodeButtonObject;
-
-    [Tooltip("Optional feedback label showing 'Copied to clipboard!'. (Note: The Heat Copy button also displays 'COPIED! ✓' directly!).")]
-    public TextMeshProUGUI hostCopyFeedbackText;
 
     [Tooltip("Displays connected player count on the host panel, e.g. '2 / 6 players'.")]
     public TextMeshProUGUI hostPlayerCountText;
@@ -153,27 +147,17 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Status message on host panel, e.g. 'Waiting for players...' or 'Ready to start!'.")]
     public TextMeshProUGUI hostStatusText;
 
-    [Header("Host Start Match Button")]
     [Tooltip("'START MATCH' button — active when enough players are connected.")]
     public ButtonManager heatHostStartMatchButton;
-    [Tooltip("If using Button (Shop) for Host Start Match, drag it here!")]
-    public ShopButtonManager heatShopHostStartMatchButton;
-    [Tooltip("If using Button (Box) for Host Start Match, drag it here!")]
-    public BoxButtonManager heatBoxHostStartMatchButton;
-    [Tooltip("Or drag the Host Start Match button GameObject directly here!")]
-    public GameObject heatHostStartMatchButtonObject;
 
-    [Header("Host Cancel / Disconnect")]
     [Tooltip("Button that lets the host cancel and return to the connection screen.")]
     public ButtonManager heatHostDisconnectButton;
-    [Tooltip("Or drag the Host Disconnect button GameObject directly here!")]
-    public GameObject heatHostDisconnectButtonObject;
 
     // -------------------------------------------------------------------------
-    //  Inspector — 5. Dedicated Client Lobby Panel (Waiting Room)
+    //  Inspector — 7. Dedicated Client Lobby Panel (Waiting Room)
     // -------------------------------------------------------------------------
-    [Header("5. Client Lobby Panel  ← Dedicated waiting room for Clients")]
-    [Tooltip("Dedicated panel shown to clients while waiting for the host. (Falls back to unified Lobby Panel if unassigned).")]
+    [Header("7. Client Lobby Panel  ← Dedicated waiting room for Clients")]
+    [Tooltip("Dedicated panel shown to clients while waiting for the host.")]
     public GameObject clientLobbyPanel;
 
     [Tooltip("Displays connected room code to client (e.g. 'ROOM: A9F3X2').")]
@@ -187,47 +171,14 @@ public class LobbyUI : MonoBehaviour
 
     [Tooltip("Button that lets client leave and return to the connection screen.")]
     public ButtonManager heatClientDisconnectButton;
-    [Tooltip("Or drag the Client Disconnect button GameObject directly here!")]
-    public GameObject heatClientDisconnectButtonObject;
 
     // -------------------------------------------------------------------------
-    //  Inspector — Fallback Unified Lobby Panel (for backward compatibility)
+    //  Inspector — 8. Root Canvas & Scene Settings
     // -------------------------------------------------------------------------
-    [Header("Fallback Unified Lobby Panel (Optional)")]
-    [Tooltip("Single unified panel used if Host/Client dedicated panels are not assigned.")]
-    public GameObject lobbyPanel;
+    [Header("8. Root Canvas & Scene Settings")]
+    [Tooltip("The root Canvas / Main Menu GameObject to hide completely when the match begins, revealing PreGameCanvas.")]
+    public GameObject lobbyCanvasRoot;
 
-    [Tooltip("Displays connected player count on the fallback lobby panel.")]
-    public TextMeshProUGUI playerCountText;
-
-    [Tooltip("Status message on the fallback lobby panel.")]
-    public TextMeshProUGUI statusText;
-
-    [Tooltip("Join code text on the fallback lobby panel.")]
-    public TextMeshProUGUI lobbyJoinCodeText;
-
-    [Tooltip("Copy code button on the fallback lobby panel.")]
-    public ButtonManager heatCopyJoinCodeButton;
-    public GameObject heatCopyJoinCodeButtonObject;
-
-    [Tooltip("Copy feedback text on the fallback lobby panel.")]
-    public TextMeshProUGUI copyFeedbackText;
-
-    [Tooltip("Host only elements wrapper on fallback lobby panel.")]
-    public GameObject hostOnlyElements;
-
-    [Tooltip("Start match button on fallback lobby panel.")]
-    public ButtonManager heatStartMatchButton;
-    public GameObject heatStartMatchButtonObject;
-
-    [Tooltip("Disconnect button on fallback lobby panel.")]
-    public ButtonManager heatDisconnectButton;
-    public GameObject heatDisconnectButtonObject;
-
-    // -------------------------------------------------------------------------
-    //  Inspector — Match & Scene Settings
-    // -------------------------------------------------------------------------
-    [Header("Match & Scene Settings")]
     [Tooltip("Minimum connected players required to enable 'START MATCH'. Set to 1 for solo testing, or 2+ for multiplayer builds.")]
     public int minPlayers = 1;
 
@@ -237,18 +188,14 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("The name of the Game Scene containing GameManager and map spawn points.")]
     public string gameSceneName = "GameScene";
 
-    [Header("Shared")]
-    [Tooltip("Optional animated background element (e.g. a pulsing vignette image).")]
-    public GameObject animatedBackground;
-
     // -------------------------------------------------------------------------
-    //  Inspector — Loading / Spinner Overlay
+    //  Inspector — 9. Loading Overlay
     // -------------------------------------------------------------------------
-    [Header("Loading / Spinner Overlay")]
+    [Header("9. Loading Overlay")]
     [Tooltip("Full-screen semi-transparent overlay that covers the UI during code generation and connection.")]
     public GameObject loadingOverlayPanel;
 
-    [Tooltip("Animated spinner GameObject inside the loading overlay.")]
+    [Tooltip("Spinner GameObject (Michsky Spinner / Heat Loader).")]
     public GameObject loadingSpinner;
 
     [Tooltip("TextMeshProUGUI explaining what is currently loading (e.g. 'Generating Relay lobby code...').")]
@@ -269,8 +216,6 @@ public class LobbyUI : MonoBehaviour
     private float _refreshTimer;
     private bool  _isHidden = false;
     private Coroutine _copyFeedbackCoroutine;
-    private string _defaultHostCopyBtnText = "COPY";
-    private string _defaultFallbackCopyBtnText = "COPY";
 
     // =========================================================================
     //  Unity Lifecycle
@@ -294,14 +239,10 @@ public class LobbyUI : MonoBehaviour
     private void HandleProfileLoaded(PlayerProfileData profile)
     {
         if (profile == null) return;
-        string curName = MichskyUIBridge.GetInputText(nameEntryInputField, heatNameEntryInputField);
+        string curName = MichskyUIBridge.GetInputText(null, heatNameEntryInputField);
         if (string.IsNullOrEmpty(curName) || curName == "Investigator")
         {
-            MichskyUIBridge.SetInputText(nameEntryInputField, heatNameEntryInputField, profile.playerName);
-        }
-        if (connectionPlayerNameLabel != null)
-        {
-            connectionPlayerNameLabel.text = profile.playerName;
+            MichskyUIBridge.SetInputText(null, heatNameEntryInputField, profile.playerName);
         }
         if (PlayerNameManager.HasSavedName() && nameEntryPanel != null && nameEntryPanel.activeSelf)
         {
@@ -313,29 +254,12 @@ public class LobbyUI : MonoBehaviour
     {
         WireButtonListeners();
 
-        MichskyUIBridge.SetInputText(nameEntryInputField, heatNameEntryInputField, PlayerNameManager.GetPlayerName());
+        MichskyUIBridge.SetInputText(null, heatNameEntryInputField, PlayerNameManager.GetPlayerName());
 
         if (nameEntryErrorText != null)
             nameEntryErrorText.gameObject.SetActive(false);
 
-        if (connectionStatusText != null)
-            connectionStatusText.gameObject.SetActive(false);
-
-        if (joinCodeStatusText != null)
-            joinCodeStatusText.gameObject.SetActive(false);
-
-        if (hostCopyFeedbackText != null)
-        {
-            _defaultHostCopyBtnText = hostCopyFeedbackText.text;
-            hostCopyFeedbackText.gameObject.SetActive(true);
-        }
-
-        if (copyFeedbackText != null)
-        {
-            _defaultFallbackCopyBtnText = copyFeedbackText.text;
-            copyFeedbackText.gameObject.SetActive(true);
-        }
-
+        UpdateProfileUI();
         HideLoading();
 
         // If player already has a saved name, skip straight to connection screen
@@ -384,30 +308,104 @@ public class LobbyUI : MonoBehaviour
     private void WireButtonListeners()
     {
         // 1. Name Entry
-        MichskyUIBridge.BindAnyButton(OnConfirmName, heatNameConfirmButton, heatNameConfirmButtonObject);
-        MichskyUIBridge.BindInputField(nameEntryInputField, heatNameEntryInputField, OnNameInputChanged);
+        MichskyUIBridge.BindButton(null, heatNameConfirmButton, OnConfirmName);
+        MichskyUIBridge.BindInputField(null, heatNameEntryInputField, OnNameInputChanged);
 
         // 2. Connection Panel
-        MichskyUIBridge.BindAnyButton(OnStartHost, heatStartHostButton, heatBoxStartHostButton, heatStartHostButtonObject);
-        MichskyUIBridge.BindAnyButton(OnStartClientChoice, heatStartClientButton, heatBoxStartClientButton, heatStartClientButtonObject);
+        MichskyUIBridge.BindButton(null, heatBoxStartHostButton, OnStartHost);
+        MichskyUIBridge.BindButton(null, heatBoxStartClientButton, OnStartClientChoice);
 
         // 3. Join Code Panel (Client)
-        MichskyUIBridge.BindAnyButton(OnSubmitJoinCode, heatJoinCodeSubmitButton, heatJoinCodeSubmitButtonObject);
-        MichskyUIBridge.BindAnyButton(ShowConnectionPanel, heatJoinCodeBackButton, heatJoinCodeBackButtonObject);
-        MichskyUIBridge.BindInputField(joinCodeInputField, heatJoinCodeInputField, null);
+        MichskyUIBridge.BindButton(null, heatJoinCodeSubmitButton, OnSubmitJoinCode);
+        MichskyUIBridge.BindButton(null, heatJoinCodeBackButton, ShowConnectionPanel);
+        MichskyUIBridge.BindInputField(null, heatJoinCodeInputField, null);
 
         // 4. Host Lobby Panel
-        MichskyUIBridge.BindAnyButton(OnStartMatch, heatHostStartMatchButton, heatShopHostStartMatchButton, heatBoxHostStartMatchButton, heatHostStartMatchButtonObject);
-        MichskyUIBridge.BindAnyButton(OnDisconnect, heatHostDisconnectButton, heatHostDisconnectButtonObject);
-        MichskyUIBridge.BindAnyButton(OnCopyJoinCode, heatHostCopyCodeButton, heatHostCopyCodeButtonObject);
+        MichskyUIBridge.BindButton(null, heatHostStartMatchButton, OnStartMatch);
+        MichskyUIBridge.BindButton(null, heatHostDisconnectButton, RequestDisconnect);
+        MichskyUIBridge.BindButton(null, heatHostCopyCodeButton, OnCopyJoinCode);
 
         // 5. Client Lobby Panel
-        MichskyUIBridge.BindAnyButton(OnDisconnect, heatClientDisconnectButton, heatClientDisconnectButtonObject);
+        MichskyUIBridge.BindButton(null, heatClientDisconnectButton, RequestDisconnect);
 
-        // Fallback Lobby Panel
-        MichskyUIBridge.BindAnyButton(OnStartMatch, heatStartMatchButton, heatStartMatchButtonObject);
-        MichskyUIBridge.BindAnyButton(OnDisconnect, heatDisconnectButton, heatDisconnectButtonObject);
-        MichskyUIBridge.BindAnyButton(OnCopyJoinCode, heatCopyJoinCodeButton, heatCopyJoinCodeButtonObject);
+        // 6. Exit Confirmation Modal Actions
+        MichskyUIBridge.BindButton(null, heatExitConfirmButton, ConfirmDisconnect);
+
+        // Exit Triggers (Single + Lists of any number of buttons)
+        MichskyUIBridge.BindButton(null, heatExitTriggerButton, RequestDisconnect);
+
+        if (exitTriggerButtons != null)
+        {
+            foreach (var btn in exitTriggerButtons)
+            {
+                if (btn != null) MichskyUIBridge.BindButton(btn, RequestDisconnect);
+            }
+        }
+
+        if (boxExitTriggerButtons != null)
+        {
+            foreach (var btn in boxExitTriggerButtons)
+            {
+                if (btn != null) MichskyUIBridge.BindButton(btn, RequestDisconnect);
+            }
+        }
+
+        if (standardExitTriggerButtons != null)
+        {
+            foreach (var btn in standardExitTriggerButtons)
+            {
+                if (btn != null) MichskyUIBridge.BindButton(btn, RequestDisconnect);
+            }
+        }
+    }
+
+    // =========================================================================
+    //  Profile Visibility Helper
+    // =========================================================================
+    public void UpdateProfileUI()
+    {
+        bool hasName = PlayerNameManager.HasSavedName();
+        if (profileSection != null)
+        {
+            profileSection.SetActive(hasName);
+        }
+
+        if (hasName && profileNameText != null)
+        {
+            profileNameText.text = PlayerNameManager.GetPlayerName();
+        }
+    }
+
+    // =========================================================================
+    //  Exit / Leave Modal Actions
+    // =========================================================================
+    /// <summary>
+    /// Prompts the Exit Window modal to confirm leaving or disconnecting.
+    /// Can be called directly from UnityEvent on ANY button in the scene!
+    /// </summary>
+    public void RequestDisconnect()
+    {
+        if (exitConfirmModal != null)
+        {
+            exitConfirmModal.OpenWindow();
+        }
+        else
+        {
+            ConfirmDisconnect();
+        }
+    }
+
+    /// <summary>
+    /// Executes the actual disconnection and returns to the connection screen.
+    /// </summary>
+    public void ConfirmDisconnect()
+    {
+        if (exitConfirmModal != null)
+        {
+            exitConfirmModal.CloseWindow();
+        }
+
+        OnDisconnect();
     }
 
     // =========================================================================
@@ -423,7 +421,7 @@ public class LobbyUI : MonoBehaviour
 
     private void OnConfirmName()
     {
-        string rawName = MichskyUIBridge.GetInputText(nameEntryInputField, heatNameEntryInputField);
+        string rawName = MichskyUIBridge.GetInputText(null, heatNameEntryInputField);
 
         if (!PlayerNameManager.ValidatePlayerName(rawName, out string sanitizedName, out string errorMessage))
         {
@@ -436,6 +434,7 @@ public class LobbyUI : MonoBehaviour
         }
 
         PlayerNameManager.SetPlayerName(sanitizedName);
+        UpdateProfileUI();
 
         if (nameEntryErrorText != null)
             nameEntryErrorText.gameObject.SetActive(false);
@@ -449,7 +448,6 @@ public class LobbyUI : MonoBehaviour
     private async void OnStartHost()
     {
         SetConnectionButtonsInteractable(false);
-        ShowConnectionStatus("Preparing host session...", false);
 
         if (networkMode == NetworkMode.LocalLAN)
         {
@@ -468,7 +466,7 @@ public class LobbyUI : MonoBehaviour
             }
             else
             {
-                ShowConnectionStatus("Failed to start local host.", true);
+                Debug.LogWarning("[LobbyUI] Failed to start local host.");
                 SetConnectionButtonsInteractable(true);
             }
         }
@@ -476,7 +474,6 @@ public class LobbyUI : MonoBehaviour
         {
             EnsureRelayManager();
             ShowLoading("Connecting to Relay & generating lobby code...");
-            ShowConnectionStatus("Connecting to Relay & allocating session...", false);
 
             string joinCode = await RelayManager.Instance.StartRelayHostAsync(maxPlayers);
 
@@ -492,7 +489,7 @@ public class LobbyUI : MonoBehaviour
             else
             {
                 HideLoading();
-                ShowConnectionStatus("Failed to create Relay session. Check internet & dashboard.", true);
+                Debug.LogWarning("[LobbyUI] Failed to create Relay session. Check internet & dashboard.");
                 SetConnectionButtonsInteractable(true);
             }
         }
@@ -502,27 +499,11 @@ public class LobbyUI : MonoBehaviour
     {
         if (networkMode == NetworkMode.LocalLAN)
         {
-            // In LocalLAN, join local host directly without needing a join code
             ConnectLocalClient();
         }
         else
         {
-            // In Relay mode:
-            // If the user has assigned a dedicated Join Code panel, open it!
-            if (joinCodePanel != null)
-            {
-                ShowJoinCodePanel();
-            }
-            else if (joinCodeInputField != null)
-            {
-                // If the input field is directly on the connection panel, connect with it
-                OnSubmitJoinCode();
-            }
-            else
-            {
-                // Fallback: prompt for Join Code panel
-                ShowJoinCodePanel();
-            }
+            ShowJoinCodePanel();
         }
     }
 
@@ -530,7 +511,6 @@ public class LobbyUI : MonoBehaviour
     {
         SetConnectionButtonsInteractable(false);
         ShowLoading($"Connecting to local host at {localIpAddress}...");
-        ShowConnectionStatus($"Connecting to local host at {localIpAddress}...", false);
 
         var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
         if (transport != null)
@@ -546,7 +526,7 @@ public class LobbyUI : MonoBehaviour
         }
         else
         {
-            ShowConnectionStatus("Failed to connect to local host.", true);
+            Debug.LogWarning("[LobbyUI] Failed to connect to local host.");
             SetConnectionButtonsInteractable(true);
         }
     }
@@ -556,17 +536,15 @@ public class LobbyUI : MonoBehaviour
     // =========================================================================
     private async void OnSubmitJoinCode()
     {
-        string code = MichskyUIBridge.GetInputText(joinCodeInputField, heatJoinCodeInputField).Trim().ToUpper();
+        string code = MichskyUIBridge.GetInputText(null, heatJoinCodeInputField).Trim().ToUpper();
 
         if (string.IsNullOrWhiteSpace(code))
         {
-            ShowJoinCodeStatus("Please enter a 6-character Join Code.", true);
             return;
         }
 
         SetJoinCodeButtonsInteractable(false);
         ShowLoading($"Connecting to Relay room '{code}'...");
-        ShowJoinCodeStatus($"Connecting to Relay room '{code}'...", false);
 
         EnsureRelayManager();
         bool success = await RelayManager.Instance.StartRelayClientAsync(code);
@@ -585,7 +563,7 @@ public class LobbyUI : MonoBehaviour
             }
             else
             {
-                ShowJoinCodeStatus("Connection timed out. Please check the code and try again.", true);
+                Debug.LogWarning("[LobbyUI] Connection timed out. Please check the code and try again.");
                 SetJoinCodeButtonsInteractable(true);
                 if (NetworkManager.Singleton != null) NetworkManager.Singleton.Shutdown();
             }
@@ -593,7 +571,7 @@ public class LobbyUI : MonoBehaviour
         else
         {
             HideLoading();
-            ShowJoinCodeStatus("Failed to join. Check the code and try again.", true);
+            Debug.LogWarning("[LobbyUI] Failed to join. Check the code and try again.");
             SetJoinCodeButtonsInteractable(true);
         }
     }
@@ -629,10 +607,6 @@ public class LobbyUI : MonoBehaviour
         {
             codeToCopy = RelayManager.Instance.CurrentJoinCode;
         }
-        else if (joinCodeInputField != null && !string.IsNullOrEmpty(joinCodeInputField.text))
-        {
-            codeToCopy = joinCodeInputField.text.Trim().ToUpper();
-        }
 
         if (!string.IsNullOrEmpty(codeToCopy))
         {
@@ -647,70 +621,23 @@ public class LobbyUI : MonoBehaviour
 
     private IEnumerator ShowCopyFeedbackRoutine()
     {
-        if (hostCopyFeedbackText != null)
-        {
-            hostCopyFeedbackText.text = "Copied!!";
-            hostCopyFeedbackText.gameObject.SetActive(true);
-        }
-        if (copyFeedbackText != null)
-        {
-            copyFeedbackText.text = "Copied!!";
-            copyFeedbackText.gameObject.SetActive(true);
-        }
-
-        MichskyUIBridge.SetAnyButtonText("COPIED! ✓", heatHostCopyCodeButton, heatHostCopyCodeButtonObject, heatCopyJoinCodeButton, heatCopyJoinCodeButtonObject);
+        MichskyUIBridge.SetButtonText(heatHostCopyCodeButton, "COPIED! \u2713");
 
         yield return new WaitForSeconds(1.5f);
 
-        // Revert back to original button text (e.g. "COPY")
-        if (hostCopyFeedbackText != null)
-        {
-            hostCopyFeedbackText.text = !string.IsNullOrEmpty(_defaultHostCopyBtnText) ? _defaultHostCopyBtnText : "COPY";
-            hostCopyFeedbackText.gameObject.SetActive(true);
-        }
-        if (copyFeedbackText != null)
-        {
-            copyFeedbackText.text = !string.IsNullOrEmpty(_defaultFallbackCopyBtnText) ? _defaultFallbackCopyBtnText : "COPY";
-            copyFeedbackText.gameObject.SetActive(true);
-        }
-
-        MichskyUIBridge.SetAnyButtonText("COPY CODE", heatHostCopyCodeButton, heatHostCopyCodeButtonObject, heatCopyJoinCodeButton, heatCopyJoinCodeButtonObject);
-    }
-
-    private void ShowConnectionStatus(string message, bool isError)
-    {
-        if (connectionStatusText != null)
-        {
-            connectionStatusText.text = message;
-            connectionStatusText.color = isError ? new Color(1f, 0.35f, 0.35f) : Color.white;
-            connectionStatusText.gameObject.SetActive(true);
-        }
-    }
-
-    private void ShowJoinCodeStatus(string message, bool isError)
-    {
-        if (joinCodeStatusText != null)
-        {
-            joinCodeStatusText.text = message;
-            joinCodeStatusText.color = isError ? new Color(1f, 0.35f, 0.35f) : Color.white;
-            joinCodeStatusText.gameObject.SetActive(true);
-        }
-        else
-        {
-            ShowConnectionStatus(message, isError);
-        }
+        MichskyUIBridge.SetButtonText(heatHostCopyCodeButton, "COPY CODE");
     }
 
     private void SetConnectionButtonsInteractable(bool interactable)
     {
-        MichskyUIBridge.SetAnyButtonInteractable(interactable, heatStartHostButton, heatBoxStartHostButton, heatStartHostButtonObject);
-        MichskyUIBridge.SetAnyButtonInteractable(interactable, heatStartClientButton, heatBoxStartClientButton, heatStartClientButtonObject);
+        MichskyUIBridge.SetButtonInteractable(heatBoxStartHostButton, interactable);
+        MichskyUIBridge.SetButtonInteractable(heatBoxStartClientButton, interactable);
     }
 
     private void SetJoinCodeButtonsInteractable(bool interactable)
     {
-        MichskyUIBridge.SetAnyButtonInteractable(interactable, heatJoinCodeSubmitButton, heatJoinCodeSubmitButtonObject);
-        MichskyUIBridge.SetAnyButtonInteractable(interactable, heatJoinCodeBackButton, heatJoinCodeBackButtonObject);
+        MichskyUIBridge.SetButtonInteractable(heatJoinCodeSubmitButton, interactable);
+        MichskyUIBridge.SetButtonInteractable(heatJoinCodeBackButton, interactable);
     }
 
     // =========================================================================
@@ -766,8 +693,12 @@ public class LobbyUI : MonoBehaviour
         SetConnectionButtonsInteractable(true);
         SetJoinCodeButtonsInteractable(true);
 
-        if (connectionStatusText != null) connectionStatusText.gameObject.SetActive(false);
         HideLoading();
+
+        if (lobbyCanvasRoot != null) lobbyCanvasRoot.SetActive(true);
+        else gameObject.SetActive(true);
+
+        UpdateProfileUI();
         ShowConnectionPanel();
     }
 
@@ -794,7 +725,7 @@ public class LobbyUI : MonoBehaviour
                 ? "All players connected — ready to start!"
                 : $"Waiting for {required - current} more player(s)...";
         }
-        MichskyUIBridge.SetAnyButtonInteractable(canStart, heatHostStartMatchButton, heatShopHostStartMatchButton, heatBoxHostStartMatchButton, heatHostStartMatchButtonObject);
+        MichskyUIBridge.SetButtonInteractable(heatHostStartMatchButton, canStart);
 
         // Refresh Client Panel
         if (clientPlayerCountText != null) clientPlayerCountText.text = countString;
@@ -802,18 +733,6 @@ public class LobbyUI : MonoBehaviour
         {
             clientStatusText.text = "Waiting for the host to start the match...";
         }
-
-        // Refresh Fallback Unified Panel
-        if (playerCountText != null) playerCountText.text = countString;
-        if (statusText != null)
-        {
-            if (isServer)
-                statusText.text = canStart ? "All players connected — ready to start!" : $"Waiting for {required - current} more player(s)...";
-            else
-                statusText.text = "Waiting for the host to start the match...";
-        }
-        if (hostOnlyElements != null) hostOnlyElements.SetActive(isServer);
-        MichskyUIBridge.SetAnyButtonInteractable(canStart, heatStartMatchButton, heatStartMatchButtonObject);
     }
 
     // =========================================================================
@@ -821,64 +740,55 @@ public class LobbyUI : MonoBehaviour
     // =========================================================================
     public void ShowNameEntryPanel()
     {
-        SetPanel(nameEntryPanel,      true);
-        SetPanel(connectionPanel,     false);
-        SetPanel(joinCodePanel,       false);
-        SetPanel(hostLobbyPanel,      false);
-        SetPanel(clientLobbyPanel,    false);
-        SetPanel(lobbyPanel,          false);
+        bool hasSavedName = PlayerNameManager.HasSavedName();
+        if (nameEntryCancelButton != null)
+        {
+            nameEntryCancelButton.SetActive(hasSavedName);
+        }
+
+        SetPanel(nameEntryPanel,   true);
+        SetPanel(connectionPanel,  false);
+        SetPanel(joinCodePanel,    false);
+        SetPanel(hostLobbyPanel,   false);
+        SetPanel(clientLobbyPanel, false);
         UnlockCursor();
     }
 
     public void ShowConnectionPanel()
     {
-        SetPanel(nameEntryPanel,      false);
-        SetPanel(connectionPanel,     true);
-        SetPanel(joinCodePanel,       false);
-        SetPanel(hostLobbyPanel,      false);
-        SetPanel(clientLobbyPanel,    false);
-        SetPanel(lobbyPanel,          false);
+        SetPanel(nameEntryPanel,   false);
+        SetPanel(connectionPanel,  true);
+        SetPanel(joinCodePanel,    false);
+        SetPanel(hostLobbyPanel,   false);
+        SetPanel(clientLobbyPanel, false);
 
         SetConnectionButtonsInteractable(true);
         UnlockCursor();
 
-        if (connectionPlayerNameLabel != null)
-            connectionPlayerNameLabel.text = PlayerNameManager.GetPlayerName();
+        UpdateProfileUI();
     }
 
     public void ShowJoinCodePanel()
     {
-        SetPanel(nameEntryPanel,      false);
-        SetPanel(connectionPanel,     false);
-        SetPanel(joinCodePanel,       true);
-        SetPanel(hostLobbyPanel,      false);
-        SetPanel(clientLobbyPanel,    false);
-        SetPanel(lobbyPanel,          false);
+        SetPanel(nameEntryPanel,   false);
+        SetPanel(connectionPanel,  false);
+        SetPanel(joinCodePanel,    true);
+        SetPanel(hostLobbyPanel,   false);
+        SetPanel(clientLobbyPanel, false);
 
         SetJoinCodeButtonsInteractable(true);
-        if (joinCodeStatusText != null)
-            joinCodeStatusText.gameObject.SetActive(false);
-
-        MichskyUIBridge.SetInputText(joinCodeInputField, heatJoinCodeInputField, string.Empty);
-        if (joinCodeInputField != null)
-        {
-            joinCodeInputField.Select();
-            joinCodeInputField.ActivateInputField();
-        }
+        MichskyUIBridge.SetInputText(null, heatJoinCodeInputField, string.Empty);
 
         UnlockCursor();
     }
 
     private void ShowHostLobby(string codeOrMode)
     {
-        SetPanel(nameEntryPanel,      false);
-        SetPanel(connectionPanel,     false);
-        SetPanel(joinCodePanel,       false);
-
-        bool hasDedicatedHost = hostLobbyPanel != null;
-        SetPanel(hostLobbyPanel,      hasDedicatedHost);
-        SetPanel(clientLobbyPanel,    false);
-        SetPanel(lobbyPanel,          !hasDedicatedHost);
+        SetPanel(nameEntryPanel,   false);
+        SetPanel(connectionPanel,  false);
+        SetPanel(joinCodePanel,    false);
+        SetPanel(hostLobbyPanel,   true);
+        SetPanel(clientLobbyPanel, false);
 
         if (hostJoinCodeText != null)
         {
@@ -891,62 +801,21 @@ public class LobbyUI : MonoBehaviour
         {
             heatHostCopyCodeButton.gameObject.SetActive(networkMode == NetworkMode.Relay);
         }
-        if (heatHostCopyCodeButtonObject != null)
-        {
-            heatHostCopyCodeButtonObject.SetActive(networkMode == NetworkMode.Relay);
-        }
-
-        if (hostCopyFeedbackText != null)
-        {
-            hostCopyFeedbackText.text = !string.IsNullOrEmpty(_defaultHostCopyBtnText) ? _defaultHostCopyBtnText : "COPY";
-            hostCopyFeedbackText.gameObject.SetActive(true);
-        }
-
-        // Fallback panel support
-        if (lobbyJoinCodeText != null)
-        {
-            lobbyJoinCodeText.text = networkMode == NetworkMode.Relay
-                ? $"JOIN CODE: {codeOrMode}"
-                : $"MODE: {codeOrMode}";
-        }
-        if (heatCopyJoinCodeButton != null)
-        {
-            heatCopyJoinCodeButton.gameObject.SetActive(networkMode == NetworkMode.Relay);
-        }
-        if (heatCopyJoinCodeButtonObject != null)
-        {
-            heatCopyJoinCodeButtonObject.SetActive(networkMode == NetworkMode.Relay);
-        }
-        if (copyFeedbackText != null)
-        {
-            copyFeedbackText.text = !string.IsNullOrEmpty(_defaultFallbackCopyBtnText) ? _defaultFallbackCopyBtnText : "COPY";
-            copyFeedbackText.gameObject.SetActive(true);
-        }
 
         UnlockCursor();
     }
 
     private void ShowClientLobby(string codeOrMode)
     {
-        SetPanel(nameEntryPanel,      false);
-        SetPanel(connectionPanel,     false);
-        SetPanel(joinCodePanel,       false);
-
-        bool hasDedicatedClient = clientLobbyPanel != null;
-        SetPanel(clientLobbyPanel,    hasDedicatedClient);
-        SetPanel(hostLobbyPanel,      false);
-        SetPanel(lobbyPanel,          !hasDedicatedClient);
+        SetPanel(nameEntryPanel,   false);
+        SetPanel(connectionPanel,  false);
+        SetPanel(joinCodePanel,    false);
+        SetPanel(hostLobbyPanel,   false);
+        SetPanel(clientLobbyPanel, true);
 
         if (clientJoinCodeText != null)
         {
             clientJoinCodeText.text = networkMode == NetworkMode.Relay
-                ? $"ROOM CODE: {codeOrMode}"
-                : $"MODE: {codeOrMode}";
-        }
-
-        if (lobbyJoinCodeText != null)
-        {
-            lobbyJoinCodeText.text = networkMode == NetworkMode.Relay
                 ? $"ROOM CODE: {codeOrMode}"
                 : $"MODE: {codeOrMode}";
         }
@@ -980,18 +849,36 @@ public class LobbyUI : MonoBehaviour
     {
         _isHidden = true;
         HideLoading();
-        SetPanel(nameEntryPanel,      false);
-        SetPanel(connectionPanel,     false);
-        SetPanel(joinCodePanel,       false);
-        SetPanel(hostLobbyPanel,      false);
-        SetPanel(clientLobbyPanel,    false);
-        SetPanel(lobbyPanel,          false);
-        SetPanel(animatedBackground,  false);
+        SetPanel(nameEntryPanel,   false);
+        SetPanel(connectionPanel,  false);
+        SetPanel(joinCodePanel,    false);
+        SetPanel(hostLobbyPanel,   false);
+        SetPanel(clientLobbyPanel, false);
+
+        if (lobbyCanvasRoot != null)
+        {
+            lobbyCanvasRoot.SetActive(false);
+        }
+        else
+        {
+            var canvas = GetComponent<Canvas>();
+            if (canvas != null) gameObject.SetActive(false);
+        }
     }
 
     private static void SetPanel(GameObject panel, bool visible)
     {
-        if (panel != null) panel.SetActive(visible);
+        if (panel == null) return;
+        var mw = panel.GetComponent<ModalWindowManager>();
+        if (mw != null)
+        {
+            if (visible) mw.OpenWindow();
+            else mw.CloseWindow();
+        }
+        else
+        {
+            panel.SetActive(visible);
+        }
     }
 
     private static void UnlockCursor()

@@ -18,9 +18,8 @@ namespace NightCrawler.Economy.UI
     }
 
     /// <summary>
-    /// SOLID — SRP: Manages the Persistent Upgrades shop in the Lobby Scene.
-    /// Used on both the Character Selection Screen (Investigator upgrades)
-    /// and the Girl Player Screen (Vengeful Spirit upgrades).
+    /// SOLID — SRP: Manages the Persistent Upgrades shop in the Lobby Scene (Shop tab).
+    /// Used on both the Investigator and Vengeful Spirit stat sections in LobbyCanvas.
     /// </summary>
     public class LobbyUpgradeUI : MonoBehaviour
     {
@@ -28,24 +27,14 @@ namespace NightCrawler.Economy.UI
         [Tooltip("Select whether this panel upgrades Investigator stats or Girl stats.")]
         public UpgradeViewMode viewMode = UpgradeViewMode.InvestigatorStats;
 
-        [Tooltip("The root modal panel GameObject (usually this GameObject).")]
+        [Tooltip("The root panel GameObject (defaults to this GameObject).")]
         public GameObject panelRoot;
 
-        [Tooltip("Michsky Heat Modal Window Manager on this window.")]
+        [Tooltip("Michsky Heat Modal Window Manager on this window (optional).")]
         public ModalWindowManager heatModalWindow;
 
-        [Header("2. Window Triggers (Optional)")]
-        [Tooltip("Michsky Heat Button to open this panel.")]
-        public ButtonManager heatOpenButton;
-        [Tooltip("Michsky Heat Box Button to open this panel.")]
-        public BoxButtonManager heatBoxOpenButton;
-        [Tooltip("Michsky Heat Button to close this panel.")]
-        public ButtonManager heatCloseButton;
-        [Tooltip("Michsky Heat Box Button to close this panel.")]
-        public BoxButtonManager heatBoxCloseButton;
-
-        [Header("3. Confirmation Modal (Michsky Heat UI)")]
-        [Tooltip("The Modal Window that pops up when tapping a stat to confirm the purchase.")]
+        [Header("2. Confirmation Modal (Michsky Heat UI)")]
+        [Tooltip("The Modal Window that pops up when tapping a stat to confirm the purchase (e.g. Purchase Window).")]
         public ModalWindowManager purchaseConfirmModal;
 
         [System.Serializable]
@@ -69,57 +58,42 @@ namespace NightCrawler.Economy.UI
             public Slider sliderBar;
             [Tooltip("Optional: Standard Unity UI filled Image visualizing tier level.")]
             public Image fillImageBar;
-
-            // Hidden legacy fields to keep inspector clean
-            [HideInInspector] public Button button;
-            [HideInInspector] public GameObject buttonObject;
         }
 
-        [Header("4. Stat Cards (Drag & Drop Hierarchy)")]
-        [Tooltip("List of stat cards manually placed in the hierarchy.")]
+        [Header("3. Stat Cards (Auto-Discovered or Manual)")]
+        [Tooltip("List of stat cards manually placed in the hierarchy. If empty, cards are auto-discovered from children!")]
         public List<ManualStatItem> manualStatItems = new List<ManualStatItem>();
 
-        [Header("5. Displays & Currency (Optional)")]
+        [Header("4. Displays & Currency")]
         [Tooltip("Header title text.")]
         public TextMeshProUGUI titleText;
         [Tooltip("Displays current credit / cinder balance.")]
         public TextMeshProUGUI balanceText;
 
-        // Hidden legacy fields to prevent inspector clutter while preserving backwards compatibility
-        [HideInInspector] public Button openButton;
-        [HideInInspector] public ShopButtonManager heatShopOpenButton;
-        [HideInInspector] public GameObject heatOpenButtonObject;
-        [HideInInspector] public Button closeButton;
-        [HideInInspector] public GameObject heatCloseButtonObject;
-        [HideInInspector] public Transform itemsContainer;
-        [HideInInspector] public GameObject upgradeRowPrefab;
-
-        private readonly List<UpgradeStatType> _investigatorStats = new List<UpgradeStatType>
-        {
-            UpgradeStatType.DamageResistance,
-            UpgradeStatType.WeaponDamage,
-            UpgradeStatType.MaskFilter,
-            UpgradeStatType.SpiritualLevel,
-            UpgradeStatType.MapPower,
-            UpgradeStatType.VialCount,
-            UpgradeStatType.VialHealingPower
-        };
-
-        private readonly List<UpgradeStatType> _girlStats = new List<UpgradeStatType>
-        {
-            UpgradeStatType.PossessionDuration,
-            UpgradeStatType.DealCapacity,
-            UpgradeStatType.VisibilityCount,
-            UpgradeStatType.VisibilityDuration,
-            UpgradeStatType.DeadSummonCharges
-        };
-
         private void Awake()
         {
-            MichskyUIBridge.BindAnyButton(OpenPanel, openButton, heatOpenButton, heatShopOpenButton, heatBoxOpenButton, heatOpenButtonObject);
-            MichskyUIBridge.BindAnyButton(ClosePanel, closeButton, heatCloseButton, heatBoxCloseButton, heatCloseButtonObject);
-
             if (panelRoot == null) panelRoot = gameObject;
+
+            // Auto-discover stat cards if not manually populated in inspector
+            if (manualStatItems == null || manualStatItems.Count == 0)
+            {
+                AutoDiscoverStatCards();
+            }
+
+            // Auto-discover purchase confirm modal if unassigned
+            if (purchaseConfirmModal == null)
+            {
+                var modals = FindObjectsByType<ModalWindowManager>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+                foreach (var mw in modals)
+                {
+                    if (mw.gameObject.name.IndexOf("Purchase", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                        mw.gameObject.name.IndexOf("Upgrade", StringComparison.OrdinalIgnoreCase) >= 0)
+                    {
+                        purchaseConfirmModal = mw;
+                        break;
+                    }
+                }
+            }
         }
 
         private void Start()
@@ -136,6 +110,10 @@ namespace NightCrawler.Economy.UI
 
         private void OnEnable()
         {
+            if (manualStatItems == null || manualStatItems.Count == 0)
+            {
+                AutoDiscoverStatCards();
+            }
             RefreshUI();
         }
 
@@ -162,6 +140,103 @@ namespace NightCrawler.Economy.UI
             if (panelRoot != null) panelRoot.SetActive(false);
         }
 
+        public void AutoDiscoverStatCards()
+        {
+            manualStatItems = new List<ManualStatItem>();
+            var shopButtons = GetComponentsInChildren<ShopButtonManager>(true);
+
+            foreach (var sbm in shopButtons)
+            {
+                string objName = sbm.gameObject.name;
+                if (!TryMapNameToStatType(objName, out UpgradeStatType stat))
+                    continue;
+
+                // Only include stats matching this panel's view mode
+                bool isInvestigatorStat = (int)stat <= (int)UpgradeStatType.VialHealingPower;
+                if (viewMode == UpgradeViewMode.InvestigatorStats && !isInvestigatorStat) continue;
+                if (viewMode == UpgradeViewMode.GirlStats && isInvestigatorStat) continue;
+
+                var item = new ManualStatItem
+                {
+                    statType = stat,
+                    heatShopButton = sbm,
+                    levelText = sbm.transform.Find("LevelText")?.GetComponent<TextMeshProUGUI>(),
+                    effectText = sbm.transform.Find("EffectText")?.GetComponent<TextMeshProUGUI>(),
+                    progressBar = sbm.GetComponentInChildren<ProgressBar>(true)
+                };
+
+                manualStatItems.Add(item);
+            }
+        }
+
+        private static bool TryMapNameToStatType(string name, out UpgradeStatType stat)
+        {
+            string lower = name.ToLowerInvariant();
+            if (lower.Contains("damageresistance") || lower.Contains("damage_resistance") || lower.Contains("resistance"))
+            {
+                stat = UpgradeStatType.DamageResistance;
+                return true;
+            }
+            if (lower.Contains("weapondamage") || lower.Contains("weapon_damage"))
+            {
+                stat = UpgradeStatType.WeaponDamage;
+                return true;
+            }
+            if (lower.Contains("maskfilter") || lower.Contains("mask_filter") || lower.Contains("mask"))
+            {
+                stat = UpgradeStatType.MaskFilter;
+                return true;
+            }
+            if (lower.Contains("spirituallevel") || lower.Contains("spiritual_level") || lower.Contains("spiritual"))
+            {
+                stat = UpgradeStatType.SpiritualLevel;
+                return true;
+            }
+            if (lower.Contains("mappower") || lower.Contains("map_power"))
+            {
+                stat = UpgradeStatType.MapPower;
+                return true;
+            }
+            if (lower.Contains("vialhealingpower") || lower.Contains("vial_healing") || lower.Contains("healingpower"))
+            {
+                stat = UpgradeStatType.VialHealingPower;
+                return true;
+            }
+            if (lower.Contains("vialcount") || lower.Contains("vial_count"))
+            {
+                stat = UpgradeStatType.VialCount;
+                return true;
+            }
+            if (lower.Contains("possessionduration") || lower.Contains("possession_duration") || lower.Contains("possession"))
+            {
+                stat = UpgradeStatType.PossessionDuration;
+                return true;
+            }
+            if (lower.Contains("dealcapacity") || lower.Contains("deal_capacity") || lower.Contains("deal"))
+            {
+                stat = UpgradeStatType.DealCapacity;
+                return true;
+            }
+            if (lower.Contains("visibilityduration") || lower.Contains("visibility_duration"))
+            {
+                stat = UpgradeStatType.VisibilityDuration;
+                return true;
+            }
+            if (lower.Contains("visibilitycount") || lower.Contains("visibility_count") || lower.Contains("visibility"))
+            {
+                stat = UpgradeStatType.VisibilityCount;
+                return true;
+            }
+            if (lower.Contains("deadsummoncharges") || lower.Contains("dead_summon") || lower.Contains("summon"))
+            {
+                stat = UpgradeStatType.DeadSummonCharges;
+                return true;
+            }
+
+            stat = UpgradeStatType.DamageResistance;
+            return false;
+        }
+
         public void RefreshUI()
         {
             int balance = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : 60;
@@ -181,10 +256,6 @@ namespace NightCrawler.Economy.UI
             if (manualStatItems != null && manualStatItems.Count > 0)
             {
                 RefreshManualStatItems(balance);
-            }
-            else
-            {
-                BuildStatRows(balance);
             }
         }
 
@@ -232,10 +303,21 @@ namespace NightCrawler.Economy.UI
                 if (item.heatShopButton != null)
                 {
                     item.heatShopButton.buttonTitle = statTitle;
-                    item.heatShopButton.buttonDescription = statEffect;
+                    item.heatShopButton.buttonDescription = isMaxLevel ? "Maximum rank achieved" : statEffect;
                     item.heatShopButton.priceText = isMaxLevel ? "MAX" : $"{cost}";
                     item.heatShopButton.isInteractable = canAfford;
                     item.heatShopButton.UpdateUI();
+
+                    item.heatShopButton.onPurchaseClick.RemoveAllListeners();
+                    item.heatShopButton.onClick.RemoveAllListeners();
+
+                    if (!isMaxLevel)
+                    {
+                        var capturedStat = item.statType;
+                        var capturedCost = cost;
+                        item.heatShopButton.onPurchaseClick.AddListener(() => OnUpgradeClicked(capturedStat, capturedCost));
+                        item.heatShopButton.onClick.AddListener(() => OnUpgradeClicked(capturedStat, capturedCost));
+                    }
                 }
 
                 if (item.heatButton != null)
@@ -243,6 +325,13 @@ namespace NightCrawler.Economy.UI
                     item.heatButton.SetText($"{statTitle} {(isMaxLevel ? "[MAX]" : $"[Lv. {currentLevel}/5 - {cost}C]")}");
                     item.heatButton.isInteractable = canAfford;
                     item.heatButton.UpdateUI();
+                    item.heatButton.onClick.RemoveAllListeners();
+                    if (!isMaxLevel)
+                    {
+                        var capturedStat = item.statType;
+                        var capturedCost = cost;
+                        item.heatButton.onClick.AddListener(() => OnUpgradeClicked(capturedStat, capturedCost));
+                    }
                 }
 
                 if (item.heatBoxButton != null)
@@ -250,124 +339,15 @@ namespace NightCrawler.Economy.UI
                     item.heatBoxButton.SetText($"{statTitle} {(isMaxLevel ? "[MAX]" : $"Lv.{currentLevel}")}");
                     item.heatBoxButton.isInteractable = canAfford;
                     item.heatBoxButton.UpdateUI();
+                    item.heatBoxButton.onClick.RemoveAllListeners();
+                    if (!isMaxLevel)
+                    {
+                        var capturedStat = item.statType;
+                        var capturedCost = cost;
+                        item.heatBoxButton.onClick.AddListener(() => OnUpgradeClicked(capturedStat, capturedCost));
+                    }
                 }
-
-                MichskyUIBridge.SetAnyButtonInteractable(canAfford, item.button, item.heatButton, item.heatBoxButton, item.buttonObject);
-
-                // Bind click to open confirmation modal
-                MichskyUIBridge.BindAnyButton(() =>
-                {
-                    OnUpgradeClicked(item.statType, cost);
-                }, item.button, item.heatButton, item.heatBoxButton, item.heatShopButton, item.buttonObject);
             }
-        }
-
-        private void BuildStatRows(int currentBalance)
-        {
-            if (itemsContainer == null) return;
-
-            // Clear old children
-            foreach (Transform child in itemsContainer)
-            {
-                Destroy(child.gameObject);
-            }
-
-            List<UpgradeStatType> statsToDisplay = viewMode == UpgradeViewMode.InvestigatorStats
-                ? _investigatorStats
-                : _girlStats;
-
-            foreach (var stat in statsToDisplay)
-            {
-                CreateUpgradeRow(stat, currentBalance);
-            }
-        }
-
-        private void CreateUpgradeRow(UpgradeStatType stat, int currentBalance)
-        {
-            int currentLevel = CloudCharacterSaveManager.Instance != null
-                ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(stat)
-                : 0;
-
-            bool isMaxLevel = currentLevel >= 5;
-            int cost = isMaxLevel ? 0 : UpgradeStatFormulas.CalculateUpgradeCost(stat, currentLevel);
-            bool canAfford = !isMaxLevel && (currentBalance >= cost);
-
-            string statTitle = UpgradeStatFormulas.GetStatDisplayName(stat);
-            string statEffect = UpgradeStatFormulas.GetStatEffectDescription(stat, currentLevel);
-
-            // Create row container
-            GameObject rowObj = new GameObject($"UpgradeRow_{stat}", typeof(RectTransform), typeof(Image));
-            rowObj.transform.SetParent(itemsContainer, false);
-
-            var rowRect = rowObj.GetComponent<RectTransform>();
-            rowRect.sizeDelta = new Vector2(0, 56);
-
-            var rowImg = rowObj.GetComponent<Image>();
-            rowImg.color = new Color(0.12f, 0.12f, 0.15f, 0.95f);
-
-            var hGroup = rowObj.AddComponent<HorizontalLayoutGroup>();
-            hGroup.childForceExpandWidth = false;
-            hGroup.childForceExpandHeight = true;
-            hGroup.childControlWidth = true;
-            hGroup.childControlHeight = true;
-            hGroup.spacing = 10;
-            hGroup.padding = new RectOffset(15, 15, 6, 6);
-
-            // Left text block (Name + Level + Effect)
-            GameObject textObj = new GameObject("TextInfo", typeof(RectTransform), typeof(TextMeshProUGUI));
-            textObj.transform.SetParent(rowObj.transform, false);
-            var layoutElement = textObj.AddComponent<LayoutElement>();
-            layoutElement.flexibleWidth = 1f;
-
-            var tmp = textObj.GetComponent<TextMeshProUGUI>();
-            tmp.fontSize = 14;
-            tmp.alignment = TextAlignmentOptions.MidlineLeft;
-            tmp.color = Color.white;
-            tmp.richText = true;
-
-            string levelBadge = isMaxLevel ? "<color=#F1C40F>[MAX]</color>" : $"<color=#3498DB>[Lv. {currentLevel}/5]</color>";
-            tmp.text = $"<b>{statTitle}</b> {levelBadge}\n<size=11><color=#BDC3C7>{statEffect}</color></size>";
-
-            // Upgrade Button
-            GameObject btnObj = new GameObject("Btn_Upgrade", typeof(RectTransform), typeof(Image), typeof(Button));
-            btnObj.transform.SetParent(rowObj.transform, false);
-
-            var btnLayout = btnObj.AddComponent<LayoutElement>();
-            btnLayout.preferredWidth = 130;
-
-            var btnImg = btnObj.GetComponent<Image>();
-            btnImg.color = isMaxLevel ? new Color(0.3f, 0.3f, 0.3f) : (canAfford ? new Color(0.18f, 0.80f, 0.44f) : new Color(0.7f, 0.2f, 0.2f));
-
-            var btn = btnObj.GetComponent<Button>();
-            btn.interactable = canAfford;
-
-            // Button label
-            GameObject btnLabelObj = new GameObject("Label", typeof(RectTransform), typeof(TextMeshProUGUI));
-            btnLabelObj.transform.SetParent(btnObj.transform, false);
-            var labelRect = btnLabelObj.GetComponent<RectTransform>();
-            labelRect.anchorMin = Vector2.zero;
-            labelRect.anchorMax = Vector2.one;
-            labelRect.sizeDelta = Vector2.zero;
-
-            var btnTmp = btnLabelObj.GetComponent<TextMeshProUGUI>();
-            btnTmp.alignment = TextAlignmentOptions.Center;
-            btnTmp.fontSize = 13;
-            btnTmp.fontStyle = FontStyles.Bold;
-            btnTmp.color = Color.white;
-
-            if (isMaxLevel)
-            {
-                btnTmp.text = "MAXED";
-            }
-            else
-            {
-                btnTmp.text = $"UPGRADE ({cost} {CurrencyConfig.CurrencySymbol})";
-            }
-
-            btn.onClick.AddListener(() =>
-            {
-                OnUpgradeClicked(stat, cost);
-            });
         }
 
         private void OnUpgradeClicked(UpgradeStatType stat, int cost)
@@ -406,7 +386,7 @@ namespace NightCrawler.Economy.UI
                 return;
             }
 
-            // Direct purchase fallback
+            // Direct purchase fallback if no modal assigned
             if (CloudCharacterSaveManager.Instance.TryPurchaseUpgrade(stat))
             {
                 int newLevel = CloudCharacterSaveManager.Instance.GetUpgradeLevel(stat);

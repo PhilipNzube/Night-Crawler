@@ -10,13 +10,15 @@ using Michsky.UI.Heat;
 
 /// <summary>
 /// SOLID — SRP: Manages Character Selection UI view inside the InvestigatorFlow panel.
-/// Now features Naruto/FighterZ-style Slot Card selection (horizontal card row + featured 3D model).
+/// Features Naruto/Apex-style Slot Card selection (horizontal card row + featured 3D model).
 ///
-/// Fully integrated with:
-///   • GirlRevealManager (post-reveal routing)
-///   • CharacterSceneController (white room environment setup & camera)
-///   • CharacterSelectManager (server RPC sync & role selection)
-///   • SquadLineupDisplay (transitions to Squad Screen on confirm)
+/// Flow:
+///   1. Player selects operative via slot cards.
+///   2. Player taps CONFIRM / READY.
+///   3. Match Stake Modal opens.
+///      - Confirm button remains INACTIVE until at least 2 credits are entered.
+///      - If cancelled without confirming: player is NOT marked ready.
+///      - Once confirmed: credits are staked, selection is locked in, and live ready status is reported.
 /// </summary>
 public class CharacterSelectUI : MonoBehaviour
 {
@@ -29,7 +31,6 @@ public class CharacterSelectUI : MonoBehaviour
 
     [Header("Vengeful Spirit Secret View")]
     public GameObject vengefulSpiritPanel;
-    public TextMeshProUGUI vengefulSpiritText;
 
     [Header("Investigator View")]
     public GameObject investigatorPanel;
@@ -39,23 +40,21 @@ public class CharacterSelectUI : MonoBehaviour
     // =========================================================================
 
     [Header("3D Featured Model Stage")]
-    [Tooltip("Transform pivot in the scene where the featured 3D character model spawns. " +
-             "Position this centered in front of the character select camera.")]
+    [Tooltip("Transform pivot in the scene where the featured 3D character model spawns.")]
     public Transform modelPreviewPivot;
 
     [Tooltip("Duration in seconds to animate model swap (fade/scale).")]
     public float modelSwapDuration = 0.35f;
 
     // =========================================================================
-    //  Inspector — Naruto-Style 2D Slot Card Row
+    //  Inspector — 2D Slot Card Row
     // =========================================================================
 
-    [Header("Naruto-Style Slot Cards (2D Card Row)")]
-    [Tooltip("Parent Transform under which character slot cards are spawned. " +
-             "Use a UI GameObject with a Horizontal Layout Group component.")]
+    [Header("Slot Cards (2D Card Row)")]
+    [Tooltip("Parent Transform under which character slot cards are spawned (Horizontal Layout Group).")]
     public Transform slotCardContainer;
 
-    [Tooltip("Prefab for a single slot card (UI Button with Image child for icon and TMP_Text child for name).")]
+    [Tooltip("Prefab for a single slot card.")]
     public GameObject slotCardPrefab;
 
     [Tooltip("Color applied to the frame/border of the selected slot card.")]
@@ -65,7 +64,7 @@ public class CharacterSelectUI : MonoBehaviour
     public Color unselectedCardColor = Color.white;
 
     // =========================================================================
-    //  Inspector — Info & Stats Panel
+    //  Inspector — Side Details Panel
     // =========================================================================
 
     [Header("Side Details Panel")]
@@ -73,111 +72,66 @@ public class CharacterSelectUI : MonoBehaviour
     public TextMeshProUGUI detailsDescriptionText;
     public TextMeshProUGUI detailsAbilitiesText;
     public Image detailsIconImage;
-    [Tooltip("Optional parent root for character details/abilities panel to hide on confirm.")]
+    [Tooltip("Parent root for character details/abilities panel to hide on confirm.")]
     public GameObject sideDetailsPanel;
 
-    [Header("Stats Bars (Optional)")]
-    public Slider speedBar;
-    public Slider strengthBar;
-    public Slider stealthBar;
-
     // =========================================================================
-    //  Inspector — Navigation & Action Buttons
+    //  Inspector — Ready / Confirm Button
     // =========================================================================
 
-    [Header("Navigation Buttons")]
-    public Button arrowLeft;
-    public Button arrowRight;
-
-    [Header("Action Buttons")]
-    public Button confirmButton;
-
-    // =========================================================================
-    //  Inspector — Staking & Upgrades (Economy)
-    // =========================================================================
-
-    [Header("Match Stake (Lobby Staking)")]
-    [Tooltip("Input field for entering credit stake. Confirm button is disabled until valid stake is entered.")]
-    public TMP_InputField stakeInputField;
-
-    [Tooltip("Text displaying stake validation errors (e.g. empty or less than minimum).")]
-    public TextMeshProUGUI stakeErrorText;
-
-    [Tooltip("Optional label displaying player's current credit balance.")]
-    public TextMeshProUGUI creditBalanceText;
-
-    [Header("Investigator Persistent Upgrades")]
-    [Tooltip("Button to open the Investigator Upgrades modal/panel.")]
-    public Button openUpgradesButton;
-
-    [Tooltip("Reference to the Investigator Upgrades panel GameObject.")]
-    public GameObject upgradePanel;
-
-    // =========================================================================
-    //  Inspector — Michsky UI Support (Heat & Dark Horror UI)
-    // =========================================================================
-
-    [Header("Michsky UI Support (Heat / Dark Horror UI)")]
-    [Tooltip("Optional: Assign Michsky ButtonManager to replace or enhance the Confirm Button.")]
+    [Header("Confirm / Ready Button")]
+    [Tooltip("Michsky ButtonManager for Confirm / Ready.")]
     public ButtonManager heatConfirmButton;
-    [Tooltip("Optional: If using Button (Box) for Confirm, drag it here!")]
-    public BoxButtonManager heatBoxConfirmButton;
-    [Tooltip("Optional: Or drag the Confirm button GameObject directly here!")]
-    public GameObject heatConfirmButtonObject;
 
-    [Tooltip("Optional: Assign Michsky InputFieldManager to replace or enhance the Stake Input Field.")]
+    [Tooltip("Michsky BoxButtonManager for Confirm / Ready (optional).")]
+    public BoxButtonManager heatBoxConfirmButton;
+
+    // =========================================================================
+    //  Inspector — Match Stake Modal (Opened on Ready)
+    // =========================================================================
+
+    [Header("Match Stake Modal (Opened on Ready)")]
+    [Tooltip("Modal Window that pops up when tapping CONFIRM to enter the match stake.")]
+    public ModalWindowManager matchStakeModal;
+
+    [Tooltip("Michsky Input Field inside the modal where the player types their stake.")]
     public InputFieldManager heatStakeInputField;
 
-    [Tooltip("Optional: Assign Michsky ButtonManager to open Upgrades.")]
-    public ButtonManager heatOpenUpgradesButton;
-    [Tooltip("Optional: If using Button (Box) for Upgrades, drag it here!")]
-    public BoxButtonManager heatBoxOpenUpgradesButton;
-    [Tooltip("Optional: If using Button (Shop) for Upgrades, drag it here!")]
-    public ShopButtonManager heatShopOpenUpgradesButton;
-    [Tooltip("Optional: Or drag the Upgrades button GameObject directly here!")]
-    public GameObject heatOpenUpgradesButtonObject;
+    [Tooltip("Confirm button inside the stake modal. Inactive until 2+ credits entered.")]
+    public ButtonManager heatStakeConfirmButton;
 
-    [Tooltip("Optional: Assign Michsky ButtonManager for left/right navigation.")]
-    public ButtonManager heatArrowLeft;
-    public ButtonManager heatArrowRight;
-    public BoxButtonManager heatBoxArrowLeft;
-    public BoxButtonManager heatBoxArrowRight;
+    [Tooltip("Box Button for confirming stake (optional).")]
+    public BoxButtonManager heatBoxStakeConfirmButton;
 
-    [Header("Michsky Stat Progress Bars")]
-    [Tooltip("Optional: Heat/Dark ProgressBar for Speed stat.")]
-    public ProgressBar heatSpeedBar;
-    [Tooltip("Optional: Heat/Dark ProgressBar for Strength stat.")]
-    public ProgressBar heatStrengthBar;
-    [Tooltip("Optional: Heat/Dark ProgressBar for Stealth stat.")]
-    public ProgressBar heatStealthBar;
+    [Tooltip("Cancel / Close button inside the stake modal.")]
+    public ButtonManager heatStakeCancelButton;
+
+    [Tooltip("Error / Hint label inside the stake modal (e.g. 'Min 2 credits').")]
+    public TextMeshProUGUI stakeErrorText;
+
+    [Tooltip("Label inside the modal displaying player's current credit balance.")]
+    public TextMeshProUGUI creditBalanceText;
 
     // =========================================================================
     //  Inspector — Character Data & Filters
     // =========================================================================
 
     [Header("Roster Filter")]
-    [Tooltip("Toggle to include or exclude Hazard Specialist. Defaults to false (hidden) for clean roster.")]
+    [Tooltip("Toggle to include or exclude Hazard Specialist.")]
     public bool includeHazardSpecialist = false;
 
-    [Header("Character Roster (ScriptableObjects — Recommended)")]
-    [Tooltip("Drag your CharacterDefinitionSO assets here. " +
-             "Create them via: Right-click → Create → Night Crawler → Character Definition.")]
+    [Header("Character Roster (ScriptableObjects)")]
     public List<CharacterDefinitionSO> characterDefinitions = new List<CharacterDefinitionSO>();
 
-    [Header("Inline Character Data (Fallback / Inspector Editable)")]
-    [Tooltip("Used if characterDefinitions SO list above is empty.")]
+    [Header("Inline Character Data (Fallback)")]
     public List<InvestigatorCharacterData> characterDataList = new List<InvestigatorCharacterData>();
 
     [Header("Player Status Panel (Ready / Waiting)")]
     [Tooltip("Root panel shown after the player confirms selection. Shows every player's name and ready status.")]
     public GameObject playerStatusPanel;
-    [Tooltip("Vertical container inside playerStatusPanel where per-player rows are spawned.")]
     public Transform playerStatusContainer;
-    [Tooltip("Prefab for a single status row: must have two TMP_Text children — [0]=name, [1]=status.")]
     public GameObject playerStatusRowPrefab;
-    [Tooltip("Text shown in the status row when waiting / not ready.")]
     public string statusWaitingText = "NOT READY";
-    [Tooltip("Text shown in the status row when ready.")]
     public string statusReadyText = "READY";
 
     // -------------------------------------------------------------------------
@@ -191,8 +145,10 @@ public class CharacterSelectUI : MonoBehaviour
     private readonly List<Button>     _slotCardButtons        = new List<Button>();
     private readonly List<Image>      _slotCardFrames         = new List<Image>();
     private readonly List<CharacterSlotCard> _slotCards       = new List<CharacterSlotCard>();
+    private readonly List<BoxButtonManager> _heatBoxSlotCards  = new List<BoxButtonManager>();
+    private readonly List<ButtonManager> _heatSlotButtons      = new List<ButtonManager>();
     private Coroutine                 _swapCoroutine;
-    private bool                      _localConfirmed         = false; // waiting for everyone else
+    private bool                      _localConfirmed         = false;
     private readonly List<GameObject> _statusRows             = new List<GameObject>();
 
     // =========================================================================
@@ -213,19 +169,13 @@ public class CharacterSelectUI : MonoBehaviour
         _localConfirmed = false;
         if (playerStatusPanel != null) playerStatusPanel.SetActive(false);
 
-        // Reset visibility of selection controls and abilities
+        // Reset visibility of selection controls
         if (slotCardContainer != null) slotCardContainer.gameObject.SetActive(true);
-        if (arrowLeft  != null)        arrowLeft.gameObject.SetActive(true);
-        if (arrowRight != null)        arrowRight.gameObject.SetActive(true);
-        if (confirmButton != null)     confirmButton.gameObject.SetActive(true);
-        if (detailsAbilitiesText != null)   detailsAbilitiesText.gameObject.SetActive(true);
+        if (heatConfirmButton != null) heatConfirmButton.gameObject.SetActive(true);
+        if (heatBoxConfirmButton != null) heatBoxConfirmButton.gameObject.SetActive(true);
+        if (detailsAbilitiesText != null) detailsAbilitiesText.gameObject.SetActive(true);
         if (detailsDescriptionText != null) detailsDescriptionText.gameObject.SetActive(true);
-        if (sideDetailsPanel != null)       sideDetailsPanel.SetActive(true);
-
-        if (stakeInputField != null)   stakeInputField.gameObject.SetActive(true);
-        if (stakeErrorText != null)     stakeErrorText.gameObject.SetActive(false);
-        if (creditBalanceText != null)  creditBalanceText.gameObject.SetActive(true);
-        if (openUpgradesButton != null) openUpgradesButton.gameObject.SetActive(true);
+        if (sideDetailsPanel != null) sideDetailsPanel.SetActive(true);
 
         bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
         if (forceInvestigator)
@@ -247,7 +197,6 @@ public class CharacterSelectUI : MonoBehaviour
             InitialSetup();
 
         CheckLocalRole();
-        SetupStakingAndUpgrades();
 
         // Refresh UI state when enabled
         SelectProfession(_selectedIndex);
@@ -262,7 +211,6 @@ public class CharacterSelectUI : MonoBehaviour
         if (CharacterSceneController.Instance != null)
             CharacterSceneController.Instance.DisableCharacterSelectEnvironment();
 
-        // Unsubscribe to avoid stale callbacks
         if (PlayerReadyTracker.Instance != null)
             PlayerReadyTracker.Instance.OnReadyStatesUpdated -= HandleReadyStatesUpdated;
     }
@@ -287,15 +235,9 @@ public class CharacterSelectUI : MonoBehaviour
         if (_initialized) return;
         _initialized = true;
 
-        MichskyUIBridge.BindButton(confirmButton, heatConfirmButton, OnConfirmSelection);
-        MichskyUIBridge.BindButton(null, heatBoxConfirmButton, OnConfirmSelection);
-        MichskyUIBridge.BindButton(heatConfirmButtonObject, OnConfirmSelection);
-
-        MichskyUIBridge.BindButton(arrowLeft, heatArrowLeft, SelectPrevious);
-        MichskyUIBridge.BindButton(null, heatBoxArrowLeft, SelectPrevious);
-
-        MichskyUIBridge.BindButton(arrowRight, heatArrowRight, SelectNext);
-        MichskyUIBridge.BindButton(null, heatBoxArrowRight, SelectNext);
+        // Wire Ready / Confirm button to open the Match Stake modal
+        MichskyUIBridge.BindButton(null, heatConfirmButton, OnReadyButtonClicked);
+        MichskyUIBridge.BindButton(null, heatBoxConfirmButton, OnReadyButtonClicked);
 
         if (CharacterSelectManager.Instance != null)
         {
@@ -304,127 +246,195 @@ public class CharacterSelectUI : MonoBehaviour
 
         CheckLocalRole();
         BuildSlotCards();
-        SetupStakingAndUpgrades();
 
         int savedIndex = PersistentCharacterSelection.GetSelectedCharacterIndex();
         SelectProfession(savedIndex);
     }
 
     // =========================================================================
-    //  Staking & Upgrades Setup & Validation
+    //  Match Stake Modal Flow
     // =========================================================================
 
-    private void SetupStakingAndUpgrades()
+    private void OnReadyButtonClicked()
     {
-        MichskyUIBridge.BindInputField(stakeInputField, heatStakeInputField, _ => ValidateStake());
-        MichskyUIBridge.SetInputText(stakeInputField, heatStakeInputField, "");
+        if (_localConfirmed) return;
 
-        if (creditBalanceText != null)
+        if (matchStakeModal != null)
         {
-            int credits = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
-            creditBalanceText.text = CurrencyConfig.FormatBalance(credits);
+            OpenStakeModal();
         }
-
-        System.Action toggleUpgrades = () =>
+        else
         {
-            if (upgradePanel != null)
-            {
-                var upgradeUI = upgradePanel.GetComponent<NightCrawler.Economy.UI.LobbyUpgradeUI>();
-                if (upgradeUI != null)
-                {
-                    upgradeUI.OpenPanel();
-                }
-                else
-                {
-                    var mw = upgradePanel.GetComponent<Michsky.UI.Heat.ModalWindowManager>();
-                    if (mw != null) mw.OpenWindow();
-                    else upgradePanel.SetActive(!upgradePanel.activeSelf);
-                }
-
-                if (creditBalanceText != null && CloudCharacterSaveManager.Instance != null)
-                {
-                    creditBalanceText.text = CurrencyConfig.FormatBalance(CloudCharacterSaveManager.Instance.CurrentCredits);
-                }
-            }
-        };
-
-        MichskyUIBridge.BindButton(openUpgradesButton, heatOpenUpgradesButton, new UnityEngine.Events.UnityAction(toggleUpgrades));
-        MichskyUIBridge.BindButton(null, heatBoxOpenUpgradesButton, new UnityEngine.Events.UnityAction(toggleUpgrades));
-        MichskyUIBridge.BindButton(null, heatShopOpenUpgradesButton, new UnityEngine.Events.UnityAction(toggleUpgrades));
-        MichskyUIBridge.BindButton(heatOpenUpgradesButtonObject, new UnityEngine.Events.UnityAction(toggleUpgrades));
-
-        ValidateStake();
+            // Direct fallback if no modal assigned
+            FinalizeSelectionAndReady(CurrencyConfig.MinimumStake);
+        }
     }
 
-    public bool ValidateStake()
+    private void OpenStakeModal()
     {
-        string raw = MichskyUIBridge.GetInputText(stakeInputField, heatStakeInputField).Trim();
-        if (stakeInputField == null && heatStakeInputField == null)
+        int balance = CloudCharacterSaveManager.Instance != null
+            ? CloudCharacterSaveManager.Instance.CurrentCredits
+            : 50;
+
+        if (creditBalanceText != null)
+            creditBalanceText.text = CurrencyConfig.FormatBalance(balance);
+
+        if (stakeErrorText != null)
         {
-            // If inspector fields not assigned yet, don't permanently lock confirmButton
-            return true;
+            stakeErrorText.text = $"Minimum stake is {CurrencyConfig.MinimumStake} credits.";
+            stakeErrorText.gameObject.SetActive(true);
         }
 
-        if (string.IsNullOrEmpty(raw))
+        // Clear input text initially
+        MichskyUIBridge.SetInputText(null, heatStakeInputField, string.Empty);
+
+        // Keep confirm button inactive until at least 2 credits are entered!
+        SetStakeConfirmInteractable(false);
+
+        // Bind input typing validation
+        MichskyUIBridge.BindInputField(null, heatStakeInputField, OnStakeInputChanged);
+
+        // Bind confirm and cancel buttons
+        MichskyUIBridge.BindButton(null, heatStakeConfirmButton, OnStakeModalConfirmed);
+        if (heatBoxStakeConfirmButton != null)
+            MichskyUIBridge.BindButton(null, heatBoxStakeConfirmButton, OnStakeModalConfirmed);
+
+        if (heatStakeCancelButton != null)
+            MichskyUIBridge.BindButton(null, heatStakeCancelButton, OnStakeModalCancelled);
+
+        matchStakeModal.OpenWindow();
+    }
+
+    private void OnStakeInputChanged(string raw)
+    {
+        bool isValid = ValidateStakeInput(raw, out int _, out string error);
+
+        if (stakeErrorText != null)
         {
-            SetConfirmButtonInteractable(false);
-            if (stakeErrorText != null)
-            {
-                stakeErrorText.gameObject.SetActive(true);
-                stakeErrorText.text = $"Stake cannot be empty! (Min: {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol})";
-            }
+            stakeErrorText.text = error;
+            stakeErrorText.gameObject.SetActive(!string.IsNullOrEmpty(error));
+        }
+
+        SetStakeConfirmInteractable(isValid);
+    }
+
+    private bool ValidateStakeInput(string raw, out int stake, out string errorMessage)
+    {
+        stake = 0;
+        errorMessage = "";
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            errorMessage = $"Enter at least {CurrencyConfig.MinimumStake} credits to confirm.";
             return false;
         }
 
-        if (!int.TryParse(raw, out int stake))
+        if (!int.TryParse(raw.Trim(), out stake))
         {
-            SetConfirmButtonInteractable(false);
-            if (stakeErrorText != null)
-            {
-                stakeErrorText.gameObject.SetActive(true);
-                stakeErrorText.text = "Please enter a valid numeric stake!";
-            }
+            errorMessage = "Please enter a valid whole number.";
             return false;
         }
 
         if (stake < CurrencyConfig.MinimumStake)
         {
-            SetConfirmButtonInteractable(false);
-            if (stakeErrorText != null)
-            {
-                stakeErrorText.gameObject.SetActive(true);
-                stakeErrorText.text = $"Minimum stake required is {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}!";
-            }
+            errorMessage = $"Minimum stake is {CurrencyConfig.MinimumStake} credits.";
             return false;
         }
 
-        int currentCredits = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
-        if (stake > currentCredits)
+        int balance = CloudCharacterSaveManager.Instance != null
+            ? CloudCharacterSaveManager.Instance.CurrentCredits
+            : 50;
+
+        if (stake > balance)
         {
-            SetConfirmButtonInteractable(false);
-            if (stakeErrorText != null)
-            {
-                stakeErrorText.gameObject.SetActive(true);
-                stakeErrorText.text = $"Insufficient credits! Balance: {currentCredits} {CurrencyConfig.CurrencySymbol}";
-            }
+            errorMessage = $"Insufficient credits! Balance: {balance} {CurrencyConfig.CurrencySymbol}";
             return false;
         }
 
-        // All checks passed!
-        SetConfirmButtonInteractable(true);
-        if (stakeErrorText != null)
-        {
-            stakeErrorText.text = "";
-            stakeErrorText.gameObject.SetActive(false);
-        }
         return true;
     }
 
-    private void SetConfirmButtonInteractable(bool interactable)
+    private void SetStakeConfirmInteractable(bool interactable)
     {
-        MichskyUIBridge.SetButtonInteractable(confirmButton, heatConfirmButton, interactable);
-        MichskyUIBridge.SetButtonInteractable(null, heatBoxConfirmButton, interactable);
-        MichskyUIBridge.SetButtonInteractable(heatConfirmButtonObject, interactable);
+        if (heatStakeConfirmButton != null)
+        {
+            heatStakeConfirmButton.isInteractable = interactable;
+            heatStakeConfirmButton.UpdateUI();
+        }
+        if (heatBoxStakeConfirmButton != null)
+        {
+            heatBoxStakeConfirmButton.isInteractable = interactable;
+            heatBoxStakeConfirmButton.UpdateUI();
+        }
+    }
+
+    private void OnStakeModalCancelled()
+    {
+        if (matchStakeModal != null)
+            matchStakeModal.CloseWindow();
+
+        // Player cancelled without inputting/confirming: DO NOT set ready!
+    }
+
+    private void OnStakeModalConfirmed()
+    {
+        string raw = MichskyUIBridge.GetInputText(null, heatStakeInputField);
+        if (!ValidateStakeInput(raw, out int stake, out string error))
+        {
+            if (stakeErrorText != null)
+            {
+                stakeErrorText.text = error;
+                stakeErrorText.gameObject.SetActive(true);
+            }
+            SetStakeConfirmInteractable(false);
+            return;
+        }
+
+        if (matchStakeModal != null)
+            matchStakeModal.CloseWindow();
+
+        FinalizeSelectionAndReady(stake);
+    }
+
+    private void FinalizeSelectionAndReady(int stake)
+    {
+        if (_localConfirmed) return;
+
+        PersistentCharacterSelection.SetSavedMatchStake(stake);
+        if (CloudCharacterSaveManager.Instance != null)
+        {
+            CloudCharacterSaveManager.Instance.SpendCredits(stake);
+        }
+
+        _localConfirmed = true;
+        PersistentCharacterSelection.SetSelectedCharacterIndex(_selectedIndex);
+
+        if (!_isVengefulSpirit && CharacterSelectManager.Instance != null)
+        {
+            CharacterSelectManager.Instance.RequestSelectCharacterServerRpc(_selectedIndex);
+        }
+
+        // Hide selection controls & ready button
+        if (slotCardContainer != null) slotCardContainer.gameObject.SetActive(false);
+        if (heatConfirmButton != null) heatConfirmButton.gameObject.SetActive(false);
+        if (heatBoxConfirmButton != null) heatBoxConfirmButton.gameObject.SetActive(false);
+
+        // Hide character abilities and details text
+        if (detailsAbilitiesText != null) detailsAbilitiesText.gameObject.SetActive(false);
+        if (detailsDescriptionText != null) detailsDescriptionText.gameObject.SetActive(false);
+        if (sideDetailsPanel != null) sideDetailsPanel.SetActive(false);
+
+        // Notify the ready tracker
+        if (PlayerReadyTracker.Instance != null)
+            PlayerReadyTracker.Instance.ReportInvestigatorConfirmed(NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0);
+
+        // Show player status panel
+        if (playerStatusPanel != null)
+            playerStatusPanel.SetActive(true);
+
+        bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
+        if (forceInvestigator || PlayerReadyTracker.Instance == null)
+            GoToSquadScreen();
     }
 
     // =========================================================================
@@ -512,14 +522,6 @@ public class CharacterSelectUI : MonoBehaviour
                 detailsIconImage.enabled = (so.portrait != null);
             }
 
-            if (speedBar    != null) speedBar.value    = so.speed / 10f;
-            if (strengthBar != null) strengthBar.value = so.strength / 10f;
-            if (stealthBar  != null) stealthBar.value  = so.stealth / 10f;
-
-            MichskyUIBridge.SetProgress(heatSpeedBar, so.speed / 10f);
-            MichskyUIBridge.SetProgress(heatStrengthBar, so.strength / 10f);
-            MichskyUIBridge.SetProgress(heatStealthBar, so.stealth / 10f);
-
             if (so.characterPrefab != null)
                 SwapFeaturedModel(so.characterPrefab);
         }
@@ -538,14 +540,6 @@ public class CharacterSelectUI : MonoBehaviour
                     detailsIconImage.sprite  = data.characterIcon;
                     detailsIconImage.enabled = (data.characterIcon != null);
                 }
-
-                if (speedBar    != null) speedBar.value    = 0.7f;
-                if (strengthBar != null) strengthBar.value = 0.6f;
-                if (stealthBar  != null) stealthBar.value  = 0.5f;
-
-                MichskyUIBridge.SetProgress(heatSpeedBar, 0.7f);
-                MichskyUIBridge.SetProgress(heatStrengthBar, 0.6f);
-                MichskyUIBridge.SetProgress(heatStealthBar, 0.5f);
 
                 if (data.characterPrefab != null)
                     SwapFeaturedModel(data.characterPrefab);
@@ -584,7 +578,7 @@ public class CharacterSelectUI : MonoBehaviour
     }
 
     // =========================================================================
-    //  Naruto-Style Slot Cards Building
+    //  Slot Cards Building
     // =========================================================================
 
     private void BuildSlotCards()
@@ -597,6 +591,8 @@ public class CharacterSelectUI : MonoBehaviour
         _slotCardButtons.Clear();
         _slotCardFrames.Clear();
         _slotCards.Clear();
+        _heatBoxSlotCards.Clear();
+        _heatSlotButtons.Clear();
 
         RefreshFilteredRoster();
         bool useSO = _filteredDefinitions.Count > 0;
@@ -626,17 +622,17 @@ public class CharacterSelectUI : MonoBehaviour
             GameObject card = Instantiate(slotCardPrefab, slotCardContainer);
             card.name = $"SlotCard_{charName}";
 
-            // Set icon sprite
+            // Standard icon sprite fallback
             Image portraitImg = card.GetComponentInChildren<Image>();
             if (portraitImg != null && portrait != null)
                 portraitImg.sprite = portrait;
 
-            // Set name label
+            // Standard name label fallback
             TMP_Text nameLabel = card.GetComponentInChildren<TMP_Text>();
             if (nameLabel != null)
                 nameLabel.text = charName;
 
-            // Wire button click
+            // Standard Button click
             Button btn = card.GetComponent<Button>();
             if (btn != null)
             {
@@ -645,9 +641,31 @@ public class CharacterSelectUI : MonoBehaviour
                 _slotCardFrames.Add(btn.GetComponent<Image>());
             }
 
-            // Register the CharacterSlotCard component (adds hover/select animations)
+            // Michsky Heat UI BoxButtonManager support
+            var bbm = card.GetComponent<BoxButtonManager>();
+            if (bbm != null)
+            {
+                bbm.SetText(charName);
+                if (portrait != null) bbm.SetIcon(portrait);
+                bbm.onClick.RemoveAllListeners();
+                bbm.onClick.AddListener(() => SelectProfession(capturedIndex));
+                _heatBoxSlotCards.Add(bbm);
+            }
+
+            // Michsky Heat UI ButtonManager support
+            var bm = card.GetComponent<ButtonManager>();
+            if (bm != null)
+            {
+                bm.SetText(charName);
+                if (portrait != null) bm.SetIcon(portrait);
+                bm.onClick.RemoveAllListeners();
+                bm.onClick.AddListener(() => SelectProfession(capturedIndex));
+                _heatSlotButtons.Add(bm);
+            }
+
+            // Register the CharacterSlotCard component
             CharacterSlotCard slotCard = card.GetComponent<CharacterSlotCard>();
-            _slotCards.Add(slotCard); // null-safe — UpdateSlotCardHighlights checks for null
+            _slotCards.Add(slotCard);
         }
 
         UpdateSlotCardHighlights();
@@ -655,17 +673,28 @@ public class CharacterSelectUI : MonoBehaviour
 
     private void UpdateSlotCardHighlights()
     {
-        // CharacterSlotCard (animated version)
         for (int i = 0; i < _slotCards.Count; i++)
         {
             if (_slotCards[i] != null)
                 _slotCards[i].SetSelected(i == _selectedIndex);
         }
 
-        // Fallback: raw Image tinting for cards that don't have CharacterSlotCard attached
+        for (int i = 0; i < _heatBoxSlotCards.Count; i++)
+        {
+            if (_heatBoxSlotCards[i] != null)
+            {
+                bool isSelected = (i == _selectedIndex);
+                string baseName = (i < _filteredDefinitions.Count && _filteredDefinitions[i] != null) 
+                    ? _filteredDefinitions[i].characterName 
+                    : (_slotCardButtons.Count > i ? _slotCardButtons[i].name.Replace("SlotCard_", "") : "OPERATIVE");
+
+                _heatBoxSlotCards[i].SetText(isSelected ? $"<color=#F1C40F><b>{baseName.ToUpper()}</b></color>" : baseName);
+            }
+        }
+
         for (int i = 0; i < _slotCardFrames.Count; i++)
         {
-            if (i < _slotCards.Count && _slotCards[i] != null) continue; // already handled above
+            if (i < _slotCards.Count && _slotCards[i] != null) continue;
             if (_slotCardFrames[i] != null)
                 _slotCardFrames[i].color = (i == _selectedIndex) ? selectedCardHighlightColor : unselectedCardColor;
         }
@@ -695,7 +724,6 @@ public class CharacterSelectUI : MonoBehaviour
             prefabToSpawn, modelPreviewPivot.position,
             modelPreviewPivot.rotation, modelPreviewPivot);
 
-        // Disable player control scripts on the preview instance
         foreach (var script in _currentPreviewInstance.GetComponentsInChildren<MonoBehaviour>())
         {
             if (script is CharacterAnimationController || script is CharacterAnimationSystem) continue;
@@ -716,7 +744,7 @@ public class CharacterSelectUI : MonoBehaviour
     }
 
     // =========================================================================
-    //  Role Handling & Confirmation
+    //  Role Handling
     // =========================================================================
 
     private void OnRoleSelectionChanged(bool prev, bool current)
@@ -751,13 +779,7 @@ public class CharacterSelectUI : MonoBehaviour
         if (_isVengefulSpirit)
         {
             if (vengefulSpiritPanel != null) vengefulSpiritPanel.SetActive(true);
-            if (investigatorPanel != null)     investigatorPanel.SetActive(false);
-
-            if (vengefulSpiritText != null)
-            {
-                vengefulSpiritText.text = "YOU ARE THE VENGEFUL SPIRIT\n\n" +
-                    "Seep into the shadows, manipulate lights, whisper lies, and turn the investigators against each other.";
-            }
+            if (investigatorPanel != null)   investigatorPanel.SetActive(false);
 
             if (GameManager.Instance != null && GameManager.Instance.girlPrefab != null)
             {
@@ -767,71 +789,8 @@ public class CharacterSelectUI : MonoBehaviour
         else
         {
             if (vengefulSpiritPanel != null) vengefulSpiritPanel.SetActive(false);
-            if (investigatorPanel != null)     investigatorPanel.SetActive(true);
+            if (investigatorPanel != null)   investigatorPanel.SetActive(true);
         }
-    }
-
-    private void OnConfirmSelection()
-    {
-        if (_localConfirmed) return; // don't double-confirm
-        if (!ValidateStake()) return;
-
-        // Extract and record the match stake
-        int stake = CurrencyConfig.MinimumStake;
-        string rawStake = NightCrawler.UI.MichskyUIBridge.GetInputText(stakeInputField, heatStakeInputField).Trim();
-        if (!string.IsNullOrEmpty(rawStake) && int.TryParse(rawStake, out int parsed))
-        {
-            stake = parsed;
-        }
-
-        PersistentCharacterSelection.SetSavedMatchStake(stake);
-        if (CloudCharacterSaveManager.Instance != null)
-        {
-            CloudCharacterSaveManager.Instance.SpendCredits(stake);
-        }
-
-        _localConfirmed = true;
-
-        PersistentCharacterSelection.SetSelectedCharacterIndex(_selectedIndex);
-
-        if (!_isVengefulSpirit && CharacterSelectManager.Instance != null)
-        {
-            CharacterSelectManager.Instance.RequestSelectCharacterServerRpc(_selectedIndex);
-        }
-
-        // Keep the featured 3D character model VISIBLE on stage (do not destroy it here).
-        // It stays on display while waiting for others, matching the girl's screen behavior.
-
-        // Hide selection controls & ready text — player has locked in
-        if (slotCardContainer != null) slotCardContainer.gameObject.SetActive(false);
-        if (arrowLeft  != null)        arrowLeft.gameObject.SetActive(false);
-        if (arrowRight != null)        arrowRight.gameObject.SetActive(false);
-        if (confirmButton != null)     confirmButton.gameObject.SetActive(false);
-
-        // Hide staking & upgrade controls on confirm
-        if (stakeInputField != null)   stakeInputField.gameObject.SetActive(false);
-        if (stakeErrorText != null)     stakeErrorText.gameObject.SetActive(false);
-        if (creditBalanceText != null)  creditBalanceText.gameObject.SetActive(false);
-        if (openUpgradesButton != null) openUpgradesButton.gameObject.SetActive(false);
-        if (upgradePanel != null)       upgradePanel.SetActive(false);
-
-        // Disable character abilities and details text/panel
-        if (detailsAbilitiesText != null)   detailsAbilitiesText.gameObject.SetActive(false);
-        if (detailsDescriptionText != null) detailsDescriptionText.gameObject.SetActive(false);
-        if (sideDetailsPanel != null)       sideDetailsPanel.SetActive(false);
-
-        // Notify the ready tracker (server will tell everyone when all are done)
-        if (PlayerReadyTracker.Instance != null)
-            PlayerReadyTracker.Instance.ReportInvestigatorConfirmed(NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0);
-
-        // Show the waiting-for-others panel immediately
-        if (playerStatusPanel != null)
-            playerStatusPanel.SetActive(true);
-
-        // If forceInvestigatorMode is active or tracker is null, auto-continue straight to squad screen
-        bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
-        if (forceInvestigator || PlayerReadyTracker.Instance == null)
-            GoToSquadScreen();
     }
 
     // Called by PlayerReadyTracker when the ready snapshot changes
@@ -839,7 +798,6 @@ public class CharacterSelectUI : MonoBehaviour
     {
         RefreshStatusRows(snapshot);
 
-        // Only transition once this local player has confirmed too
         if (!_localConfirmed) return;
 
         bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
@@ -855,7 +813,6 @@ public class CharacterSelectUI : MonoBehaviour
     {
         if (playerStatusContainer == null || playerStatusRowPrefab == null) return;
 
-        // Destroy old rows
         foreach (var row in _statusRows)
             if (row != null) Destroy(row);
         _statusRows.Clear();
@@ -879,7 +836,6 @@ public class CharacterSelectUI : MonoBehaviour
 
     private void GoToSquadScreen()
     {
-        // Unsubscribe before switching
         if (PlayerReadyTracker.Instance != null)
             PlayerReadyTracker.Instance.OnReadyStatesUpdated -= HandleReadyStatesUpdated;
 
