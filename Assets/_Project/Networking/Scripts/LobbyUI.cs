@@ -144,6 +144,9 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Button inside the Join Code panel that goes back to the main Connection screen.")]
     public ButtonManager heatJoinCodeBackButton;
 
+    [Tooltip("Error text displayed on the Join Code modal when the code is empty, invalid, or connection fails.")]
+    public TextMeshProUGUI joinCodeErrorText;
+
     // -------------------------------------------------------------------------
     //  Inspector — 6. Dedicated Host Lobby Panel
     // -------------------------------------------------------------------------
@@ -385,7 +388,7 @@ public class LobbyUI : MonoBehaviour
         // 3. Join Code Panel (Client)
         MichskyUIBridge.BindButton(null, heatJoinCodeSubmitButton, OnSubmitJoinCode);
         MichskyUIBridge.BindButton(null, heatJoinCodeBackButton, ShowConnectionPanel);
-        MichskyUIBridge.BindInputField(null, heatJoinCodeInputField, null);
+        MichskyUIBridge.BindInputField(null, heatJoinCodeInputField, OnJoinCodeInputChanged);
 
         // 4. Host Lobby Panel
         MichskyUIBridge.BindButton(null, heatHostStartMatchButton, OnStartMatch);
@@ -670,15 +673,28 @@ public class LobbyUI : MonoBehaviour
     // =========================================================================
     //  Join Code Panel Actions (Client)
     // =========================================================================
+    private void OnJoinCodeInputChanged(string value)
+    {
+        HideJoinCodeError();
+    }
+
     private async void OnSubmitJoinCode()
     {
         string code = MichskyUIBridge.GetInputText(null, heatJoinCodeInputField).Trim().ToUpper();
 
         if (string.IsNullOrWhiteSpace(code))
         {
+            ShowJoinCodeError("Please enter a join code.");
             return;
         }
 
+        if (code.Length < 6)
+        {
+            ShowJoinCodeError("Join code must be at least 6 characters.");
+            return;
+        }
+
+        HideJoinCodeError();
         SetJoinCodeButtonsInteractable(false);
         ShowLoading($"Connecting to Relay room '{code}'...");
 
@@ -700,6 +716,7 @@ public class LobbyUI : MonoBehaviour
             else
             {
                 Debug.LogWarning("[LobbyUI] Connection timed out. Please check the code and try again.");
+                ShowJoinCodeError("Connection timed out. Check the code and try again.");
                 SetJoinCodeButtonsInteractable(true);
                 if (NetworkManager.Singleton != null) NetworkManager.Singleton.Shutdown();
             }
@@ -708,7 +725,72 @@ public class LobbyUI : MonoBehaviour
         {
             HideLoading();
             Debug.LogWarning("[LobbyUI] Failed to join. Check the code and try again.");
+            ShowJoinCodeError("Invalid room code or room not found.");
             SetJoinCodeButtonsInteractable(true);
+        }
+    }
+
+    private void ShowJoinCodeError(string message)
+    {
+        EnsureJoinCodeErrorText();
+
+        if (joinCodeErrorText == null) return;
+
+        var rt = joinCodeErrorText.rectTransform;
+        if (rt != null)
+        {
+            // Ensure width is visible if it was set to 0 in inspector
+            if (rt.sizeDelta.x <= 0f)
+            {
+                rt.sizeDelta = new Vector2(500f, rt.sizeDelta.y > 0 ? rt.sizeDelta.y : 40f);
+            }
+
+            // If anchors were left at default bottom-left (0,0), center it below the input field
+            if (rt.anchorMin == Vector2.zero && rt.anchorMax == Vector2.zero && rt.anchoredPosition == Vector2.zero)
+            {
+                if (heatJoinCodeInputField != null)
+                {
+                    var inputRt = heatJoinCodeInputField.GetComponent<RectTransform>();
+                    if (inputRt != null)
+                    {
+                        rt.anchorMin = inputRt.anchorMin;
+                        rt.anchorMax = inputRt.anchorMax;
+                        rt.pivot = inputRt.pivot;
+                        rt.anchoredPosition = new Vector2(inputRt.anchoredPosition.x, inputRt.anchoredPosition.y - inputRt.rect.height / 2f - 25f);
+                    }
+                }
+            }
+
+            rt.SetAsLastSibling();
+        }
+
+        joinCodeErrorText.text = message;
+        joinCodeErrorText.gameObject.SetActive(true);
+    }
+
+    private void HideJoinCodeError()
+    {
+        EnsureJoinCodeErrorText();
+
+        if (joinCodeErrorText != null)
+        {
+            joinCodeErrorText.gameObject.SetActive(false);
+        }
+    }
+
+    private void EnsureJoinCodeErrorText()
+    {
+        if (joinCodeErrorText == null && joinCodePanel != null)
+        {
+            var texts = joinCodePanel.GetComponentsInChildren<TextMeshProUGUI>(true);
+            foreach (var t in texts)
+            {
+                if (t.gameObject.name.IndexOf("error", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    joinCodeErrorText = t;
+                    break;
+                }
+            }
         }
     }
 
@@ -961,6 +1043,7 @@ public class LobbyUI : MonoBehaviour
 
         SetJoinCodeButtonsInteractable(true);
         MichskyUIBridge.SetInputText(null, heatJoinCodeInputField, string.Empty);
+        HideJoinCodeError();
 
         UnlockCursor();
     }

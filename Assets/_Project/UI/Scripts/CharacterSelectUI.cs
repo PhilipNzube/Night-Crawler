@@ -595,6 +595,16 @@ public class CharacterSelectUI : MonoBehaviour
                 return so.relevantStats;
             }
             profession = so.profession;
+
+            // Fallback: If profession was left at default MineWorker (0), check character name
+            if (profession == InvestigatorProfession.MineWorker)
+            {
+                string charName = (so.characterName + " " + so.name).ToLowerInvariant();
+                if (charName.Contains("medic")) profession = InvestigatorProfession.FieldMedic;
+                else if (charName.Contains("explorer")) profession = InvestigatorProfession.Explorer;
+                else if (charName.Contains("hazard")) profession = InvestigatorProfession.HazardSpecialist;
+                else if (charName.Contains("priest")) profession = InvestigatorProfession.CursedPriest;
+            }
         }
         else
         {
@@ -602,6 +612,15 @@ public class CharacterSelectUI : MonoBehaviour
             if (data != null)
             {
                 profession = data.profession;
+
+                if (profession == InvestigatorProfession.MineWorker && !string.IsNullOrEmpty(data.characterName))
+                {
+                    string charName = data.characterName.ToLowerInvariant();
+                    if (charName.Contains("medic")) profession = InvestigatorProfession.FieldMedic;
+                    else if (charName.Contains("explorer")) profession = InvestigatorProfession.Explorer;
+                    else if (charName.Contains("hazard")) profession = InvestigatorProfession.HazardSpecialist;
+                    else if (charName.Contains("priest")) profession = InvestigatorProfession.CursedPriest;
+                }
             }
         }
 
