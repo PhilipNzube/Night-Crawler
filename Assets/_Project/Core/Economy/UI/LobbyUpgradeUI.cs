@@ -44,6 +44,10 @@ namespace NightCrawler.Economy.UI
             public UpgradeStatType statType;
             [Tooltip("The Heat Shop Button card for this stat.")]
             public ShopButtonManager heatShopButton;
+            [Tooltip("The actual clickable Purchase button inside the stat card (Content/Buttons/Purchase).")]
+            public ButtonManager purchaseButton;
+            [Tooltip("Indicator shown when the stat reaches max level (Content/Buttons/Purchased).")]
+            public GameObject purchasedIndicator;
             [Tooltip("Alternative: Standard Heat Button.")]
             public ButtonManager heatButton;
             [Tooltip("Alternative: Heat Box Button.")]
@@ -73,27 +77,6 @@ namespace NightCrawler.Economy.UI
         private void Awake()
         {
             if (panelRoot == null) panelRoot = gameObject;
-
-            // Auto-discover stat cards if not manually populated in inspector
-            if (manualStatItems == null || manualStatItems.Count == 0)
-            {
-                AutoDiscoverStatCards();
-            }
-
-            // Auto-discover purchase confirm modal if unassigned
-            if (purchaseConfirmModal == null)
-            {
-                var modals = FindObjectsByType<ModalWindowManager>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-                foreach (var mw in modals)
-                {
-                    if (mw.gameObject.name.IndexOf("Purchase", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                        mw.gameObject.name.IndexOf("Upgrade", StringComparison.OrdinalIgnoreCase) >= 0)
-                    {
-                        purchaseConfirmModal = mw;
-                        break;
-                    }
-                }
-            }
         }
 
         private void Start()
@@ -110,10 +93,6 @@ namespace NightCrawler.Economy.UI
 
         private void OnEnable()
         {
-            if (manualStatItems == null || manualStatItems.Count == 0)
-            {
-                AutoDiscoverStatCards();
-            }
             RefreshUI();
         }
 
@@ -138,103 +117,6 @@ namespace NightCrawler.Economy.UI
         {
             if (heatModalWindow != null) heatModalWindow.CloseWindow();
             if (panelRoot != null) panelRoot.SetActive(false);
-        }
-
-        public void AutoDiscoverStatCards()
-        {
-            manualStatItems = new List<ManualStatItem>();
-            var shopButtons = GetComponentsInChildren<ShopButtonManager>(true);
-
-            foreach (var sbm in shopButtons)
-            {
-                string objName = sbm.gameObject.name;
-                if (!TryMapNameToStatType(objName, out UpgradeStatType stat))
-                    continue;
-
-                // Only include stats matching this panel's view mode
-                bool isInvestigatorStat = (int)stat <= (int)UpgradeStatType.VialHealingPower;
-                if (viewMode == UpgradeViewMode.InvestigatorStats && !isInvestigatorStat) continue;
-                if (viewMode == UpgradeViewMode.GirlStats && isInvestigatorStat) continue;
-
-                var item = new ManualStatItem
-                {
-                    statType = stat,
-                    heatShopButton = sbm,
-                    levelText = sbm.transform.Find("LevelText")?.GetComponent<TextMeshProUGUI>(),
-                    effectText = sbm.transform.Find("EffectText")?.GetComponent<TextMeshProUGUI>(),
-                    progressBar = sbm.GetComponentInChildren<ProgressBar>(true)
-                };
-
-                manualStatItems.Add(item);
-            }
-        }
-
-        private static bool TryMapNameToStatType(string name, out UpgradeStatType stat)
-        {
-            string lower = name.ToLowerInvariant();
-            if (lower.Contains("damageresistance") || lower.Contains("damage_resistance") || lower.Contains("resistance"))
-            {
-                stat = UpgradeStatType.DamageResistance;
-                return true;
-            }
-            if (lower.Contains("weapondamage") || lower.Contains("weapon_damage"))
-            {
-                stat = UpgradeStatType.WeaponDamage;
-                return true;
-            }
-            if (lower.Contains("maskfilter") || lower.Contains("mask_filter") || lower.Contains("mask"))
-            {
-                stat = UpgradeStatType.MaskFilter;
-                return true;
-            }
-            if (lower.Contains("spirituallevel") || lower.Contains("spiritual_level") || lower.Contains("spiritual"))
-            {
-                stat = UpgradeStatType.SpiritualLevel;
-                return true;
-            }
-            if (lower.Contains("mappower") || lower.Contains("map_power"))
-            {
-                stat = UpgradeStatType.MapPower;
-                return true;
-            }
-            if (lower.Contains("vialhealingpower") || lower.Contains("vial_healing") || lower.Contains("healingpower"))
-            {
-                stat = UpgradeStatType.VialHealingPower;
-                return true;
-            }
-            if (lower.Contains("vialcount") || lower.Contains("vial_count"))
-            {
-                stat = UpgradeStatType.VialCount;
-                return true;
-            }
-            if (lower.Contains("possessionduration") || lower.Contains("possession_duration") || lower.Contains("possession"))
-            {
-                stat = UpgradeStatType.PossessionDuration;
-                return true;
-            }
-            if (lower.Contains("dealcapacity") || lower.Contains("deal_capacity") || lower.Contains("deal"))
-            {
-                stat = UpgradeStatType.DealCapacity;
-                return true;
-            }
-            if (lower.Contains("visibilityduration") || lower.Contains("visibility_duration"))
-            {
-                stat = UpgradeStatType.VisibilityDuration;
-                return true;
-            }
-            if (lower.Contains("visibilitycount") || lower.Contains("visibility_count") || lower.Contains("visibility"))
-            {
-                stat = UpgradeStatType.VisibilityCount;
-                return true;
-            }
-            if (lower.Contains("deadsummoncharges") || lower.Contains("dead_summon") || lower.Contains("summon"))
-            {
-                stat = UpgradeStatType.DeadSummonCharges;
-                return true;
-            }
-
-            stat = UpgradeStatType.DamageResistance;
-            return false;
         }
 
         public void RefreshUI()
@@ -308,13 +190,38 @@ namespace NightCrawler.Economy.UI
                     item.heatShopButton.isInteractable = canAfford;
                     item.heatShopButton.UpdateUI();
 
+                    ButtonManager pBtn = item.purchaseButton != null ? item.purchaseButton : item.heatShopButton.purchaseButton;
+                    GameObject pInd = item.purchasedIndicator != null ? item.purchasedIndicator : (item.heatShopButton.purchasedIndicator != null ? item.heatShopButton.purchasedIndicator.gameObject : null);
+
+                    var capturedStat = item.statType;
+                    var capturedCost = cost;
+
+                    // Directly wire the child purchase button (this is what the user clicks!)
+                    if (pBtn != null)
+                    {
+                        pBtn.isInteractable = canAfford;
+                        pBtn.buttonText = isMaxLevel ? "MAX" : "Purchase";
+                        pBtn.UpdateUI();
+
+                        pBtn.onClick.RemoveAllListeners();
+                        if (!isMaxLevel)
+                        {
+                            pBtn.onClick.AddListener(() => OnUpgradeClicked(capturedStat, capturedCost));
+                        }
+
+                        pBtn.gameObject.SetActive(!isMaxLevel);
+                    }
+
+                    if (pInd != null)
+                    {
+                        pInd.SetActive(isMaxLevel);
+                    }
+
                     item.heatShopButton.onPurchaseClick.RemoveAllListeners();
                     item.heatShopButton.onClick.RemoveAllListeners();
 
                     if (!isMaxLevel)
                     {
-                        var capturedStat = item.statType;
-                        var capturedCost = cost;
                         item.heatShopButton.onPurchaseClick.AddListener(() => OnUpgradeClicked(capturedStat, capturedCost));
                         item.heatShopButton.onClick.AddListener(() => OnUpgradeClicked(capturedStat, capturedCost));
                     }
@@ -366,21 +273,37 @@ namespace NightCrawler.Economy.UI
                 purchaseConfirmModal.descriptionText = $"Upgrade to Level {currentLevel + 1} for {cost} {CurrencyConfig.CurrencySymbol}?\n\n<b>Next Tier:</b> {nextEffect}";
                 purchaseConfirmModal.UpdateUI();
 
-                purchaseConfirmModal.onConfirm.RemoveAllListeners();
-                purchaseConfirmModal.onConfirm.AddListener(() =>
+                Action doPurchase = () =>
                 {
-                    if (CloudCharacterSaveManager.Instance.TryPurchaseUpgrade(stat))
+                    if (CloudCharacterSaveManager.Instance != null && CloudCharacterSaveManager.Instance.TryPurchaseUpgrade(stat))
                     {
                         purchaseConfirmModal.CloseWindow();
                         RefreshUI();
                     }
-                });
+                };
 
-                purchaseConfirmModal.onCancel.RemoveAllListeners();
-                purchaseConfirmModal.onCancel.AddListener(() =>
+                purchaseConfirmModal.onConfirm.RemoveAllListeners();
+                purchaseConfirmModal.onConfirm.AddListener(() => doPurchase());
+
+                if (purchaseConfirmModal.confirmButton != null)
+                {
+                    purchaseConfirmModal.confirmButton.onClick.RemoveAllListeners();
+                    purchaseConfirmModal.confirmButton.onClick.AddListener(() => doPurchase());
+                }
+
+                Action doCancel = () =>
                 {
                     purchaseConfirmModal.CloseWindow();
-                });
+                };
+
+                purchaseConfirmModal.onCancel.RemoveAllListeners();
+                purchaseConfirmModal.onCancel.AddListener(() => doCancel());
+
+                if (purchaseConfirmModal.cancelButton != null)
+                {
+                    purchaseConfirmModal.cancelButton.onClick.RemoveAllListeners();
+                    purchaseConfirmModal.cancelButton.onClick.AddListener(() => doCancel());
+                }
 
                 purchaseConfirmModal.OpenWindow();
                 return;

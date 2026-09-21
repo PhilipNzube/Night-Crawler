@@ -9,6 +9,7 @@ using UnityEngine.UI;
 using TMPro;
 using Michsky.UI.Heat;
 using NightCrawler.UI;
+using NightCrawler.Economy;
 
 /// <summary>
 /// SOLID — SRP: Manages the pre-game lobby UI flow using Michsky Heat UI.
@@ -52,6 +53,9 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Root panel for name entry. Shown before Connection Panel if player has no saved name.")]
     public GameObject nameEntryPanel;
 
+    [Tooltip("Michsky Heat Modal Window for Name Entry. Opens cleanly as a popup without hiding the background!")]
+    public ModalWindowManager heatNameEntryModal;
+
     [Tooltip("Michsky Input Field where the player types their name.")]
     public InputFieldManager heatNameEntryInputField;
 
@@ -83,12 +87,18 @@ public class LobbyUI : MonoBehaviour
     // -------------------------------------------------------------------------
     //  Inspector — 3. Bottom Profile Bar
     // -------------------------------------------------------------------------
-    [Header("3. Bottom Profile Bar")]
+    [Header("3. Bottom Profile Bar & Credits")]
     [Tooltip("The Profile GameObject in the Bottom Panel. Hidden until the player enters a valid name.")]
     public GameObject profileSection;
 
     [Tooltip("Text label inside the Profile section displaying the player's name.")]
     public TextMeshProUGUI profileNameText;
+
+    [Tooltip("Optional text label in the Bottom Panel (or header) displaying the player's credit balance.")]
+    public TextMeshProUGUI creditBalanceText;
+
+    [Tooltip("The main PanelManager for top tab navigation (Main Content). If unassigned, will be auto-found.")]
+    public PanelManager mainPanelManager;
 
     // -------------------------------------------------------------------------
     //  Inspector — 4. Exit / Leave Confirmation Modal
@@ -217,6 +227,9 @@ public class LobbyUI : MonoBehaviour
     private bool  _isHidden = false;
     private Coroutine _copyFeedbackCoroutine;
 
+    private enum PendingStartAction { None, Host, Client }
+    private PendingStartAction _pendingStartAction = PendingStartAction.None;
+
     // =========================================================================
     //  Unity Lifecycle
     // =========================================================================
@@ -229,11 +242,27 @@ public class LobbyUI : MonoBehaviour
     private void OnEnable()
     {
         CloudCharacterSaveManager.OnProfileLoaded += HandleProfileLoaded;
+        CloudCharacterSaveManager.OnCreditsChanged += HandleCreditsChanged;
     }
 
     private void OnDisable()
     {
         CloudCharacterSaveManager.OnProfileLoaded -= HandleProfileLoaded;
+        CloudCharacterSaveManager.OnCreditsChanged -= HandleCreditsChanged;
+    }
+
+    private void HandleCreditsChanged(int newBalance)
+    {
+        UpdateCreditsUI(newBalance);
+    }
+
+    public void UpdateCreditsUI(int newBalance = -1)
+    {
+        if (creditBalanceText != null)
+        {
+            int bal = newBalance >= 0 ? newBalance : (CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : 60);
+            creditBalanceText.text = CurrencyConfig.FormatBalance(bal);
+        }
     }
 
     private void HandleProfileLoaded(PlayerProfileData profile)
@@ -244,6 +273,7 @@ public class LobbyUI : MonoBehaviour
         {
             MichskyUIBridge.SetInputText(null, heatNameEntryInputField, profile.playerName);
         }
+        UpdateCreditsUI();
         if (PlayerNameManager.HasSavedName() && nameEntryPanel != null && nameEntryPanel.activeSelf)
         {
             ShowConnectionPanel();
@@ -259,14 +289,18 @@ public class LobbyUI : MonoBehaviour
         if (nameEntryErrorText != null)
             nameEntryErrorText.gameObject.SetActive(false);
 
+        // Ensure Name Entry modal/panel is closed on startup so it does not block raycasts
+        if (heatNameEntryModal != null)
+            heatNameEntryModal.CloseWindow();
+        else if (nameEntryPanel != null)
+            nameEntryPanel.SetActive(false);
+
         UpdateProfileUI();
+        UpdateCreditsUI();
         HideLoading();
 
-        // If player already has a saved name, skip straight to connection screen
-        if (PlayerNameManager.HasSavedName())
-            ShowConnectionPanel();
-        else
-            ShowNameEntryPanel();
+        // Always show the home connection panel on start
+        ShowConnectionPanel();
     }
 
     void Update()
@@ -439,7 +473,25 @@ public class LobbyUI : MonoBehaviour
         if (nameEntryErrorText != null)
             nameEntryErrorText.gameObject.SetActive(false);
 
-        ShowConnectionPanel();
+        if (heatNameEntryModal != null)
+            heatNameEntryModal.CloseWindow();
+        else if (nameEntryPanel != null)
+            nameEntryPanel.SetActive(false);
+
+        if (_pendingStartAction == PendingStartAction.Host)
+        {
+            _pendingStartAction = PendingStartAction.None;
+            OnStartHost();
+        }
+        else if (_pendingStartAction == PendingStartAction.Client)
+        {
+            _pendingStartAction = PendingStartAction.None;
+            OnStartClientChoice();
+        }
+        else
+        {
+            ShowConnectionPanel();
+        }
     }
 
     // =========================================================================
@@ -447,6 +499,13 @@ public class LobbyUI : MonoBehaviour
     // =========================================================================
     private async void OnStartHost()
     {
+        if (!PlayerNameManager.HasSavedName())
+        {
+            _pendingStartAction = PendingStartAction.Host;
+            ShowNameEntryPanel();
+            return;
+        }
+
         SetConnectionButtonsInteractable(false);
 
         if (networkMode == NetworkMode.LocalLAN)
@@ -497,6 +556,13 @@ public class LobbyUI : MonoBehaviour
 
     private void OnStartClientChoice()
     {
+        if (!PlayerNameManager.HasSavedName())
+        {
+            _pendingStartAction = PendingStartAction.Client;
+            ShowNameEntryPanel();
+            return;
+        }
+
         if (networkMode == NetworkMode.LocalLAN)
         {
             ConnectLocalClient();
@@ -746,18 +812,51 @@ public class LobbyUI : MonoBehaviour
             nameEntryCancelButton.SetActive(hasSavedName);
         }
 
-        SetPanel(nameEntryPanel,   true);
-        SetPanel(connectionPanel,  false);
-        SetPanel(joinCodePanel,    false);
-        SetPanel(hostLobbyPanel,   false);
-        SetPanel(clientLobbyPanel, false);
+        // Open modal popup smoothly without destroying/hiding the background Home Panel
+        if (heatNameEntryModal != null)
+        {
+            heatNameEntryModal.OpenWindow();
+        }
+        else if (nameEntryPanel != null)
+        {
+            SetPanel(nameEntryPanel, true);
+        }
+
         UnlockCursor();
     }
 
     public void ShowConnectionPanel()
     {
-        SetPanel(nameEntryPanel,   false);
-        SetPanel(connectionPanel,  true);
+        if (heatNameEntryModal != null)
+        {
+            heatNameEntryModal.CloseWindow();
+        }
+        else if (nameEntryPanel != null)
+        {
+            SetPanel(nameEntryPanel, false);
+        }
+
+        // Ensure Home Panel is active and visible
+        if (connectionPanel != null)
+        {
+            connectionPanel.SetActive(true);
+
+            var cg = connectionPanel.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 1f;
+                cg.interactable = true;
+                cg.blocksRaycasts = true;
+            }
+        }
+
+        // Force PanelManager to re-open Home Panel, trigger fade-in, and re-enable hotkeys/gamepad
+        if (mainPanelManager != null)
+        {
+            mainPanelManager.currentPanelIndex = -1;
+            mainPanelManager.OpenPanelByIndex(0);
+        }
+
         SetPanel(joinCodePanel,    false);
         SetPanel(hostLobbyPanel,   false);
         SetPanel(clientLobbyPanel, false);
@@ -766,6 +865,7 @@ public class LobbyUI : MonoBehaviour
         UnlockCursor();
 
         UpdateProfileUI();
+        UpdateCreditsUI();
     }
 
     public void ShowJoinCodePanel()
