@@ -189,7 +189,8 @@ namespace NightCrawler.Economy.UI
                     item.heatShopButton.buttonTitle = statTitle;
                     item.heatShopButton.buttonDescription = isMaxLevel ? "Maximum rank achieved" : statEffect;
                     item.heatShopButton.priceText = isMaxLevel ? "MAX" : $"{cost}";
-                    item.heatShopButton.isInteractable = canAfford;
+                    // Keep card interactable so player can always hover, view stats, and click to inspect details
+                    item.heatShopButton.isInteractable = !isMaxLevel;
                     item.heatShopButton.UpdateUI();
 
                     ButtonManager pBtn = item.purchaseButton != null ? item.purchaseButton : item.heatShopButton.purchaseButton;
@@ -198,7 +199,7 @@ namespace NightCrawler.Economy.UI
                     var capturedStat = item.statType;
                     var capturedCost = cost;
 
-                    // Directly wire the child purchase button (this is what the user clicks!)
+                    // Directly wire the child purchase button (this is what reflects affordability!)
                     if (pBtn != null)
                     {
                         pBtn.isInteractable = canAfford;
@@ -232,7 +233,7 @@ namespace NightCrawler.Economy.UI
                 if (item.heatButton != null)
                 {
                     item.heatButton.SetText($"{statTitle} {(isMaxLevel ? "[MAX]" : $"[Lv. {currentLevel}/5 - {cost}C]")}");
-                    item.heatButton.isInteractable = canAfford;
+                    item.heatButton.isInteractable = !isMaxLevel;
                     item.heatButton.UpdateUI();
                     item.heatButton.onClick.RemoveAllListeners();
                     if (!isMaxLevel)
@@ -246,7 +247,7 @@ namespace NightCrawler.Economy.UI
                 if (item.heatBoxButton != null)
                 {
                     item.heatBoxButton.SetText($"{statTitle} {(isMaxLevel ? "[MAX]" : $"Lv.{currentLevel}")}");
-                    item.heatBoxButton.isInteractable = canAfford;
+                    item.heatBoxButton.isInteractable = !isMaxLevel;
                     item.heatBoxButton.UpdateUI();
                     item.heatBoxButton.onClick.RemoveAllListeners();
                     if (!isMaxLevel)
@@ -268,11 +269,16 @@ namespace NightCrawler.Economy.UI
             string statTitle = UpgradeStatFormulas.GetStatDisplayName(stat);
             string nextEffect = UpgradeStatFormulas.GetStatEffectDescription(stat, currentLevel + 1);
 
+            int balance = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : 0;
+            bool canAfford = balance >= cost;
+
             // If a confirmation modal window is assigned, open it with details!
             if (purchaseConfirmModal != null)
             {
                 purchaseConfirmModal.titleText = $"UPGRADE {statTitle.ToUpper()}";
-                purchaseConfirmModal.descriptionText = $"Upgrade to Level {currentLevel + 1} for {cost} {CurrencyConfig.CurrencySymbol}?\n\n<b>Next Tier:</b> {nextEffect}";
+                purchaseConfirmModal.descriptionText = canAfford
+                    ? $"Upgrade to Level {currentLevel + 1} for {cost} {CurrencyConfig.CurrencySymbol}?\n\n<b>Next Tier:</b> {nextEffect}"
+                    : $"Requires <color=#E74C3C>{cost} {CurrencyConfig.CurrencySymbol}</color> (You have {balance} {CurrencyConfig.CurrencySymbol}).\n\n<b>Next Tier:</b> {nextEffect}";
                 purchaseConfirmModal.UpdateUI();
 
                 Action doPurchase = () =>
@@ -285,12 +291,21 @@ namespace NightCrawler.Economy.UI
                 };
 
                 purchaseConfirmModal.onConfirm.RemoveAllListeners();
-                purchaseConfirmModal.onConfirm.AddListener(() => doPurchase());
+                if (canAfford)
+                {
+                    purchaseConfirmModal.onConfirm.AddListener(() => doPurchase());
+                }
 
                 if (purchaseConfirmModal.confirmButton != null)
                 {
+                    purchaseConfirmModal.confirmButton.isInteractable = canAfford;
+                    purchaseConfirmModal.confirmButton.buttonText = canAfford ? "Confirm" : "Not Enough";
+                    purchaseConfirmModal.confirmButton.UpdateUI();
                     purchaseConfirmModal.confirmButton.onClick.RemoveAllListeners();
-                    purchaseConfirmModal.confirmButton.onClick.AddListener(() => doPurchase());
+                    if (canAfford)
+                    {
+                        purchaseConfirmModal.confirmButton.onClick.AddListener(() => doPurchase());
+                    }
                 }
 
                 Action doCancel = () =>

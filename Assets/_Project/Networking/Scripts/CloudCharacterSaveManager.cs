@@ -41,7 +41,16 @@ public class CloudCharacterSaveManager : MonoBehaviour
     public static event Action<PlayerProfileData> OnProfileLoaded;
     public static event Action<int> OnCreditsChanged;
 
+    [Header("Testing")]
+    [Tooltip("Set your credit balance here in the Inspector before testing (e.g. 50, 100, 500, 0). If set to 0 or greater, you will start with this amount. Set to -1 to use normal saved credits.")]
+    public int testCredits = -1;
+
     public int CurrentCredits => CurrentProfile?.economy?.credits ?? 0;
+
+    /// <summary>
+    /// Returns the current credit balance (getter alias for CurrentCredits).
+    /// </summary>
+    public int GetCredits() => CurrentCredits;
 
     private void Awake()
     {
@@ -57,6 +66,7 @@ public class CloudCharacterSaveManager : MonoBehaviour
 
         // 1. Instant local load on boot
         LoadFromLocalPlayerPrefs();
+        ApplyTestCredits();
     }
 
     private void Start()
@@ -141,6 +151,27 @@ public class CloudCharacterSaveManager : MonoBehaviour
         CurrentProfile.economy.credits += amount;
         OnCreditsChanged?.Invoke(CurrentProfile.economy.credits);
         _ = SaveProfileAsync(CurrentProfile);
+    }
+
+    /// <summary>
+    /// Overrides the persistent credit balance directly and broadcasts the change.
+    /// </summary>
+    public void SetCredits(int newAmount)
+    {
+        if (CurrentProfile == null || CurrentProfile.economy == null) return;
+        int clamped = Mathf.Max(0, newAmount);
+        CurrentProfile.economy.credits = clamped;
+        OnCreditsChanged?.Invoke(clamped);
+        _ = SaveProfileAsync(CurrentProfile);
+    }
+
+    private void ApplyTestCredits()
+    {
+        if (testCredits >= 0 && CurrentProfile != null && CurrentProfile.economy != null)
+        {
+            CurrentProfile.economy.credits = testCredits;
+            SaveToLocalPlayerPrefs(CurrentProfile);
+        }
     }
 
     /// <summary>
@@ -289,6 +320,7 @@ public class CloudCharacterSaveManager : MonoBehaviour
                                 PlayerNameManager.SetPlayerNameSilently(CurrentProfile.playerName);
                             }
 
+                            ApplyTestCredits();
                             OnProfileLoaded?.Invoke(CurrentProfile);
                             OnCreditsChanged?.Invoke(CurrentProfile.economy.credits);
                             Debug.Log($"[CloudSaveManager] Profile loaded from UGS Cloud Save: {CurrentProfile.playerName} | Credits: {CurrentProfile.economy.credits}");

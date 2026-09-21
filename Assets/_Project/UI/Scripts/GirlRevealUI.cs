@@ -109,6 +109,61 @@ public class GirlRevealUI : MonoBehaviour
         // References wired via Inspector.
     }
 
+    void OnEnable()
+    {
+        // Whenever RevealPanel is activated, ensure the slot modal is immediately made visible
+        ShowSlotModal();
+    }
+
+    /// <summary>
+    /// Guarantees that the slot modal window, its CanvasGroup opacity, and scale are fully visible.
+    /// Overrides Michsky Heat UI's default StartBehaviour.Disable so the window does not vanish on Start.
+    /// </summary>
+    public void ShowSlotModal()
+    {
+        GameObject targetModal = slotModal;
+        if (targetModal == null && heatSlotModal != null)
+            targetModal = heatSlotModal.gameObject;
+        else if (targetModal == null && revealPanel != null)
+        {
+            Transform t = revealPanel.transform.Find("Slot_Modal");
+            if (t != null) targetModal = t.gameObject;
+        }
+
+        if (targetModal != null)
+        {
+            targetModal.SetActive(true);
+
+            // Force CanvasGroup alpha to 1 so it is not rendered transparent
+            CanvasGroup cg = targetModal.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 1f;
+                cg.interactable = true;
+                cg.blocksRaycasts = true;
+            }
+
+            // Force normal scale
+            targetModal.transform.localScale = Vector3.one;
+
+            Transform content = targetModal.transform.Find("Content");
+            if (content != null)
+                content.localScale = Vector3.one;
+        }
+
+        if (heatSlotModal == null && targetModal != null)
+            heatSlotModal = targetModal.GetComponent<ModalWindowManager>();
+
+        if (heatSlotModal != null)
+        {
+            heatSlotModal.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
+            heatSlotModal.closeOnCancel = false;
+            heatSlotModal.closeOnConfirm = false;
+            if (!heatSlotModal.isOn)
+                heatSlotModal.OpenWindow();
+        }
+    }
+
     // =========================================================================
     //  Public API
     // =========================================================================
@@ -136,18 +191,7 @@ public class GirlRevealUI : MonoBehaviour
         if (winnerPanel != null) winnerPanel.SetActive(false);
         if (focusNameText != null) focusNameText.transform.localScale = Vector3.one;
 
-        // Ensure slot modal inside the reveal panel is active and opened
-        if (heatSlotModal != null)
-        {
-            heatSlotModal.gameObject.SetActive(true);
-            heatSlotModal.closeOnCancel = false;
-            heatSlotModal.closeOnConfirm = false;
-            heatSlotModal.OpenWindow();
-        }
-        else if (slotModal != null)
-        {
-            slotModal.SetActive(true);
-        }
+        ShowSlotModal();
 
         if (headerTitleText != null)
             headerTitleText.text = "SELECTING VENGEFUL SPIRIT";
@@ -166,9 +210,13 @@ public class GirlRevealUI : MonoBehaviour
     {
         if (_playerNames == null || _playerNames.Length == 0)
         {
-            _onComplete?.Invoke(_girlClientId);
-            yield break;
+            _playerNames = new string[] { "Player 1" };
+            _girlNameIndex = 0;
         }
+
+        ShowSlotModal();
+        yield return null; // Allow 1 frame for Unity Start() lifecycle and Animator initialization to settle
+        ShowSlotModal();
 
         int currentIndex = 0;
 
@@ -368,5 +416,11 @@ public class GirlRevealUI : MonoBehaviour
 
         if (winnerPanel != null) winnerPanel.SetActive(false);
         if (revealPanel != null) revealPanel.SetActive(false);
+    }
+
+    [ContextMenu("Test Reveal Animation")]
+    public void TestRevealAnimation()
+    {
+        StartSpin(0, new string[] { "Alice", "Bob", "Charlie", "Diana" }, new ulong[] { 0, 1, 2, 3 }, id => Debug.Log($"[GirlRevealUI] Reveal complete! Winner: {id}"));
     }
 }
