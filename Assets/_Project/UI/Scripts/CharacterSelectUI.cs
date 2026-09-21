@@ -207,7 +207,10 @@ public class CharacterSelectUI : MonoBehaviour
 
         // Subscribe to live ready-state updates
         if (PlayerReadyTracker.Instance != null)
+        {
             PlayerReadyTracker.Instance.OnReadyStatesUpdated += HandleReadyStatesUpdated;
+            PlayerReadyTracker.Instance.OnPlayerLobbyStatesUpdated += HandlePlayerLobbyStatesUpdated;
+        }
     }
 
     void OnDisable()
@@ -216,7 +219,10 @@ public class CharacterSelectUI : MonoBehaviour
             CharacterSceneController.Instance.DisableCharacterSelectEnvironment();
 
         if (PlayerReadyTracker.Instance != null)
+        {
             PlayerReadyTracker.Instance.OnReadyStatesUpdated -= HandleReadyStatesUpdated;
+            PlayerReadyTracker.Instance.OnPlayerLobbyStatesUpdated -= HandlePlayerLobbyStatesUpdated;
+        }
     }
 
     void OnDestroy()
@@ -438,7 +444,11 @@ public class CharacterSelectUI : MonoBehaviour
 
         // Notify the ready tracker
         if (PlayerReadyTracker.Instance != null)
-            PlayerReadyTracker.Instance.ReportInvestigatorConfirmed(NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0);
+        {
+            int localLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetPlayerLevel() : 1;
+            ulong localId = NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0;
+            PlayerReadyTracker.Instance.ReportInvestigatorConfirmed(localId, localLvl, _selectedIndex);
+        }
 
         // Show player status panel
         if (playerStatusPanel != null)
@@ -904,6 +914,73 @@ public class CharacterSelectUI : MonoBehaviour
             GoToSquadScreen();
     }
 
+    private void HandlePlayerLobbyStatesUpdated(Dictionary<ulong, PlayerLobbyInfo> snapshot)
+    {
+        RefreshLobbyStatusRows(snapshot);
+
+        if (!_localConfirmed) return;
+
+        bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
+        bool allReady = true;
+        foreach (var kvp in snapshot)
+            if (!kvp.Value.isReady) { allReady = false; break; }
+
+        if (allReady || forceInvestigator)
+            GoToSquadScreen();
+    }
+
+    public Sprite GetPortraitForCharacter(int characterIndex)
+    {
+        RefreshFilteredRoster();
+        if (_filteredDefinitions != null && characterIndex >= 0 && characterIndex < _filteredDefinitions.Count && _filteredDefinitions[characterIndex] != null)
+        {
+            return _filteredDefinitions[characterIndex].portrait;
+        }
+        if (_filteredInlineData != null && characterIndex >= 0 && characterIndex < _filteredInlineData.Count && _filteredInlineData[characterIndex] != null)
+        {
+            return _filteredInlineData[characterIndex].characterIcon;
+        }
+        return null;
+    }
+
+    private void RefreshLobbyStatusRows(Dictionary<ulong, PlayerLobbyInfo> snapshot)
+    {
+        if (playerStatusContainer == null || playerStatusRowPrefab == null) return;
+
+        foreach (var row in _statusRows)
+            if (row != null) Destroy(row);
+        _statusRows.Clear();
+
+        foreach (var kvp in snapshot)
+        {
+            PlayerLobbyInfo info = kvp.Value;
+            GameObject row = Instantiate(playerStatusRowPrefab, playerStatusContainer);
+            _statusRows.Add(row);
+
+            HeatPlayerStatusRow heatRow = row.GetComponent<HeatPlayerStatusRow>();
+            if (heatRow != null)
+            {
+                Sprite portrait = info.isGirl ? null : GetPortraitForCharacter(info.characterIndex);
+                string rank = CloudCharacterSaveManager.Instance != null
+                    ? CloudCharacterSaveManager.Instance.GetPlayerRankTitle(info.playerLevel)
+                    : "Recruit";
+                heatRow.Setup(info.playerName, info.isReady, info.playerLevel, rank, portrait, info.isGirl);
+            }
+            else
+            {
+                var texts = row.GetComponentsInChildren<TextMeshProUGUI>(true);
+                if (texts.Length >= 1) texts[0].text = info.playerName;
+                if (texts.Length >= 2)
+                {
+                    texts[1].text = info.isReady ? statusReadyText : statusWaitingText;
+                    texts[1].color = info.isReady
+                        ? new Color(0.18f, 0.80f, 0.44f)
+                        : new Color(0.91f, 0.30f, 0.24f);
+                }
+            }
+        }
+    }
+
     private void RefreshStatusRows(Dictionary<ulong, (string name, bool ready)> snapshot)
     {
         if (playerStatusContainer == null || playerStatusRowPrefab == null) return;
@@ -932,7 +1009,10 @@ public class CharacterSelectUI : MonoBehaviour
     private void GoToSquadScreen()
     {
         if (PlayerReadyTracker.Instance != null)
+        {
             PlayerReadyTracker.Instance.OnReadyStatesUpdated -= HandleReadyStatesUpdated;
+            PlayerReadyTracker.Instance.OnPlayerLobbyStatesUpdated -= HandlePlayerLobbyStatesUpdated;
+        }
 
         if (_currentPreviewInstance != null)
         {

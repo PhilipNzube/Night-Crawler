@@ -94,6 +94,9 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Text label inside the Profile section displaying the player's name.")]
     public TextMeshProUGUI profileNameText;
 
+    [Tooltip("Text label inside the Profile section displaying the player's level (e.g. 'Lv. 14 • Specialist').")]
+    public TextMeshProUGUI profileLevelText;
+
     [Tooltip("Optional text label in the Bottom Panel (or header) displaying the player's credit balance.")]
     public TextMeshProUGUI creditBalanceText;
 
@@ -434,6 +437,17 @@ public class LobbyUI : MonoBehaviour
         if (hasName && profileNameText != null)
         {
             profileNameText.text = PlayerNameManager.GetPlayerName();
+        }
+
+        if (hasName && profileLevelText != null)
+        {
+            int level = CloudCharacterSaveManager.Instance != null
+                ? CloudCharacterSaveManager.Instance.GetPlayerLevel()
+                : 1;
+            string rank = CloudCharacterSaveManager.Instance != null
+                ? CloudCharacterSaveManager.Instance.GetPlayerRankTitle(level)
+                : "Recruit";
+            profileLevelText.text = $"Lv. {level} • {rank}";
         }
     }
 

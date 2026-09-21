@@ -175,6 +175,46 @@ public class CloudCharacterSaveManager : MonoBehaviour
     }
 
     // =========================================================================
+    //  Player Level System (Calculated from all purchased upgrade tiers)
+    // =========================================================================
+
+    /// <summary>
+    /// Returns the total number of purchased upgrade tiers across all 12 stats (0 to 60).
+    /// </summary>
+    public int GetTotalPurchasedTiers()
+    {
+        if (CurrentProfile == null || CurrentProfile.economy == null) return 0;
+        int total = 0;
+        foreach (UpgradeStatType stat in System.Enum.GetValues(typeof(UpgradeStatType)))
+        {
+            total += CurrentProfile.economy.GetLevel(stat);
+        }
+        return total;
+    }
+
+    /// <summary>
+    /// Calculates the player's overall level based on all purchased stats.
+    /// Base level is 1; each purchased upgrade tier adds +1 (Level 1 to 61).
+    /// </summary>
+    public int GetPlayerLevel()
+    {
+        return 1 + GetTotalPurchasedTiers();
+    }
+
+    /// <summary>
+    /// Returns a rank badge title based on the player's current level.
+    /// </summary>
+    public string GetPlayerRankTitle(int level)
+    {
+        if (level >= 56) return "Apex Master";
+        if (level >= 46) return "Elite";
+        if (level >= 31) return "Veteran";
+        if (level >= 16) return "Specialist";
+        if (level >= 6)  return "Operative";
+        return "Recruit";
+    }
+
+    // =========================================================================
     //  Cloud & Local Persistence
     // =========================================================================
 

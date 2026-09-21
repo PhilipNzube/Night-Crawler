@@ -87,14 +87,14 @@ public class GirlPlayerScreen : MonoBehaviour
     [Tooltip("Label inside the modal displaying player's current credit balance.")]
     public TextMeshProUGUI creditBalanceText;
 
-    // -------------------------------------------------------------------------
-    //  Inspector — Live Player Status
-    // -------------------------------------------------------------------------
     [Header("Player Status Panel (Live Investigator Status)")]
     [Tooltip("Root panel to show all players' ready status on the girl screen.")]
     public GameObject playerStatusPanel;
     public Transform playerStatusContainer;
     public GameObject playerStatusRowPrefab;
+
+    [Tooltip("Optional 2D portrait/icon for the Girl shown in status rows.")]
+    public Sprite girlPortrait;
 
     // -------------------------------------------------------------------------
     //  Private State
@@ -160,7 +160,10 @@ public class GirlPlayerScreen : MonoBehaviour
 
         // Subscribe to live ready-state updates
         if (PlayerReadyTracker.Instance != null)
+        {
             PlayerReadyTracker.Instance.OnReadyStatesUpdated += HandleReadyStatesUpdated;
+            PlayerReadyTracker.Instance.OnPlayerLobbyStatesUpdated += HandlePlayerLobbyStatesUpdated;
+        }
     }
 
     public void Hide()
@@ -172,7 +175,10 @@ public class GirlPlayerScreen : MonoBehaviour
         }
 
         if (PlayerReadyTracker.Instance != null)
+        {
             PlayerReadyTracker.Instance.OnReadyStatesUpdated -= HandleReadyStatesUpdated;
+            PlayerReadyTracker.Instance.OnPlayerLobbyStatesUpdated -= HandlePlayerLobbyStatesUpdated;
+        }
 
         DestroyModel();
         SetScreenVisible(false);
@@ -363,11 +369,70 @@ public class GirlPlayerScreen : MonoBehaviour
 
         // Primary path: PlayerReadyTracker
         if (PlayerReadyTracker.Instance != null)
-            PlayerReadyTracker.Instance.ReportGirlReady();
+        {
+            int localLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetPlayerLevel() : 1;
+            PlayerReadyTracker.Instance.ReportGirlReady(localLvl);
+        }
 
         // Legacy fallback: GirlRevealManager
         if (GirlRevealManager.Instance != null)
             GirlRevealManager.Instance.ReportGirlReady();
+    }
+
+    private void HandlePlayerLobbyStatesUpdated(Dictionary<ulong, PlayerLobbyInfo> snapshot)
+    {
+        RefreshLobbyStatusRows(snapshot);
+
+        if (playerStatusPanel != null)
+            playerStatusPanel.SetActive(_readySent && _statusRows.Count > 0);
+    }
+
+    private void RefreshLobbyStatusRows(Dictionary<ulong, PlayerLobbyInfo> snapshot)
+    {
+        if (playerStatusContainer == null || playerStatusRowPrefab == null) return;
+
+        foreach (var row in _statusRows)
+            if (row != null) Destroy(row);
+        _statusRows.Clear();
+
+        foreach (var kvp in snapshot)
+        {
+            PlayerLobbyInfo info = kvp.Value;
+            GameObject row = Instantiate(playerStatusRowPrefab, playerStatusContainer);
+            _statusRows.Add(row);
+
+            HeatPlayerStatusRow heatRow = row.GetComponent<HeatPlayerStatusRow>();
+            if (heatRow != null)
+            {
+                Sprite portrait = info.isGirl ? girlPortrait : GetInvestigatorPortrait(info.characterIndex);
+                string rank = CloudCharacterSaveManager.Instance != null
+                    ? CloudCharacterSaveManager.Instance.GetPlayerRankTitle(info.playerLevel)
+                    : "Recruit";
+                heatRow.Setup(info.playerName, info.isReady, info.playerLevel, rank, portrait, info.isGirl);
+            }
+            else
+            {
+                var texts = row.GetComponentsInChildren<TextMeshProUGUI>(true);
+                if (texts.Length >= 1) texts[0].text = info.playerName;
+                if (texts.Length >= 2)
+                {
+                    texts[1].text = info.isReady ? "READY" : "NOT READY";
+                    texts[1].color = info.isReady
+                        ? new Color(0.18f, 0.80f, 0.44f)
+                        : new Color(0.91f, 0.30f, 0.24f);
+                }
+            }
+        }
+    }
+
+    private Sprite GetInvestigatorPortrait(int characterIndex)
+    {
+        CharacterSelectUI selectUI = FindFirstObjectByType<CharacterSelectUI>(FindObjectsInactive.Include);
+        if (selectUI != null)
+        {
+            return selectUI.GetPortraitForCharacter(characterIndex);
+        }
+        return null;
     }
 
     private void HandleReadyStatesUpdated(Dictionary<ulong, (string name, bool ready)> snapshot)

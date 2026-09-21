@@ -139,6 +139,8 @@ namespace NightCrawler.Economy.UI
             {
                 RefreshManualStatItems(balance);
             }
+
+            LobbyUI.Instance?.UpdateProfileUI();
         }
 
         private void RefreshManualStatItems(int currentBalance)
