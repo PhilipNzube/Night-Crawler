@@ -135,8 +135,9 @@ public class GirlRevealManager : NetworkBehaviour
     private void OnClientConnectedToServer(ulong newClientId)
     {
         if (!IsServer) return;
-        // Sync all known names to the new client
-        foreach (var kvp in s_RegisteredPlayerNames)
+        // Snapshot to array to avoid InvalidOperationException when SendTo.ClientsAndHost modifies dictionary during local invocation
+        var namePairs = new System.Collections.Generic.List<System.Collections.Generic.KeyValuePair<ulong, string>>(s_RegisteredPlayerNames);
+        foreach (var kvp in namePairs)
         {
             SyncPlayerNameClientRpc(kvp.Key, new Unity.Collections.FixedString64Bytes(kvp.Value));
         }

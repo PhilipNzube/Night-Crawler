@@ -3,6 +3,7 @@ using UnityEngine.UI;
 using TMPro;
 using System;
 using System.Collections;
+using Michsky.UI.Heat;
 
 /// <summary>
 /// SOLID — SRP: High-end cinematic slot-machine reveal animation for the Vengeful Spirit selection.
@@ -24,6 +25,12 @@ public class GirlRevealUI : MonoBehaviour
 
     [Tooltip("Winner card panel shown after the spin locks in.")]
     public GameObject winnerPanel;
+
+    [Tooltip("The Slot Machine Modal window inside the reveal panel (Slot_Modal).")]
+    public GameObject slotModal;
+
+    [Tooltip("Optional Michsky Modal Window Manager component on the slot modal.")]
+    public ModalWindowManager heatSlotModal;
 
     // -------------------------------------------------------------------------
     //  Inspector — Ticker Reel Text Elements
@@ -99,7 +106,7 @@ public class GirlRevealUI : MonoBehaviour
 
     void Awake()
     {
-        // Nothing auto-wired — all references dragged in Inspector.
+        // References wired via Inspector.
     }
 
     // =========================================================================
@@ -128,6 +135,19 @@ public class GirlRevealUI : MonoBehaviour
         if (revealPanel != null) revealPanel.SetActive(true);
         if (winnerPanel != null) winnerPanel.SetActive(false);
         if (focusNameText != null) focusNameText.transform.localScale = Vector3.one;
+
+        // Ensure slot modal inside the reveal panel is active and opened
+        if (heatSlotModal != null)
+        {
+            heatSlotModal.gameObject.SetActive(true);
+            heatSlotModal.closeOnCancel = false;
+            heatSlotModal.closeOnConfirm = false;
+            heatSlotModal.OpenWindow();
+        }
+        else if (slotModal != null)
+        {
+            slotModal.SetActive(true);
+        }
 
         if (headerTitleText != null)
             headerTitleText.text = "SELECTING VENGEFUL SPIRIT";
@@ -237,6 +257,11 @@ public class GirlRevealUI : MonoBehaviour
         yield return new WaitForSecondsRealtime(winnerHoldDuration);
 
         // ── Cleanup & Route ──────────────────────────────────────────────────
+        if (heatSlotModal != null)
+            heatSlotModal.CloseWindow();
+        else if (slotModal != null)
+            slotModal.SetActive(false);
+
         if (revealPanel != null) revealPanel.SetActive(false);
         _spinCoroutine = null;
         _onComplete?.Invoke(_girlClientId);
@@ -322,5 +347,26 @@ public class GirlRevealUI : MonoBehaviour
             yield return null;
         }
         t.localScale = Vector3.one * to;
+    }
+
+
+    /// <summary>
+    /// Immediately closes the reveal sequence, modal windows, and panels.
+    /// </summary>
+    public void Hide()
+    {
+        if (_spinCoroutine != null)
+        {
+            StopCoroutine(_spinCoroutine);
+            _spinCoroutine = null;
+        }
+
+        if (heatSlotModal != null)
+            heatSlotModal.CloseWindow();
+        else if (slotModal != null)
+            slotModal.SetActive(false);
+
+        if (winnerPanel != null) winnerPanel.SetActive(false);
+        if (revealPanel != null) revealPanel.SetActive(false);
     }
 }
