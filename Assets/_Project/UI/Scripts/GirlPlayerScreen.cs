@@ -48,6 +48,10 @@ public class GirlPlayerScreen : MonoBehaviour
     [Tooltip("The parent GameObject/panel containing the girl's info and abilities. Hidden when READY is pressed.")]
     public GameObject girlInfoSection;
 
+    [Header("Stat Progress Bars (Girl / Vengeful Spirit)")]
+    [Tooltip("List of progress bars displaying the persistent upgrade stats of the Vengeful Spirit.")]
+    public List<StatProgressBarItem> statProgressBars = new List<StatProgressBarItem>();
+
     // -------------------------------------------------------------------------
     //  Inspector — READY Button
     // -------------------------------------------------------------------------
@@ -143,6 +147,8 @@ public class GirlPlayerScreen : MonoBehaviour
         SetScreenVisible(true);
         if (girlInfoSection != null) girlInfoSection.SetActive(true);
         if (playerStatusPanel != null) playerStatusPanel.SetActive(false);
+
+        UpdateGirlStatProgressBars();
 
         SpawnGirlModel();
 
@@ -344,6 +350,14 @@ public class GirlPlayerScreen : MonoBehaviour
         if (girlInfoSection != null) girlInfoSection.SetActive(false);
         if (heatReadyButton != null) heatReadyButton.gameObject.SetActive(false);
 
+        if (statProgressBars != null)
+        {
+            foreach (var bar in statProgressBars)
+            {
+                if (bar != null) bar.SetVisible(false);
+            }
+        }
+
         if (playerStatusPanel != null)
             playerStatusPanel.SetActive(true);
 
@@ -433,6 +447,26 @@ public class GirlPlayerScreen : MonoBehaviour
             Destroy(_modelInstance);
             _modelInstance  = null;
             _animController = null;
+        }
+    }
+
+    // =========================================================================
+    //  Stat Progress Bars
+    // =========================================================================
+
+    public void UpdateGirlStatProgressBars()
+    {
+        if (statProgressBars == null || statProgressBars.Count == 0) return;
+
+        foreach (var bar in statProgressBars)
+        {
+            if (bar == null) continue;
+
+            bar.SetVisible(true);
+            int level = CloudCharacterSaveManager.Instance != null
+                ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(bar.statType)
+                : 0;
+            bar.Refresh(level);
         }
     }
 }

@@ -39,6 +39,10 @@ public class CharacterDefinitionSO : ScriptableObject
     [Header("Abilities")]
     [TextArea(2, 6)]
     public string abilityDescriptions = "";
+
+    [Header("Persistent Upgrade Stats")]
+    [Tooltip("The upgrade stats relevant to this character that will appear as progress bars in the Details panel. If empty, defaults based on profession.")]
+    public System.Collections.Generic.List<NightCrawler.Economy.UpgradeStatType> relevantStats = new System.Collections.Generic.List<NightCrawler.Economy.UpgradeStatType>();
 }
 
 public enum CharacterRole

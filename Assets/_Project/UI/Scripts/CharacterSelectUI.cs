@@ -75,6 +75,10 @@ public class CharacterSelectUI : MonoBehaviour
     [Tooltip("Parent root for character details/abilities panel to hide on confirm.")]
     public GameObject sideDetailsPanel;
 
+    [Header("Stat Progress Bars")]
+    [Tooltip("List of progress bar items in the Details panel. Automatically shows stats relevant to the selected character and hides others.")]
+    public List<StatProgressBarItem> statProgressBars = new List<StatProgressBarItem>();
+
     // =========================================================================
     //  Inspector — Ready / Confirm Button
     // =========================================================================
@@ -424,6 +428,14 @@ public class CharacterSelectUI : MonoBehaviour
         if (detailsDescriptionText != null) detailsDescriptionText.gameObject.SetActive(false);
         if (sideDetailsPanel != null) sideDetailsPanel.SetActive(false);
 
+        if (statProgressBars != null)
+        {
+            foreach (var bar in statProgressBars)
+            {
+                if (bar != null) bar.SetVisible(false);
+            }
+        }
+
         // Notify the ready tracker
         if (PlayerReadyTracker.Instance != null)
             PlayerReadyTracker.Instance.ReportInvestigatorConfirmed(NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0);
@@ -548,10 +560,93 @@ public class CharacterSelectUI : MonoBehaviour
 
         UpdateSlotCardHighlights();
 
+        UpdateCharacterStatProgressBars(_selectedIndex);
+
         SyncSelectionToServer(_selectedIndex);
 
         if (CharacterSceneController.Instance != null)
             CharacterSceneController.Instance.ResetIdleTimer();
+    }
+
+    // =========================================================================
+    //  Stat Progress Bars Helpers
+    // =========================================================================
+
+    public List<UpgradeStatType> GetRelevantStatsForCharacter(int index)
+    {
+        List<UpgradeStatType> result = new List<UpgradeStatType>();
+        InvestigatorProfession profession = InvestigatorProfession.MineWorker;
+
+        if (_filteredDefinitions.Count > 0 && index >= 0 && index < _filteredDefinitions.Count && _filteredDefinitions[index] != null)
+        {
+            var so = _filteredDefinitions[index];
+            if (so.relevantStats != null && so.relevantStats.Count > 0)
+            {
+                return so.relevantStats;
+            }
+            profession = so.profession;
+        }
+        else
+        {
+            var data = GetCharacterData(index);
+            if (data != null)
+            {
+                profession = data.profession;
+            }
+        }
+
+        switch (profession)
+        {
+            case InvestigatorProfession.MineWorker:
+                result.Add(UpgradeStatType.WeaponDamage);
+                result.Add(UpgradeStatType.DamageResistance);
+                break;
+            case InvestigatorProfession.FieldMedic:
+                result.Add(UpgradeStatType.VialCount);
+                result.Add(UpgradeStatType.VialHealingPower);
+                result.Add(UpgradeStatType.DamageResistance);
+                break;
+            case InvestigatorProfession.HazardSpecialist:
+                result.Add(UpgradeStatType.MaskFilter);
+                result.Add(UpgradeStatType.DamageResistance);
+                break;
+            case InvestigatorProfession.CursedPriest:
+                result.Add(UpgradeStatType.SpiritualLevel);
+                result.Add(UpgradeStatType.DamageResistance);
+                break;
+            case InvestigatorProfession.Explorer:
+                result.Add(UpgradeStatType.MapPower);
+                result.Add(UpgradeStatType.DamageResistance);
+                break;
+            default:
+                result.Add(UpgradeStatType.DamageResistance);
+                break;
+        }
+
+        return result;
+    }
+
+    private void UpdateCharacterStatProgressBars(int index)
+    {
+        if (statProgressBars == null || statProgressBars.Count == 0) return;
+
+        var relevant = GetRelevantStatsForCharacter(index);
+
+        foreach (var bar in statProgressBars)
+        {
+            if (bar == null) continue;
+
+            bool isRelevant = relevant != null && relevant.Contains(bar.statType);
+            bar.SetVisible(isRelevant);
+
+            if (isRelevant)
+            {
+                int level = CloudCharacterSaveManager.Instance != null
+                    ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(bar.statType)
+                    : 0;
+                bar.Refresh(level);
+            }
+        }
     }
 
     private void SyncSelectionToServer(int index)

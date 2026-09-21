@@ -345,6 +345,33 @@ public class LobbyUI : MonoBehaviour
         MichskyUIBridge.BindButton(null, heatNameConfirmButton, OnConfirmName);
         MichskyUIBridge.BindInputField(null, heatNameEntryInputField, OnNameInputChanged);
 
+        ModalWindowManager nameModal = heatNameEntryModal != null
+            ? heatNameEntryModal
+            : (nameEntryPanel != null ? nameEntryPanel.GetComponent<ModalWindowManager>() : null);
+
+        if (nameModal != null)
+        {
+            nameModal.closeOnCancel = false;
+            nameModal.onCancel.RemoveAllListeners();
+            nameModal.onCancel.AddListener(RequestDisconnect);
+        }
+
+        if (nameEntryCancelButton != null)
+        {
+            var btnMgr = nameEntryCancelButton.GetComponent<ButtonManager>();
+            var uBtn = nameEntryCancelButton.GetComponent<Button>();
+            if (btnMgr != null)
+            {
+                btnMgr.onClick.RemoveAllListeners();
+                btnMgr.onClick.AddListener(RequestDisconnect);
+            }
+            else if (uBtn != null)
+            {
+                uBtn.onClick.RemoveAllListeners();
+                uBtn.onClick.AddListener(RequestDisconnect);
+            }
+        }
+
         // 2. Connection Panel
         MichskyUIBridge.BindButton(null, heatBoxStartHostButton, OnStartHost);
         MichskyUIBridge.BindButton(null, heatBoxStartClientButton, OnStartClientChoice);
@@ -764,6 +791,7 @@ public class LobbyUI : MonoBehaviour
         if (lobbyCanvasRoot != null) lobbyCanvasRoot.SetActive(true);
         else gameObject.SetActive(true);
 
+        _pendingStartAction = PendingStartAction.None;
         UpdateProfileUI();
         ShowConnectionPanel();
     }
@@ -850,11 +878,24 @@ public class LobbyUI : MonoBehaviour
             }
         }
 
-        // Force PanelManager to re-open Home Panel, trigger fade-in, and re-enable hotkeys/gamepad
-        if (mainPanelManager != null)
+        // Force PanelManager to re-open Home Panel, trigger fade-in, and re-enable hotkeys/gamepad safely
+        if (mainPanelManager != null && mainPanelManager.panels != null && mainPanelManager.panels.Count > 0)
         {
-            mainPanelManager.currentPanelIndex = -1;
-            mainPanelManager.OpenPanelByIndex(0);
+            if (mainPanelManager.currentPanelIndex == 0)
+            {
+                mainPanelManager.ShowCurrentPanel();
+                if (mainPanelManager.panels[0].hotkeyParent != null && mainPanelManager.panels[0].hotkeys != null)
+                {
+                    foreach (var he in mainPanelManager.panels[0].hotkeys)
+                    {
+                        if (he != null) he.enabled = true;
+                    }
+                }
+            }
+            else
+            {
+                mainPanelManager.OpenPanelByIndex(0);
+            }
         }
 
         SetPanel(joinCodePanel,    false);
