@@ -68,8 +68,11 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Button that confirms the entered name and advances to the Connection Panel.")]
     public ButtonManager heatNameConfirmButton;
 
-    [Tooltip("Close / Cancel 'X' button on the Name Entry modal. Hidden for first-time users so they cannot dismiss without a name.")]
+    [Tooltip("Close / Cancel 'X' button on the Name Entry modal.")]
     public GameObject nameEntryCancelButton;
+
+    [Tooltip("If checked, cancelling Name Entry prompts the 'Are You Sure' exit modal. If unchecked, it closes the modal directly without asking.")]
+    public bool showExitConfirmOnNameCancel = false;
 
     // -------------------------------------------------------------------------
     //  Inspector — 2. Connection Panel (Host / Join Choice)
@@ -356,7 +359,7 @@ public class LobbyUI : MonoBehaviour
         {
             nameModal.closeOnCancel = false;
             nameModal.onCancel.RemoveAllListeners();
-            nameModal.onCancel.AddListener(RequestDisconnect);
+            nameModal.onCancel.AddListener(OnCancelNameEntry);
         }
 
         if (nameEntryCancelButton != null)
@@ -366,12 +369,12 @@ public class LobbyUI : MonoBehaviour
             if (btnMgr != null)
             {
                 btnMgr.onClick.RemoveAllListeners();
-                btnMgr.onClick.AddListener(RequestDisconnect);
+                btnMgr.onClick.AddListener(OnCancelNameEntry);
             }
             else if (uBtn != null)
             {
                 uBtn.onClick.RemoveAllListeners();
-                uBtn.onClick.AddListener(RequestDisconnect);
+                uBtn.onClick.AddListener(OnCancelNameEntry);
             }
         }
 
@@ -533,6 +536,32 @@ public class LobbyUI : MonoBehaviour
         {
             ShowConnectionPanel();
         }
+    }
+
+    /// <summary>
+    /// Handles cancelling the Name Entry popup.
+    /// If showExitConfirmOnNameCancel is true, opens the 'Are You Sure' exit modal.
+    /// Otherwise, simply closes the Name Entry modal directly and returns to Home.
+    /// </summary>
+    public void OnCancelNameEntry()
+    {
+        if (showExitConfirmOnNameCancel)
+        {
+            RequestDisconnect();
+            return;
+        }
+
+        _pendingStartAction = PendingStartAction.None;
+
+        if (nameEntryErrorText != null)
+            nameEntryErrorText.gameObject.SetActive(false);
+
+        if (heatNameEntryModal != null)
+            heatNameEntryModal.CloseWindow();
+        else if (nameEntryPanel != null)
+            nameEntryPanel.SetActive(false);
+
+        ShowConnectionPanel();
     }
 
     // =========================================================================
@@ -848,10 +877,9 @@ public class LobbyUI : MonoBehaviour
     // =========================================================================
     public void ShowNameEntryPanel()
     {
-        bool hasSavedName = PlayerNameManager.HasSavedName();
         if (nameEntryCancelButton != null)
         {
-            nameEntryCancelButton.SetActive(hasSavedName);
+            nameEntryCancelButton.SetActive(true);
         }
 
         // Open modal popup smoothly without destroying/hiding the background Home Panel
