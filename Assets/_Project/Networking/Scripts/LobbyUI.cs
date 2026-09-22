@@ -59,6 +59,9 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Michsky Input Field where the player types their name.")]
     public InputFieldManager heatNameEntryInputField;
 
+    [Tooltip("Check this box to activate accepting emojis in the name input field. Uncheck to disallow emojis.")]
+    public bool allowEmojisInName = false;
+
     [Tooltip("Placeholder text inside the input field (e.g. 'Enter your name...')")]
     public TextMeshProUGUI nameEntryPlaceholder;
 
@@ -280,7 +283,7 @@ public class LobbyUI : MonoBehaviour
         string curName = MichskyUIBridge.GetInputText(null, heatNameEntryInputField);
         if (string.IsNullOrEmpty(curName) || curName == "Investigator")
         {
-            MichskyUIBridge.SetInputText(null, heatNameEntryInputField, profile.playerName);
+            MichskyUIBridge.SetInputText(null, heatNameEntryInputField, PlayerNameManager.SanitizePlayerName(profile.playerName, allowEmojisInName));
         }
         UpdateCreditsUI();
         if (PlayerNameManager.HasSavedName() && nameEntryPanel != null && nameEntryPanel.activeSelf)
@@ -293,7 +296,7 @@ public class LobbyUI : MonoBehaviour
     {
         WireButtonListeners();
 
-        MichskyUIBridge.SetInputText(null, heatNameEntryInputField, PlayerNameManager.GetPlayerName());
+        MichskyUIBridge.SetInputText(null, heatNameEntryInputField, PlayerNameManager.GetPlayerName(allowEmojisInName));
 
         if (nameEntryErrorText != null)
             nameEntryErrorText.gameObject.SetActive(false);
@@ -353,6 +356,16 @@ public class LobbyUI : MonoBehaviour
         // 1. Name Entry
         MichskyUIBridge.BindButton(null, heatNameConfirmButton, OnConfirmName);
         MichskyUIBridge.BindInputField(null, heatNameEntryInputField, OnNameInputChanged);
+
+        if (heatNameEntryInputField != null && heatNameEntryInputField.inputText != null)
+        {
+            heatNameEntryInputField.inputText.onValidateInput = ValidateNameChar;
+            var filter = heatNameEntryInputField.GetComponent<EmojiInputFilter>();
+            if (filter != null)
+            {
+                filter.AllowEmojis = allowEmojisInName;
+            }
+        }
 
         ModalWindowManager nameModal = heatNameEntryModal != null
             ? heatNameEntryModal
@@ -492,8 +505,47 @@ public class LobbyUI : MonoBehaviour
     // =========================================================================
     //  Name Entry Actions
     // =========================================================================
+    private bool _isSanitizingInput = false;
+
+    private char ValidateNameChar(string text, int charIndex, char addedChar)
+    {
+        if (!allowEmojisInName)
+        {
+            if (char.IsSurrogate(addedChar)) return '\0';
+            if (PlayerNameManager.IsEmojiCodePoint((int)addedChar)) return '\0';
+        }
+        return addedChar;
+    }
+
     private void OnNameInputChanged(string value)
     {
+        if (_isSanitizingInput) return;
+
+        if (!allowEmojisInName && PlayerNameManager.ContainsEmoji(value))
+        {
+            _isSanitizingInput = true;
+            try
+            {
+                string stripped = PlayerNameManager.SanitizePlayerName(value, allowEmojis: false);
+                MichskyUIBridge.SetInputText(null, heatNameEntryInputField, stripped);
+                if (heatNameEntryInputField != null && heatNameEntryInputField.inputText != null)
+                {
+                    heatNameEntryInputField.inputText.caretPosition = stripped.Length;
+                }
+
+                if (nameEntryErrorText != null)
+                {
+                    nameEntryErrorText.text = "Emojis are not allowed in player names.";
+                    nameEntryErrorText.gameObject.SetActive(true);
+                }
+            }
+            finally
+            {
+                _isSanitizingInput = false;
+            }
+            return;
+        }
+
         if (nameEntryErrorText != null && nameEntryErrorText.gameObject.activeSelf)
         {
             nameEntryErrorText.gameObject.SetActive(false);
@@ -504,7 +556,7 @@ public class LobbyUI : MonoBehaviour
     {
         string rawName = MichskyUIBridge.GetInputText(null, heatNameEntryInputField);
 
-        if (!PlayerNameManager.ValidatePlayerName(rawName, out string sanitizedName, out string errorMessage))
+        if (!PlayerNameManager.ValidatePlayerName(rawName, out string sanitizedName, out string errorMessage, allowEmojisInName))
         {
             if (nameEntryErrorText != null)
             {

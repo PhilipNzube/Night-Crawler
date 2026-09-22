@@ -103,13 +103,19 @@ public static class PlayerNameManager
     /// Validates a player name for length, visible content, and offensive terms.
     /// Returns true if valid, or false with a user-friendly error explanation.
     /// </summary>
-    public static bool ValidatePlayerName(string rawName, out string sanitizedName, out string errorMessage)
+    public static bool ValidatePlayerName(string rawName, out string sanitizedName, out string errorMessage, bool allowEmojis = true)
     {
-        sanitizedName = SanitizePlayerName(rawName);
+        sanitizedName = SanitizePlayerName(rawName, allowEmojis);
 
         if (string.IsNullOrWhiteSpace(sanitizedName))
         {
             errorMessage = "Player name cannot be blank.";
+            return false;
+        }
+
+        if (!allowEmojis && ContainsEmoji(rawName))
+        {
+            errorMessage = "Emojis are not allowed in player names.";
             return false;
         }
 
@@ -169,9 +175,9 @@ public static class PlayerNameManager
     /// - Strips ASCII control characters (\0..\x1F, \x7F..\x9F)
     /// - Normalizes consecutive spaces to a single space
     /// - Trims leading and trailing whitespace
-    /// - Preserves valid emojis, accents, numbers, and letters
+    /// - Allows or strips emojis based on allowEmojis parameter
     /// </summary>
-    public static string SanitizePlayerName(string text)
+    public static string SanitizePlayerName(string text, bool allowEmojis = true)
     {
         if (string.IsNullOrEmpty(text)) return string.Empty;
 
@@ -187,13 +193,24 @@ public static class PlayerNameManager
             // Strip control characters (tabs, newlines, null bytes, backspaces)
             if (char.IsControl(c)) continue;
 
-            // Allow surrogate pairs (standard for modern emojis like 👻, ⛏, etc.)
+            // Surrogate pairs (standard for modern emojis like 👻, ⛏, etc.)
             if (char.IsSurrogate(c))
             {
                 if (char.IsSurrogatePair(text, i))
                 {
-                    sb.Append(text[i]);
-                    sb.Append(text[i + 1]);
+                    int cp = char.ConvertToUtf32(text, i);
+                    if (!allowEmojis && (IsEmojiCodePoint(cp) || true))
+                    {
+                        // Without emoji permission, strip the surrogate pair
+                        i++; // skip second half of pair
+                        continue;
+                    }
+
+                    if (allowEmojis)
+                    {
+                        sb.Append(text[i]);
+                        sb.Append(text[i + 1]);
+                    }
                     i++; // skip second half of pair
                     continue;
                 }
@@ -202,6 +219,12 @@ public static class PlayerNameManager
                     // Orphaned single surrogate without pair -> discard
                     continue;
                 }
+            }
+
+            int singleCp = (int)c;
+            if (!allowEmojis && IsEmojiCodePoint(singleCp))
+            {
+                continue;
             }
 
             sb.Append(c);
@@ -218,7 +241,15 @@ public static class PlayerNameManager
         return cleaned;
     }
 
-    private static bool IsEmojiCodePoint(int cp)
+    /// <summary>
+    /// Strips all emojis, surrogates, and pictorial symbols from the string.
+    /// </summary>
+    public static string StripEmojis(string text)
+    {
+        return SanitizePlayerName(text, allowEmojis: false);
+    }
+
+    public static bool IsEmojiCodePoint(int cp)
     {
         if (cp >= 0x1F600 && cp <= 0x1F64F) return true; // Emoticons
         if (cp >= 0x1F300 && cp <= 0x1F5FF) return true; // Misc Symbols and Pictographs
