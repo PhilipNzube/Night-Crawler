@@ -125,6 +125,35 @@ public class SpectatorController : MonoBehaviour
         BuildProceduralHUD();
     }
 
+    private void OnEnable()
+    {
+        PauseManager.OnPauseStateChanged += HandlePauseStateChanged;
+    }
+
+    private void OnDisable()
+    {
+        PauseManager.OnPauseStateChanged -= HandlePauseStateChanged;
+    }
+
+    private void HandlePauseStateChanged(bool isPaused)
+    {
+        if (_canvasGroup != null && _isSpectating)
+        {
+            _canvasGroup.alpha = isPaused ? 0f : 1f;
+            _canvasGroup.blocksRaycasts = !isPaused;
+        }
+
+        SetHotkeysActive(!isPaused);
+    }
+
+    private void SetHotkeysActive(bool active)
+    {
+        if (prevHotkey != null) prevHotkey.enabled = active;
+        if (nextHotkey != null) nextHotkey.enabled = active;
+        if (viewModeHotkey != null) viewModeHotkey.enabled = active;
+        if (cursorHotkey != null) cursorHotkey.enabled = active;
+    }
+
     private void OnDestroy()
     {
         if (Instance == this) Instance = null;
@@ -342,6 +371,9 @@ public class SpectatorController : MonoBehaviour
             return;
         }
 
+        // If game is paused, freeze spectator controls and HUD updates
+        if (PauseManager.IsGamePaused) return;
+
         // 1. Handle Navigation & Controls
         HandleInput();
 
@@ -355,6 +387,7 @@ public class SpectatorController : MonoBehaviour
     private void LateUpdate()
     {
         if (!_isSpectating) return;
+        if (PauseManager.IsGamePaused) return;
 
         // Smooth camera anchor positioning and rotation
         UpdateAnchorTransform();
@@ -362,6 +395,7 @@ public class SpectatorController : MonoBehaviour
 
     private void HandleInput()
     {
+        if (PauseManager.IsGamePaused) return;
         if (Keyboard.current == null && Mouse.current == null) return;
 
         // Cycle Previous: [A], [Left Arrow], [Mouse Left Button]

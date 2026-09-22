@@ -7,6 +7,7 @@ using UnityEngine;
 public static class PersistentCharacterSelection
 {
     private const string PREF_KEY_CHAR_INDEX = "NightCrawler_SelectedCharacterIndex";
+    private const string PREF_KEY_CHAR_NAME  = "NightCrawler_SelectedCharacterName";
     private const string PREF_KEY_IS_GIRL     = "NightCrawler_IsVengefulSpirit";
 
     /// <summary>Gets the saved character index. Returns 0 if none saved yet.</summary>
@@ -21,6 +22,21 @@ public static class PersistentCharacterSelection
         PlayerPrefs.SetInt(PREF_KEY_CHAR_INDEX, index);
         PlayerPrefs.Save();
         Debug.Log($"[PersistentCharacterSelection] Saved selected character index: {index}");
+    }
+
+    /// <summary>Gets the saved character name (e.g. 'Medic', 'Miner', 'Priest', 'Explorer').</summary>
+    public static string GetSelectedCharacterName()
+    {
+        return PlayerPrefs.GetString(PREF_KEY_CHAR_NAME, string.Empty);
+    }
+
+    /// <summary>Saves the selected character name to PlayerPrefs to prevent roster index mismatch.</summary>
+    public static void SetSelectedCharacterName(string charName)
+    {
+        if (string.IsNullOrWhiteSpace(charName)) return;
+        PlayerPrefs.SetString(PREF_KEY_CHAR_NAME, charName);
+        PlayerPrefs.Save();
+        Debug.Log($"[PersistentCharacterSelection] Saved selected character name: {charName}");
     }
 
     /// <summary>Returns true if the local player was assigned as the Vengeful Spirit (Girl).</summary>

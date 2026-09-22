@@ -567,13 +567,13 @@ public class CharacterSelectUI : MonoBehaviour
         if (count == 0) return;
         _selectedIndex = Mathf.Clamp(index, 0, count - 1);
 
-        PersistentCharacterSelection.SetSelectedCharacterIndex(_selectedIndex);
-        PersistentCharacterSelection.SetIsVengefulSpirit(false);
+        string selectedCharName = string.Empty;
 
         // 1. Check ScriptableObjects list first
         if (_filteredDefinitions.Count > 0 && _selectedIndex < _filteredDefinitions.Count && _filteredDefinitions[_selectedIndex] != null)
         {
             CharacterDefinitionSO so = _filteredDefinitions[_selectedIndex];
+            selectedCharName = so.characterName;
 
             if (detailsTitleText       != null) detailsTitleText.text       = so.characterName;
             if (detailsDescriptionText != null) detailsDescriptionText.text = so.description;
@@ -585,8 +585,8 @@ public class CharacterSelectUI : MonoBehaviour
                 detailsIconImage.enabled = (so.portrait != null);
             }
 
-            if (so.characterPrefab != null)
-                SwapFeaturedModel(so.characterPrefab);
+            GameObject modelPrefab = ResolvePreviewPrefab(so);
+            SwapFeaturedModel(modelPrefab);
         }
         else
         {
@@ -594,6 +594,8 @@ public class CharacterSelectUI : MonoBehaviour
             InvestigatorCharacterData data = GetCharacterData(_selectedIndex);
             if (data != null)
             {
+                selectedCharName = data.characterName;
+
                 if (detailsTitleText       != null) detailsTitleText.text       = data.characterName;
                 if (detailsDescriptionText != null) detailsDescriptionText.text = data.description;
                 if (detailsAbilitiesText   != null) detailsAbilitiesText.text   = data.specialAbilities;
@@ -604,10 +606,18 @@ public class CharacterSelectUI : MonoBehaviour
                     detailsIconImage.enabled = (data.characterIcon != null);
                 }
 
-                if (data.characterPrefab != null)
-                    SwapFeaturedModel(data.characterPrefab);
+                GameObject modelPrefab = data.characterPrefab;
+                if (modelPrefab == null) modelPrefab = FindFallbackPrefabByName(data.characterName);
+                SwapFeaturedModel(modelPrefab);
             }
         }
+
+        PersistentCharacterSelection.SetSelectedCharacterIndex(_selectedIndex);
+        if (!string.IsNullOrEmpty(selectedCharName))
+        {
+            PersistentCharacterSelection.SetSelectedCharacterName(selectedCharName);
+        }
+        PersistentCharacterSelection.SetIsVengefulSpirit(false);
 
         UpdateSlotCardHighlights();
 
@@ -757,6 +767,64 @@ public class CharacterSelectUI : MonoBehaviour
             return _filteredInlineData[index];
 
         return null;
+    }
+
+    public CharacterDefinitionSO GetCharacterDefinition(int index)
+    {
+        RefreshFilteredRoster();
+        if (index >= 0 && index < _filteredDefinitions.Count)
+            return _filteredDefinitions[index];
+        return null;
+    }
+
+    private GameObject ResolvePreviewPrefab(CharacterDefinitionSO so)
+    {
+        if (so == null) return null;
+        if (so.characterPrefab != null) return so.characterPrefab;
+
+        // Auto-heal missing/broken prefab link by matching character name
+        return FindFallbackPrefabByName(so.characterName);
+    }
+
+    private GameObject FindFallbackPrefabByName(string charName)
+    {
+        if (string.IsNullOrEmpty(charName)) return null;
+
+        if (GameManager.Instance != null && GameManager.Instance.explorerPrefabs != null)
+        {
+            foreach (var p in GameManager.Instance.explorerPrefabs)
+            {
+                if (p != null && IsNameMatch(p.name, charName))
+                    return p;
+            }
+        }
+
+        if (characterDataList != null)
+        {
+            foreach (var d in characterDataList)
+            {
+                if (d != null && d.characterPrefab != null && IsNameMatch(d.characterName, charName))
+                    return d.characterPrefab;
+            }
+        }
+
+        return null;
+    }
+
+    public static bool IsNameMatch(string source, string target)
+    {
+        if (string.IsNullOrEmpty(source) || string.IsNullOrEmpty(target)) return false;
+        string s = source.ToLowerInvariant();
+        string t = target.ToLowerInvariant();
+
+        if (s.Contains(t) || t.Contains(s)) return true;
+        if ((s.Contains("adventurer") || s.Contains("explorer")) && (t.Contains("adventurer") || t.Contains("explorer"))) return true;
+        if ((s.Contains("miner") || s.Contains("mine")) && (t.Contains("miner") || t.Contains("mine"))) return true;
+        if ((s.Contains("medic") || s.Contains("doctor")) && (t.Contains("medic") || t.Contains("doctor"))) return true;
+        if ((s.Contains("priest") || s.Contains("cursed")) && (t.Contains("priest") || t.Contains("cursed"))) return true;
+        if (s.Contains("hazard") && t.Contains("hazard")) return true;
+
+        return false;
     }
 
     // =========================================================================

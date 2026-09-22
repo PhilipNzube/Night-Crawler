@@ -63,6 +63,12 @@ public class PauseUI : MonoBehaviour
             pauseCanvas = gameObject;
 
         _canvas = pauseCanvas.GetComponent<Canvas>();
+        if (_canvas != null)
+        {
+            _canvas.overrideSorting = true;
+            _canvas.sortingOrder = 500; // Always render on top of in-game HUDs and spectator UI
+        }
+
         _canvasGroup = pauseCanvas.GetComponent<CanvasGroup>();
         if (_canvasGroup == null)
             _canvasGroup = pauseCanvas.AddComponent<CanvasGroup>();

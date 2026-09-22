@@ -305,42 +305,52 @@ public class SquadLineupDisplay : MonoBehaviour
     /// </summary>
     private GameObject ResolveCharacterPrefab(ulong clientId, int slotIndex)
     {
-        int targetCharIndex = PersistentCharacterSelection.GetSelectedCharacterIndex();
+        string targetName = (NetworkManager.Singleton != null && clientId == NetworkManager.Singleton.LocalClientId)
+            ? PersistentCharacterSelection.GetSelectedCharacterName()
+            : string.Empty;
 
-        // 1. Check CharacterSelectManager choice
-        if (CharacterSelectManager.Instance != null)
-        {
-            int charIdx = (NetworkManager.Singleton != null && clientId != NetworkManager.Singleton.LocalClientId)
-                ? CharacterSelectManager.Instance.GetSelectedCharacterIndex(clientId)
-                : targetCharIndex;
-            GameObject selected = CharacterSelectManager.Instance.GetInvestigatorPrefab(charIdx);
-            if (selected != null) return selected;
-        }
-
-        // 2. Check CharacterSelectUI inspector data list (SO or inline, including inactive)
+        // 1. Try CharacterSelectUI filtered list or name matching
         CharacterSelectUI selectUI = FindFirstObjectByType<CharacterSelectUI>(FindObjectsInactive.Include);
         if (selectUI != null)
         {
-            int idx = (slotIndex == 0)
-                ? Mathf.Clamp(targetCharIndex, 0, selectUI.GetTotalCharacterCount() - 1)
-                : Mathf.Clamp(slotIndex, 0, selectUI.GetTotalCharacterCount() - 1);
-
-            if (selectUI.characterDefinitions != null && idx < selectUI.characterDefinitions.Count && selectUI.characterDefinitions[idx] != null)
+            if (!string.IsNullOrEmpty(targetName) && selectUI.characterDefinitions != null)
             {
-                if (selectUI.characterDefinitions[idx].characterPrefab != null)
-                    return selectUI.characterDefinitions[idx].characterPrefab;
+                foreach (var so in selectUI.characterDefinitions)
+                {
+                    if (so != null && CharacterSelectUI.IsNameMatch(so.characterName, targetName))
+                    {
+                        if (so.characterPrefab != null) return so.characterPrefab;
+                    }
+                }
             }
 
-            if (selectUI.characterDataList != null && idx < selectUI.characterDataList.Count && selectUI.characterDataList[idx] != null)
+            int count = selectUI.GetTotalCharacterCount();
+            if (count > 0)
             {
-                if (selectUI.characterDataList[idx].characterPrefab != null)
-                    return selectUI.characterDataList[idx].characterPrefab;
+                int targetCharIndex = PersistentCharacterSelection.GetSelectedCharacterIndex();
+                int idx = (slotIndex == 0)
+                    ? Mathf.Clamp(targetCharIndex, 0, count - 1)
+                    : Mathf.Clamp(slotIndex, 0, count - 1);
+
+                var so = selectUI.GetCharacterDefinition(idx);
+                if (so != null && so.characterPrefab != null)
+                    return so.characterPrefab;
             }
         }
 
-        // 3. Check GameManager explorerPrefabs by index
+        // 2. Check GameManager explorerPrefabs by name then index
         if (GameManager.Instance != null && GameManager.Instance.explorerPrefabs != null && GameManager.Instance.explorerPrefabs.Count > 0)
         {
+            if (!string.IsNullOrEmpty(targetName))
+            {
+                foreach (var p in GameManager.Instance.explorerPrefabs)
+                {
+                    if (p != null && CharacterSelectUI.IsNameMatch(p.name, targetName))
+                        return p;
+                }
+            }
+
+            int targetCharIndex = PersistentCharacterSelection.GetSelectedCharacterIndex();
             int idx = Mathf.Clamp(targetCharIndex, 0, GameManager.Instance.explorerPrefabs.Count - 1);
             if (GameManager.Instance.explorerPrefabs[idx] != null)
                 return GameManager.Instance.explorerPrefabs[idx];

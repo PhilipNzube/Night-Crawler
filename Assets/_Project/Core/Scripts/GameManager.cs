@@ -471,6 +471,25 @@ public class GameManager : NetworkBehaviour
 
     private GameObject GetInvestigatorPrefabForClient(ulong clientId, int characterIndex)
     {
+        // 1. Resolve by saved character name first (100% immune to roster index shifts when Hazard Specialist is filtered out)
+        string savedName = string.Empty;
+        if (NetworkManager.Singleton != null && clientId == NetworkManager.Singleton.LocalClientId)
+        {
+            savedName = PersistentCharacterSelection.GetSelectedCharacterName();
+        }
+
+        if (!string.IsNullOrEmpty(savedName) && explorerPrefabs != null)
+        {
+            foreach (var p in explorerPrefabs)
+            {
+                if (p != null && CharacterSelectUI.IsNameMatch(p.name, savedName))
+                {
+                    Debug.Log($"[GameManager] Matched player prefab '{p.name}' for Client {clientId} using saved name '{savedName}'.");
+                    return p;
+                }
+            }
+        }
+
         int selectedIndex = characterIndex;
         if (selectedIndex < 0)
         {
@@ -484,7 +503,7 @@ public class GameManager : NetworkBehaviour
             }
         }
 
-        // 1. Try explorerPrefabs by index
+        // 2. Try explorerPrefabs by index
         if (explorerPrefabs != null && explorerPrefabs.Count > 0)
         {
             int clamped = Mathf.Clamp(selectedIndex, 0, explorerPrefabs.Count - 1);
@@ -492,14 +511,14 @@ public class GameManager : NetworkBehaviour
                 return explorerPrefabs[clamped];
         }
 
-        // 2. Try CharacterSelectManager availableCharacters
+        // 3. Try CharacterSelectManager availableCharacters
         if (CharacterSelectManager.Instance != null)
         {
             GameObject mgrPrefab = CharacterSelectManager.Instance.GetInvestigatorPrefab(selectedIndex);
             if (mgrPrefab != null) return mgrPrefab;
         }
 
-        // 3. Fallback
+        // 4. Fallback
         return GetRandomExplorerPrefab();
     }
 
