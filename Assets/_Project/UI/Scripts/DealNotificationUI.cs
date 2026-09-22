@@ -1,5 +1,4 @@
 using UnityEngine;
-using UnityEngine.UI;
 using TMPro;
 using UnityEngine.InputSystem;
 using NightCrawler.Economy;
@@ -7,8 +6,9 @@ using NightCrawler.UI;
 using Michsky.UI.Heat;
 
 /// <summary>
-/// SOLID — SRP: Displays an incoming dark deal proposal to an Investigator.
-/// Shows exact title, terms, reward, and provides Accept [Y] / Decline [N] actions.
+/// SOLID — SRP: Displays an incoming dark deal proposal to an Investigator using Heat UI Modal.
+/// Shows exact deal name, terms/conditions, reward, time limit, and penalty.
+/// Provides Accept [Y] / Decline [N] button actions and hotkeys.
 /// </summary>
 public class DealNotificationUI : MonoBehaviour
 {
@@ -26,18 +26,25 @@ public class DealNotificationUI : MonoBehaviour
         private set => _instance = value;
     }
 
-    [Header("UI References")]
-    public GameObject panel;
-    public TMP_Text titleText;
-    public TMP_Text termsText;
-    public TMP_Text rewardText;
-    public Button acceptButton;
-    public Button declineButton;
-
-    [Header("Michsky Heat / Dark UI References")]
+    [Header("Heat UI Modal Window")]
+    [Tooltip("The ModalWindowManager on DealNotificationPromptModal.")]
     public ModalWindowManager heatModalWindow;
-    public ButtonManager heatAcceptButton;
-    public ButtonManager heatDeclineButton;
+
+    [Header("Text Display Elements")]
+    [Tooltip("Title text in modal header.")]
+    public TextMeshProUGUI headerTitleText;
+    [Tooltip("DealNameText inside main content.")]
+    public TextMeshProUGUI dealNameText;
+    [Tooltip("RewardText inside main content.")]
+    public TextMeshProUGUI rewardText;
+    [Tooltip("Description/Terms text inside main content.")]
+    public TextMeshProUGUI termsDescriptionText;
+
+    [Header("Action Buttons")]
+    [Tooltip("ButtonManager for accepting the deal.")]
+    public ButtonManager acceptButton;
+    [Tooltip("ButtonManager for declining the deal.")]
+    public ButtonManager declineButton;
 
     [Header("Auto-Timeout")]
     public float timeoutSeconds = 15f;
@@ -46,7 +53,10 @@ public class DealNotificationUI : MonoBehaviour
     private bool _grantWeapon;
     private bool _isActive = false;
 
-    private CanvasGroup _canvasGroup;
+    private int _currentTimeLimitSeconds = 120;
+    private int _currentPenaltyCredits = 15;
+    private string _currentTitle = "DARK PACT";
+    private string _currentTerms = "";
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void HookSceneLoaded()
@@ -64,11 +74,9 @@ public class DealNotificationUI : MonoBehaviour
         if (found != null)
         {
             _instance = found;
-            // Activate the GameObject in the hierarchy so Awake runs and listeners hook up,
-            // but keep it visually hidden via CanvasGroup until a deal is offered!
             found.gameObject.SetActive(true);
             found.SetVisible(false);
-            Debug.Log($"[DealNotificationUI] Discovered and initialized prompt: {found.gameObject.name} (activeInHierarchy={found.gameObject.activeInHierarchy})");
+            Debug.Log($"[DealNotificationUI] Discovered and initialized prompt: {found.gameObject.name}");
         }
     }
 
@@ -81,17 +89,24 @@ public class DealNotificationUI : MonoBehaviour
         }
         _instance = this;
 
-        if (_canvasGroup == null)
+        if (heatModalWindow == null)
         {
-            _canvasGroup = GetComponent<CanvasGroup>();
-            if (_canvasGroup == null)
-            {
-                _canvasGroup = gameObject.AddComponent<CanvasGroup>();
-            }
+            heatModalWindow = GetComponent<ModalWindowManager>();
         }
 
-        MichskyUIBridge.BindButton(acceptButton, heatAcceptButton, OnAcceptClicked);
-        MichskyUIBridge.BindButton(declineButton, heatDeclineButton, OnDeclineClicked);
+        SanitizeModal(heatModalWindow);
+
+        if (acceptButton != null)
+        {
+            acceptButton.onClick.RemoveAllListeners();
+            acceptButton.onClick.AddListener(OnAcceptClicked);
+        }
+
+        if (declineButton != null)
+        {
+            declineButton.onClick.RemoveAllListeners();
+            declineButton.onClick.AddListener(OnDeclineClicked);
+        }
 
         SetVisible(false);
     }
@@ -113,37 +128,17 @@ public class DealNotificationUI : MonoBehaviour
             else heatModalWindow.CloseWindow();
         }
 
-        if (_canvasGroup == null)
-        {
-            _canvasGroup = GetComponent<CanvasGroup>();
-            if (_canvasGroup == null)
-            {
-                _canvasGroup = gameObject.AddComponent<CanvasGroup>();
-            }
-        }
-
-        if (_canvasGroup != null)
-        {
-            _canvasGroup.alpha = visible ? 1f : 0f;
-            _canvasGroup.interactable = visible;
-            _canvasGroup.blocksRaycasts = visible;
-        }
-
         if (visible)
         {
             gameObject.SetActive(true);
-            if (panel != null) panel.SetActive(true);
-
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
-
             SetPlayerLookInputs(false);
         }
         else
         {
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
-
             SetPlayerLookInputs(true);
         }
     }
@@ -162,11 +157,6 @@ public class DealNotificationUI : MonoBehaviour
             }
         }
     }
-
-    private int _currentTimeLimitSeconds = 120;
-    private int _currentPenaltyCredits = 15;
-    private string _currentTitle = "DARK PACT";
-    private string _currentTerms = "";
 
     public void DisplayDealOffer(ulong senderId, string title, string terms, string reward, bool grantWeapon, int timeLimitSeconds = 120, int penaltyCredits = 15)
     {
@@ -191,24 +181,21 @@ public class DealNotificationUI : MonoBehaviour
         _currentTerms = terms;
         _timer = timeoutSeconds;
 
-        if (titleText != null) titleText.text = title;
-        if (termsText != null)
-        {
-            termsText.text = $"{terms}\n\n<color=#F1C40F>⏱ Time Limit: {timeLimitSeconds}s</color>\n<color=#E74C3C>⚠ Penalty on Failure: -{penaltyCredits} {CurrencyConfig.CurrencySymbol} (Deducted from Stake)</color>";
-        }
+        if (headerTitleText != null) headerTitleText.text = "DEAL PROPOSAL";
+        if (dealNameText != null) dealNameText.text = title.ToUpper();
         if (rewardText != null) rewardText.text = $"REWARD: {reward}";
+        if (termsDescriptionText != null)
+        {
+            termsDescriptionText.text = $"{terms}\n\n<color=#F1C40F>⏱ Time Limit: {timeLimitSeconds}s</color>\n<color=#E74C3C>⚠ Penalty on Failure: -{penaltyCredits} {CurrencyConfig.CurrencySymbol}</color>";
+        }
 
         if (heatModalWindow != null)
         {
-            heatModalWindow.titleText = title;
+            heatModalWindow.titleText = "DEAL PROPOSAL";
             heatModalWindow.descriptionText = $"{terms}\n\n⏱ Time Limit: {timeLimitSeconds}s | ⚠ Penalty: -{penaltyCredits} {CurrencyConfig.CurrencySymbol}\n\nREWARD: {reward}";
-            heatModalWindow.UpdateUI();
         }
 
-        // Crucial: Make sure the GameObject itself is ACTIVE in the hierarchy!
         gameObject.SetActive(true);
-        if (panel != null) panel.SetActive(true);
-
         SetVisible(true);
         Debug.Log($"[DealNotificationUI] Displaying deal '{title}' from {senderId} to local player! (grantWeapon={grantWeapon}, time={timeLimitSeconds}s)");
     }
@@ -217,15 +204,9 @@ public class DealNotificationUI : MonoBehaviour
     {
         if (!_isActive || PauseManager.IsGamePaused) return;
 
-        // Force cursor to stay free and visible while this modal is active (prevents clicks from re-locking cursor)
-        if (Cursor.lockState != CursorLockMode.None)
-        {
-            Cursor.lockState = CursorLockMode.None;
-        }
-        if (!Cursor.visible)
-        {
-            Cursor.visible = true;
-        }
+        // Maintain cursor free
+        if (Cursor.lockState != CursorLockMode.None) Cursor.lockState = CursorLockMode.None;
+        if (!Cursor.visible) Cursor.visible = true;
         SetPlayerLookInputs(false);
 
         // Hotkeys [Y] Accept / [N] Decline
@@ -272,7 +253,7 @@ public class DealNotificationUI : MonoBehaviour
 
                 if (NotificationManager.Instance != null)
                 {
-                    NotificationManager.Instance.ShowNotification("Pact Sealed: Axe granted! (Note: pact weapons cannot harm cave monsters, only investigators)", 4.5f);
+                    NotificationManager.Instance.ShowNotification("Pact Sealed: Weapon granted!", 4.5f);
                 }
             }
         }
@@ -303,5 +284,19 @@ public class DealNotificationUI : MonoBehaviour
         }
 
         SetVisible(false);
+    }
+
+    private static void SanitizeModal(ModalWindowManager modal)
+    {
+        if (modal == null) return;
+        modal.useLocalization = false;
+        modal.titleKey = string.Empty;
+        modal.descriptionKey = string.Empty;
+
+        var exitComp = modal.GetComponent("ExitGame");
+        if (exitComp != null)
+        {
+            Destroy(exitComp);
+        }
     }
 }

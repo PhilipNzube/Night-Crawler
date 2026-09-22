@@ -1,6 +1,5 @@
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.UI;
 using TMPro;
 using Unity.Netcode;
 using UnityEngine.InputSystem;
@@ -8,40 +7,40 @@ using Michsky.UI.Heat;
 using NightCrawler.UI;
 
 /// <summary>
-/// SOLID — SRP: Dedicated Possession interface for the Vengeful Spirit (Girl).
-/// Allows viewing living investigators, selecting a target to possess, monitoring the
-/// possession time bank, and triggering possession or ejecting.
-/// Designed to sit neatly inside DemonPanel alongside GirlDealPanel.
+/// SOLID — SRP: Modern Heat UI Possession interface for the Vengeful Spirit (Girl).
+/// Powers:
+/// 1. Toggling the Possession Modal via hotkey [P] or direct script call.
+/// 2. Selecting from living investigator targets via Michsky HorizontalSelector.
+/// 3. Displaying current possession energy pool.
+/// 4. Confirming possession on the chosen target and ejecting/closing cleanly.
 /// </summary>
 public class GirlPossessionUI : MonoBehaviour
 {
     public static GirlPossessionUI Instance { get; private set; }
 
-    [Header("UI Panels")]
-    public GameObject mainPanel;
+    [Header("Heat UI Modal Window")]
+    [Tooltip("The ModalWindowManager for the Possession Modal.")]
+    public ModalWindowManager possessionModal;
 
     [Header("Target Selection")]
-    public TMP_Dropdown targetDropdown;
+    [Tooltip("HorizontalSelector inside PossessionModal for cycling living investigators.")]
+    public HorizontalSelector playerSelector;
 
     [Header("Possession Time Pool")]
-    public TMP_Text timeBankText;
-    public Slider timeBankSlider;
+    [Tooltip("Text displaying current possession energy (e.g. 'Possession Energy: 300s / 300s').")]
+    public TextMeshProUGUI timeBankText;
 
     [Header("Action Buttons")]
-    public Button possessButton;
-    public Button closeButton;
-
-    [Header("Michsky Heat / Dark UI Components")]
-    public ProgressBar heatTimeBankProgressBar;
-    public ButtonManager heatPossessButton;
-    public ButtonManager heatCloseButton;
+    [Tooltip("ButtonManager for confirming possession on selected player.")]
+    public ButtonManager possessButton;
+    [Tooltip("ButtonManager for closing/canceling the possession modal.")]
+    public ButtonManager cancelButton;
 
     [Header("Hotkeys")]
     [Tooltip("Primary toggle hotkey (default [P] for Possession).")]
     public Key toggleKey = Key.P;
 
     private readonly List<ulong> _targetClientIds = new List<ulong>();
-    private CanvasGroup _canvasGroup;
     private bool _isOpen = false;
 
     private void Awake()
@@ -53,28 +52,39 @@ public class GirlPossessionUI : MonoBehaviour
         }
         Instance = this;
 
-        _canvasGroup = GetComponent<CanvasGroup>();
-        if (_canvasGroup == null)
+        if (possessionModal == null)
         {
-            _canvasGroup = gameObject.AddComponent<CanvasGroup>();
+            possessionModal = GetComponent<ModalWindowManager>();
         }
 
-        MichskyUIBridge.BindButton(possessButton, heatPossessButton, OnPossessClicked);
-        MichskyUIBridge.BindButton(closeButton, heatCloseButton, CloseUI);
+        // Clean up any default template ExitGame calls
+        SanitizeModal(possessionModal);
 
-        // Auto-build visual UI if unassigned in Inspector
-        if (mainPanel == null)
+        // Bind buttons
+        if (possessButton != null)
         {
-            BuildDefaultPossessionUI();
+            possessButton.onClick.RemoveAllListeners();
+            possessButton.onClick.AddListener(OnPossessClicked);
         }
 
-        SetVisible(false);
+        if (cancelButton != null)
+        {
+            cancelButton.onClick.RemoveAllListeners();
+            cancelButton.onClick.AddListener(CloseUI);
+        }
+
+        if (playerSelector != null)
+        {
+            playerSelector.useLocalization = false;
+        }
     }
 
     private void OnDestroy()
     {
         if (Instance == this) Instance = null;
     }
+
+    public bool IsOpen => _isOpen;
 
     private void Update()
     {
@@ -84,10 +94,10 @@ public class GirlPossessionUI : MonoBehaviour
             return;
         }
 
-        // Toggle possession menu with hotkey [P]
+        // Toggle possession modal with hotkey [P]
         if (Keyboard.current != null)
         {
-            bool pressed = (Keyboard.current[toggleKey].wasPressedThisFrame);
+            bool pressed = Keyboard.current[toggleKey].wasPressedThisFrame;
 
             if (pressed && IsLocalPlayerGirl())
             {
@@ -99,7 +109,7 @@ public class GirlPossessionUI : MonoBehaviour
             }
         }
 
-        // Continually enforce cursor retention and update time bank while open
+        // Maintain cursor and update time display while open
         if (_isOpen)
         {
             if (Cursor.lockState != CursorLockMode.None) Cursor.lockState = CursorLockMode.None;
@@ -115,6 +125,11 @@ public class GirlPossessionUI : MonoBehaviour
         var playerObj = NetworkManager.Singleton.LocalClient.PlayerObject;
         if (playerObj == null) return false;
 
+        if (playerObj.TryGetComponent<GirlPossession>(out var possession) && possession.isPossessing.Value)
+        {
+            return false;
+        }
+
         return playerObj.GetComponent<GirlStealth>() != null 
             || playerObj.GetComponent<GirlMaterialController>() != null 
             || playerObj.GetComponent<GirlPossession>() != null;
@@ -129,46 +144,38 @@ public class GirlPossessionUI : MonoBehaviour
 
     public void ToggleUI()
     {
-        _isOpen = !_isOpen;
-        SetVisible(_isOpen);
+        if (_isOpen) CloseUI();
+        else OpenUI();
+    }
+
+    public void OpenUI()
+    {
+        _isOpen = true;
+        RefreshLivingTargets();
+        UpdateTimeBankDisplay();
+
+        if (possessionModal != null)
+        {
+            possessionModal.OpenWindow();
+        }
+
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+        SetPlayerLookInputs(false);
     }
 
     public void CloseUI()
     {
         _isOpen = false;
-        SetVisible(false);
-    }
 
-    private void SetVisible(bool visible)
-    {
-        _isOpen = visible;
-
-        if (_canvasGroup != null)
+        if (possessionModal != null)
         {
-            _canvasGroup.alpha = visible ? 1f : 0f;
-            _canvasGroup.interactable = visible;
-            _canvasGroup.blocksRaycasts = visible;
+            possessionModal.CloseWindow();
         }
 
-        if (mainPanel != null && mainPanel != gameObject)
-        {
-            mainPanel.SetActive(visible);
-        }
-
-        if (visible)
-        {
-            RefreshLivingTargets();
-            UpdateTimeBankDisplay();
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
-            SetPlayerLookInputs(false);
-        }
-        else
-        {
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
-            SetPlayerLookInputs(true);
-        }
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+        SetPlayerLookInputs(true);
     }
 
     private void SetPlayerLookInputs(bool allowLookAndLock)
@@ -189,10 +196,9 @@ public class GirlPossessionUI : MonoBehaviour
     private void RefreshLivingTargets()
     {
         _targetClientIds.Clear();
-        if (targetDropdown == null || NetworkManager.Singleton == null) return;
+        if (playerSelector == null || NetworkManager.Singleton == null) return;
 
-        targetDropdown.ClearOptions();
-        List<string> options = new List<string>();
+        playerSelector.items.Clear();
 
         ulong localId = NetworkManager.Singleton.LocalClientId;
         var girlPossession = GetLocalGirlPossession();
@@ -206,10 +212,14 @@ public class GirlPossessionUI : MonoBehaviour
             var clientObj = kvp.Value.PlayerObject;
             if (clientObj == null) continue;
 
-            // Check if investigator is dead
+            // Skip dead or corpses
             if (clientObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0))
             {
-                continue; // Skip dead bodies
+                continue;
+            }
+            if (clientObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead)
+            {
+                continue;
             }
 
             string charName = null;
@@ -248,26 +258,22 @@ public class GirlPossessionUI : MonoBehaviour
                 charName = $"Investigator {clientId}";
             }
 
-            string roleName = clientObj.name.Replace("(Clone)", "").Trim();
-
             _targetClientIds.Add(clientId);
-            options.Add($"{charName} ({roleName})");
+            playerSelector.CreateNewItem(charName);
         }
 
-        if (options.Count == 0)
+        if (_targetClientIds.Count == 0)
         {
-            options.Add("No living investigators nearby");
-            if (possessButton != null) possessButton.interactable = false;
+            playerSelector.CreateNewItem("No Living Targets");
+            if (possessButton != null) possessButton.Interactable(false);
         }
         else
         {
-            if (possessButton != null) possessButton.interactable = !isAlreadyPossessing;
+            if (possessButton != null) possessButton.Interactable(!isAlreadyPossessing);
         }
 
-        targetDropdown.AddOptions(options);
-
-        // Update button states depending on whether girl is already possessing someone
-        if (possessButton != null) possessButton.gameObject.SetActive(!isAlreadyPossessing);
+        playerSelector.index = 0;
+        playerSelector.UpdateUI();
     }
 
     private void UpdateTimeBankDisplay()
@@ -283,19 +289,17 @@ public class GirlPossessionUI : MonoBehaviour
             timeBankText.text = $"Possession Energy: {Mathf.CeilToInt(remaining)}s / {Mathf.CeilToInt(maxTime)}s";
         }
 
-        MichskyUIBridge.SetProgress(timeBankSlider, heatTimeBankProgressBar, remaining, maxTime);
-
-        if (remaining <= 0f)
+        if (remaining <= 0f && possessButton != null)
         {
-            MichskyUIBridge.SetButtonInteractable(possessButton, heatPossessButton, false);
+            possessButton.Interactable(false);
         }
     }
 
     public void OnPossessClicked()
     {
-        if (_targetClientIds.Count == 0 || targetDropdown == null) return;
+        if (_targetClientIds.Count == 0 || playerSelector == null) return;
 
-        int selectedIdx = targetDropdown.value;
+        int selectedIdx = playerSelector.index;
         if (selectedIdx < 0 || selectedIdx >= _targetClientIds.Count) return;
 
         ulong targetClientId = _targetClientIds[selectedIdx];
@@ -324,181 +328,20 @@ public class GirlPossessionUI : MonoBehaviour
     }
 
     /// <summary>
-    /// Procedurally constructs a sleek dark-crimson Possession Panel if one was not
-    /// manually designed in the Scene.
+    /// Strips any accidental ExitGame calls copied from modal templates.
     /// </summary>
-    private void BuildDefaultPossessionUI()
+    private static void SanitizeModal(ModalWindowManager modal)
     {
-        // Try to attach under DemonPanel, else HUDCanvas, else any Canvas
-        Transform parentTransform = null;
-        var demonPanel = GameObject.Find("DemonPanel");
-        if (demonPanel != null) parentTransform = demonPanel.transform;
+        if (modal == null) return;
+        modal.useLocalization = false;
+        modal.titleKey = string.Empty;
+        modal.descriptionKey = string.Empty;
 
-        if (parentTransform == null)
+        // Strip ExitGame component if attached
+        var exitComp = modal.GetComponent("ExitGame");
+        if (exitComp != null)
         {
-            var hudRoot = GameObject.Find("HUDRoot");
-            if (hudRoot != null) parentTransform = hudRoot.transform;
+            Destroy(exitComp);
         }
-
-        if (parentTransform == null)
-        {
-            var hudCanvas = GameObject.Find("HUDCanvas");
-            if (hudCanvas != null) parentTransform = hudCanvas.transform;
-        }
-
-        if (parentTransform == null)
-        {
-            Canvas c = FindFirstObjectByType<Canvas>();
-            if (c != null) parentTransform = c.transform;
-        }
-
-        if (parentTransform == null) return;
-
-        // Create Panel Container
-        GameObject panelObj = new GameObject("GirlPossessionPanel");
-        panelObj.transform.SetParent(parentTransform, false);
-
-        RectTransform rt = panelObj.AddComponent<RectTransform>();
-        rt.anchorMin = new Vector2(0.5f, 0.5f);
-        rt.anchorMax = new Vector2(0.5f, 0.5f);
-        rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.sizeDelta = new Vector2(420f, 320f);
-        rt.anchoredPosition = Vector2.zero;
-
-        Image bg = panelObj.AddComponent<Image>();
-        bg.color = new Color(0.08f, 0.03f, 0.05f, 0.95f); // Deep dark sinister crimson-black
-
-        // Header Title
-        GameObject titleObj = new GameObject("TitleText");
-        titleObj.transform.SetParent(panelObj.transform, false);
-        RectTransform titleRt = titleObj.AddComponent<RectTransform>();
-        titleRt.anchorMin = new Vector2(0f, 1f);
-        titleRt.anchorMax = new Vector2(1f, 1f);
-        titleRt.pivot = new Vector2(0.5f, 1f);
-        titleRt.anchoredPosition = new Vector2(0f, -15f);
-        titleRt.sizeDelta = new Vector2(400f, 40f);
-
-        TextMeshProUGUI titleTxt = titleObj.AddComponent<TextMeshProUGUI>();
-        titleTxt.text = "SPIRIT POSSESSION";
-        titleTxt.alignment = TextAlignmentOptions.Center;
-        titleTxt.fontSize = 24f;
-        titleTxt.fontStyle = FontStyles.Bold;
-        titleTxt.color = new Color(0.95f, 0.2f, 0.2f, 1f);
-
-        // Subtitle
-        GameObject subObj = new GameObject("SubtitleText");
-        subObj.transform.SetParent(panelObj.transform, false);
-        RectTransform subRt = subObj.AddComponent<RectTransform>();
-        subRt.anchorMin = new Vector2(0f, 1f);
-        subRt.anchorMax = new Vector2(1f, 1f);
-        subRt.pivot = new Vector2(0.5f, 1f);
-        subRt.anchoredPosition = new Vector2(0f, -50f);
-        subRt.sizeDelta = new Vector2(400f, 25f);
-
-        TextMeshProUGUI subTxt = subObj.AddComponent<TextMeshProUGUI>();
-        subTxt.text = "Take control of a living investigator's body.";
-        subTxt.alignment = TextAlignmentOptions.Center;
-        subTxt.fontSize = 13f;
-        subTxt.color = new Color(0.75f, 0.75f, 0.8f, 0.85f);
-
-        // Time Bank Text
-        GameObject bankObj = new GameObject("TimeBankText");
-        bankObj.transform.SetParent(panelObj.transform, false);
-        RectTransform bankRt = bankObj.AddComponent<RectTransform>();
-        bankRt.anchorMin = new Vector2(0.5f, 1f);
-        bankRt.anchorMax = new Vector2(0.5f, 1f);
-        bankRt.pivot = new Vector2(0.5f, 1f);
-        bankRt.anchoredPosition = new Vector2(0f, -85f);
-        bankRt.sizeDelta = new Vector2(360f, 25f);
-
-        timeBankText = bankObj.AddComponent<TextMeshProUGUI>();
-        timeBankText.text = "Possession Energy: 300s / 300s";
-        timeBankText.alignment = TextAlignmentOptions.Center;
-        timeBankText.fontSize = 14f;
-        timeBankText.color = new Color(0.85f, 0.3f, 0.3f, 1f);
-
-        // Target Dropdown Container
-        GameObject dropObj = new GameObject("TargetDropdown");
-        dropObj.transform.SetParent(panelObj.transform, false);
-        RectTransform dropRt = dropObj.AddComponent<RectTransform>();
-        dropRt.anchorMin = new Vector2(0.5f, 0.5f);
-        dropRt.anchorMax = new Vector2(0.5f, 0.5f);
-        dropRt.pivot = new Vector2(0.5f, 0.5f);
-        dropRt.anchoredPosition = new Vector2(0f, 10f);
-        dropRt.sizeDelta = new Vector2(340f, 40f);
-
-        Image dropBg = dropObj.AddComponent<Image>();
-        dropBg.color = new Color(0.15f, 0.12f, 0.18f, 1f);
-
-        targetDropdown = dropObj.AddComponent<TMP_Dropdown>();
-        GameObject labelObj = new GameObject("Label");
-        labelObj.transform.SetParent(dropObj.transform, false);
-        RectTransform lblRt = labelObj.AddComponent<RectTransform>();
-        lblRt.anchorMin = Vector2.zero;
-        lblRt.anchorMax = Vector2.one;
-        lblRt.sizeDelta = new Vector2(-20f, 0f);
-        TextMeshProUGUI lblTxt = labelObj.AddComponent<TextMeshProUGUI>();
-        lblTxt.alignment = TextAlignmentOptions.MidlineLeft;
-        lblTxt.fontSize = 14f;
-        lblTxt.color = Color.white;
-        targetDropdown.captionText = lblTxt;
-
-        // Action Button: POSSESS
-        GameObject btnObj = new GameObject("PossessButton");
-        btnObj.transform.SetParent(panelObj.transform, false);
-        RectTransform btnRt = btnObj.AddComponent<RectTransform>();
-        btnRt.anchorMin = new Vector2(0.5f, 0f);
-        btnRt.anchorMax = new Vector2(0.5f, 0f);
-        btnRt.pivot = new Vector2(0.5f, 0f);
-        btnRt.anchoredPosition = new Vector2(0f, 50f);
-        btnRt.sizeDelta = new Vector2(280f, 42f);
-
-        Image btnImg = btnObj.AddComponent<Image>();
-        btnImg.color = new Color(0.75f, 0.15f, 0.15f, 1f);
-        possessButton = btnObj.AddComponent<Button>();
-        possessButton.onClick.AddListener(OnPossessClicked);
-
-        GameObject btnTxtObj = new GameObject("Text");
-        btnTxtObj.transform.SetParent(btnObj.transform, false);
-        RectTransform btRt = btnTxtObj.AddComponent<RectTransform>();
-        btRt.anchorMin = Vector2.zero;
-        btRt.anchorMax = Vector2.one;
-        TextMeshProUGUI btnTxt = btnTxtObj.AddComponent<TextMeshProUGUI>();
-        btnTxt.text = "POSSESS TARGET";
-        btnTxt.alignment = TextAlignmentOptions.Center;
-        btnTxt.fontSize = 16f;
-        btnTxt.fontStyle = FontStyles.Bold;
-        btnTxt.color = Color.white;
-
-
-        // Close Button [X]
-        GameObject closeObj = new GameObject("CloseButton");
-        closeObj.transform.SetParent(panelObj.transform, false);
-        RectTransform closeRt = closeObj.AddComponent<RectTransform>();
-        closeRt.anchorMin = new Vector2(1f, 1f);
-        closeRt.anchorMax = new Vector2(1f, 1f);
-        closeRt.pivot = new Vector2(1f, 1f);
-        closeRt.anchoredPosition = new Vector2(-10f, -10f);
-        closeRt.sizeDelta = new Vector2(30f, 30f);
-
-        Image closeImg = closeObj.AddComponent<Image>();
-        closeImg.color = new Color(0.3f, 0.1f, 0.1f, 0.8f);
-        closeButton = closeObj.AddComponent<Button>();
-        closeButton.onClick.AddListener(CloseUI);
-
-        GameObject closeTxtObj = new GameObject("Text");
-        closeTxtObj.transform.SetParent(closeObj.transform, false);
-        RectTransform ctRt = closeTxtObj.AddComponent<RectTransform>();
-        ctRt.anchorMin = Vector2.zero;
-        ctRt.anchorMax = Vector2.one;
-        TextMeshProUGUI closeTxt = closeTxtObj.AddComponent<TextMeshProUGUI>();
-        closeTxt.text = "X";
-        closeTxt.alignment = TextAlignmentOptions.Center;
-        closeTxt.fontSize = 14f;
-        closeTxt.fontStyle = FontStyles.Bold;
-        closeTxt.color = Color.white;
-
-        mainPanel = panelObj;
-        mainPanel.SetActive(false);
     }
 }

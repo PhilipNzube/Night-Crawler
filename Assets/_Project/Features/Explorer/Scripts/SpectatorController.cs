@@ -59,6 +59,20 @@ public class SpectatorController : MonoBehaviour
     public Slider customHealthSlider;
     public TMP_Text customSurvivorsCountText;
     public TMP_Text customToastText;
+    public TMP_Text customModePromptText;
+
+    [Header("Michsky Heat / Hotkey References")]
+    [Tooltip("Optional Michsky Heat HotkeyEvent for cycling to Previous Survivor.")]
+    public Michsky.UI.Heat.HotkeyEvent prevHotkey;
+
+    [Tooltip("Optional Michsky Heat HotkeyEvent for cycling to Next Survivor.")]
+    public Michsky.UI.Heat.HotkeyEvent nextHotkey;
+
+    [Tooltip("Optional Michsky Heat HotkeyEvent for View Mode Toggle.")]
+    public Michsky.UI.Heat.HotkeyEvent viewModeHotkey;
+
+    [Tooltip("Optional Michsky Heat HotkeyEvent for Cursor Lock Toggle.")]
+    public Michsky.UI.Heat.HotkeyEvent cursorHotkey;
 
     [Header("Michsky Heat / Dark UI")]
     [Tooltip("Optional: Michsky ProgressBar to display spectated player's health.")]
@@ -200,6 +214,11 @@ public class SpectatorController : MonoBehaviour
         _currentTargetIndex = 0;
         SelectTargetByIndex(_currentTargetIndex, true);
 
+        // Initialize and sync Hotkey labels
+        InitHotkeys();
+        if (viewModeHotkey != null) viewModeHotkey.SetLabel(_freeOrbitMode ? "FREE ORBIT" : "SHOULDER CAM");
+        if (cursorHotkey != null) cursorHotkey.SetLabel(Cursor.lockState == CursorLockMode.Locked ? "UNLOCK CURSOR" : "LOCK CURSOR");
+
         // Fade in HUD
         if (_canvasGroup != null)
         {
@@ -208,6 +227,70 @@ public class SpectatorController : MonoBehaviour
         }
 
         ShowToast("SPECTATOR MODE ENGAGED", new Color(0.2f, 0.9f, 1f, 1f));
+    }
+
+    /// <summary>
+    /// Binds Michsky Heat HotkeyEvent listeners to spectator controls.
+    /// </summary>
+    public void InitHotkeys()
+    {
+        if (prevHotkey != null)
+        {
+            prevHotkey.onHotkeyPress.RemoveListener(CyclePreviousSurvivor);
+            prevHotkey.onHotkeyPress.AddListener(CyclePreviousSurvivor);
+        }
+        if (nextHotkey != null)
+        {
+            nextHotkey.onHotkeyPress.RemoveListener(CycleNextSurvivor);
+            nextHotkey.onHotkeyPress.AddListener(CycleNextSurvivor);
+        }
+        if (viewModeHotkey != null)
+        {
+            viewModeHotkey.onHotkeyPress.RemoveListener(ToggleOrbitMode);
+            viewModeHotkey.onHotkeyPress.AddListener(ToggleOrbitMode);
+        }
+        if (cursorHotkey != null)
+        {
+            cursorHotkey.onHotkeyPress.RemoveListener(ToggleCursorLock);
+            cursorHotkey.onHotkeyPress.AddListener(ToggleCursorLock);
+        }
+    }
+
+    /// <summary>
+    /// Toggles between Free Orbit and Follow Over-Shoulder camera modes.
+    /// </summary>
+    public void ToggleOrbitMode()
+    {
+        _freeOrbitMode = !_freeOrbitMode;
+        string modeName = _freeOrbitMode ? "FREE ORBIT" : "SHOULDER CAM";
+        ShowToast($"CAMERA MODE: {modeName}", new Color(1f, 0.85f, 0.2f, 1f));
+        if (viewModeHotkey != null)
+        {
+            viewModeHotkey.SetLabel(modeName);
+        }
+        if (_modePromptText != null)
+        {
+            _modePromptText.text = $"[SPACE] View Mode: <color=#00E5FF>{modeName}</color>   •   [MOUSE] Orbit   •   [SCROLL] Zoom   •   [ALT] Cursor";
+        }
+    }
+
+    /// <summary>
+    /// Toggles mouse cursor visibility and lock state.
+    /// </summary>
+    public void ToggleCursorLock()
+    {
+        if (Cursor.lockState == CursorLockMode.Locked)
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+            if (cursorHotkey != null) cursorHotkey.SetLabel("LOCK CURSOR");
+        }
+        else
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+            if (cursorHotkey != null) cursorHotkey.SetLabel("UNLOCK CURSOR");
+        }
     }
 
     /// <summary>
@@ -292,28 +375,13 @@ public class SpectatorController : MonoBehaviour
         // Toggle Free Orbit vs Follow Facing: [Space]
         if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame)
         {
-            _freeOrbitMode = !_freeOrbitMode;
-            string modeName = _freeOrbitMode ? "FREE ORBIT" : "TEAMMATE PERSPECTIVE";
-            ShowToast($"CAMERA MODE: {modeName}", new Color(1f, 0.85f, 0.2f, 1f));
-            if (_modePromptText != null)
-            {
-                _modePromptText.text = $"[SPACE] View Mode: <color=#00E5FF>{modeName}</color>   •   [MOUSE] Orbit   •   [SCROLL] Zoom   •   [ALT] Cursor";
-            }
+            ToggleOrbitMode();
         }
 
         // Toggle Cursor Lock: [Left Alt]
         if (Keyboard.current != null && Keyboard.current.leftAltKey.wasPressedThisFrame)
         {
-            if (Cursor.lockState == CursorLockMode.Locked)
-            {
-                Cursor.lockState = CursorLockMode.None;
-                Cursor.visible = true;
-            }
-            else
-            {
-                Cursor.lockState = CursorLockMode.Locked;
-                Cursor.visible = false;
-            }
+            ToggleCursorLock();
         }
 
         if (prevPressed) CyclePreviousSurvivor();
@@ -659,7 +727,7 @@ public class SpectatorController : MonoBehaviour
 
     private void ShowToast(string message, Color color)
     {
-        if (_toastText == null || _toastCanvasGroup == null) return;
+        if (_toastText == null || _toastCanvasGroup == null || _toastBanner == null) return;
 
         if (_toastCoroutine != null) StopCoroutine(_toastCoroutine);
         _toastCoroutine = StartCoroutine(ToastRoutine(message, color));
@@ -714,6 +782,7 @@ public class SpectatorController : MonoBehaviour
             _healthReadoutText = customHealthText;
             _survivorsCountText = customSurvivorsCountText;
             _toastText = customToastText;
+            if (customModePromptText != null) _modePromptText = customModePromptText;
 
             if (customToastText != null)
             {
@@ -722,6 +791,7 @@ public class SpectatorController : MonoBehaviour
                 if (_toastCanvasGroup == null) _toastCanvasGroup = _toastBanner.AddComponent<CanvasGroup>();
                 _toastBanner.SetActive(false);
             }
+            InitHotkeys();
             return;
         }
 

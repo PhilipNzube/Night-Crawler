@@ -11,84 +11,68 @@ using NightCrawler.UI;
 using Michsky.UI.Heat;
 
 /// <summary>
-/// Supported pact card templates available to the Vengeful Spirit.
-/// </summary>
-public enum PactCardType
-{
-    KillPlayer,
-    LootCorpse,
-    ManipulateSquad,
-    LeadToShadows,
-    CustomPact
-}
-
-/// <summary>
-/// SOLID — SRP: Scrollable Card Deal Creation Interface for the Vengeful Spirit (Girl).
-/// Features selectable pact cards (Kill Player, Loot a Body, Manipulate, etc.)
-/// with dynamic subject dropdowns, strictly bounded time limit sliders (60s-180s),
-/// and automatic stake deduction penalty configuration.
+/// SOLID — SRP: Modern Heat UI Deal and Pact System for the Vengeful Spirit (Girl).
+/// Powers:
+/// 1. Card Selection inside DealPanel (e.g. Kill Player, Loot Body).
+/// 2. Modal Configuration with Player Horizontal Selector, Bounded Time Limit (30s-180s),
+///    Reward Slider (max 60% of Girl's total credits), and Penalty Slider (max 50% of reward).
+/// 3. Error Modal popups when user violates any of the deal economy/time constraints.
 /// </summary>
 public class GirlDealUI : MonoBehaviour
 {
     public static GirlDealUI Instance { get; private set; }
 
-    [Header("UI Panels")]
-    public GameObject mainPanel;
+    [Header("Main Panels")]
+    [Tooltip("The DealPanel containing the scrollable deal cards.")]
+    public GameObject dealPanel;
     public CanvasGroup canvasGroup;
 
-    [Header("Recipient Selection")]
-    [Tooltip("Dropdown to select which living investigator receives the dark pact.")]
-    public TMP_Dropdown recipientDropdown;
+    [Header("Heat UI Modals")]
+    [Tooltip("The DealModal (ModalWindowManager) that pops up when a card is selected.")]
+    public ModalWindowManager dealModal;
 
-    [Header("Scrollable Card Container")]
-    [Tooltip("Parent with HorizontalLayoutGroup where pact cards are spawned.")]
+    [Tooltip("The ErrorModal (ModalWindowManager) displayed when parameters violate rules.")]
+    public ModalWindowManager errorModal;
+
+    [Header("Deal Modal Elements")]
+    [Tooltip("Header title text on DealModal (dynamically updated to match card title).")]
+    public TextMeshProUGUI dealModalTitle;
+
+    [Tooltip("Description text on DealModal.")]
+    public TextMeshProUGUI dealModalDescription;
+
+    [Tooltip("Horizontal Selector for selecting the target living investigator.")]
+    public HorizontalSelector playerSelector;
+
+    [Tooltip("SliderManager for the deal reward amount.")]
+    public SliderManager rewardSlider;
+
+    [Tooltip("SliderManager for the credit penalty amount.")]
+    public SliderManager penaltySlider;
+
+    [Tooltip("SliderManager for completion time (in seconds).")]
+    public SliderManager timeSlider;
+
+    [Header("Deal Modal Buttons")]
+    public ButtonManager sendButton;
+    public ButtonManager cancelButton;
+
+    [Header("Error Modal Elements")]
+    public TextMeshProUGUI errorTitleText;
+    public TextMeshProUGUI errorDescriptionText;
+
+    [Header("Cards Container")]
+    [Tooltip("Container where deal cards live (e.g. DealPanel/Deals/Content/List/Layout Group).")]
     public Transform cardsContainer;
-    public GameObject pactCardPrefab;
-
-    [Header("Dynamic Sub-Configuration Panel")]
-    public GameObject subConfigPanel;
-    public TextMeshProUGUI selectedPactTitleText;
-    public TextMeshProUGUI subjectDropdownLabel;
-    public TMP_Dropdown subjectDropdown; // Used for "Target Player to Kill" or "Dead Corpse to Loot"
-    public TMP_InputField customTitleInput;
-    public TMP_InputField customTermsInput;
-    [Tooltip("Michsky Heat / Dark UI Inputs")]
-    public InputFieldManager heatCustomTitleInput;
-    public InputFieldManager heatCustomTermsInput;
-
-    [Header("Time Limit & Penalty (Controlled Bounded Slider)")]
-    [Tooltip("Slider for pact timer. Clamped between 60s and 180s to prevent unfair timeframes.")]
-    public Slider timeLimitSlider;
-    [Tooltip("Michsky Heat / Dark UI Slider Manager")]
-    public SliderManager heatTimeLimitSlider;
-    public TextMeshProUGUI timeLimitText;
-    public TextMeshProUGUI penaltyPreviewText;
-    public Toggle grantWeaponToggle;
-
-    [Header("Action Buttons")]
-    public Button sendDealButton;
-    public Button closeButton;
-    [Tooltip("Michsky Heat / Dark UI Action Buttons")]
-    public ButtonManager heatSendDealButton;
-    public BoxButtonManager heatBoxSendDealButton;
-    public GameObject heatSendDealButtonObject;
-
-    public ButtonManager heatCloseButton;
-    public BoxButtonManager heatBoxCloseButton;
-    public GameObject heatCloseButtonObject;
 
     [Header("Hotkeys")]
-    [Tooltip("Primary toggle hotkey (default [B] for Bargain/Pact).")]
+    [Tooltip("Toggle hotkey (default [B] for Bargain/Deals).")]
     public Key toggleKey = Key.B;
 
     private readonly List<ulong> _livingPlayerIds = new List<ulong>();
-    private readonly List<ulong> _targetSubjectIds = new List<ulong>();
-    private PactCardType _selectedCard = PactCardType.KillPlayer;
-    private int _selectedTimeLimit = 120;
-    private const int PENALTY_CREDITS = 15;
+    private string _currentCardTitle = "DEAL PACT";
+    private string _currentCardDesc = "";
     private bool _isOpen = false;
-    private readonly List<Button> _cardButtons = new List<Button>();
-    private readonly List<Image> _cardFrames = new List<Image>();
 
     private void Awake()
     {
@@ -100,30 +84,39 @@ public class GirlDealUI : MonoBehaviour
         Instance = this;
 
         if (canvasGroup == null) canvasGroup = GetComponent<CanvasGroup>();
-        if (canvasGroup == null) canvasGroup = gameObject.AddComponent<CanvasGroup>();
+        if (canvasGroup == null && dealPanel != null) canvasGroup = dealPanel.GetComponent<CanvasGroup>();
 
-        MichskyUIBridge.BindAnyButton(OnSendDealClicked, sendDealButton, heatSendDealButton, heatBoxSendDealButton, heatSendDealButtonObject);
-        MichskyUIBridge.BindAnyButton(CloseUI, closeButton, heatCloseButton, heatBoxCloseButton, heatCloseButtonObject);
-
-        MichskyUIBridge.SetSliderLimits(timeLimitSlider, heatTimeLimitSlider, 60f, 180f, false);
-        MichskyUIBridge.SetSliderValue(timeLimitSlider, heatTimeLimitSlider, 120f);
-
-        if (timeLimitSlider != null)
+        // Bind buttons
+        if (sendButton != null)
         {
-            timeLimitSlider.onValueChanged.AddListener(OnTimeLimitChanged);
+            sendButton.onClick.RemoveAllListeners();
+            sendButton.onClick.AddListener(OnSendDealClicked);
+        }
+        if (cancelButton != null)
+        {
+            cancelButton.onClick.RemoveAllListeners();
+            cancelButton.onClick.AddListener(CloseDealModal);
         }
 
-        if (heatTimeLimitSlider != null)
+        // Configure sliders
+        if (timeSlider != null && timeSlider.mainSlider != null)
         {
-            heatTimeLimitSlider.onValueChanged.AddListener(OnTimeLimitChanged);
+            timeSlider.mainSlider.minValue = 30f;
+            timeSlider.mainSlider.maxValue = 180f;
+            timeSlider.mainSlider.wholeNumbers = true;
+            timeSlider.mainSlider.value = 120f;
         }
+
+        // Clean up any default ExitGame calls on Modals
+        SanitizeModal(dealModal);
+        SanitizeModal(errorModal);
 
         SetVisible(false);
     }
 
     private void Start()
     {
-        BuildPactCards();
+        HookCardButtons();
     }
 
     private void OnDestroy()
@@ -132,15 +125,6 @@ public class GirlDealUI : MonoBehaviour
     }
 
     public bool IsOpen => _isOpen;
-
-    public static bool IsAnyInputFocused()
-    {
-        if (UnityEngine.EventSystems.EventSystem.current == null) return false;
-        var currentObj = UnityEngine.EventSystems.EventSystem.current.currentSelectedGameObject;
-        if (currentObj == null) return false;
-        return currentObj.GetComponent<TMP_InputField>() != null 
-            || currentObj.GetComponent<InputField>() != null;
-    }
 
     private void Update()
     {
@@ -161,8 +145,7 @@ public class GirlDealUI : MonoBehaviour
 
         if (Keyboard.current != null)
         {
-            bool keyMatch = (toggleKey != Key.T && Keyboard.current[toggleKey].wasPressedThisFrame);
-            bool pressed = keyMatch || Keyboard.current.bKey.wasPressedThisFrame;
+            bool pressed = Keyboard.current[toggleKey].wasPressedThisFrame;
 
             if (pressed && IsLocalPlayerGirl())
             {
@@ -173,6 +156,15 @@ public class GirlDealUI : MonoBehaviour
                 CloseUI();
             }
         }
+    }
+
+    public static bool IsAnyInputFocused()
+    {
+        if (UnityEngine.EventSystems.EventSystem.current == null) return false;
+        var currentObj = UnityEngine.EventSystems.EventSystem.current.currentSelectedGameObject;
+        if (currentObj == null) return false;
+        return currentObj.GetComponent<TMP_InputField>() != null 
+            || currentObj.GetComponent<InputField>() != null;
     }
 
     private bool IsLocalPlayerGirl()
@@ -201,6 +193,7 @@ public class GirlDealUI : MonoBehaviour
     {
         _isOpen = false;
         SetVisible(false);
+        CloseDealModal();
     }
 
     private void SetVisible(bool visible)
@@ -214,16 +207,15 @@ public class GirlDealUI : MonoBehaviour
             canvasGroup.blocksRaycasts = visible;
         }
 
-        if (mainPanel != null && mainPanel != gameObject)
+        if (dealPanel != null)
         {
-            mainPanel.SetActive(visible);
+            dealPanel.SetActive(visible);
         }
 
         if (visible)
         {
             RefreshLivingPlayers();
-            SelectPactCard(_selectedCard);
-            UpdateTimeLimitLabel();
+            HookCardButtons();
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
         }
@@ -234,38 +226,140 @@ public class GirlDealUI : MonoBehaviour
         }
     }
 
-    private void OnTimeLimitChanged(float val)
-    {
-        _selectedTimeLimit = Mathf.RoundToInt(val);
-        UpdateTimeLimitLabel();
-    }
+    // =========================================================================
+    //  Card Binding & Selection
+    // =========================================================================
 
-    private void UpdateTimeLimitLabel()
+    public void HookCardButtons()
     {
-        if (timeLimitText != null)
+        Transform container = cardsContainer;
+        if (container == null && dealPanel != null)
         {
-            timeLimitText.text = $"⏱ Time to Complete: <b>{_selectedTimeLimit}s</b> <size=11><color=#BDC3C7>(Allowed: 60s – 180s)</color></size>";
+            // Auto-locate Layout Group in children
+            var lg = dealPanel.GetComponentInChildren<LayoutGroup>(true);
+            if (lg != null) container = lg.transform;
         }
 
-        if (penaltyPreviewText != null)
+        if (container == null) return;
+
+        // Find all ShopButtonManagers or Button components on cards
+        var shopButtons = container.GetComponentsInChildren<ShopButtonManager>(true);
+        foreach (var card in shopButtons)
         {
-            penaltyPreviewText.text = $"⚠ <color=#E74C3C>Failure Penalty: -{PENALTY_CREDITS} {CurrencyConfig.CurrencySymbol}</color> (Deducted from recipient's Stake)";
+            string title = !string.IsNullOrEmpty(card.buttonTitle) ? card.buttonTitle : card.gameObject.name;
+            string desc = card.buttonDescription;
+
+            if (card.purchaseButton != null)
+            {
+                card.purchaseButton.onClick.RemoveAllListeners();
+                card.purchaseButton.onClick.AddListener(() => OnCardSelected(title, desc));
+            }
+
+            // Also hook root onClick
+            card.onClick.RemoveAllListeners();
+            card.onClick.AddListener(() => OnCardSelected(title, desc));
+        }
+
+        // Also check plain UI Buttons if ShopButtonManager not used
+        var plainButtons = container.GetComponentsInChildren<Button>(true);
+        foreach (var btn in plainButtons)
+        {
+            if (btn.GetComponent<ShopButtonManager>() != null) continue;
+            string title = btn.gameObject.name;
+            var tmp = btn.GetComponentInChildren<TextMeshProUGUI>();
+            if (tmp != null && !string.IsNullOrEmpty(tmp.text)) title = tmp.text;
+            btn.onClick.RemoveAllListeners();
+            btn.onClick.AddListener(() => OnCardSelected(title, ""));
         }
     }
+
+    public void OnCardSelected(string cardTitle, string cardDesc)
+    {
+        _currentCardTitle = cardTitle;
+        _currentCardDesc = cardDesc;
+
+        OpenDealModal();
+    }
+
+    public void OpenDealModal()
+    {
+        if (dealModal == null) return;
+
+        // Update Title on Modal
+        if (dealModalTitle != null)
+        {
+            dealModalTitle.text = _currentCardTitle.ToUpper();
+        }
+        if (dealModalDescription != null && !string.IsNullOrEmpty(_currentCardDesc))
+        {
+            dealModalDescription.text = _currentCardDesc;
+        }
+
+        dealModal.titleText = _currentCardTitle.ToUpper();
+
+        // Refresh player list in selector
+        RefreshLivingPlayers();
+
+        // Configure Sliders
+        int girlCredits = GetGirlTotalCredits();
+        int maxAllowedReward = Mathf.Max(10, Mathf.FloorToInt(girlCredits * 0.60f));
+
+        if (rewardSlider != null && rewardSlider.mainSlider != null)
+        {
+            rewardSlider.mainSlider.minValue = 10f;
+            rewardSlider.mainSlider.maxValue = Mathf.Max(maxAllowedReward, 100f);
+            rewardSlider.mainSlider.wholeNumbers = true;
+            rewardSlider.mainSlider.value = Mathf.Min(30f, maxAllowedReward);
+        }
+
+        if (penaltySlider != null && penaltySlider.mainSlider != null)
+        {
+            penaltySlider.mainSlider.minValue = 5f;
+            penaltySlider.mainSlider.maxValue = 100f;
+            penaltySlider.mainSlider.wholeNumbers = true;
+            penaltySlider.mainSlider.value = 15f;
+        }
+
+        if (timeSlider != null && timeSlider.mainSlider != null)
+        {
+            timeSlider.mainSlider.minValue = 30f;
+            timeSlider.mainSlider.maxValue = 180f;
+            timeSlider.mainSlider.wholeNumbers = true;
+            timeSlider.mainSlider.value = 120f;
+        }
+
+        dealModal.useLocalization = false;
+        dealModal.OpenWindow();
+
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+    }
+
+    public void CloseDealModal()
+    {
+        if (dealModal != null)
+        {
+            dealModal.CloseWindow();
+        }
+    }
+
+    // =========================================================================
+    //  Player Selector Management
+    // =========================================================================
 
     private void RefreshLivingPlayers()
     {
         _livingPlayerIds.Clear();
-        if (recipientDropdown == null || NetworkManager.Singleton == null) return;
 
-        recipientDropdown.ClearOptions();
-        List<string> options = new List<string>();
+        if (playerSelector == null || NetworkManager.Singleton == null) return;
+
+        playerSelector.items.Clear();
 
         ulong localId = NetworkManager.Singleton.LocalClientId;
         foreach (var kvp in NetworkManager.Singleton.ConnectedClients)
         {
             ulong id = kvp.Key;
-            if (id == localId) continue;
+            if (id == localId) continue; // Skip Girl herself
 
             var clientObj = kvp.Value.PlayerObject;
             if (clientObj == null) continue;
@@ -279,238 +373,153 @@ public class GirlDealUI : MonoBehaviour
             if (string.IsNullOrEmpty(pName)) pName = $"Investigator {id}";
 
             _livingPlayerIds.Add(id);
-            options.Add(pName);
+            playerSelector.CreateNewItem(pName);
         }
 
-        if (options.Count == 0)
+        if (playerSelector.items.Count == 0)
         {
-            options.Add("No living investigators");
-            MichskyUIBridge.SetAnyButtonInteractable(false, sendDealButton, heatSendDealButton, heatBoxSendDealButton, heatSendDealButtonObject);
-        }
-        else
-        {
-            MichskyUIBridge.SetAnyButtonInteractable(true, sendDealButton, heatSendDealButton, heatBoxSendDealButton, heatSendDealButtonObject);
+            playerSelector.CreateNewItem("No Living Investigators");
         }
 
-        recipientDropdown.AddOptions(options);
+        playerSelector.useLocalization = false;
+        playerSelector.index = 0;
+        playerSelector.UpdateUI();
     }
 
     // =========================================================================
-    //  Card Generation & Selection
-    // =========================================================================
-
-    private void BuildPactCards()
-    {
-        if (cardsContainer == null) return;
-
-        foreach (Transform child in cardsContainer)
-            Destroy(child.gameObject);
-
-        _cardButtons.Clear();
-        _cardFrames.Clear();
-
-        CreateCardInstance(PactCardType.KillPlayer, "BLOOD PACT", "Eliminate a squad member within the time limit.");
-        CreateCardInstance(PactCardType.LootCorpse, "GRAVE ROBBER", "Locate and loot a fallen investigator's corpse.");
-        CreateCardInstance(PactCardType.ManipulateSquad, "THE BETRAYER", "Sow chaos and guide investigators into danger.");
-        CreateCardInstance(PactCardType.LeadToShadows, "DARK GUIDE", "Lure squad members into dark unlit mine tunnels.");
-        CreateCardInstance(PactCardType.CustomPact, "CUSTOM PACT", "Type custom dark terms for the investigator.");
-
-        SelectPactCard(PactCardType.KillPlayer);
-    }
-
-    private void CreateCardInstance(PactCardType type, string title, string description)
-    {
-        GameObject cardObj = null;
-        if (pactCardPrefab != null)
-        {
-            cardObj = Instantiate(pactCardPrefab, cardsContainer);
-        }
-        else
-        {
-            cardObj = new GameObject($"Card_{type}", typeof(RectTransform), typeof(Image), typeof(Button));
-            cardObj.transform.SetParent(cardsContainer, false);
-
-            var rect = cardObj.GetComponent<RectTransform>();
-            rect.sizeDelta = new Vector2(150, 190);
-
-            var img = cardObj.GetComponent<Image>();
-            img.color = new Color(0.12f, 0.12f, 0.15f, 0.95f);
-
-            var vGroup = cardObj.AddComponent<VerticalLayoutGroup>();
-            vGroup.padding = new RectOffset(10, 10, 10, 10);
-            vGroup.spacing = 8f;
-            vGroup.childControlWidth = true;
-            vGroup.childControlHeight = false;
-
-            var titleGo = new GameObject("Title", typeof(RectTransform), typeof(TextMeshProUGUI));
-            titleGo.transform.SetParent(cardObj.transform, false);
-            var titleTxt = titleGo.GetComponent<TextMeshProUGUI>();
-            titleTxt.text = $"<b>{title}</b>";
-            titleTxt.fontSize = 13;
-            titleTxt.color = new Color(0.95f, 0.8f, 0.3f);
-            titleTxt.alignment = TextAlignmentOptions.Center;
-
-            var descGo = new GameObject("Desc", typeof(RectTransform), typeof(TextMeshProUGUI));
-            descGo.transform.SetParent(cardObj.transform, false);
-            var descTxt = descGo.GetComponent<TextMeshProUGUI>();
-            descTxt.text = description;
-            descTxt.fontSize = 10;
-            descTxt.color = new Color(0.8f, 0.8f, 0.8f);
-            descTxt.alignment = TextAlignmentOptions.Top;
-            descTxt.enableWordWrapping = true;
-        }
-
-        var btn = cardObj.GetComponent<Button>();
-        var frameImg = cardObj.GetComponent<Image>();
-        if (btn != null)
-        {
-            btn.onClick.AddListener(() => SelectPactCard(type));
-            _cardButtons.Add(btn);
-        }
-        if (frameImg != null)
-        {
-            _cardFrames.Add(frameImg);
-        }
-    }
-
-    public void SelectPactCard(PactCardType type)
-    {
-        _selectedCard = type;
-        if (selectedPactTitleText != null)
-        {
-            selectedPactTitleText.text = $"SELECTED: <color=#F1C40F>{type}</color>";
-        }
-
-        bool needsSubject = (type == PactCardType.KillPlayer || type == PactCardType.LootCorpse);
-        bool isCustom = (type == PactCardType.CustomPact);
-
-        if (subjectDropdown != null) subjectDropdown.gameObject.SetActive(needsSubject);
-        if (subjectDropdownLabel != null) subjectDropdownLabel.gameObject.SetActive(needsSubject);
-
-        if (customTitleInput != null) customTitleInput.gameObject.SetActive(isCustom);
-        if (heatCustomTitleInput != null) heatCustomTitleInput.gameObject.SetActive(isCustom);
-        if (customTermsInput != null) customTermsInput.gameObject.SetActive(isCustom || type == PactCardType.ManipulateSquad);
-        if (heatCustomTermsInput != null) heatCustomTermsInput.gameObject.SetActive(isCustom || type == PactCardType.ManipulateSquad);
-
-        if (needsSubject)
-        {
-            RefreshSubjectDropdown(type);
-        }
-    }
-
-    private void RefreshSubjectDropdown(PactCardType type)
-    {
-        if (subjectDropdown == null) return;
-        subjectDropdown.ClearOptions();
-        List<string> options = new List<string>();
-
-        if (type == PactCardType.KillPlayer)
-        {
-            if (subjectDropdownLabel != null) subjectDropdownLabel.text = "Target to Assassinate:";
-            foreach (ulong id in _livingPlayerIds)
-            {
-                string pName = PlayerNameManager.GetPlayerName(id);
-                if (string.IsNullOrEmpty(pName)) pName = $"Player {id}";
-                options.Add(pName);
-            }
-            if (options.Count == 0) options.Add("No valid targets");
-        }
-        else if (type == PactCardType.LootCorpse)
-        {
-            if (subjectDropdownLabel != null) subjectDropdownLabel.text = "Corpse to Desecrate/Loot:";
-            // Search dead corpses in scene
-            var allHealths = FindObjectsByType<TargetHealth>(FindObjectsInactive.Exclude, FindObjectsSortMode.None);
-            foreach (var h in allHealths)
-            {
-                if (h.isCorpse.Value || h.CurrentHealth <= 0)
-                {
-                    options.Add(h.gameObject.name.Replace("(Clone)", ""));
-                }
-            }
-            if (options.Count == 0) options.Add("No corpses discovered");
-        }
-
-        subjectDropdown.AddOptions(options);
-    }
-
-    // =========================================================================
-    //  Dispatch Deal
+    //  Deal Validation & Dispatch
     // =========================================================================
 
     public void OnSendDealClicked()
     {
         if (NetworkManager.Singleton == null) return;
+
         if (_livingPlayerIds.Count == 0)
         {
+            ShowError("NO INVESTIGATORS", "There are no living investigators available to receive a dark pact.");
+            return;
+        }
+
+        int selectedIdx = playerSelector != null ? playerSelector.index : 0;
+        if (selectedIdx < 0 || selectedIdx >= _livingPlayerIds.Count)
+        {
+            ShowError("INVALID TARGET", "Please select a valid living investigator.");
+            return;
+        }
+
+        ulong targetRecipientId = _livingPlayerIds[selectedIdx];
+        string targetPlayerName = playerSelector != null && playerSelector.items.Count > selectedIdx
+            ? playerSelector.items[selectedIdx].itemTitle
+            : $"Investigator {targetRecipientId}";
+
+        // 1. Read input values
+        int rewardAmount = rewardSlider != null && rewardSlider.mainSlider != null
+            ? Mathf.RoundToInt(rewardSlider.mainSlider.value)
+            : 30;
+
+        int penaltyAmount = penaltySlider != null && penaltySlider.mainSlider != null
+            ? Mathf.RoundToInt(penaltySlider.mainSlider.value)
+            : 15;
+
+        int completionTime = timeSlider != null && timeSlider.mainSlider != null
+            ? Mathf.RoundToInt(timeSlider.mainSlider.value)
+            : 120;
+
+        // 2. Validate Rule 1: Reward cannot exceed 60% of Girl's total credit amount
+        int girlCredits = GetGirlTotalCredits();
+        int maxAllowedReward = Mathf.FloorToInt(girlCredits * 0.60f);
+
+        if (rewardAmount > maxAllowedReward)
+        {
+            ShowError("REWARD TOO HIGH", 
+                $"The reward amount ({rewardAmount} credits) cannot exceed 60% of your total credit balance ({maxAllowedReward} credits).\n\nYour Total Credits: {girlCredits}");
+            return;
+        }
+
+        // 3. Validate Rule 2: Penalty cannot exceed 50% of the reward amount
+        int maxAllowedPenalty = Mathf.FloorToInt(rewardAmount * 0.50f);
+
+        if (penaltyAmount > maxAllowedPenalty)
+        {
+            ShowError("PENALTY TOO HIGH", 
+                $"The credit penalty ({penaltyAmount} credits) cannot exceed 50% of the offered reward ({maxAllowedPenalty} credits).\n\nOffered Reward: {rewardAmount} credits");
+            return;
+        }
+
+        // 4. Validate Rule 3: Completion time must be between 30s and 180s (3 minutes)
+        if (completionTime < 30 || completionTime > 180)
+        {
+            ShowError("INVALID TIME LIMIT", 
+                $"The completion time ({completionTime}s) must be between 30 seconds and 3 minutes (180 seconds).");
+            return;
+        }
+
+        // All constraints passed! Dispatch deal
+        string dealTitle = !string.IsNullOrEmpty(_currentCardTitle) ? _currentCardTitle : "DARK PACT";
+        string dealTerms = !string.IsNullOrEmpty(_currentCardDesc) 
+            ? _currentCardDesc 
+            : $"Complete the objective before the timer expires.\nReward: {rewardAmount} Credits.\nPenalty on failure: -{penaltyAmount} Credits.";
+        string rewardStr = $"{rewardAmount} Credits";
+        bool grantWeapon = true;
+
+        if (DealSystemNet.Instance != null)
+        {
+            DealSystemNet.Instance.SendDeal(targetRecipientId, dealTitle, dealTerms, rewardStr, grantWeapon, completionTime, penaltyAmount);
+        }
+
+        if (NotificationManager.Instance != null)
+        {
+            NotificationManager.Instance.ShowNotification($"Dark Pact dispatched to {targetPlayerName} ({completionTime}s timer, {rewardAmount}cr reward)!", 3.5f);
+        }
+
+        // Close modals and panel
+        CloseDealModal();
+        CloseUI();
+    }
+
+    // =========================================================================
+    //  Error Modal Popup
+    // =========================================================================
+
+    public void ShowError(string title, string message)
+    {
+        if (errorModal == null)
+        {
+            Debug.LogError($"[GirlDealUI] Error: {title} - {message}");
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification("No living investigators available to receive pact!", 3f);
+                NotificationManager.Instance.ShowNotification($"<color=#E74C3C>{title}:</color> {message}", 4f);
             }
             return;
         }
 
-        int recipientIdx = recipientDropdown != null ? recipientDropdown.value : 0;
-        if (recipientIdx < 0 || recipientIdx >= _livingPlayerIds.Count) return;
+        if (errorTitleText != null) errorTitleText.text = title.ToUpper();
+        if (errorDescriptionText != null) errorDescriptionText.text = message;
 
-        ulong targetRecipientId = _livingPlayerIds[recipientIdx];
+        errorModal.titleText = title.ToUpper();
+        errorModal.descriptionText = message;
+        errorModal.useLocalization = false;
+        errorModal.OpenWindow();
+    }
 
-        string title = "DARK PACT";
-        string terms = "";
-        string reward = grantWeaponToggle != null && grantWeaponToggle.isOn ? "Melee Pickaxe / Weapon" : "Immunity";
-        bool grantWeapon = grantWeaponToggle != null ? grantWeaponToggle.isOn : true;
-
-        string subjectName = "a teammate";
-        if (subjectDropdown != null && subjectDropdown.options.Count > 0)
+    private int GetGirlTotalCredits()
+    {
+        if (CloudCharacterSaveManager.Instance != null)
         {
-            int subIdx = Mathf.Clamp(subjectDropdown.value, 0, subjectDropdown.options.Count - 1);
-            subjectName = subjectDropdown.options[subIdx].text;
+            return CloudCharacterSaveManager.Instance.GetCredits();
         }
+        return 500; // Safe fallback for testing if offline
+    }
 
-        switch (_selectedCard)
-        {
-            case PactCardType.KillPlayer:
-                title = $"BLOOD PACT: Eliminate {subjectName}";
-                terms = $"Eliminate your fellow investigator '{subjectName}' before the timer expires.\nReward: Melee Axe Weapon.";
-                break;
+    private void SanitizeModal(ModalWindowManager modal)
+    {
+        if (modal == null) return;
 
-            case PactCardType.LootCorpse:
-                title = $"GRAVE ROBBER: Loot {subjectName}";
-                terms = $"Locate and loot all supplies from the corpse of '{subjectName}' before the timer expires.";
-                break;
+        modal.useLocalization = false;
+        modal.closeOnCancel = true;
+        modal.closeOnConfirm = true;
 
-            case PactCardType.ManipulateSquad:
-                title = "THE BETRAYER: Mislead the Squad";
-                string termsInput = MichskyUIBridge.GetInputText(customTermsInput, heatCustomTermsInput);
-                string extraTerms = !string.IsNullOrEmpty(termsInput) ? termsInput : "Separate from your squad and guide them away from the ritual site.";
-                terms = $"{extraTerms}";
-                break;
-
-            case PactCardType.LeadToShadows:
-                title = "DARK GUIDE: Lure into the Deep";
-                terms = "Guide investigators into the unlit tunnels of the mine.";
-                break;
-
-            case PactCardType.CustomPact:
-                string customT = MichskyUIBridge.GetInputText(customTitleInput, heatCustomTitleInput);
-                title = !string.IsNullOrEmpty(customT) ? customT : "CUSTOM PACT";
-                terms = MichskyUIBridge.GetInputText(customTermsInput, heatCustomTermsInput);
-                break;
-        }
-
-        // Clamp time limit strictly between 60s and 180s
-        int clampedTime = Mathf.Clamp(_selectedTimeLimit, 60, 180);
-
-        if (DealSystemNet.Instance != null)
-        {
-            DealSystemNet.Instance.SendDeal(targetRecipientId, title, terms, reward, grantWeapon, clampedTime, PENALTY_CREDITS);
-        }
-
-        string recipientName = recipientDropdown.options[recipientIdx].text;
-        if (NotificationManager.Instance != null)
-        {
-            NotificationManager.Instance.ShowNotification($"Dark Pact dispatched to {recipientName} with {clampedTime}s timer!", 3.5f);
-        }
-
-        CloseUI();
+        // Remove any ExitGame listeners from onConfirm
+        modal.onConfirm.RemoveAllListeners();
     }
 }

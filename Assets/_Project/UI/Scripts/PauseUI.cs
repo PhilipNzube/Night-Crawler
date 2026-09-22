@@ -1,112 +1,90 @@
 using System.Collections;
 using UnityEngine;
-using UnityEngine.UI;
 using Unity.Netcode;
 using Michsky.UI.Heat;
-using NightCrawler.UI;
 
 /// <summary>
-/// SOLID — SRP: Controls the In-Game Pause UI using the SlimUI Modern Menu prefab.
-/// Also supports Michsky Heat & Dark UI components.
+/// Controls the In-Game Pause UI using Heat UI components.
+/// Handles panel transitions (Pause Menu <-> Settings), background fading,
+/// exit confirmation modal, and multiplayer disconnect routine.
 /// </summary>
 public class PauseUI : MonoBehaviour
 {
-    [Header("SlimUI Root (the whole prefab)")]
-    [Tooltip("The root GameObject of your SlimUI Canvas_DefaultTemplate1 prefab. " +
-             "This entire object is enabled/disabled when pausing.")]
-    public GameObject pauseRootPanel;
+    [Header("Heat UI Core")]
+    [Tooltip("The root Pause Canvas GameObject. Automatically uses this gameObject if unassigned.")]
+    public GameObject pauseCanvas;
 
-    [Header("SlimUI Menu GameObjects — match names exactly from the prefab hierarchy")]
-    [Tooltip("SlimUI 'mainMenu' — the parent that wraps all button panels.")]
-    public GameObject mainMenu;
+    [Tooltip("PanelManager on Main Content that manages panel switching between Pause Menu and Settings.")]
+    public PanelManager panelManager;
 
-    [Tooltip("SlimUI 'firstMenu' — the initial list of buttons (Resume, Settings, Exit).")]
-    public GameObject firstMenu;
+    [Tooltip("The panel name of the Pause Menu buttons in PanelManager (default: 'PauseMenu').")]
+    public string pausePanelName = "PauseMenu";
 
-    [Tooltip("SlimUI 'exitMenu' — the Are You Sure quit/disconnect confirmation popup.")]
-    public GameObject exitMenu;
+    [Tooltip("The panel name of the Settings panel in PanelManager (default: 'Settings').")]
+    public string settingsPanelName = "Settings";
 
-    [Header("Settings Panel (our SettingsUI — not SlimUI's native settings)")]
-    [Tooltip("A separate GameObject in the scene that holds the SettingsUI component. " +
-             "It is shown/hidden independently of SlimUI panels.")]
-    public SettingsUI settingsUI;
+    [Tooltip("The ImageFading component on Background to smoothly fade in/out when pausing.")]
+    public ImageFading backgroundFader;
 
-    [Header("SlimUI Camera Animator")]
-    [Tooltip("The Animator component on the SlimUI Canvas root. " +
-             "SlimUI uses SetFloat('Animate', 1) to move the camera to position 2 (Settings). " +
-             "We reuse this same animation to move to the pause camera view.")]
-    public Animator slimUIAnimator;
+    [Header("Heat UI Pause Buttons (PanelButton)")]
+    [Tooltip("The Resume button (PanelButton on Btn_Resume).")]
+    public PanelButton resumeButton;
 
-    [Header("Pause Buttons — wire to SlimUI button OnClick events")]
-    [Tooltip("Resume button — drag SlimUI's Resume/Play button here.")]
-    public Button resumeButton;
+    [Tooltip("The Settings button (PanelButton on Btn_Settings).")]
+    public PanelButton settingsButton;
 
-    [Tooltip("Settings button — drag SlimUI's Settings button here.")]
-    public Button settingsButton;
+    [Tooltip("The Exit button (PanelButton on Btn_Exit).")]
+    public PanelButton exitButton;
 
-    [Tooltip("Exit/Disconnect button — drag SlimUI's Exit button here.")]
-    public Button disconnectButton;
+    [Header("Alternate Button Managers (Optional fallback)")]
+    public ButtonManager altResumeButton;
+    public ButtonManager altSettingsButton;
+    public ButtonManager altExitButton;
 
-    [Header("Exit Dialog Buttons — inside SlimUI's exitMenu panel")]
-    [Tooltip("'Yes' button inside exitMenu.")]
-    public Button confirmDisconnectButton;
-
-    [Tooltip("'No' button inside exitMenu.")]
-    public Button cancelDisconnectButton;
-
-    [Header("Michsky Heat / Dark UI Components")]
-    public ButtonManager heatResumeButton;
-    public BoxButtonManager heatBoxResumeButton;
-    public GameObject heatResumeButtonObject;
-
-    public ButtonManager heatSettingsButton;
-    public BoxButtonManager heatBoxSettingsButton;
-    public GameObject heatSettingsButtonObject;
-
-    public ButtonManager heatDisconnectButton;
-    public BoxButtonManager heatBoxDisconnectButton;
-    public GameObject heatDisconnectButtonObject;
-
-    public ButtonManager heatConfirmDisconnectButton;
-    public BoxButtonManager heatBoxConfirmDisconnectButton;
-    public GameObject heatConfirmDisconnectButtonObject;
-
-    public ButtonManager heatCancelDisconnectButton;
-    public BoxButtonManager heatBoxCancelDisconnectButton;
-    public GameObject heatCancelDisconnectButtonObject;
-
-    public ModalWindowManager heatExitModal;
-
-    [Header("SlimUI Audio SFX")]
-    [Tooltip("AudioSource for hover SFX — found on SlimUI Manager as 'hoverSound'.")]
-    public AudioSource hoverSound;
-
-    [Tooltip("AudioSource for swoosh SFX — found on SlimUI Manager as 'swooshSound'.")]
-    public AudioSource swooshSound;
+    [Header("Heat UI Exit Modal Window")]
+    [Tooltip("The Exit Confirmation Modal Window (ModalWindowManager).")]
+    public ModalWindowManager exitModal;
 
     // -------------------------------------------------------------------------
     //  State helpers for PauseManager ESC navigation
     // -------------------------------------------------------------------------
-    public bool IsSettingsOpen    => settingsUI != null && settingsUI.IsSettingsOpen;
-    public bool IsExitDialogOpen  => exitMenu   != null && exitMenu.activeSelf;
+    public bool IsSettingsOpen => panelManager != null && panelManager.panels.Count > panelManager.currentPanelIndex
+                               && panelManager.panels[panelManager.currentPanelIndex].panelName == settingsPanelName;
+
+    public bool IsExitDialogOpen => exitModal != null && exitModal.isOn;
 
     private PauseManager _pauseManager;
 
-    // =========================================================================
-    //  Unity Lifecycle
-    // =========================================================================
+    private void Awake()
+    {
+        if (pauseCanvas == null)
+            pauseCanvas = gameObject;
+    }
+
     private void Start()
     {
         _pauseManager = FindFirstObjectByType<PauseManager>();
 
-        MichskyUIBridge.BindAnyButton(OnResumePressed, resumeButton, heatResumeButton, heatBoxResumeButton, heatResumeButtonObject);
-        MichskyUIBridge.BindAnyButton(OnSettingsPressed, settingsButton, heatSettingsButton, heatBoxSettingsButton, heatSettingsButtonObject);
-        MichskyUIBridge.BindAnyButton(OnDisconnectPressed, disconnectButton, heatDisconnectButton, heatBoxDisconnectButton, heatDisconnectButtonObject);
-        MichskyUIBridge.BindAnyButton(ConfirmDisconnect, confirmDisconnectButton, heatConfirmDisconnectButton, heatBoxConfirmDisconnectButton, heatConfirmDisconnectButtonObject);
-        MichskyUIBridge.BindAnyButton(CloseExitDialog, cancelDisconnectButton, heatCancelDisconnectButton, heatBoxCancelDisconnectButton, heatCancelDisconnectButtonObject);
+        BindButton(OnResumePressed, resumeButton, altResumeButton);
+        BindButton(OnSettingsPressed, settingsButton, altSettingsButton);
+        BindButton(OnExitPressed, exitButton, altExitButton);
+
+        if (exitModal != null)
+        {
+            exitModal.onConfirm.AddListener(ConfirmDisconnect);
+            exitModal.onCancel.AddListener(CloseExitDialog);
+        }
 
         // Start hidden
         HidePauseMenu();
+    }
+
+    private void BindButton(System.Action callback, PanelButton panelBtn, ButtonManager btnMgr)
+    {
+        if (panelBtn != null)
+            panelBtn.onClick.AddListener(() => callback());
+        if (btnMgr != null)
+            btnMgr.onClick.AddListener(() => callback());
     }
 
     // =========================================================================
@@ -114,49 +92,30 @@ public class PauseUI : MonoBehaviour
     // =========================================================================
     public void ShowPauseMenu()
     {
-        if (pauseRootPanel != null) pauseRootPanel.SetActive(true);
-        if (mainMenu != null)  mainMenu.SetActive(true);
-        if (firstMenu != null) firstMenu.SetActive(true);
-        if (exitMenu  != null) exitMenu.SetActive(false);
-
-        if (settingsUI != null) settingsUI.HideSettings();
-
-        // Trigger the SlimUI camera animation to move to position 1 (main menu / pause view)
-        if (slimUIAnimator != null)
-            slimUIAnimator.SetFloat("Animate", 0f);
+        if (pauseCanvas != null) pauseCanvas.SetActive(true);
+        if (backgroundFader != null) backgroundFader.FadeIn();
+        if (panelManager != null) panelManager.OpenPanel(pausePanelName);
     }
 
     public void HidePauseMenu()
     {
-        if (pauseRootPanel != null) pauseRootPanel.SetActive(false);
-        if (mainMenu  != null) mainMenu.SetActive(false);
-        if (firstMenu != null) firstMenu.SetActive(false);
-        if (exitMenu  != null) exitMenu.SetActive(false);
-        if (heatExitModal != null) heatExitModal.CloseWindow();
-
-        if (settingsUI != null) settingsUI.HideSettings();
+        if (backgroundFader != null) backgroundFader.FadeOut();
+        if (exitModal != null && exitModal.isOn) exitModal.CloseWindow();
+        if (panelManager != null) panelManager.HideCurrentPanel();
     }
 
     public void CloseSettings()
     {
-        if (settingsUI != null) settingsUI.HideSettings();
-        if (firstMenu  != null) firstMenu.SetActive(true);
-        PlaySwooshSFX();
-
-        // Return SlimUI camera to the main button list position
-        if (slimUIAnimator != null)
-            slimUIAnimator.SetFloat("Animate", 0f);
+        if (panelManager != null) panelManager.OpenPanel(pausePanelName);
     }
 
     public void CloseExitDialog()
     {
-        if (heatExitModal != null) heatExitModal.CloseWindow();
-        if (exitMenu  != null) exitMenu.SetActive(false);
-        if (firstMenu != null) firstMenu.SetActive(true);
+        if (exitModal != null && exitModal.isOn) exitModal.CloseWindow();
     }
 
     // =========================================================================
-    //  Button Handlers (wire to SlimUI button OnClick events in Inspector)
+    //  Button Handlers
     // =========================================================================
     public void OnResumePressed()
     {
@@ -168,44 +127,24 @@ public class PauseUI : MonoBehaviour
 
     public void OnSettingsPressed()
     {
-        PlaySwooshSFX();
-        if (firstMenu != null) firstMenu.SetActive(false);
-
-        // Trigger SlimUI camera anim — same "Animate" = 1 SlimUI uses for settings camera swing
-        if (slimUIAnimator != null)
-            slimUIAnimator.SetFloat("Animate", 1f);
-
-        if (settingsUI != null) settingsUI.ShowSettings();
+        if (panelManager != null)
+            panelManager.OpenPanel(settingsPanelName);
     }
 
-    public void OnDisconnectPressed()
+    public void OnExitPressed()
     {
-        PlayHoverSFX();
-        if (heatExitModal != null)
-        {
-            if (firstMenu != null) firstMenu.SetActive(false);
-            heatExitModal.OpenWindow();
-        }
-        else if (exitMenu  != null)
-        {
-            if (firstMenu != null) firstMenu.SetActive(false);
-            exitMenu.SetActive(true);
-        }
+        if (exitModal != null)
+            exitModal.OpenWindow();
         else
-        {
             ConfirmDisconnect();
-        }
     }
 
     public void ConfirmDisconnect()
     {
-        // Unpause time scale & restore cursor
         Time.timeScale = 1f;
-
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
 
-        // Start coroutine on GameManager or this object BEFORE modifying pause UI
         if (GameManager.Instance != null && GameManager.Instance.gameObject.activeInHierarchy)
         {
             GameManager.Instance.StartCoroutine(DisconnectRoutine());
@@ -218,9 +157,7 @@ public class PauseUI : MonoBehaviour
 
     private IEnumerator DisconnectRoutine()
     {
-        // Hide pause menu panels visually
-        if (firstMenu != null) firstMenu.SetActive(false);
-        if (exitMenu != null) exitMenu.SetActive(false);
+        if (panelManager != null) panelManager.HideCurrentPanel();
 
         if (NetworkManager.Singleton != null)
         {
@@ -234,7 +171,6 @@ public class PauseUI : MonoBehaviour
                 {
                     Debug.LogWarning($"[PauseUI] Broadcast error: {ex.Message}");
                 }
-                // Brief pause so transport flushes the RPC packet to clients before server teardown
                 yield return new WaitForSecondsRealtime(0.15f);
             }
 
@@ -244,7 +180,7 @@ public class PauseUI : MonoBehaviour
             }
             catch (System.Exception ex)
             {
-                Debug.LogWarning($"[PauseUI] Shutdown exception (handled): {ex.Message}");
+                Debug.LogWarning($"[PauseUI] Shutdown exception: {ex.Message}");
             }
         }
 
@@ -259,18 +195,5 @@ public class PauseUI : MonoBehaviour
             LoadingScreen.TargetSceneToLoad = "LobbyScene";
             UnityEngine.SceneManagement.SceneManager.LoadScene("LoadingScene");
         }
-    }
-
-    // =========================================================================
-    //  SFX
-    // =========================================================================
-    public void PlayHoverSFX()
-    {
-        if (hoverSound != null) hoverSound.Play();
-    }
-
-    public void PlaySwooshSFX()
-    {
-        if (swooshSound != null) swooshSound.Play();
     }
 }

@@ -45,6 +45,12 @@ public class DeathUI : MonoBehaviour
     [Tooltip("Optional prompt element on death screen showing '[SPACE / CLICK] Spectate Survivors'.")]
     public TMP_Text spectatePromptText;
 
+    [Tooltip("Optional Heat UI Hotkey Indicator or GameObject for the spectate prompt.")]
+    public GameObject spectatePromptObject;
+
+    [Tooltip("Optional Michsky Heat HotkeyEvent component for the spectate prompt.")]
+    public Michsky.UI.Heat.HotkeyEvent heatSpectateHotkey;
+
     [Header("Michsky Heat / Dark UI")]
     [Tooltip("Optional: ModalWindowManager to display death screen dialog.")]
     public Michsky.UI.Heat.ModalWindowManager heatModalWindow;
@@ -77,6 +83,7 @@ public class DeathUI : MonoBehaviour
     private Coroutine _allyBannerCoroutine;
     private string _lastAlertMessage = "";
     private float _lastAlertTime = -999f;
+    private bool _skipRequested = false;
 
     private void Awake()
     {
@@ -86,6 +93,11 @@ public class DeathUI : MonoBehaviour
             return;
         }
         Instance = this;
+
+        if (heatSpectateHotkey != null)
+        {
+            heatSpectateHotkey.onHotkeyPress.AddListener(RequestSkipToSpectator);
+        }
 
         // Hide death screen initially
         if (deathCanvasGroup != null)
@@ -163,7 +175,13 @@ public class DeathUI : MonoBehaviour
 
         NightCrawler.UI.MichskyUIBridge.OpenModal(heatModalWindow);
 
-        if (spectatePromptText != null)
+        _skipRequested = false;
+        if (spectatePromptObject != null)
+        {
+            spectatePromptObject.SetActive(true);
+            if (subtitleText != null) subtitleText.text = subtitle;
+        }
+        else if (spectatePromptText != null)
         {
             if (subtitleText != null) subtitleText.text = subtitle;
             spectatePromptText.gameObject.SetActive(true);
@@ -189,6 +207,11 @@ public class DeathUI : MonoBehaviour
             _fadeCoroutine = null;
         }
 
+        if (spectatePromptObject != null)
+        {
+            spectatePromptObject.SetActive(false);
+        }
+
         if (spectatePromptText != null)
         {
             spectatePromptText.gameObject.SetActive(false);
@@ -209,6 +232,11 @@ public class DeathUI : MonoBehaviour
         NightCrawler.UI.MichskyUIBridge.CloseModal(heatModalWindow);
     }
 
+    public void RequestSkipToSpectator()
+    {
+        _skipRequested = true;
+    }
+
     private IEnumerator FadeInDeathScreenRoutine()
     {
         if (deathCanvasGroup == null) yield break;
@@ -226,11 +254,12 @@ public class DeathUI : MonoBehaviour
         }
         deathCanvasGroup.alpha = 1f;
 
-        // 2. Hold death screen for emotional weight (or allow player to skip immediately with Space/Click)
+        // 2. Hold death screen for emotional weight (or allow player to skip immediately with Space/Click/Button)
         float holdTimer = 2.5f;
         while (holdTimer > 0f)
         {
             holdTimer -= Time.deltaTime;
+            if (_skipRequested) break;
             if (UnityEngine.InputSystem.Keyboard.current != null && UnityEngine.InputSystem.Keyboard.current.anyKey.wasPressedThisFrame) break;
             if (UnityEngine.InputSystem.Mouse.current != null && UnityEngine.InputSystem.Mouse.current.leftButton.wasPressedThisFrame) break;
             yield return null;
