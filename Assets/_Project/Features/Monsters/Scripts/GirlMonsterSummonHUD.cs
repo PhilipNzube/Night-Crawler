@@ -276,12 +276,12 @@ namespace NightCrawler.Monsters
             {
                 var def = monsters[index];
                 if (monsterDescText != null) monsterDescText.text = def.description;
-                if (dangerText != null) dangerText.text = $"Danger: {new string('★', def.dangerRating)}";
+                if (dangerText != null) dangerText.text = $"Danger: {def.dangerRating}/5";
             }
             else
             {
                 if (monsterDescText != null) monsterDescText.text = "A terrifying subterranean abomination that hunts the investigators.";
-                if (dangerText != null) dangerText.text = "Danger: ★★★☆☆";
+                if (dangerText != null) dangerText.text = "Danger: 3/5";
             }
 
             // Update card highlights

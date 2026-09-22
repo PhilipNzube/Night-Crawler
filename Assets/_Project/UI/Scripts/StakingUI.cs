@@ -163,9 +163,9 @@ namespace NightCrawler.UI
 
             if (confirmButtonText != null)
             {
-                confirmButtonText.text = "STAKE LOCKED ✓";
+                confirmButtonText.text = "STAKE LOCKED";
             }
-            MichskyUIBridge.SetAnyButtonText("STAKE LOCKED ✓", confirmStakeButton, heatConfirmStakeButton, heatBoxConfirmStakeButton, heatConfirmStakeButtonObject);
+            MichskyUIBridge.SetAnyButtonText("STAKE LOCKED", confirmStakeButton, heatConfirmStakeButton, heatBoxConfirmStakeButton, heatConfirmStakeButtonObject);
 
             if (NotificationManager.Instance != null)
             {

@@ -145,7 +145,7 @@ public class GirlMaterialController : NetworkBehaviour
                         if (_manifestTimerRoutine != null) StopCoroutine(_manifestTimerRoutine);
                         _manifestTimerRoutine = StartCoroutine(ManifestationTimerRoutine(_manifestDurationSeconds));
 
-                        string statusMsg = $"[MANIFESTATION] Visible for {_manifestDurationSeconds:0}s! ({_remainingManifestCharges} charges left)";
+                        string statusMsg = $"Manifestation active: Visible for {_manifestDurationSeconds:0}s! ({_remainingManifestCharges} charges left)";
                         if (NotificationManager.Instance != null)
                         {
                             NotificationManager.Instance.ShowNotification(statusMsg, 2.5f);
@@ -157,7 +157,7 @@ public class GirlMaterialController : NetworkBehaviour
                         SetManifested(false);
                         if (NotificationManager.Instance != null)
                         {
-                            NotificationManager.Instance.ShowNotification("[SPIRIT FORM] Returned to shadows.", 2f);
+                            NotificationManager.Instance.ShowNotification("Returned to shadows.", 2f);
                         }
                     }
                 }
@@ -193,7 +193,7 @@ public class GirlMaterialController : NetworkBehaviour
         SetManifested(false);
         if (IsOwner && NotificationManager.Instance != null)
         {
-            NotificationManager.Instance.ShowNotification("[SPIRIT FORM] Manifestation ended. You are invisible.", 2f);
+            NotificationManager.Instance.ShowNotification("Manifestation ended. You are invisible.", 2f);
         }
     }
 

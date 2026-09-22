@@ -154,7 +154,7 @@ public class HostDisconnectUI : MonoBehaviour
         // 1. Send alert into AllyBanner feed
         if (DeathUI.Instance != null)
         {
-            DeathUI.Instance.AddAllyAlertEntry("[VICTORY] The Vengeful Spirit has fled. Investigators survive!", new Color(0f, 0.9f, 0.45f, 1f));
+            DeathUI.Instance.AddAllyAlertEntry("The Vengeful Spirit has fled. Investigators survive!", new Color(0f, 0.9f, 0.45f, 1f));
         }
 
         // 2. Unlock cursor
@@ -235,7 +235,7 @@ public class HostDisconnectUI : MonoBehaviour
         // 1. Send alert into AllyBanner feed
         if (DeathUI.Instance != null)
         {
-            DeathUI.Instance.AddAllyAlertEntry("[HOST DISCONNECTED] The Host has left the match.", new Color(0.95f, 0.6f, 0.15f, 1f));
+            DeathUI.Instance.AddAllyAlertEntry("The Host has left the match.", new Color(0.95f, 0.6f, 0.15f, 1f));
         }
 
         // 2. Unlock cursor so user is not trapped in locked mouse mode

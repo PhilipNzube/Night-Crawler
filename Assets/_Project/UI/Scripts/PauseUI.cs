@@ -82,6 +82,16 @@ public class PauseUI : MonoBehaviour
             exitModal.onCancel.AddListener(CloseExitDialog);
         }
 
+        // Disable any HotkeyEvent components inside pause canvas to prevent conflicts with PauseManager
+        if (pauseCanvas != null)
+        {
+            var hotkeys = pauseCanvas.GetComponentsInChildren<HotkeyEvent>(true);
+            for (int i = 0; i < hotkeys.Length; i++)
+            {
+                if (hotkeys[i] != null) hotkeys[i].enabled = false;
+            }
+        }
+
         // Start completely hidden and disabled
         SetCanvasState(false);
     }
@@ -101,6 +111,16 @@ public class PauseUI : MonoBehaviour
     {
         StopAllCoroutines();
         SetCanvasState(true);
+
+        // Disable any HotkeyEvent components inside pause canvas to prevent them from hijacking ESC and immediately closing the menu
+        if (pauseCanvas != null)
+        {
+            var hotkeys = pauseCanvas.GetComponentsInChildren<HotkeyEvent>(true);
+            for (int i = 0; i < hotkeys.Length; i++)
+            {
+                if (hotkeys[i] != null) hotkeys[i].enabled = false;
+            }
+        }
 
         if (backgroundFader != null) backgroundFader.FadeIn();
 

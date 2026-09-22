@@ -3,7 +3,7 @@ using TMPro;
 
 /// <summary>
 /// SOLID — SRP: Renders full-screen blackout and the chilling message
-/// "Let me take the wheel for a sec☠️" when the player's character is possessed by the Girl.
+/// "Let me take the wheel for a sec" when the player's character is possessed by the Girl.
 /// </summary>
 public class PossessionBlackoutOverlay : MonoBehaviour
 {
@@ -75,7 +75,7 @@ public class PossessionBlackoutOverlay : MonoBehaviour
                 float remaining = Mathf.Max(0f, _rejectionWindowEndTime - Time.time);
                 if (remaining > 0f)
                 {
-                    string promptStr = $"[PRIEST WARD] Press [R] to PURGE SPIRIT & REJECT ({remaining:F1}s)";
+                    string promptStr = $"Press R to purge spirit & reject ({remaining:F1}s)";
                     if (rejectPromptText != null)
                     {
                         rejectPromptText.text = promptStr;
@@ -101,7 +101,7 @@ public class PossessionBlackoutOverlay : MonoBehaviour
     {
         _isRejectionActive = true;
         _rejectionWindowEndTime = Time.time + durationSeconds;
-        string promptStr = $"[PRIEST WARD] Press [R] to PURGE SPIRIT & REJECT ({durationSeconds:F1}s)";
+        string promptStr = $"Press R to purge spirit & reject ({durationSeconds:F1}s)";
         if (rejectPromptText != null)
         {
             rejectPromptText.gameObject.SetActive(true);

@@ -35,7 +35,7 @@ public class NotificationManager : MonoBehaviour
     [Tooltip("Text component to show the message body.")]
     public TMP_Text notificationText;
 
-    [Tooltip("Optional badge or title text (e.g. '[HAZARD WARNING]'). Generated dynamically if null.")]
+    [Tooltip("Optional badge or title text (e.g. 'HAZARD WARNING'). Generated dynamically if null.")]
     public TMP_Text categoryBadgeText;
 
     [Tooltip("Panel or CanvasGroup containing the notification.")]
@@ -102,8 +102,8 @@ public class NotificationManager : MonoBehaviour
     public void ShowHazardWarning(string message, float duration = 5.5f)
     {
         Color hazardColor = new Color(1f, 0.72f, 0.1f, 1f); // Toxic Amber
-        string formatted = $"[HAZARD] {message}";
-        ShowStyledWarning("[ENVIRONMENT HAZARD]", formatted, hazardColor, duration, hazardSound ?? notificationSound, isPulsing: false);
+        string formatted = message;
+        ShowStyledWarning("HAZARD", formatted, hazardColor, duration, hazardSound ?? notificationSound, isPulsing: false);
     }
 
     /// <summary>
@@ -112,8 +112,8 @@ public class NotificationManager : MonoBehaviour
     public void ShowCriticalHealthWarning(float currentHp, float maxHp, float duration = 4.5f)
     {
         Color criticalColor = new Color(0.95f, 0.15f, 0.15f, 1f); // Crimson Red
-        string formatted = $"[CRITICAL] Vital signs failing! Health: {currentHp:F0}/{maxHp:F0} HP. Use healing vial or seek Field Medic!";
-        ShowStyledWarning("[CRITICAL: LOW HEALTH]", formatted, criticalColor, duration, criticalHealthSound ?? notificationSound, isPulsing: true);
+        string formatted = $"Vital signs failing! Health: {currentHp:F0}/{maxHp:F0} HP. Use healing vial or seek Field Medic!";
+        ShowStyledWarning("CRITICAL: LOW HEALTH", formatted, criticalColor, duration, criticalHealthSound ?? notificationSound, isPulsing: true);
     }
 
     /// <summary>
@@ -123,8 +123,8 @@ public class NotificationManager : MonoBehaviour
     {
         Color healColor = new Color(0.15f, 0.92f, 0.45f, 1f); // Emerald Green
         string baseMsg = !string.IsNullOrEmpty(message) ? message : $"Healing vial administered (+{healAmount:F0} HP)! Vitals stabilized.";
-        string formatted = $"[RESTORED] {baseMsg}";
-        ShowStyledWarning("[VITAL SIGNS RESTORED]", formatted, healColor, duration, healRestoredSound ?? notificationSound, isPulsing: false);
+        string formatted = baseMsg;
+        ShowStyledWarning("VITAL SIGNS RESTORED", formatted, healColor, duration, healRestoredSound ?? notificationSound, isPulsing: false);
     }
 
     /// <summary>
@@ -133,7 +133,7 @@ public class NotificationManager : MonoBehaviour
     public void ShowNotification(string message, float duration = 4f)
     {
         string formatted = message;
-        ShowStyledWarning("[STATUS NOTICE]", formatted, new Color(0.3f, 0.8f, 1f, 1f), duration, notificationSound, isPulsing: false);
+        ShowStyledWarning("NOTICE", formatted, new Color(0.3f, 0.8f, 1f, 1f), duration, notificationSound, isPulsing: false);
     }
 
     public void ShowStyledWarning(string badge, string message, Color accentColor, float duration, AudioClip sound = null, bool isPulsing = false)

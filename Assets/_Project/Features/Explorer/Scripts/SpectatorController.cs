@@ -461,7 +461,7 @@ public class SpectatorController : MonoBehaviour
             _currentTarget.isCorpse.Value || _currentTarget.CurrentHealth <= 0)
         {
             string fallenName = _currentTarget != null ? GetPlayerName(_currentTarget) : "Survivor";
-            ShowToast($"● {fallenName} HAS FALLEN!\n<size=80%>Switching camera...</size>", new Color(1f, 0.3f, 0.3f, 1f));
+            ShowToast($"{fallenName} HAS FALLEN!\n<size=80%>Switching camera...</size>", new Color(1f, 0.3f, 0.3f, 1f));
 
             RefreshAliveTargets();
             if (_aliveTargets.Count > 0)
@@ -640,7 +640,7 @@ public class SpectatorController : MonoBehaviour
 
             if (_targetNameText != null)
             {
-                _targetNameText.text = $"● <b>{pName.ToUpper()}</b>";
+                _targetNameText.text = $"<b>{pName.ToUpper()}</b>";
             }
             if (_roleBadgeText != null)
             {
@@ -669,7 +669,7 @@ public class SpectatorController : MonoBehaviour
         {
             if (_targetNameText != null)
             {
-                _targetNameText.text = "● ALL SURVIVORS HAVE FALLEN";
+                _targetNameText.text = "ALL SURVIVORS HAVE FALLEN";
             }
             if (_roleBadgeText != null) _roleBadgeText.text = "";
             if (_healthReadoutText != null) _healthReadoutText.text = "Awaiting match outcome...";
@@ -858,7 +858,7 @@ public class SpectatorController : MonoBehaviour
         _targetNameText.fontSize = 22f;
         _targetNameText.color = Color.white;
         _targetNameText.alignment = TextAlignmentOptions.MidlineLeft;
-        _targetNameText.text = "● <b>SPECTATING</b>";
+        _targetNameText.text = "<b>SPECTATING</b>";
 
         // Role Badge
         var roleObj = new GameObject("RoleBadgeText");
@@ -873,7 +873,7 @@ public class SpectatorController : MonoBehaviour
         _roleBadgeText.fontSize = 18f;
         _roleBadgeText.color = new Color(1f, 0.75f, 0.1f, 1f);
         _roleBadgeText.alignment = TextAlignmentOptions.MidlineRight;
-        _roleBadgeText.text = "[INVESTIGATOR]";
+        _roleBadgeText.text = "INVESTIGATOR";
 
         // Health Bar Background
         var hpBgObj = new GameObject("HealthBarBg");
@@ -982,7 +982,7 @@ public class SpectatorController : MonoBehaviour
         navTxt.fontSize = 16f;
         navTxt.color = Color.white;
         navTxt.alignment = TextAlignmentOptions.Center;
-        navTxt.text = "◄  [A / L-CLICK] PREV      <b>CYCLE SURVIVORS</b>      [D / R-CLICK] NEXT  ►";
+        navTxt.text = "<  [A / L-CLICK] PREV      <b>CYCLE SURVIVORS</b>      [D / R-CLICK] NEXT  >";
 
         var subPromptObj = new GameObject("SubPromptText");
         subPromptObj.transform.SetParent(bottomBarObj.transform, false);

@@ -341,7 +341,7 @@ public class CharacterSelectUI : MonoBehaviour
         {
             if (isValid)
             {
-                stakeErrorText.text = $"✓ Ready to stake {CurrencyConfig.Format(stake)}";
+                stakeErrorText.text = $"Ready to stake {CurrencyConfig.Format(stake)}";
                 stakeErrorText.gameObject.SetActive(true);
             }
             else

@@ -311,31 +311,31 @@ public class DeathUI : MonoBehaviour
 
     public void PostPlayerJoined(string playerName)
     {
-        AddAllyAlertEntry($"[JOIN] {playerName} has entered the match.", new Color(0.2f, 0.85f, 0.95f, 1f));
+        AddAllyAlertEntry($"{playerName} has entered the match.", new Color(0.2f, 0.85f, 0.95f, 1f));
     }
 
     public void PostPlayerLeft(string playerName, bool wasDead = false)
     {
         string desc = wasDead 
-            ? $"[LEAVE] {playerName} (Fallen) has left the match." 
-            : $"[LEAVE] {playerName} has left the match.";
+            ? $"{playerName} (Fallen) has left the match." 
+            : $"{playerName} has left the match.";
         AddAllyAlertEntry(desc, new Color(0.95f, 0.6f, 0.15f, 1f));
     }
 
     public void PostPlayerDied(string victimName)
     {
-        AddAllyAlertEntry($"[FALLEN] {victimName} has fallen.", new Color(0.95f, 0.2f, 0.2f, 1f));
+        AddAllyAlertEntry($"{victimName} has fallen.", new Color(0.95f, 0.2f, 0.2f, 1f));
     }
 
     public void PostDealResponse(string playerName, bool accepted)
     {
         if (accepted)
         {
-            AddAllyAlertEntry($"[DEAL ACCEPTED] {playerName} accepted your dark pact!", new Color(0.2f, 0.9f, 0.4f, 1f));
+            AddAllyAlertEntry($"{playerName} accepted your dark pact!", new Color(0.2f, 0.9f, 0.4f, 1f));
         }
         else
         {
-            AddAllyAlertEntry($"[DEAL DECLINED] {playerName} rejected your dark pact.", new Color(0.95f, 0.35f, 0.2f, 1f));
+            AddAllyAlertEntry($"{playerName} rejected your dark pact.", new Color(0.95f, 0.35f, 0.2f, 1f));
         }
     }
 

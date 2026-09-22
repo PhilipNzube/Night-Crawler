@@ -155,7 +155,7 @@ public class ProximityVoiceChatNet : NetworkBehaviour
 
         if (NotificationManager.Instance != null)
         {
-            NotificationManager.Instance.ShowNotification($"[VOICE ERROR] {errorMessage}", 5f);
+            NotificationManager.Instance.ShowNotification($"Voice Chat: {errorMessage}", 5f);
         }
     }
 

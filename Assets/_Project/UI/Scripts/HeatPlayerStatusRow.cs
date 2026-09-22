@@ -42,7 +42,7 @@ namespace NightCrawler.UI
         {
             if (playerNameText != null)
             {
-                playerNameText.text = isGirl ? $"{playerName} [SPIRIT]" : playerName;
+                playerNameText.text = isGirl ? $"{playerName} (Spirit)" : playerName;
             }
 
             if (playerLevelText != null)

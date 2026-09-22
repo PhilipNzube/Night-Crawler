@@ -47,8 +47,10 @@ public class PauseManager : MonoBehaviour
     // =========================================================================
     //  Private State
     // =========================================================================
-    private bool                  _isPaused    = false;
-    private bool                  _ready       = false; // true once references are resolved
+    private bool                  _isPaused       = false;
+    private bool                  _ready          = false; // true once references are resolved
+    private float                 _lastToggleTime = -1f;
+    private const float           ToggleCooldown  = 0.25f;
     private StarterAssetsInputs   _inputs;
     private ThirdPersonController _controller;
 
@@ -118,6 +120,9 @@ public class PauseManager : MonoBehaviour
     /// </summary>
     public void HandleEscapePress()
     {
+        if (Time.unscaledTime - _lastToggleTime < ToggleCooldown) return;
+        _lastToggleTime = Time.unscaledTime;
+
         if (pauseUI != null)
         {
             if (pauseUI.IsExitDialogOpen) { pauseUI.CloseExitDialog(); return; }

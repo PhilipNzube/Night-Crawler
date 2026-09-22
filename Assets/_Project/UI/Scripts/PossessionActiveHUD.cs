@@ -93,7 +93,7 @@ public class PossessionActiveHUD : MonoBehaviour
 
         if (victimNameText != null)
         {
-            victimNameText.text = $"[POSSESSING]: {victimName}";
+            victimNameText.text = $"Possessing: {victimName}";
         }
 
         if (exitPromptText != null)

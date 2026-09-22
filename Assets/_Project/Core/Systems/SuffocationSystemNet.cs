@@ -193,7 +193,7 @@ public class SuffocationSystemNet : NetworkBehaviour
         string timeStr = $"{minutes}m {seconds:00}s";
 
         string message = _isHazardSpecialist
-            ? $"[HAZARD FILTER ACTIVE] Toxic mine air detected. Reinforced respirator lifespan: {timeStr}."
+            ? $"Toxic mine air detected. Reinforced respirator lifespan: {timeStr}."
             : $"[WARNING: TOXIC ATMOSPHERE] Lethal mine air detected! Estimated survival: {timeStr} without medical treatment.";
 
         Debug.LogWarning($"[SuffocationSystemNet] {message}");
