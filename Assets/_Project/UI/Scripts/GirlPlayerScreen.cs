@@ -385,6 +385,10 @@ public class GirlPlayerScreen : MonoBehaviour
     {
         if (_readySent) return;
 
+        // ── Show loading screen immediately so the player doesn't see Unity freeze ──
+        if (LoadingScreen.Instance != null)
+            LoadingScreen.Instance.ShowImmediate();
+
         PersistentCharacterSelection.SetSavedMatchStake(stake);
         if (CloudCharacterSaveManager.Instance != null)
         {

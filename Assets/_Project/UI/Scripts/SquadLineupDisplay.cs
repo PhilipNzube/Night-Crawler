@@ -149,6 +149,11 @@ public class SquadLineupDisplay : MonoBehaviour
         {
             if (headerText != null)
                 headerText.text = $"ENTERING THE MINE IN {i}...";
+
+            // On the last second, snap loading screen up so players don't see the freeze
+            if (i == 1 && LoadingScreen.Instance != null)
+                LoadingScreen.Instance.ShowImmediate();
+
             yield return new WaitForSecondsRealtime(1f);
         }
 

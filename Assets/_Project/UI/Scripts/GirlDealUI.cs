@@ -65,6 +65,11 @@ public class GirlDealUI : MonoBehaviour
     private string _currentCardTitle = "DEAL PACT";
     private string _currentCardDesc = "";
     private bool _isOpen = false;
+    private float _lastToggleTime = -10f;
+    private const float ToggleCooldown = 0.25f;
+    // Cached once the local player is confirmed to be the Girl
+    private bool _isGirl = false;
+    private bool _girlChecked = false;
 
     private void Awake()
     {
@@ -141,13 +146,16 @@ public class GirlDealUI : MonoBehaviour
         if (Keyboard.current != null)
         {
             bool pressed = Keyboard.current[toggleKey].wasPressedThisFrame;
+            float now = Time.unscaledTime;
 
-            if (pressed && IsLocalPlayerGirl())
+            if (pressed && IsLocalPlayerGirl() && (now - _lastToggleTime) >= ToggleCooldown)
             {
+                _lastToggleTime = now;
                 ToggleUI();
             }
-            else if (_isOpen && Keyboard.current.escapeKey.wasPressedThisFrame)
+            else if (_isOpen && Keyboard.current.escapeKey.wasPressedThisFrame && (now - _lastToggleTime) >= ToggleCooldown)
             {
+                _lastToggleTime = now;
                 CloseUI();
             }
         }
@@ -164,18 +172,27 @@ public class GirlDealUI : MonoBehaviour
 
     private bool IsLocalPlayerGirl()
     {
+        // Return cached result once confirmed — avoids PlayerObject null on game start
+        if (_isGirl) return true;
+        // Once we've confirmed NOT the girl (and NetworkManager is ready), stop checking
+        if (_girlChecked) return false;
+
         if (NetworkManager.Singleton == null || NetworkManager.Singleton.LocalClient == null) return false;
         var playerObj = NetworkManager.Singleton.LocalClient.PlayerObject;
         if (playerObj == null) return false;
 
-        if (playerObj.TryGetComponent<GirlPossession>(out var possession) && possession.isPossessing.Value)
-        {
-            return false;
-        }
+        // NetworkManager is ready — do the definitive check
+        _girlChecked = true;
 
-        return playerObj.GetComponent<GirlStealth>() != null 
-            || playerObj.GetComponent<GirlMaterialController>() != null 
+        if (playerObj.TryGetComponent<GirlPossession>(out var possession) && possession.isPossessing.Value)
+            return false;
+
+        bool result = playerObj.GetComponent<GirlStealth>() != null
+            || playerObj.GetComponent<GirlMaterialController>() != null
             || playerObj.GetComponent<GirlPossession>() != null;
+
+        _isGirl = result; // Cache for all future frames
+        return result;
     }
 
     public void ToggleUI()
@@ -188,8 +205,7 @@ public class GirlDealUI : MonoBehaviour
     {
         _isOpen = false;
         SetVisible(false);
-        CloseDealModal();
-        CloseErrorModal();
+        // SetVisible already calls ForceCloseDealModal / ForceCloseErrorModal
     }
 
     private void SetVisible(bool visible)
@@ -203,20 +219,16 @@ public class GirlDealUI : MonoBehaviour
             canvasGroup.blocksRaycasts = visible;
         }
 
-        if (dealPanel != null)
+        // Always toggle all direct children so no background child is ever left behind
+        foreach (Transform child in transform)
         {
-            if (dealPanel == gameObject)
-            {
-                // Deactivate children (Background, Deals) so Update() continues checking hotkeys
-                foreach (Transform child in transform)
-                {
-                    child.gameObject.SetActive(visible);
-                }
-            }
-            else
-            {
-                dealPanel.SetActive(visible);
-            }
+            child.gameObject.SetActive(visible);
+        }
+
+        // Also handle dealPanel if it is a separate object (not this gameObject)
+        if (dealPanel != null && dealPanel != gameObject)
+        {
+            dealPanel.SetActive(visible);
         }
 
         if (visible)
@@ -228,8 +240,8 @@ public class GirlDealUI : MonoBehaviour
         }
         else
         {
-            CloseDealModal();
-            CloseErrorModal();
+            ForceCloseDealModal();
+            ForceCloseErrorModal();
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
         }
@@ -338,6 +350,10 @@ public class GirlDealUI : MonoBehaviour
             timeSlider.mainSlider.value = 120f;
         }
 
+        // Re-activate modal in case ForceClose deactivated it, then open
+        dealModal.gameObject.SetActive(true);
+        var modalCg = dealModal.GetComponent<CanvasGroup>();
+        if (modalCg != null) { modalCg.alpha = 1f; modalCg.interactable = true; modalCg.blocksRaycasts = true; }
         dealModal.OpenWindow();
 
         Cursor.lockState = CursorLockMode.None;
@@ -352,12 +368,35 @@ public class GirlDealUI : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Instantly hides the deal modal without waiting for the Michsky close animation.
+    /// Call this when the panel needs to vanish immediately (e.g. B key toggle).
+    /// </summary>
+    private void ForceCloseDealModal()
+    {
+        if (dealModal == null) return;
+        dealModal.CloseWindow(); // Trigger cleanup callbacks
+        // Also force-hide immediately so no ghost background lingers during animation
+        var cg = dealModal.GetComponent<CanvasGroup>();
+        if (cg != null) { cg.alpha = 0f; cg.interactable = false; cg.blocksRaycasts = false; }
+        dealModal.gameObject.SetActive(false);
+    }
+
     public void CloseErrorModal()
     {
         if (errorModal != null)
         {
             errorModal.CloseWindow();
         }
+    }
+
+    private void ForceCloseErrorModal()
+    {
+        if (errorModal == null) return;
+        errorModal.CloseWindow();
+        var cg = errorModal.GetComponent<CanvasGroup>();
+        if (cg != null) { cg.alpha = 0f; cg.interactable = false; cg.blocksRaycasts = false; }
+        errorModal.gameObject.SetActive(false);
     }
 
     // =========================================================================

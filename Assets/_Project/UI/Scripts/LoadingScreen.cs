@@ -162,6 +162,24 @@ public class LoadingScreen : MonoBehaviour
     }
 
     /// <summary>
+    /// Instantly shows the loading screen at full opacity with no fade delay.
+    /// Use this when you need to immediately hide a freeze or hitch (e.g. right after
+    /// the player clicks Ready, before heavy Unity work begins).
+    /// </summary>
+    public void ShowImmediate()
+    {
+        if (loadingRoot != null) loadingRoot.SetActive(true);
+        if (fadeCanvasGroup != null)
+        {
+            fadeCanvasGroup.alpha = 1f;
+            fadeCanvasGroup.blocksRaycasts = true;
+        }
+        ShowRandomTip();
+        SetProgress(0.05f);
+        _isLoading = true;
+    }
+
+    /// <summary>
     /// Fades out the loading screen.
     /// </summary>
     public void HideLoadingScreen()

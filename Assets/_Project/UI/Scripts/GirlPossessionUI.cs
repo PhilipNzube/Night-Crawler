@@ -42,6 +42,11 @@ public class GirlPossessionUI : MonoBehaviour
 
     private readonly List<ulong> _targetClientIds = new List<ulong>();
     private bool _isOpen = false;
+    private float _lastToggleTime = -10f;
+    private const float ToggleCooldown = 0.25f;
+    // Cached once the local player is confirmed to be the Girl
+    private bool _isGirl = false;
+    private bool _girlChecked = false;
 
     private void Awake()
     {
@@ -98,13 +103,16 @@ public class GirlPossessionUI : MonoBehaviour
         if (Keyboard.current != null)
         {
             bool pressed = Keyboard.current[toggleKey].wasPressedThisFrame;
+            float now = Time.unscaledTime;
 
-            if (pressed && IsLocalPlayerGirl())
+            if (pressed && IsLocalPlayerGirl() && (now - _lastToggleTime) >= ToggleCooldown)
             {
+                _lastToggleTime = now;
                 ToggleUI();
             }
-            else if (_isOpen && Keyboard.current.escapeKey.wasPressedThisFrame)
+            else if (_isOpen && Keyboard.current.escapeKey.wasPressedThisFrame && (now - _lastToggleTime) >= ToggleCooldown)
             {
+                _lastToggleTime = now;
                 CloseUI();
             }
         }
@@ -121,18 +129,26 @@ public class GirlPossessionUI : MonoBehaviour
 
     private bool IsLocalPlayerGirl()
     {
+        // Return cached result once confirmed — avoids PlayerObject null in early game frames
+        if (_isGirl) return true;
+        if (_girlChecked) return false;
+
         if (NetworkManager.Singleton == null || NetworkManager.Singleton.LocalClient == null) return false;
         var playerObj = NetworkManager.Singleton.LocalClient.PlayerObject;
         if (playerObj == null) return false;
 
-        if (playerObj.TryGetComponent<GirlPossession>(out var possession) && possession.isPossessing.Value)
-        {
-            return false;
-        }
+        // NetworkManager is ready — lock in the answer
+        _girlChecked = true;
 
-        return playerObj.GetComponent<GirlStealth>() != null 
-            || playerObj.GetComponent<GirlMaterialController>() != null 
+        if (playerObj.TryGetComponent<GirlPossession>(out var possession) && possession.isPossessing.Value)
+            return false;
+
+        bool result = playerObj.GetComponent<GirlStealth>() != null
+            || playerObj.GetComponent<GirlMaterialController>() != null
             || playerObj.GetComponent<GirlPossession>() != null;
+
+        _isGirl = result;
+        return result;
     }
 
     private GirlPossession GetLocalGirlPossession()
@@ -156,6 +172,10 @@ public class GirlPossessionUI : MonoBehaviour
 
         if (possessionModal != null)
         {
+            // Re-activate in case ForceClose deactivated it
+            possessionModal.gameObject.SetActive(true);
+            var cg = possessionModal.GetComponent<CanvasGroup>();
+            if (cg != null) { cg.alpha = 1f; cg.interactable = true; cg.blocksRaycasts = true; }
             possessionModal.OpenWindow();
         }
 
@@ -168,9 +188,13 @@ public class GirlPossessionUI : MonoBehaviour
     {
         _isOpen = false;
 
+        // Force-hide modal immediately — don't rely on Michsky animation so nothing lingers
         if (possessionModal != null)
         {
-            possessionModal.CloseWindow();
+            possessionModal.CloseWindow(); // Fire internal cleanup callbacks
+            var cg = possessionModal.GetComponent<CanvasGroup>();
+            if (cg != null) { cg.alpha = 0f; cg.interactable = false; cg.blocksRaycasts = false; }
+            possessionModal.gameObject.SetActive(false);
         }
 
         Cursor.lockState = CursorLockMode.Locked;
