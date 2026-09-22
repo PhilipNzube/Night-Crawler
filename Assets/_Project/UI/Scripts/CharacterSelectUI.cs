@@ -590,20 +590,37 @@ public class CharacterSelectUI : MonoBehaviour
         if (_filteredDefinitions.Count > 0 && index >= 0 && index < _filteredDefinitions.Count && _filteredDefinitions[index] != null)
         {
             var so = _filteredDefinitions[index];
-            if (so.relevantStats != null && so.relevantStats.Count > 0)
-            {
-                return so.relevantStats;
-            }
             profession = so.profession;
 
-            // Fallback: If profession was left at default MineWorker (0), check character name
-            if (profession == InvestigatorProfession.MineWorker)
+            // Check character name to ensure correct profession
+            string charName = (so.characterName + " " + so.name).ToLowerInvariant();
+            if (charName.Contains("medic")) profession = InvestigatorProfession.FieldMedic;
+            else if (charName.Contains("explorer")) profession = InvestigatorProfession.Explorer;
+            else if (charName.Contains("hazard")) profession = InvestigatorProfession.HazardSpecialist;
+            else if (charName.Contains("priest")) profession = InvestigatorProfession.CursedPriest;
+
+            // Only use SO relevantStats if it contains valid, non-corrupted investigator stats
+            if (so.relevantStats != null && so.relevantStats.Count > 0)
             {
-                string charName = (so.characterName + " " + so.name).ToLowerInvariant();
-                if (charName.Contains("medic")) profession = InvestigatorProfession.FieldMedic;
-                else if (charName.Contains("explorer")) profession = InvestigatorProfession.Explorer;
-                else if (charName.Contains("hazard")) profession = InvestigatorProfession.HazardSpecialist;
-                else if (charName.Contains("priest")) profession = InvestigatorProfession.CursedPriest;
+                bool hasInvalidStats = false;
+                foreach (var s in so.relevantStats)
+                {
+                    // Stat values >= 7 are Girl/Demon stats accidentally serialized on an investigator SO
+                    if ((int)s >= 7) { hasInvalidStats = true; break; }
+                }
+
+                if (profession == InvestigatorProfession.FieldMedic)
+                {
+                    if (!so.relevantStats.Contains(UpgradeStatType.VialCount) || !so.relevantStats.Contains(UpgradeStatType.VialHealingPower))
+                    {
+                        hasInvalidStats = true;
+                    }
+                }
+
+                if (!hasInvalidStats)
+                {
+                    return so.relevantStats;
+                }
             }
         }
         else

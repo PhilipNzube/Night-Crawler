@@ -14,16 +14,18 @@ using Michsky.UI.Heat;
 /// SOLID — SRP: Modern Heat UI Deal and Pact System for the Vengeful Spirit (Girl).
 /// Powers:
 /// 1. Card Selection inside DealPanel (e.g. Kill Player, Loot Body).
-/// 2. Modal Configuration with Player Horizontal Selector, Bounded Time Limit (30s-180s),
+/// 2. Direct title & description binding to DealModal without duplicate fields.
+/// 3. Modal Configuration with Player Horizontal Selector, Bounded Time Limit (30s-180s),
 ///    Reward Slider (max 60% of Girl's total credits), and Penalty Slider (max 50% of reward).
-/// 3. Error Modal popups when user violates any of the deal economy/time constraints.
+/// 4. Error Modal popups that dynamically receive error title and description when constraints are violated.
+/// 5. Clean deactivation of cards and backgrounds at match start until toggled.
 /// </summary>
 public class GirlDealUI : MonoBehaviour
 {
     public static GirlDealUI Instance { get; private set; }
 
     [Header("Main Panels")]
-    [Tooltip("The DealPanel containing the scrollable deal cards.")]
+    [Tooltip("The DealPanel containing the scrollable deal cards and background.")]
     public GameObject dealPanel;
     public CanvasGroup canvasGroup;
 
@@ -34,13 +36,7 @@ public class GirlDealUI : MonoBehaviour
     [Tooltip("The ErrorModal (ModalWindowManager) displayed when parameters violate rules.")]
     public ModalWindowManager errorModal;
 
-    [Header("Deal Modal Elements")]
-    [Tooltip("Header title text on DealModal (dynamically updated to match card title).")]
-    public TextMeshProUGUI dealModalTitle;
-
-    [Tooltip("Description text on DealModal.")]
-    public TextMeshProUGUI dealModalDescription;
-
+    [Header("Deal Modal Config Controls")]
     [Tooltip("Horizontal Selector for selecting the target living investigator.")]
     public HorizontalSelector playerSelector;
 
@@ -56,10 +52,6 @@ public class GirlDealUI : MonoBehaviour
     [Header("Deal Modal Buttons")]
     public ButtonManager sendButton;
     public ButtonManager cancelButton;
-
-    [Header("Error Modal Elements")]
-    public TextMeshProUGUI errorTitleText;
-    public TextMeshProUGUI errorDescriptionText;
 
     [Header("Cards Container")]
     [Tooltip("Container where deal cards live (e.g. DealPanel/Deals/Content/List/Layout Group).")]
@@ -111,12 +103,15 @@ public class GirlDealUI : MonoBehaviour
         SanitizeModal(dealModal);
         SanitizeModal(errorModal);
 
+        // Deactivate cards, background, and modals when game starts
         SetVisible(false);
     }
 
     private void Start()
     {
         HookCardButtons();
+        // Ensure strictly hidden and closed at start of match
+        SetVisible(false);
     }
 
     private void OnDestroy()
@@ -194,6 +189,7 @@ public class GirlDealUI : MonoBehaviour
         _isOpen = false;
         SetVisible(false);
         CloseDealModal();
+        CloseErrorModal();
     }
 
     private void SetVisible(bool visible)
@@ -209,7 +205,18 @@ public class GirlDealUI : MonoBehaviour
 
         if (dealPanel != null)
         {
-            dealPanel.SetActive(visible);
+            if (dealPanel == gameObject)
+            {
+                // Deactivate children (Background, Deals) so Update() continues checking hotkeys
+                foreach (Transform child in transform)
+                {
+                    child.gameObject.SetActive(visible);
+                }
+            }
+            else
+            {
+                dealPanel.SetActive(visible);
+            }
         }
 
         if (visible)
@@ -221,6 +228,8 @@ public class GirlDealUI : MonoBehaviour
         }
         else
         {
+            CloseDealModal();
+            CloseErrorModal();
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
         }
@@ -235,28 +244,32 @@ public class GirlDealUI : MonoBehaviour
         Transform container = cardsContainer;
         if (container == null && dealPanel != null)
         {
-            // Auto-locate Layout Group in children
             var lg = dealPanel.GetComponentInChildren<LayoutGroup>(true);
             if (lg != null) container = lg.transform;
         }
 
         if (container == null) return;
 
-        // Find all ShopButtonManagers or Button components on cards
+        // Find all ShopButtonManagers on cards
         var shopButtons = container.GetComponentsInChildren<ShopButtonManager>(true);
         foreach (var card in shopButtons)
         {
             string title = !string.IsNullOrEmpty(card.buttonTitle) ? card.buttonTitle : card.gameObject.name;
             string desc = card.buttonDescription;
 
+            // 1. Hook purchaseButton (the "Select" button on the card)
             if (card.purchaseButton != null)
             {
-                card.purchaseButton.onClick.RemoveAllListeners();
+                card.purchaseButton.onClick.RemoveListener(() => OnCardSelected(title, desc));
                 card.purchaseButton.onClick.AddListener(() => OnCardSelected(title, desc));
             }
 
-            // Also hook root onClick
-            card.onClick.RemoveAllListeners();
+            // 2. Hook onPurchaseClick on ShopButtonManager
+            card.onPurchaseClick.RemoveListener(() => OnCardSelected(title, desc));
+            card.onPurchaseClick.AddListener(() => OnCardSelected(title, desc));
+
+            // 3. Hook root card onClick
+            card.onClick.RemoveListener(() => OnCardSelected(title, desc));
             card.onClick.AddListener(() => OnCardSelected(title, desc));
         }
 
@@ -285,17 +298,14 @@ public class GirlDealUI : MonoBehaviour
     {
         if (dealModal == null) return;
 
-        // Update Title on Modal
-        if (dealModalTitle != null)
-        {
-            dealModalTitle.text = _currentCardTitle.ToUpper();
-        }
-        if (dealModalDescription != null && !string.IsNullOrEmpty(_currentCardDesc))
-        {
-            dealModalDescription.text = _currentCardDesc;
-        }
-
+        // Automatically pass selected card's title and description to DealModal
         dealModal.titleText = _currentCardTitle.ToUpper();
+        dealModal.descriptionText = _currentCardDesc;
+        dealModal.useLocalization = false;
+        dealModal.UpdateUI();
+
+        if (dealModal.windowTitle != null) dealModal.windowTitle.text = _currentCardTitle.ToUpper();
+        if (dealModal.windowDescription != null) dealModal.windowDescription.text = _currentCardDesc;
 
         // Refresh player list in selector
         RefreshLivingPlayers();
@@ -328,7 +338,6 @@ public class GirlDealUI : MonoBehaviour
             timeSlider.mainSlider.value = 120f;
         }
 
-        dealModal.useLocalization = false;
         dealModal.OpenWindow();
 
         Cursor.lockState = CursorLockMode.None;
@@ -340,6 +349,14 @@ public class GirlDealUI : MonoBehaviour
         if (dealModal != null)
         {
             dealModal.CloseWindow();
+        }
+    }
+
+    public void CloseErrorModal()
+    {
+        if (errorModal != null)
+        {
+            errorModal.CloseWindow();
         }
     }
 
@@ -493,12 +510,15 @@ public class GirlDealUI : MonoBehaviour
             return;
         }
 
-        if (errorTitleText != null) errorTitleText.text = title.ToUpper();
-        if (errorDescriptionText != null) errorDescriptionText.text = message;
-
+        // Automatically pass the exact error title and description into ErrorModal
         errorModal.titleText = title.ToUpper();
         errorModal.descriptionText = message;
         errorModal.useLocalization = false;
+        errorModal.UpdateUI();
+
+        if (errorModal.windowTitle != null) errorModal.windowTitle.text = title.ToUpper();
+        if (errorModal.windowDescription != null) errorModal.windowDescription.text = message;
+
         errorModal.OpenWindow();
     }
 
