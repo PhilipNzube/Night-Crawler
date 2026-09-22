@@ -217,7 +217,7 @@ public class PlayerHUD : MonoBehaviour
         string targetName = targetObj.name.Replace("(Clone)", "").Trim();
         if (roleLabel != null)
         {
-            roleLabel.text = $"<color=#B388FF>|</color> POSSESSING: {targetName.ToUpper()}";
+            roleLabel.text = $"POSSESSING: {targetName.ToUpper()}";
             roleLabel.color = new Color(0.7f, 0.4f, 1f);
         }
 

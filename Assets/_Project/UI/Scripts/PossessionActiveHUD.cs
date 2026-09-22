@@ -93,12 +93,12 @@ public class PossessionActiveHUD : MonoBehaviour
 
         if (victimNameText != null)
         {
-            victimNameText.text = $"<color=#FF4444>|</color> [POSSESSING]: {victimName}";
+            victimNameText.text = $"[POSSESSING]: {victimName}";
         }
 
         if (exitPromptText != null)
         {
-            exitPromptText.text = "<color=#FFD700>|</color> Press [E] to exit body";
+            exitPromptText.text = "Press [E] to exit body";
         }
 
         if (hudContainer != null)

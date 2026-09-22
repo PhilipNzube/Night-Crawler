@@ -185,11 +185,11 @@ public class DeathUI : MonoBehaviour
         {
             if (subtitleText != null) subtitleText.text = subtitle;
             spectatePromptText.gameObject.SetActive(true);
-            spectatePromptText.text = "<color=#00E5FF><b>[SPACE / CLICK]</b></color> TO SPECTATE";
+            spectatePromptText.text = "<b>[SPACE / CLICK]</b> TO SPECTATE";
         }
         else if (subtitleText != null)
         {
-            subtitleText.text = $"{subtitle}\n\n<size=85%><color=#00E5FF><b>Press [SPACE] or [CLICK] to Spectate</b></color></size>";
+            subtitleText.text = $"{subtitle}\n\n<size=85%><b>Press [SPACE] or [CLICK] to Spectate</b></size>";
         }
 
         if (_fadeCoroutine != null) StopCoroutine(_fadeCoroutine);
@@ -311,31 +311,31 @@ public class DeathUI : MonoBehaviour
 
     public void PostPlayerJoined(string playerName)
     {
-        AddAllyAlertEntry($"<color=#00E5FF>|</color> [JOIN] {playerName} has entered the match.", new Color(0.2f, 0.85f, 0.95f, 1f));
+        AddAllyAlertEntry($"[JOIN] {playerName} has entered the match.", new Color(0.2f, 0.85f, 0.95f, 1f));
     }
 
     public void PostPlayerLeft(string playerName, bool wasDead = false)
     {
         string desc = wasDead 
-            ? $"<color=#FFA000>|</color> [LEAVE] {playerName} (Fallen) has left the match." 
-            : $"<color=#FFA000>|</color> [LEAVE] {playerName} has left the match.";
+            ? $"[LEAVE] {playerName} (Fallen) has left the match." 
+            : $"[LEAVE] {playerName} has left the match.";
         AddAllyAlertEntry(desc, new Color(0.95f, 0.6f, 0.15f, 1f));
     }
 
     public void PostPlayerDied(string victimName)
     {
-        AddAllyAlertEntry($"<color=#FF3333>|</color> [FALLEN] {victimName} has fallen.", new Color(0.95f, 0.2f, 0.2f, 1f));
+        AddAllyAlertEntry($"[FALLEN] {victimName} has fallen.", new Color(0.95f, 0.2f, 0.2f, 1f));
     }
 
     public void PostDealResponse(string playerName, bool accepted)
     {
         if (accepted)
         {
-            AddAllyAlertEntry($"<color=#00E676>|</color> [DEAL ACCEPTED] {playerName} accepted your dark pact!", new Color(0.2f, 0.9f, 0.4f, 1f));
+            AddAllyAlertEntry($"[DEAL ACCEPTED] {playerName} accepted your dark pact!", new Color(0.2f, 0.9f, 0.4f, 1f));
         }
         else
         {
-            AddAllyAlertEntry($"<color=#FF5252>|</color> [DEAL DECLINED] {playerName} rejected your dark pact.", new Color(0.95f, 0.35f, 0.2f, 1f));
+            AddAllyAlertEntry($"[DEAL DECLINED] {playerName} rejected your dark pact.", new Color(0.95f, 0.35f, 0.2f, 1f));
         }
     }
 

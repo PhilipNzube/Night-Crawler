@@ -102,7 +102,7 @@ public class NotificationManager : MonoBehaviour
     public void ShowHazardWarning(string message, float duration = 5.5f)
     {
         Color hazardColor = new Color(1f, 0.72f, 0.1f, 1f); // Toxic Amber
-        string formatted = $"<color=#FFB800>| [HAZARD]</color> {message}";
+        string formatted = $"[HAZARD] {message}";
         ShowStyledWarning("[ENVIRONMENT HAZARD]", formatted, hazardColor, duration, hazardSound ?? notificationSound, isPulsing: false);
     }
 
@@ -112,7 +112,7 @@ public class NotificationManager : MonoBehaviour
     public void ShowCriticalHealthWarning(float currentHp, float maxHp, float duration = 4.5f)
     {
         Color criticalColor = new Color(0.95f, 0.15f, 0.15f, 1f); // Crimson Red
-        string formatted = $"<color=#FF2222>| [CRITICAL]</color> Vital signs failing! Health: {currentHp:F0}/{maxHp:F0} HP. Use healing vial or seek Field Medic!";
+        string formatted = $"[CRITICAL] Vital signs failing! Health: {currentHp:F0}/{maxHp:F0} HP. Use healing vial or seek Field Medic!";
         ShowStyledWarning("[CRITICAL: LOW HEALTH]", formatted, criticalColor, duration, criticalHealthSound ?? notificationSound, isPulsing: true);
     }
 
@@ -123,7 +123,7 @@ public class NotificationManager : MonoBehaviour
     {
         Color healColor = new Color(0.15f, 0.92f, 0.45f, 1f); // Emerald Green
         string baseMsg = !string.IsNullOrEmpty(message) ? message : $"Healing vial administered (+{healAmount:F0} HP)! Vitals stabilized.";
-        string formatted = $"<color=#00E676>| [RESTORED]</color> {baseMsg}";
+        string formatted = $"[RESTORED] {baseMsg}";
         ShowStyledWarning("[VITAL SIGNS RESTORED]", formatted, healColor, duration, healRestoredSound ?? notificationSound, isPulsing: false);
     }
 
@@ -132,7 +132,7 @@ public class NotificationManager : MonoBehaviour
     /// </summary>
     public void ShowNotification(string message, float duration = 4f)
     {
-        string formatted = $"<color=#00E5FF>|</color> {message}";
+        string formatted = message;
         ShowStyledWarning("[STATUS NOTICE]", formatted, new Color(0.3f, 0.8f, 1f, 1f), duration, notificationSound, isPulsing: false);
     }
 

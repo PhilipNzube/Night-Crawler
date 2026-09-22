@@ -167,7 +167,7 @@ namespace NightCrawler.Economy.UI
 
                 if (item.effectText != null)
                 {
-                    item.effectText.text = isMaxLevel ? "Max Level Reached" : $"{statEffect}\n<color=#F1C40F>Cost: {cost} {CurrencyConfig.CurrencySymbol}</color>";
+                    item.effectText.text = isMaxLevel ? "Max Level Reached" : $"{statEffect}\nCost: {cost} {CurrencyConfig.CurrencySymbol}";
                 }
 
                 float progressFraction = currentLevel / 5f;
@@ -278,7 +278,7 @@ namespace NightCrawler.Economy.UI
                 purchaseConfirmModal.titleText = $"UPGRADE {statTitle.ToUpper()}";
                 purchaseConfirmModal.descriptionText = canAfford
                     ? $"Upgrade to Level {currentLevel + 1} for {cost} {CurrencyConfig.CurrencySymbol}?\n\n<b>Next Tier:</b> {nextEffect}"
-                    : $"Requires <color=#E74C3C>{cost} {CurrencyConfig.CurrencySymbol}</color> (You have {balance} {CurrencyConfig.CurrencySymbol}).\n\n<b>Next Tier:</b> {nextEffect}";
+                    : $"Requires {cost} {CurrencyConfig.CurrencySymbol} (You have {balance} {CurrencyConfig.CurrencySymbol}).\n\n<b>Next Tier:</b> {nextEffect}";
                 purchaseConfirmModal.UpdateUI();
 
                 Action doPurchase = () =>

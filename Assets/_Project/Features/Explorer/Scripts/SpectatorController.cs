@@ -270,7 +270,7 @@ public class SpectatorController : MonoBehaviour
         }
         if (_modePromptText != null)
         {
-            _modePromptText.text = $"[SPACE] View Mode: <color=#00E5FF>{modeName}</color>   •   [MOUSE] Orbit   •   [SCROLL] Zoom   •   [ALT] Cursor";
+            _modePromptText.text = $"[SPACE] View Mode: {modeName}   •   [MOUSE] Orbit   •   [SCROLL] Zoom   •   [ALT] Cursor";
         }
     }
 
@@ -461,7 +461,7 @@ public class SpectatorController : MonoBehaviour
             _currentTarget.isCorpse.Value || _currentTarget.CurrentHealth <= 0)
         {
             string fallenName = _currentTarget != null ? GetPlayerName(_currentTarget) : "Survivor";
-            ShowToast($"<color=#FF4444>● {fallenName} HAS FALLEN!</color>\n<size=80%>Switching camera...</size>", new Color(1f, 0.3f, 0.3f, 1f));
+            ShowToast($"● {fallenName} HAS FALLEN!\n<size=80%>Switching camera...</size>", new Color(1f, 0.3f, 0.3f, 1f));
 
             RefreshAliveTargets();
             if (_aliveTargets.Count > 0)
@@ -626,7 +626,7 @@ public class SpectatorController : MonoBehaviour
         int aliveCount = _aliveTargets.Count;
         if (_survivorsCountText != null)
         {
-            _survivorsCountText.text = $"SURVIVORS: <color=#00E676><b>{aliveCount}</b></color> / {Mathf.Max(aliveCount, totalSurvivors)}";
+            _survivorsCountText.text = $"SURVIVORS: <b>{aliveCount}</b> / {Mathf.Max(aliveCount, totalSurvivors)}";
         }
 
         // 2. Target info or All Fallen state
@@ -640,11 +640,11 @@ public class SpectatorController : MonoBehaviour
 
             if (_targetNameText != null)
             {
-                _targetNameText.text = $"<color=#FF3344>●</color> <b>{pName.ToUpper()}</b>";
+                _targetNameText.text = $"● <b>{pName.ToUpper()}</b>";
             }
             if (_roleBadgeText != null)
             {
-                _roleBadgeText.text = $"<color=#FFC107>[{pRole.ToUpper()}]</color>";
+                _roleBadgeText.text = $"[{pRole.ToUpper()}]";
             }
             if (_healthReadoutText != null)
             {
@@ -669,7 +669,7 @@ public class SpectatorController : MonoBehaviour
         {
             if (_targetNameText != null)
             {
-                _targetNameText.text = "<color=#FF2233>● ALL SURVIVORS HAVE FALLEN</color>";
+                _targetNameText.text = "● ALL SURVIVORS HAVE FALLEN";
             }
             if (_roleBadgeText != null) _roleBadgeText.text = "";
             if (_healthReadoutText != null) _healthReadoutText.text = "Awaiting match outcome...";
@@ -858,7 +858,7 @@ public class SpectatorController : MonoBehaviour
         _targetNameText.fontSize = 22f;
         _targetNameText.color = Color.white;
         _targetNameText.alignment = TextAlignmentOptions.MidlineLeft;
-        _targetNameText.text = "<color=#FF3344>●</color> <b>SPECTATING</b>";
+        _targetNameText.text = "● <b>SPECTATING</b>";
 
         // Role Badge
         var roleObj = new GameObject("RoleBadgeText");
@@ -950,7 +950,7 @@ public class SpectatorController : MonoBehaviour
         _survivorsCountText.fontSize = 15f;
         _survivorsCountText.color = Color.white;
         _survivorsCountText.alignment = TextAlignmentOptions.Center;
-        _survivorsCountText.text = "SURVIVORS: <color=#00E676><b>0</b></color>";
+        _survivorsCountText.text = "SURVIVORS: <b>0</b>";
 
         // 5. Bottom Navigation Bar Pill
         var bottomBarObj = new GameObject("BottomControlsBar");
@@ -982,7 +982,7 @@ public class SpectatorController : MonoBehaviour
         navTxt.fontSize = 16f;
         navTxt.color = Color.white;
         navTxt.alignment = TextAlignmentOptions.Center;
-        navTxt.text = "◄  <color=#00E5FF>[A / L-CLICK]</color> PREV      <b>CYCLE SURVIVORS</b>      <color=#00E5FF>[D / R-CLICK]</color> NEXT  ►";
+        navTxt.text = "◄  [A / L-CLICK] PREV      <b>CYCLE SURVIVORS</b>      [D / R-CLICK] NEXT  ►";
 
         var subPromptObj = new GameObject("SubPromptText");
         subPromptObj.transform.SetParent(bottomBarObj.transform, false);
@@ -996,7 +996,7 @@ public class SpectatorController : MonoBehaviour
         _modePromptText.fontSize = 12f;
         _modePromptText.color = new Color(0.65f, 0.75f, 0.85f, 1f);
         _modePromptText.alignment = TextAlignmentOptions.Center;
-        _modePromptText.text = "[SPACE] View Mode: <color=#00E5FF>FREE ORBIT</color>   •   [MOUSE] Orbit   •   [SCROLL] Zoom   •   [ALT] Cursor";
+        _modePromptText.text = "[SPACE] View Mode: FREE ORBIT   •   [MOUSE] Orbit   •   [SCROLL] Zoom   •   [ALT] Cursor";
 
         // 6. Center Toast Banner (Sleek Switching / Event Banner)
         _toastBanner = new GameObject("SpectatorToastBanner");

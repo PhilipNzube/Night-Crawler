@@ -364,7 +364,7 @@ public class GirlPossession : NetworkBehaviour
     {
         if (IsOwner && NotificationManager.Instance != null)
         {
-            NotificationManager.Instance.ShowNotification($"<color=#FFD700>|</color> [EXORCISED] Exorcised by Priest! Lost {penalty:0}s possession time!", 4f);
+            NotificationManager.Instance.ShowNotification($"[EXORCISED] Exorcised by Priest! Lost {penalty:0}s possession time!", 4f);
         }
     }
 

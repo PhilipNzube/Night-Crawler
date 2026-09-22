@@ -246,7 +246,7 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
 
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification("<color=#FFD700>|</color> [EXORCISED] You purged the spirit & rejected possession!", 3f);
+                NotificationManager.Instance.ShowNotification("[EXORCISED] You purged the spirit & rejected possession!", 3f);
             }
 
             Cursor.lockState = CursorLockMode.Locked;
@@ -256,7 +256,7 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         {
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification($"<color=#FFD700>|</color> [EXORCISED] {victimName} purged your spirit & rejected possession! Lost {penalty:0}s possession time!", 4f);
+                NotificationManager.Instance.ShowNotification($"[EXORCISED] {victimName} purged your spirit & rejected possession! Lost {penalty:0}s possession time!", 4f);
             }
         }
     }
@@ -319,7 +319,7 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         {
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification($"<color=#B388FF>|</color> [POSSESSED] You took possession of {victimName}!", 3f);
+                NotificationManager.Instance.ShowNotification($"[POSSESSED] You took possession of {victimName}!", 3f);
             }
 
             // Immediately switch Girl's HUD to the possessed target!
@@ -711,7 +711,7 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             if (NotificationManager.Instance != null)
             {
                 NotificationManager.Instance.ShowNotification(
-                    $"<color=#FFD700>|</color> [RESISTING] {victimName} is attempting Exorcism! ({duration:0}s) Rejection penalty: -{penalty:0}s! Press [E] to cancel.", duration);
+                    $"[RESISTING] {victimName} is attempting Exorcism! ({duration:0}s) Rejection penalty: -{penalty:0}s! Press [E] to cancel.", duration);
             }
         }
     }

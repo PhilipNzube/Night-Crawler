@@ -174,7 +174,7 @@ namespace NightCrawler.Monsters
         {
             if (chargesRemainingText != null)
             {
-                chargesRemainingText.text = $"Risen Summons Left: <color={(_remainingCharges > 0 ? "#2ECC71" : "#E74C3C")}>{_remainingCharges} / {_totalCharges}</color>";
+                chargesRemainingText.text = $"Risen Summons Left: {_remainingCharges} / {_totalCharges}";
             }
 
             if (summonButton != null)
@@ -276,12 +276,12 @@ namespace NightCrawler.Monsters
             {
                 var def = monsters[index];
                 if (monsterDescText != null) monsterDescText.text = def.description;
-                if (dangerText != null) dangerText.text = $"Danger: <color=#E74C3C>{new string('★', def.dangerRating)}</color>";
+                if (dangerText != null) dangerText.text = $"Danger: {new string('★', def.dangerRating)}";
             }
             else
             {
                 if (monsterDescText != null) monsterDescText.text = "A terrifying subterranean abomination that hunts the investigators.";
-                if (dangerText != null) dangerText.text = "Danger: <color=#E74C3C>★★★☆☆</color>";
+                if (dangerText != null) dangerText.text = "Danger: ★★★☆☆";
             }
 
             // Update card highlights

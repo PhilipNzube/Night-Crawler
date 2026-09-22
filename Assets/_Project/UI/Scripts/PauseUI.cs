@@ -54,11 +54,18 @@ public class PauseUI : MonoBehaviour
     public bool IsExitDialogOpen => exitModal != null && exitModal.isOn;
 
     private PauseManager _pauseManager;
+    private Canvas _canvas;
+    private CanvasGroup _canvasGroup;
 
     private void Awake()
     {
         if (pauseCanvas == null)
             pauseCanvas = gameObject;
+
+        _canvas = pauseCanvas.GetComponent<Canvas>();
+        _canvasGroup = pauseCanvas.GetComponent<CanvasGroup>();
+        if (_canvasGroup == null)
+            _canvasGroup = pauseCanvas.AddComponent<CanvasGroup>();
     }
 
     private void Start()
@@ -75,8 +82,8 @@ public class PauseUI : MonoBehaviour
             exitModal.onCancel.AddListener(CloseExitDialog);
         }
 
-        // Start hidden
-        HidePauseMenu();
+        // Start completely hidden and disabled
+        SetCanvasState(false);
     }
 
     private void BindButton(System.Action callback, PanelButton panelBtn, ButtonManager btnMgr)
@@ -92,9 +99,37 @@ public class PauseUI : MonoBehaviour
     // =========================================================================
     public void ShowPauseMenu()
     {
-        if (pauseCanvas != null) pauseCanvas.SetActive(true);
+        StopAllCoroutines();
+        SetCanvasState(true);
+
         if (backgroundFader != null) backgroundFader.FadeIn();
-        if (panelManager != null) panelManager.OpenPanel(pausePanelName);
+
+        if (panelManager != null)
+        {
+            // Open PauseMenu
+            panelManager.OpenPanel(pausePanelName);
+            // Crucial Heat UI fix: If already at index 0, OpenPanel does not re-trigger FadeIn, so ShowCurrentPanel forces it!
+            panelManager.ShowCurrentPanel();
+
+            // Force the panel GameObject active and ensure its CanvasGroup is visible
+            if (panelManager.panels.Count > panelManager.currentPanelIndex &&
+                panelManager.panels[panelManager.currentPanelIndex].panelObject != null)
+            {
+                var pObj = panelManager.panels[panelManager.currentPanelIndex].panelObject;
+                pObj.gameObject.SetActive(true);
+                pObj.enabled = true;
+                var cg = pObj.GetComponent<CanvasGroup>();
+                if (cg != null)
+                {
+                    cg.alpha = 1f;
+                    cg.interactable = true;
+                    cg.blocksRaycasts = true;
+                }
+            }
+        }
+
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
     }
 
     public void HidePauseMenu()
@@ -102,6 +137,38 @@ public class PauseUI : MonoBehaviour
         if (backgroundFader != null) backgroundFader.FadeOut();
         if (exitModal != null && exitModal.isOn) exitModal.CloseWindow();
         if (panelManager != null) panelManager.HideCurrentPanel();
+
+        if (_canvasGroup != null)
+        {
+            _canvasGroup.interactable = false;
+            _canvasGroup.blocksRaycasts = false;
+        }
+
+        // Allow smooth fade out before disabling the Canvas component
+        StartCoroutine(DisableCanvasDelayed(0.35f));
+
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
+    }
+
+    private void SetCanvasState(bool active)
+    {
+        if (_canvas != null) _canvas.enabled = active;
+        if (_canvasGroup != null)
+        {
+            _canvasGroup.alpha = active ? 1f : 0f;
+            _canvasGroup.interactable = active;
+            _canvasGroup.blocksRaycasts = active;
+        }
+    }
+
+    private IEnumerator DisableCanvasDelayed(float delay)
+    {
+        yield return new WaitForSecondsRealtime(delay);
+        if (!PauseManager.IsGamePaused)
+        {
+            SetCanvasState(false);
+        }
     }
 
     public void CloseSettings()

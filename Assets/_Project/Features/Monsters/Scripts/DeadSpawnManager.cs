@@ -161,7 +161,7 @@ namespace NightCrawler.Monsters
 
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification($"<color=#E74C3C>THE SHADOWS WRITHE</color>: A {monsterName} has risen from the dead!", 4.5f);
+                NotificationManager.Instance.ShowNotification($"THE SHADOWS WRITHE: A {monsterName} has risen from the dead!", 4.5f);
             }
         }
     }

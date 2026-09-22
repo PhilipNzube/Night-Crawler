@@ -186,13 +186,14 @@ public class DealNotificationUI : MonoBehaviour
         if (rewardText != null) rewardText.text = $"REWARD: {reward}";
         if (termsDescriptionText != null)
         {
-            termsDescriptionText.text = $"{terms}\n\n<color=#F1C40F>⏱ Time Limit: {timeLimitSeconds}s</color>\n<color=#E74C3C>⚠ Penalty on Failure: -{penaltyCredits} {CurrencyConfig.CurrencySymbol}</color>";
+            termsDescriptionText.text = $"{terms}\n\n⏱ Time Limit: {timeLimitSeconds}s\n⚠ Penalty on Failure: -{penaltyCredits} {CurrencyConfig.CurrencySymbol}";
         }
 
         if (heatModalWindow != null)
         {
             heatModalWindow.titleText = "DEAL PROPOSAL";
-            heatModalWindow.descriptionText = $"{terms}\n\n⏱ Time Limit: {timeLimitSeconds}s | ⚠ Penalty: -{penaltyCredits} {CurrencyConfig.CurrencySymbol}\n\nREWARD: {reward}";
+            heatModalWindow.descriptionText = $"{terms}\n\n⏱ Time Limit: {timeLimitSeconds}s\n⚠ Penalty: -{penaltyCredits} {CurrencyConfig.CurrencySymbol}\n\nREWARD: {reward}";
+            heatModalWindow.UpdateUI();
         }
 
         gameObject.SetActive(true);

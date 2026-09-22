@@ -75,7 +75,7 @@ public class PossessionBlackoutOverlay : MonoBehaviour
                 float remaining = Mathf.Max(0f, _rejectionWindowEndTime - Time.time);
                 if (remaining > 0f)
                 {
-                    string promptStr = $"<color=#FFD700>|</color> [PRIEST WARD] Press [R] to PURGE SPIRIT & REJECT ({remaining:F1}s)";
+                    string promptStr = $"[PRIEST WARD] Press [R] to PURGE SPIRIT & REJECT ({remaining:F1}s)";
                     if (rejectPromptText != null)
                     {
                         rejectPromptText.text = promptStr;
@@ -101,7 +101,7 @@ public class PossessionBlackoutOverlay : MonoBehaviour
     {
         _isRejectionActive = true;
         _rejectionWindowEndTime = Time.time + durationSeconds;
-        string promptStr = $"<color=#FFD700>|</color> [PRIEST WARD] Press [R] to PURGE SPIRIT & REJECT ({durationSeconds:F1}s)";
+        string promptStr = $"[PRIEST WARD] Press [R] to PURGE SPIRIT & REJECT ({durationSeconds:F1}s)";
         if (rejectPromptText != null)
         {
             rejectPromptText.gameObject.SetActive(true);

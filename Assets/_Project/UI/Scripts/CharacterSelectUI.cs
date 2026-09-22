@@ -1,3 +1,4 @@
+using System;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -280,26 +281,37 @@ public class CharacterSelectUI : MonoBehaviour
         }
     }
 
+    private void EnsureStakeReferences()
+    {
+        if (stakeErrorText == null && matchStakeModal != null)
+        {
+            var texts = matchStakeModal.GetComponentsInChildren<TextMeshProUGUI>(true);
+            foreach (var t in texts)
+            {
+                if (t.gameObject.name.IndexOf("Error", StringComparison.OrdinalIgnoreCase) >= 0)
+                {
+                    stakeErrorText = t;
+                    break;
+                }
+            }
+        }
+
+        if (stakeErrorText != null)
+        {
+            stakeErrorText.richText = true;
+        }
+    }
+
     private void OpenStakeModal()
     {
+        EnsureStakeReferences();
+
         int balance = CloudCharacterSaveManager.Instance != null
             ? CloudCharacterSaveManager.Instance.CurrentCredits
             : 50;
 
         if (creditBalanceText != null)
             creditBalanceText.text = CurrencyConfig.FormatBalance(balance);
-
-        if (stakeErrorText != null)
-        {
-            stakeErrorText.text = $"Minimum stake is {CurrencyConfig.MinimumStake} credits.";
-            stakeErrorText.gameObject.SetActive(true);
-        }
-
-        // Clear input text initially
-        MichskyUIBridge.SetInputText(null, heatStakeInputField, string.Empty);
-
-        // Keep confirm button inactive until at least 2 credits are entered!
-        SetStakeConfirmInteractable(false);
 
         // Bind input typing validation
         MichskyUIBridge.BindInputField(null, heatStakeInputField, OnStakeInputChanged);
@@ -312,17 +324,31 @@ public class CharacterSelectUI : MonoBehaviour
         if (heatStakeCancelButton != null)
             MichskyUIBridge.BindButton(null, heatStakeCancelButton, OnStakeModalCancelled);
 
+        // Clear input text initially and run initial validation & error state
+        MichskyUIBridge.SetInputText(null, heatStakeInputField, string.Empty);
+        OnStakeInputChanged(string.Empty);
+
         matchStakeModal.OpenWindow();
     }
 
     private void OnStakeInputChanged(string raw)
     {
-        bool isValid = ValidateStakeInput(raw, out int _, out string error);
+        EnsureStakeReferences();
+
+        bool isValid = ValidateStakeInput(raw, out int stake, out string error);
 
         if (stakeErrorText != null)
         {
-            stakeErrorText.text = error;
-            stakeErrorText.gameObject.SetActive(!string.IsNullOrEmpty(error));
+            if (isValid)
+            {
+                stakeErrorText.text = $"✓ Ready to stake {CurrencyConfig.Format(stake)}";
+                stakeErrorText.gameObject.SetActive(true);
+            }
+            else
+            {
+                stakeErrorText.text = error;
+                stakeErrorText.gameObject.SetActive(!string.IsNullOrEmpty(error));
+            }
         }
 
         SetStakeConfirmInteractable(isValid);
@@ -333,9 +359,19 @@ public class CharacterSelectUI : MonoBehaviour
         stake = 0;
         errorMessage = "";
 
+        int balance = CloudCharacterSaveManager.Instance != null
+            ? CloudCharacterSaveManager.Instance.CurrentCredits
+            : 50;
+
+        if (balance < CurrencyConfig.MinimumStake)
+        {
+            errorMessage = $"Insufficient credits! You need at least {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol} to participate (Balance: {balance} {CurrencyConfig.CurrencySymbol}).";
+            return false;
+        }
+
         if (string.IsNullOrWhiteSpace(raw))
         {
-            errorMessage = $"Enter at least {CurrencyConfig.MinimumStake} credits to confirm.";
+            errorMessage = $"Enter stake amount ({CurrencyConfig.MinimumStake} - {balance} {CurrencyConfig.CurrencySymbol}) to confirm.";
             return false;
         }
 
@@ -345,19 +381,21 @@ public class CharacterSelectUI : MonoBehaviour
             return false;
         }
 
-        if (stake < CurrencyConfig.MinimumStake)
+        if (stake <= 0)
         {
-            errorMessage = $"Minimum stake is {CurrencyConfig.MinimumStake} credits.";
+            errorMessage = $"Stake must be at least {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.";
             return false;
         }
 
-        int balance = CloudCharacterSaveManager.Instance != null
-            ? CloudCharacterSaveManager.Instance.CurrentCredits
-            : 50;
+        if (stake < CurrencyConfig.MinimumStake)
+        {
+            errorMessage = $"Stake too low! Minimum required is {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.";
+            return false;
+        }
 
         if (stake > balance)
         {
-            errorMessage = $"Insufficient credits! Balance: {balance} {CurrencyConfig.CurrencySymbol}";
+            errorMessage = $"Insufficient credits! You cannot stake {stake} {CurrencyConfig.CurrencySymbol} with a balance of {balance} {CurrencyConfig.CurrencySymbol}.";
             return false;
         }
 
@@ -376,6 +414,9 @@ public class CharacterSelectUI : MonoBehaviour
             heatBoxStakeConfirmButton.isInteractable = interactable;
             heatBoxStakeConfirmButton.UpdateUI();
         }
+        MichskyUIBridge.SetButtonInteractable(null, heatStakeConfirmButton, interactable);
+        if (heatBoxStakeConfirmButton != null)
+            MichskyUIBridge.SetButtonInteractable(null, heatBoxStakeConfirmButton, interactable);
     }
 
     private void OnStakeModalCancelled()
@@ -829,7 +870,7 @@ public class CharacterSelectUI : MonoBehaviour
                     ? _filteredDefinitions[i].characterName 
                     : (_slotCardButtons.Count > i ? _slotCardButtons[i].name.Replace("SlotCard_", "") : "OPERATIVE");
 
-                _heatBoxSlotCards[i].SetText(isSelected ? $"<color=#F1C40F><b>{baseName.ToUpper()}</b></color>" : baseName);
+                _heatBoxSlotCards[i].SetText(isSelected ? $"<b>{baseName.ToUpper()}</b>" : baseName);
             }
         }
 

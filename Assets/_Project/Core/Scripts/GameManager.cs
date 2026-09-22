@@ -216,7 +216,7 @@ public class GameManager : NetworkBehaviour
                 // 1. Investigator left while ALIVE:
                 // Remove only this investigator character from the scene for all remaining players!
                 Debug.Log($"[GameManager] Investigator {clientId} ({charName}) disconnected while ALIVE. Removing only this character.");
-                BroadcastNotificationClientRpc($"<color=#FFA000>|</color> [LEAVE] {charName} has left the match.");
+                BroadcastNotificationClientRpc($"[LEAVE] {charName} has left the match.");
 
                 if (_aliveExplorers.Contains(playerObj))
                 {
@@ -242,7 +242,7 @@ public class GameManager : NetworkBehaviour
                 Debug.Log($"[GameManager] Investigator {clientId} ({charName}) disconnected while DEAD. Leaving corpse in scene for looting.");
                 playerObj.DontDestroyWithOwner = true;
                 playerObj.gameObject.tag = "Untagged";
-                BroadcastNotificationClientRpc($"<color=#FFA000>|</color> [LEAVE] {charName} (Fallen) has left the match. Body remains for looting.");
+                BroadcastNotificationClientRpc($"[LEAVE] {charName} (Fallen) has left the match. Body remains for looting.");
             }
         }
     }
@@ -672,7 +672,7 @@ public class GameManager : NetworkBehaviour
         }
         else
         {
-            string msg = isGirl ? "| [BANISHED] The Vengeful Spirit has been slain!" : $"| [FALLEN] {victimName} has fallen.";
+            string msg = isGirl ? "[BANISHED] The Vengeful Spirit has been slain!" : $"[FALLEN] {victimName} has fallen.";
             Debug.Log($"[DeathNotification] Remote player death: {msg}");
 
             if (DeathUI.Instance != null)

@@ -81,7 +81,7 @@ namespace NightCrawler.UI
                 int mins = Mathf.Max(0, Mathf.FloorToInt(_timeRemaining / 60f));
                 int secs = Mathf.Max(0, Mathf.FloorToInt(_timeRemaining % 60f));
                 string color = _timeRemaining <= 25f ? "#E74C3C" : (_timeRemaining <= 50f ? "#F39C12" : "#2ECC71");
-                missionTimerText.text = $"Time Left: <color={color}><b>{mins:00}:{secs:00}</b></color>";
+                missionTimerText.text = $"Time Left: <b>{mins:00}:{secs:00}</b>";
             }
 
             if (_timeRemaining <= 0f)
@@ -107,7 +107,7 @@ namespace NightCrawler.UI
 
             if (penaltyWarningText != null)
             {
-                penaltyWarningText.text = $"<size=11><color=#E74C3C>Penalty on Expiry: -{penaltyAmount} {CurrencyConfig.CurrencySymbol} (from Stake)</color></size>";
+                penaltyWarningText.text = $"<size=11>Penalty on Expiry: -{penaltyAmount} {CurrencyConfig.CurrencySymbol} (from Stake)</size>";
             }
 
             SetVisible(true);
@@ -121,12 +121,12 @@ namespace NightCrawler.UI
 
             if (missionTitleText != null)
             {
-                missionTitleText.text = "<color=#2ECC71><b>PACT FULFILLED!</b></color>";
+                missionTitleText.text = "<b>PACT FULFILLED!</b>";
             }
 
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification("<color=#2ECC71>PACT FULFILLED</color>: The dark forces are pleased. Your stake is safe.", 4f);
+                NotificationManager.Instance.ShowNotification("PACT FULFILLED: The dark forces are pleased. Your stake is safe.", 4f);
             }
 
             StartCoroutine(HideAfterDelay(3.5f));
@@ -152,12 +152,12 @@ namespace NightCrawler.UI
 
             if (missionTitleText != null)
             {
-                missionTitleText.text = "<color=#E74C3C><b>PACT FAILED — TIME EXPIRED</b></color>";
+                missionTitleText.text = "<b>PACT FAILED — TIME EXPIRED</b>";
             }
 
             if (penaltyWarningText != null)
             {
-                penaltyWarningText.text = $"<color=#E74C3C>-{_penaltyAmount} {CurrencyConfig.CurrencySymbol} deducted from your stake!</color>";
+                penaltyWarningText.text = $"-{_penaltyAmount} {CurrencyConfig.CurrencySymbol} deducted from your stake!";
             }
 
             StartCoroutine(HideAfterDelay(4.5f));

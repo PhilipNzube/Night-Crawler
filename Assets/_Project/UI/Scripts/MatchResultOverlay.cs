@@ -149,28 +149,28 @@ public class MatchResultOverlay : MonoBehaviour
             var p = _latestPayout.Value;
             var sb = new System.Text.StringBuilder();
 
-            sb.AppendLine("<b><color=#F5A623>— MATCH SETTLEMENT —</color></b>");
+            sb.AppendLine("<b>— MATCH SETTLEMENT —</b>");
 
             if (p.won)
             {
-                sb.AppendLine($"Stake Returned: <color=#7ED321>+{p.stakedAmount} {CurrencyConfig.CurrencySymbol}</color>");
+                sb.AppendLine($"Stake Returned: +{p.stakedAmount} {CurrencyConfig.CurrencySymbol}");
                 if (p.potWinnings > 0)
-                    sb.AppendLine($"Pot Share: <color=#7ED321>+{p.potWinnings} {CurrencyConfig.CurrencySymbol}</color>");
+                    sb.AppendLine($"Pot Share: +{p.potWinnings} {CurrencyConfig.CurrencySymbol}");
                 if (p.contributionBonus > 0)
-                    sb.AppendLine($"Contribution Bonus: <color=#50E3C2>+{p.contributionBonus} {CurrencyConfig.CurrencySymbol}</color> ({p.bonusDetails})");
+                    sb.AppendLine($"Contribution Bonus: +{p.contributionBonus} {CurrencyConfig.CurrencySymbol} ({p.bonusDetails})");
 
-                sb.AppendLine($"<b>Net Payout: <color=#7ED321>+{p.netPayout} {CurrencyConfig.CurrencyName}</color></b>");
+                sb.AppendLine($"<b>Net Payout: +{p.netPayout} {CurrencyConfig.CurrencyName}</b>");
             }
             else
             {
-                sb.AppendLine($"Stake Forfeited: <color=#D0021B>-{p.stakedAmount} {CurrencyConfig.CurrencySymbol}</color>");
+                sb.AppendLine($"Stake Forfeited: -{p.stakedAmount} {CurrencyConfig.CurrencySymbol}");
                 if (p.penaltyDeduction > 0)
-                    sb.AppendLine($"Penalty: <color=#D0021B>-{p.penaltyDeduction} {CurrencyConfig.CurrencySymbol}</color> ({p.bonusDetails})");
+                    sb.AppendLine($"Penalty: -{p.penaltyDeduction} {CurrencyConfig.CurrencySymbol} ({p.bonusDetails})");
 
-                sb.AppendLine($"<b>Net Loss: <color=#D0021B>{p.netPayout} {CurrencyConfig.CurrencyName}</color></b>");
+                sb.AppendLine($"<b>Net Loss: {p.netPayout} {CurrencyConfig.CurrencyName}</b>");
             }
 
-            sb.AppendLine($"<size=14><color=#CCCCCC>Current Balance: <b>{p.newBalance} {CurrencyConfig.CurrencyName}</b></color></size>");
+            sb.AppendLine($"<size=14>Current Balance: <b>{p.newBalance} {CurrencyConfig.CurrencyName}</b></size>");
 
             if (economyBreakdownText != null) economyBreakdownText.text = sb.ToString();
 

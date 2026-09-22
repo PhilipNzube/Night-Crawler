@@ -308,7 +308,7 @@ namespace NightCrawler.Economy
             {
                 if (NotificationManager.Instance != null)
                 {
-                    NotificationManager.Instance.ShowNotification($"<color=#E74C3C>PACT EXPIRED</color>: Failed pact in time! {penalty} {CurrencyConfig.CurrencySymbol} deducted from your stake.", 4.5f);
+                    NotificationManager.Instance.ShowNotification($"PACT EXPIRED: Failed pact in time! {penalty} {CurrencyConfig.CurrencySymbol} deducted from your stake.", 4.5f);
                 }
             }
         }

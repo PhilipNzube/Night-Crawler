@@ -20,7 +20,7 @@ public class CorpseInteractionHUD : MonoBehaviour
 
     [Header("Prompt Formatting")]
     [Tooltip("Format string for the prompt text. {0} is the key, {1} is the loot summary.")]
-    public string promptFormat = "Press <color=#00E5FF><b>[{0}]</b></color> to loot body";
+    public string promptFormat = "Press <b>[{0}]</b> to loot body";
     public bool showLootSummaryInPrompt = true;
 
     private CanvasGroup _canvasGroup;
@@ -105,7 +105,7 @@ public class CorpseInteractionHUD : MonoBehaviour
         promptText.fontSize = 17f;
         promptText.color = Color.white;
         promptText.alignment = TextAlignmentOptions.Center;
-        promptText.text = "Press <color=#00E5FF><b>[E]</b></color> to loot body";
+        promptText.text = "Press <b>[E]</b> to loot body";
 
         promptPanel = panelObj;
         promptPanel.SetActive(false);
@@ -189,7 +189,7 @@ public class CorpseInteractionHUD : MonoBehaviour
             string keyName = nearestLootable.lootKey.ToString();
             string lootDesc = nearestLootable.GetLootDescription();
             string msg = showLootSummaryInPrompt && !string.IsNullOrEmpty(lootDesc) && lootDesc != "Empty"
-                ? string.Format(promptFormat, keyName) + $" <size=85%><color=#FFC107>({lootDesc})</color></size>"
+                ? string.Format(promptFormat, keyName) + $" <size=85%>({lootDesc})</size>"
                 : string.Format(promptFormat, keyName);
 
             SetPromptVisible(true, msg);

@@ -505,7 +505,7 @@ public class GirlDealUI : MonoBehaviour
             Debug.LogError($"[GirlDealUI] Error: {title} - {message}");
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification($"<color=#E74C3C>{title}:</color> {message}", 4f);
+                NotificationManager.Instance.ShowNotification($"{title}: {message}", 4f);
             }
             return;
         }
