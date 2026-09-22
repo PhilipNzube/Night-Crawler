@@ -236,10 +236,20 @@ public class NetworkRagdollController : NetworkBehaviour
         _cameraTarget.rotation = Quaternion.Euler(targetPitch, currentYaw + totalOrbitDegrees, 0f);
         _deathOrbitCoroutine = null;
 
-        // Engage spectator mode after death orbit completes (fail-safe)
+        // Engage spectator mode after death orbit completes (fail-safe).
+        // Prefer going through DeathUI so the no-survivors check runs properly.
         if (SpectatorController.Instance != null && !SpectatorController.Instance.IsSpectating)
         {
-            SpectatorController.Instance.StartSpectating();
+            if (DeathUI.Instance != null)
+            {
+                // ShowDeathScreen will handle the survivor-count check and either
+                // start spectating or keep the player on the death screen.
+                DeathUI.Instance.ShowDeathScreen();
+            }
+            else
+            {
+                SpectatorController.Instance.StartSpectating();
+            }
         }
     }
 

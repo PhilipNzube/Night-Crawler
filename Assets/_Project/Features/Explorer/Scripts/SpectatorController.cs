@@ -505,7 +505,16 @@ public class SpectatorController : MonoBehaviour
             }
             else
             {
-                _currentTarget = null;
+                // No more survivors — stop spectating and return to own death screen
+                Debug.Log("[SpectatorController] Last survivor has fallen. Returning to death screen.");
+                if (DeathUI.Instance != null)
+                {
+                    DeathUI.Instance.ReturnFromSpectatorToDeath();
+                }
+                else
+                {
+                    StopSpectating();
+                }
             }
         }
     }

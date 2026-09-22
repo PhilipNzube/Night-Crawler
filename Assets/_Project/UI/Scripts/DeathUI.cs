@@ -170,30 +170,121 @@ public class DeathUI : MonoBehaviour
             }
         }
 
+        // ── Close pause menu if it was open ────────────────────────────────
+        if (PauseManager.IsGamePaused && PauseManager.Instance != null)
+        {
+            PauseManager.Instance.ResumeGame();
+        }
+
         if (deathPanel != null) deathPanel.SetActive(true);
         if (titleText != null) titleText.text = title;
 
         NightCrawler.UI.MichskyUIBridge.OpenModal(heatModalWindow);
 
+        // ── Determine whether there are survivors left to spectate ──────────
+        bool hasSurvivors = HasAliveSurvivorsToSpectate();
+
         _skipRequested = false;
         if (spectatePromptObject != null)
         {
-            spectatePromptObject.SetActive(true);
+            // Show spectate prompt only when there are survivors
+            spectatePromptObject.SetActive(hasSurvivors);
             if (subtitleText != null) subtitleText.text = subtitle;
         }
         else if (spectatePromptText != null)
         {
             if (subtitleText != null) subtitleText.text = subtitle;
-            spectatePromptText.gameObject.SetActive(true);
-            spectatePromptText.text = "<b>[SPACE / CLICK]</b> TO SPECTATE";
+            if (hasSurvivors)
+            {
+                spectatePromptText.gameObject.SetActive(true);
+                spectatePromptText.text = "<b>[SPACE / CLICK]</b> TO SPECTATE";
+            }
+            else
+            {
+                spectatePromptText.gameObject.SetActive(false);
+            }
         }
         else if (subtitleText != null)
         {
-            subtitleText.text = $"{subtitle}\n\n<size=85%><b>Press [SPACE] or [CLICK] to Spectate</b></size>";
+            subtitleText.text = hasSurvivors
+                ? $"{subtitle}\n\n<size=85%><b>Press [SPACE] or [CLICK] to Spectate</b></size>"
+                : subtitle;
+        }
+
+        // Also hide the Heat HotkeyEvent spectate button when no one to spectate
+        if (heatSpectateHotkey != null)
+        {
+            heatSpectateHotkey.gameObject.SetActive(hasSurvivors);
         }
 
         if (_fadeCoroutine != null) StopCoroutine(_fadeCoroutine);
-        _fadeCoroutine = StartCoroutine(FadeInDeathScreenRoutine());
+        _fadeCoroutine = StartCoroutine(FadeInDeathScreenRoutine(hasSurvivors));
+    }
+
+    /// <summary>
+    /// Called by SpectatorController when the last watched survivor dies.
+    /// Exits spectator mode and returns to this player's own death screen.
+    /// </summary>
+    public void ReturnFromSpectatorToDeath()
+    {
+        if (SpectatorController.Instance != null && SpectatorController.Instance.IsSpectating)
+        {
+            SpectatorController.Instance.StopSpectating();
+        }
+
+        // Close pause menu if somehow open
+        if (PauseManager.IsGamePaused && PauseManager.Instance != null)
+        {
+            PauseManager.Instance.ResumeGame();
+        }
+
+        if (deathPanel != null) deathPanel.SetActive(true);
+        NightCrawler.UI.MichskyUIBridge.OpenModal(heatModalWindow);
+
+        // No survivors left — hide every spectate UI element
+        if (spectatePromptObject != null) spectatePromptObject.SetActive(false);
+        if (spectatePromptText != null) spectatePromptText.gameObject.SetActive(false);
+        if (heatSpectateHotkey != null) heatSpectateHotkey.gameObject.SetActive(false);
+
+        if (subtitleText != null)
+            subtitleText.text = "All survivors have fallen.";
+
+        if (deathCanvasGroup != null)
+        {
+            deathCanvasGroup.gameObject.SetActive(true);
+            deathCanvasGroup.alpha = 1f;
+            deathCanvasGroup.blocksRaycasts = false;
+            deathCanvasGroup.interactable = false;
+        }
+
+        Debug.Log("[DeathUI] Returned from spectator — all survivors gone.");
+    }
+
+    /// <summary>
+    /// Returns true if there is at least one alive non-local Investigator to spectate.
+    /// </summary>
+    private bool HasAliveSurvivorsToSpectate()
+    {
+        ulong localId = Unity.Netcode.NetworkManager.Singleton != null
+            ? Unity.Netcode.NetworkManager.Singleton.LocalClientId
+            : ulong.MaxValue;
+
+        var allHealths = FindObjectsByType<TargetHealth>(FindObjectsSortMode.None);
+        foreach (var th in allHealths)
+        {
+            if (th == null || th.gameObject == null) continue;
+
+            var netObj = th.GetComponent<Unity.Netcode.NetworkObject>();
+            if (netObj != null && netObj.OwnerClientId == localId) continue; // skip self
+
+            // Skip the Girl
+            if (th.GetComponent<GirlPossession>() != null || th.GetComponent<GirlStealth>() != null ||
+                th.gameObject.name.ToLower().Contains("girl")) continue;
+
+            if (!th.isCorpse.Value && th.CurrentHealth > 0f)
+                return true;
+        }
+        return false;
     }
 
     /// <summary>
@@ -237,7 +328,7 @@ public class DeathUI : MonoBehaviour
         _skipRequested = true;
     }
 
-    private IEnumerator FadeInDeathScreenRoutine()
+    private IEnumerator FadeInDeathScreenRoutine(bool hasSurvivors)
     {
         if (deathCanvasGroup == null) yield break;
 
@@ -254,7 +345,14 @@ public class DeathUI : MonoBehaviour
         }
         deathCanvasGroup.alpha = 1f;
 
-        // 2. Hold death screen for emotional weight (or allow player to skip immediately with Space/Click/Button)
+        // 2. If no survivors to spectate, stay on death screen permanently — nothing more to do
+        if (!hasSurvivors)
+        {
+            _fadeCoroutine = null;
+            yield break;
+        }
+
+        // 3. Hold death screen for emotional weight (or allow player to skip immediately with Space/Click/Button)
         float holdTimer = 2.5f;
         while (holdTimer > 0f)
         {
@@ -265,7 +363,7 @@ public class DeathUI : MonoBehaviour
             yield return null;
         }
 
-        // 3. Smoothly fade out the black death curtain to reveal the live match
+        // 4. Smoothly fade out the black death curtain to reveal the live match
         float fadeOutDuration = 0.8f;
         float fadeOutElapsed = 0f;
         while (fadeOutElapsed < fadeOutDuration)
@@ -278,10 +376,15 @@ public class DeathUI : MonoBehaviour
         deathCanvasGroup.blocksRaycasts = false;
         if (deathPanel != null) deathPanel.SetActive(false);
 
-        // 4. Engage Spectator Mode seamlessly
-        if (SpectatorController.Instance != null)
+        // 5. Engage Spectator Mode seamlessly (re-check survivors one last time in case they all died during the hold)
+        if (HasAliveSurvivorsToSpectate() && SpectatorController.Instance != null)
         {
             SpectatorController.Instance.StartSpectating();
+        }
+        else
+        {
+            // All gone by the time the timer ran — resurface the death screen
+            ReturnFromSpectatorToDeath();
         }
     }
 
