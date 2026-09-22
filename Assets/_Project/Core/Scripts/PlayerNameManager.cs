@@ -66,6 +66,15 @@ public static class PlayerNameManager
     }
 
     /// <summary>
+    /// Gets the saved player name with an option to filter emojis.
+    /// </summary>
+    public static string GetPlayerName(bool allowEmojis)
+    {
+        if (!HasSavedName()) return string.Empty;
+        return SanitizePlayerName(PlayerPrefs.GetString(PREF_KEY), allowEmojis);
+    }
+
+    /// <summary>
     /// Gets the synchronized network player name for a specific client ID,
     /// or falls back to local name / default identifier.
     /// </summary>
