@@ -10,6 +10,7 @@ using TMPro;
 using Michsky.UI.Heat;
 using NightCrawler.UI;
 using NightCrawler.Economy;
+using UnityEngine.InputSystem;
 
 /// <summary>
 /// SOLID — SRP: Manages the pre-game lobby UI flow using Michsky Heat UI.
@@ -238,6 +239,10 @@ public class LobbyUI : MonoBehaviour
     private float _refreshTimer;
     private bool  _isHidden = false;
     private Coroutine _copyFeedbackCoroutine;
+    private int _lastEscapeFrame = -1;
+
+    private enum ActiveView { None, Home, NameEntry, JoinCode, HostLobby, ClientLobby }
+    private ActiveView _activeView = ActiveView.Home;
 
     private enum PendingStartAction { None, Host, Client }
     private PendingStartAction _pendingStartAction = PendingStartAction.None;
@@ -319,6 +324,12 @@ public class LobbyUI : MonoBehaviour
     {
         if (_isHidden) return;
 
+        // Escape Key Handling for Lobby Modals / Panels
+        if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
+        {
+            HandleLobbyEscape();
+        }
+
         // Smooth code-driven spinner rotation (independent of periodic lobby refresh timer)
         if (spinSpinnerInCode && loadingSpinner != null && loadingSpinner.activeInHierarchy)
         {
@@ -333,6 +344,49 @@ public class LobbyUI : MonoBehaviour
 
         if (NetworkManager.Singleton.IsClient || NetworkManager.Singleton.IsServer)
             RefreshLobbyPanels();
+    }
+
+    /// <summary>
+    /// Coordinates pressing Esc on any lobby popup (Name Entry, Join Code, Exit Confirm, or Host/Client Lobby).
+    /// </summary>
+    public void HandleLobbyEscape()
+    {
+        if (Time.frameCount == _lastEscapeFrame) return;
+        _lastEscapeFrame = Time.frameCount;
+
+        // 1. If Exit Confirmation Modal is currently open, cancel it and keep user in their active view
+        if (exitConfirmModal != null && exitConfirmModal.isOn)
+        {
+            OnCancelExitConfirm();
+            return;
+        }
+
+        // 2. If Name Entry Modal is currently open, cancel it and cleanly revert to Home
+        if (heatNameEntryModal != null && (heatNameEntryModal.isOn || (nameEntryPanel != null && nameEntryPanel.activeSelf)))
+        {
+            OnCancelNameEntry();
+            return;
+        }
+
+        // 3. If Join Code Panel/Modal is currently open, close it and cleanly revert to Home
+        var joinModal = joinCodePanel != null ? joinCodePanel.GetComponent<ModalWindowManager>() : null;
+        if ((joinModal != null && joinModal.isOn) || (joinCodePanel != null && joinCodePanel.activeSelf))
+        {
+            if (joinModal != null && joinModal.isOn)
+                joinModal.CloseWindow();
+            ShowConnectionPanel();
+            return;
+        }
+
+        // 4. If Host Lobby or Client Lobby is open, request disconnect (prompts exit confirm)
+        if (_activeView == ActiveView.HostLobby || _activeView == ActiveView.ClientLobby ||
+            (hostLobbyPanel != null && hostLobbyPanel.activeSelf) || (clientLobbyPanel != null && clientLobbyPanel.activeSelf))
+        {
+            RequestDisconnect();
+            return;
+        }
+
+        // Note: When on the Home screen and no modal is open, Esc intentionally does nothing.
     }
 
     private void EnsureRelayManager()
@@ -374,8 +428,19 @@ public class LobbyUI : MonoBehaviour
         if (nameModal != null)
         {
             nameModal.closeOnCancel = false;
-            nameModal.onCancel.RemoveAllListeners();
+            nameModal.onCancel.RemoveListener(OnCancelNameEntry);
             nameModal.onCancel.AddListener(OnCancelNameEntry);
+            nameModal.onClose.RemoveListener(OnCancelNameEntry);
+            nameModal.onClose.AddListener(OnCancelNameEntry);
+        }
+
+        ModalWindowManager joinModal = joinCodePanel != null ? joinCodePanel.GetComponent<ModalWindowManager>() : null;
+        if (joinModal != null)
+        {
+            joinModal.onCancel.RemoveListener(ShowConnectionPanel);
+            joinModal.onCancel.AddListener(ShowConnectionPanel);
+            joinModal.onClose.RemoveListener(ShowConnectionPanel);
+            joinModal.onClose.AddListener(ShowConnectionPanel);
         }
 
         if (nameEntryCancelButton != null)
@@ -408,11 +473,68 @@ public class LobbyUI : MonoBehaviour
         MichskyUIBridge.BindButton(null, heatHostDisconnectButton, RequestDisconnect);
         MichskyUIBridge.BindButton(null, heatHostCopyCodeButton, OnCopyJoinCode);
 
+        if (hostLobbyPanel != null)
+        {
+            var hostModal = hostLobbyPanel.GetComponent<ModalWindowManager>();
+            if (hostModal != null)
+            {
+                hostModal.closeOnCancel = false;
+                hostModal.onCancel.RemoveListener(RequestDisconnect);
+                hostModal.onCancel.AddListener(RequestDisconnect);
+                if (hostModal.cancelButton != null)
+                {
+                    MichskyUIBridge.BindButton(null, hostModal.cancelButton, RequestDisconnect);
+                }
+            }
+
+            foreach (var he in hostLobbyPanel.GetComponentsInChildren<HotkeyEvent>(true))
+            {
+                he.enabled = false;
+            }
+        }
+
         // 5. Client Lobby Panel
         MichskyUIBridge.BindButton(null, heatClientDisconnectButton, RequestDisconnect);
 
+        if (clientLobbyPanel != null)
+        {
+            var clientModal = clientLobbyPanel.GetComponent<ModalWindowManager>();
+            if (clientModal != null)
+            {
+                clientModal.closeOnCancel = false;
+                clientModal.onCancel.RemoveListener(RequestDisconnect);
+                clientModal.onCancel.AddListener(RequestDisconnect);
+                if (clientModal.cancelButton != null)
+                {
+                    MichskyUIBridge.BindButton(null, clientModal.cancelButton, RequestDisconnect);
+                }
+            }
+
+            foreach (var he in clientLobbyPanel.GetComponentsInChildren<HotkeyEvent>(true))
+            {
+                he.enabled = false;
+            }
+        }
+
         // 6. Exit Confirmation Modal Actions
         MichskyUIBridge.BindButton(null, heatExitConfirmButton, ConfirmDisconnect);
+
+        if (exitConfirmModal != null)
+        {
+            exitConfirmModal.closeOnCancel = false;
+            exitConfirmModal.onCancel.RemoveListener(OnCancelExitConfirm);
+            exitConfirmModal.onCancel.AddListener(OnCancelExitConfirm);
+            if (exitConfirmModal.cancelButton != null)
+            {
+                MichskyUIBridge.BindButton(null, exitConfirmModal.cancelButton, OnCancelExitConfirm);
+            }
+
+            foreach (var he in exitConfirmModal.GetComponentsInChildren<HotkeyEvent>(true))
+            {
+                he.onHotkeyPress.RemoveAllListeners();
+                he.onHotkeyPress.AddListener(OnCancelExitConfirm);
+            }
+        }
 
         // Exit Triggers (Single + Lists of any number of buttons)
         MichskyUIBridge.BindButton(null, heatExitTriggerButton, RequestDisconnect);
@@ -550,6 +672,50 @@ public class LobbyUI : MonoBehaviour
         OnDisconnect();
     }
 
+    /// <summary>
+    /// Cancels the exit confirmation modal and cleanly restores the player's active lobby view.
+    /// </summary>
+    public void OnCancelExitConfirm()
+    {
+        if (exitConfirmModal != null && exitConfirmModal.isOn)
+        {
+            exitConfirmModal.CloseWindow();
+        }
+
+        if (_activeView == ActiveView.HostLobby || (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer))
+        {
+            if (hostLobbyPanel != null)
+            {
+                var hostModal = hostLobbyPanel.GetComponent<ModalWindowManager>();
+                if (hostModal != null)
+                {
+                    if (!hostModal.isOn) hostModal.OpenWindow();
+                }
+                else
+                {
+                    hostLobbyPanel.SetActive(true);
+                }
+            }
+        }
+        else if (_activeView == ActiveView.ClientLobby || (NetworkManager.Singleton != null && NetworkManager.Singleton.IsClient))
+        {
+            if (clientLobbyPanel != null)
+            {
+                var clientModal = clientLobbyPanel.GetComponent<ModalWindowManager>();
+                if (clientModal != null)
+                {
+                    if (!clientModal.isOn) clientModal.OpenWindow();
+                }
+                else
+                {
+                    clientLobbyPanel.SetActive(true);
+                }
+            }
+        }
+
+        UnlockCursor();
+    }
+
     // =========================================================================
     //  Name Entry Actions
     // =========================================================================
@@ -659,7 +825,7 @@ public class LobbyUI : MonoBehaviour
         if (nameEntryErrorText != null)
             nameEntryErrorText.gameObject.SetActive(false);
 
-        if (heatNameEntryModal != null)
+        if (heatNameEntryModal != null && heatNameEntryModal.isOn)
             heatNameEntryModal.CloseWindow();
         else if (nameEntryPanel != null)
             nameEntryPanel.SetActive(false);
@@ -1059,6 +1225,7 @@ public class LobbyUI : MonoBehaviour
     // =========================================================================
     public void ShowNameEntryPanel()
     {
+        _activeView = ActiveView.NameEntry;
         if (nameEntryCancelButton != null)
         {
             nameEntryCancelButton.SetActive(true);
@@ -1079,14 +1246,30 @@ public class LobbyUI : MonoBehaviour
 
     public void ShowConnectionPanel()
     {
-        if (heatNameEntryModal != null)
+        _activeView = ActiveView.Home;
+        _pendingStartAction = PendingStartAction.None;
+
+        if (heatNameEntryModal != null && heatNameEntryModal.isOn)
         {
             heatNameEntryModal.CloseWindow();
         }
-        else if (nameEntryPanel != null)
+        if (nameEntryPanel != null && nameEntryPanel != (heatNameEntryModal != null ? heatNameEntryModal.gameObject : null))
         {
-            SetPanel(nameEntryPanel, false);
+            nameEntryPanel.SetActive(false);
         }
+
+        var joinCodeModal = joinCodePanel != null ? joinCodePanel.GetComponent<ModalWindowManager>() : null;
+        if (joinCodeModal != null && joinCodeModal.isOn)
+        {
+            joinCodeModal.CloseWindow();
+        }
+        else if (joinCodePanel != null)
+        {
+            joinCodePanel.SetActive(false);
+        }
+
+        SetPanel(hostLobbyPanel,   false);
+        SetPanel(clientLobbyPanel, false);
 
         // Ensure Home Panel is active and visible
         if (connectionPanel != null)
@@ -1100,6 +1283,31 @@ public class LobbyUI : MonoBehaviour
                 cg.interactable = true;
                 cg.blocksRaycasts = true;
             }
+
+            // Ensure Box Container and cards hierarchy are active
+            var boxContainer = connectionPanel.transform.Find("Content/Panel Content/Box Container");
+            if (boxContainer != null)
+            {
+                boxContainer.gameObject.SetActive(true);
+                for (int i = 0; i < boxContainer.childCount; i++)
+                {
+                    boxContainer.GetChild(i).gameObject.SetActive(true);
+                }
+            }
+        }
+
+        // Always ensure Host and Join/Lobby cards are enabled and interactable
+        if (heatBoxStartHostButton != null)
+        {
+            heatBoxStartHostButton.gameObject.SetActive(true);
+            heatBoxStartHostButton.isInteractable = true;
+            heatBoxStartHostButton.UpdateUI();
+        }
+        if (heatBoxStartClientButton != null)
+        {
+            heatBoxStartClientButton.gameObject.SetActive(true);
+            heatBoxStartClientButton.isInteractable = true;
+            heatBoxStartClientButton.UpdateUI();
         }
 
         // Force PanelManager to re-open Home Panel, trigger fade-in, and re-enable hotkeys/gamepad safely
@@ -1122,10 +1330,6 @@ public class LobbyUI : MonoBehaviour
             }
         }
 
-        SetPanel(joinCodePanel,    false);
-        SetPanel(hostLobbyPanel,   false);
-        SetPanel(clientLobbyPanel, false);
-
         SetConnectionButtonsInteractable(true);
         UnlockCursor();
 
@@ -1135,8 +1339,16 @@ public class LobbyUI : MonoBehaviour
 
     public void ShowJoinCodePanel()
     {
+        _activeView = ActiveView.JoinCode;
         SetPanel(nameEntryPanel,   false);
-        SetPanel(connectionPanel,  false);
+
+        // If joinCodePanel has a ModalWindowManager, it overlays on top of Home without destroying it
+        var mw = joinCodePanel != null ? joinCodePanel.GetComponent<ModalWindowManager>() : null;
+        if (mw == null)
+        {
+            SetPanel(connectionPanel, false);
+        }
+
         SetPanel(joinCodePanel,    true);
         SetPanel(hostLobbyPanel,   false);
         SetPanel(clientLobbyPanel, false);
@@ -1150,11 +1362,20 @@ public class LobbyUI : MonoBehaviour
 
     private void ShowHostLobby(string codeOrMode)
     {
+        _activeView = ActiveView.HostLobby;
         SetPanel(nameEntryPanel,   false);
         SetPanel(connectionPanel,  false);
         SetPanel(joinCodePanel,    false);
         SetPanel(hostLobbyPanel,   true);
         SetPanel(clientLobbyPanel, false);
+
+        if (hostLobbyPanel != null)
+        {
+            foreach (var he in hostLobbyPanel.GetComponentsInChildren<HotkeyEvent>(true))
+            {
+                he.enabled = false;
+            }
+        }
 
         if (hostJoinCodeText != null)
         {
@@ -1173,11 +1394,20 @@ public class LobbyUI : MonoBehaviour
 
     private void ShowClientLobby(string codeOrMode)
     {
+        _activeView = ActiveView.ClientLobby;
         SetPanel(nameEntryPanel,   false);
         SetPanel(connectionPanel,  false);
         SetPanel(joinCodePanel,    false);
         SetPanel(hostLobbyPanel,   false);
         SetPanel(clientLobbyPanel, true);
+
+        if (clientLobbyPanel != null)
+        {
+            foreach (var he in clientLobbyPanel.GetComponentsInChildren<HotkeyEvent>(true))
+            {
+                he.enabled = false;
+            }
+        }
 
         if (clientJoinCodeText != null)
         {

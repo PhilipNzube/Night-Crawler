@@ -19,9 +19,10 @@ public class GirlMovement : NetworkBehaviour
     private readonly int _speedHash = Animator.StringToHash("Speed");
     private float _lastAnimSpeed = -1f;
     private int _upperBodyLayer = -2;
-    private readonly int _hasWeaponHash = Animator.StringToHash("HasWeapon");
+    private readonly int _hasWeaponHash  = Animator.StringToHash("HasWeapon");
     private readonly int _weaponIdHash   = Animator.StringToHash("WeaponID");
     private readonly int _comboStepHash  = Animator.StringToHash("ComboStep");
+    private readonly int _fidgetHash     = Animator.StringToHash("IdleFidget");
 
     private void Awake()
     {
@@ -31,8 +32,8 @@ public class GirlMovement : NetworkBehaviour
     }
 
     /// <summary>
-    /// Enforces that the Girl NEVER takes any weapon or combat pose.
-    /// Clamps UpperBody_Combat layer weight to 0 and forces HasWeapon = false.
+    /// Enforces that the Girl NEVER takes any weapon, combat pose, or fidget looking animation.
+    /// Clamps UpperBody_Combat layer weight to 0, forces HasWeapon = false, and blocks IdleFidget.
     /// Runs on all machines so anyone who looks at the Girl sees her natural spirit form.
     /// </summary>
     public void SanitizeGirlAnimator()
@@ -54,6 +55,15 @@ public class GirlMovement : NetworkBehaviour
             animator.SetBool(_hasWeaponHash, false);
             animator.SetInteger(_weaponIdHash, -1);
             animator.SetInteger(_comboStepHash, 0);
+            animator.CrossFadeInFixedTime("Idle Walk Run Blend", 0.05f, 0);
+        }
+
+        // Enforce that the Girl NEVER plays the investigator IdleFidget animation
+        animator.ResetTrigger(_fidgetHash);
+        var curState = animator.GetCurrentAnimatorStateInfo(0);
+        var nextState = animator.GetNextAnimatorStateInfo(0);
+        if (curState.IsName("Idle_Looking") || nextState.IsName("Idle_Looking"))
+        {
             animator.CrossFadeInFixedTime("Idle Walk Run Blend", 0.05f, 0);
         }
     }
