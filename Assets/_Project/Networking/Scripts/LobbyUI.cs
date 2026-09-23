@@ -479,14 +479,23 @@ public class LobbyUI : MonoBehaviour
     /// </summary>
     public void RequestDisconnect()
     {
+        if (lobbyCanvasRoot != null && !lobbyCanvasRoot.activeSelf)
+        {
+            lobbyCanvasRoot.SetActive(true);
+        }
+
         if (exitConfirmModal != null)
         {
+            if (!exitConfirmModal.gameObject.activeSelf)
+                exitConfirmModal.gameObject.SetActive(true);
             exitConfirmModal.OpenWindow();
         }
         else
         {
             ConfirmDisconnect();
         }
+
+        UnlockCursor();
     }
 
     /// <summary>
@@ -499,6 +508,45 @@ public class LobbyUI : MonoBehaviour
             exitConfirmModal.CloseWindow();
         }
 
+        // 1. Clean up Character Selection 3D white room environment if active
+        if (CharacterSceneController.Instance != null)
+        {
+            CharacterSceneController.Instance.DisableCharacterSelectEnvironment();
+        }
+
+        // 2. Hide post-reveal flow roots (Investigator & Girl flows)
+        if (GirlRevealManager.Instance != null)
+        {
+            if (GirlRevealManager.Instance.investigatorFlow != null)
+                GirlRevealManager.Instance.investigatorFlow.SetActive(false);
+            if (GirlRevealManager.Instance.girlFlow != null)
+                GirlRevealManager.Instance.girlFlow.SetActive(false);
+        }
+
+        // 3. Hide CharacterSelectUI if it was active
+        var charSelect = FindFirstObjectByType<CharacterSelectUI>(FindObjectsInactive.Include);
+        if (charSelect != null && charSelect.characterSelectPanel != null)
+        {
+            charSelect.characterSelectPanel.SetActive(false);
+        }
+
+        // 4. Hide GirlPlayerScreen and destroy dancing model if active
+        var girlScreen = FindFirstObjectByType<GirlPlayerScreen>(FindObjectsInactive.Include);
+        if (girlScreen != null)
+        {
+            girlScreen.Hide();
+        }
+
+        // 5. Restore camera to main Lobby establishing shot
+        if (LobbyCameraController.Instance != null)
+        {
+            LobbyCameraController.Instance.SetPhase(LobbyCameraController.CameraPhase.Lobby);
+        }
+
+        // 6. Reset persistent role selection
+        PersistentCharacterSelection.SetIsVengefulSpirit(false);
+
+        // 7. Complete network shutdown and return to Home Panel
         OnDisconnect();
     }
 

@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.InputSystem;
 using TMPro;
 using Unity.Netcode;
 using System.Collections;
@@ -139,6 +140,23 @@ public class CharacterSelectUI : MonoBehaviour
     public string statusWaitingText = "NOT READY";
     public string statusReadyText = "READY";
 
+    // =========================================================================
+    //  Inspector — Exit Confirmation Modal & Hotkey (Manual Wiring — No Auto-Find)
+    // =========================================================================
+
+    [Header("Exit Confirmation Modal & Hotkey (Manual Assignment — No Auto-Find)")]
+    [Tooltip("Explicit reference to the Exit Confirmation Modal for Character Select (e.g. ExitModal under InvestigatorFlow). No auto-finding.")]
+    public ModalWindowManager exitConfirmModal;
+
+    [Tooltip("Optional explicit reference to the Confirm button inside the exit modal.")]
+    public BoxButtonManager heatBoxExitConfirmButton;
+
+    [Tooltip("Optional standard/Heat ButtonManager for confirming exit.")]
+    public ButtonManager heatExitConfirmButton;
+
+    [Tooltip("Optional explicit reference to the Exit Hotkey indicator/button (e.g. ExitHotKey under InvestigatorFlow).")]
+    public HotkeyEvent exitHotkey;
+
     // -------------------------------------------------------------------------
     //  Private State
     // -------------------------------------------------------------------------
@@ -155,10 +173,106 @@ public class CharacterSelectUI : MonoBehaviour
     private Coroutine                 _swapCoroutine;
     private bool                      _localConfirmed         = false;
     private readonly List<GameObject> _statusRows             = new List<GameObject>();
+    private int                       _lastEscapeFrame        = -1;
 
     // =========================================================================
     //  Unity Lifecycle
     // =========================================================================
+
+    void Awake()
+    {
+        InitExitBindings();
+    }
+
+    void Update()
+    {
+        if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
+        {
+            HandleExitHotkey();
+        }
+    }
+
+    public void InitExitBindings()
+    {
+        // Explicit wiring only — no auto-finding!
+        if (exitConfirmModal != null)
+        {
+            exitConfirmModal.onConfirm.RemoveListener(ConfirmExitToHome);
+            exitConfirmModal.onConfirm.AddListener(ConfirmExitToHome);
+        }
+
+        if (heatBoxExitConfirmButton != null)
+        {
+            MichskyUIBridge.BindButton(null, heatBoxExitConfirmButton, ConfirmExitToHome);
+        }
+        else if (heatExitConfirmButton != null)
+        {
+            MichskyUIBridge.BindButton(null, heatExitConfirmButton, ConfirmExitToHome);
+        }
+
+        if (exitHotkey != null)
+        {
+            exitHotkey.onHotkeyPress.RemoveListener(HandleExitHotkey);
+            exitHotkey.onHotkeyPress.AddListener(HandleExitHotkey);
+        }
+    }
+
+    /// <summary>
+    /// Handles hotkey press (Esc or UI HotKey button).
+    /// Prevents double-firing in the same frame if both HotkeyEvent and Keyboard fire.
+    /// </summary>
+    public void HandleExitHotkey()
+    {
+        if (Time.frameCount == _lastEscapeFrame) return;
+        _lastEscapeFrame = Time.frameCount;
+
+        // 1. If Exit Confirm Modal is open, cancel/close it
+        if (exitConfirmModal != null && exitConfirmModal.isOn)
+        {
+            exitConfirmModal.CloseWindow();
+            return;
+        }
+
+        // 2. If Match Stake Modal is open, close/cancel it
+        if (matchStakeModal != null && matchStakeModal.isOn)
+        {
+            OnStakeModalCancelled();
+            return;
+        }
+
+        // 3. Otherwise, prompt the exit modal if assigned
+        RequestExitToHome();
+    }
+
+    public void RequestExitToHome()
+    {
+        if (exitConfirmModal != null)
+        {
+            if (!exitConfirmModal.gameObject.activeSelf)
+                exitConfirmModal.gameObject.SetActive(true);
+            exitConfirmModal.OpenWindow();
+        }
+    }
+
+    public void ConfirmExitToHome()
+    {
+        if (exitConfirmModal != null)
+        {
+            exitConfirmModal.CloseWindow();
+        }
+
+        if (LobbyUI.Instance != null)
+        {
+            LobbyUI.Instance.ConfirmDisconnect();
+        }
+        else
+        {
+            if (CharacterSceneController.Instance != null)
+                CharacterSceneController.Instance.DisableCharacterSelectEnvironment();
+            if (characterSelectPanel != null)
+                characterSelectPanel.SetActive(false);
+        }
+    }
 
     void Start()
     {
@@ -171,6 +285,7 @@ public class CharacterSelectUI : MonoBehaviour
 
     void OnEnable()
     {
+        InitExitBindings();
         _localConfirmed = false;
         if (playerStatusPanel != null) playerStatusPanel.SetActive(false);
 

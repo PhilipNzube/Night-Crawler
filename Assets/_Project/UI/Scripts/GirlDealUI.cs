@@ -127,11 +127,14 @@ public class GirlDealUI : MonoBehaviour
         // Configure sliders
         if (timeSlider != null && timeSlider.mainSlider != null)
         {
+            timeSlider.useRoundValue = true;
             timeSlider.mainSlider.minValue = 30f;
             timeSlider.mainSlider.maxValue = 180f;
             timeSlider.mainSlider.wholeNumbers = true;
             timeSlider.mainSlider.value = 120f;
         }
+        if (rewardSlider != null) rewardSlider.useRoundValue = true;
+        if (penaltySlider != null) penaltySlider.useRoundValue = true;
 
         // Clean up any default ExitGame calls on Modals
         SanitizeModal(dealModal);
@@ -352,26 +355,32 @@ public class GirlDealUI : MonoBehaviour
 
         if (rewardSlider != null && rewardSlider.mainSlider != null)
         {
+            rewardSlider.useRoundValue = true;
             rewardSlider.mainSlider.minValue = 10f;
             rewardSlider.mainSlider.maxValue = Mathf.Max(maxAllowedReward, 100f);
             rewardSlider.mainSlider.wholeNumbers = true;
             rewardSlider.mainSlider.value = Mathf.Min(30f, maxAllowedReward);
+            rewardSlider.UpdateUI();
         }
 
         if (penaltySlider != null && penaltySlider.mainSlider != null)
         {
+            penaltySlider.useRoundValue = true;
             penaltySlider.mainSlider.minValue = 5f;
             penaltySlider.mainSlider.maxValue = 100f;
             penaltySlider.mainSlider.wholeNumbers = true;
             penaltySlider.mainSlider.value = 15f;
+            penaltySlider.UpdateUI();
         }
 
         if (timeSlider != null && timeSlider.mainSlider != null)
         {
+            timeSlider.useRoundValue = true;
             timeSlider.mainSlider.minValue = 30f;
             timeSlider.mainSlider.maxValue = 180f;
             timeSlider.mainSlider.wholeNumbers = true;
             timeSlider.mainSlider.value = 120f;
+            timeSlider.UpdateUI();
         }
 
         // Ensure modal is active before opening

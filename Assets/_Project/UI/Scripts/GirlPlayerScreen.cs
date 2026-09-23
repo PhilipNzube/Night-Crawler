@@ -1,6 +1,7 @@
 using System;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.InputSystem;
 using TMPro;
 using System.Collections;
 using System.Collections.Generic;
@@ -97,6 +98,23 @@ public class GirlPlayerScreen : MonoBehaviour
     [Tooltip("Optional 2D portrait/icon for the Girl shown in status rows.")]
     public Sprite girlPortrait;
 
+    // =========================================================================
+    //  Inspector — Exit Confirmation Modal & Hotkey (Manual Wiring — No Auto-Find)
+    // =========================================================================
+
+    [Header("Exit Confirmation Modal & Hotkey (Manual Assignment — No Auto-Find)")]
+    [Tooltip("Explicit reference to the Exit Confirmation Modal for Girl Screen (e.g. ExitModal under GirlFlow). No auto-finding.")]
+    public ModalWindowManager exitConfirmModal;
+
+    [Tooltip("Optional explicit reference to the Confirm button inside the exit modal.")]
+    public BoxButtonManager heatBoxExitConfirmButton;
+
+    [Tooltip("Optional standard/Heat ButtonManager for confirming exit.")]
+    public ButtonManager heatExitConfirmButton;
+
+    [Tooltip("Optional explicit reference to the Exit Hotkey indicator/button (e.g. ExitHotKey under GirlFlow).")]
+    public HotkeyEvent exitHotkey;
+
     // -------------------------------------------------------------------------
     //  Private State
     // -------------------------------------------------------------------------
@@ -105,6 +123,7 @@ public class GirlPlayerScreen : MonoBehaviour
     private Coroutine                    _readyDelayCoroutine;
     private bool                         _readySent = false;
     private readonly List<GameObject>    _statusRows = new List<GameObject>();
+    private int                          _lastEscapeFrame = -1;
 
     // =========================================================================
     //  Unity Lifecycle
@@ -116,10 +135,100 @@ public class GirlPlayerScreen : MonoBehaviour
             girlScreenPanel = gameObject;
 
         MichskyUIBridge.BindButton(null, heatReadyButton, OnReadyButtonClicked);
+        InitExitBindings();
+    }
+
+    void Update()
+    {
+        if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
+        {
+            HandleExitHotkey();
+        }
+    }
+
+    public void InitExitBindings()
+    {
+        // Explicit wiring only — no auto-finding!
+        if (exitConfirmModal != null)
+        {
+            exitConfirmModal.onConfirm.RemoveListener(ConfirmExitToHome);
+            exitConfirmModal.onConfirm.AddListener(ConfirmExitToHome);
+        }
+
+        if (heatBoxExitConfirmButton != null)
+        {
+            MichskyUIBridge.BindButton(null, heatBoxExitConfirmButton, ConfirmExitToHome);
+        }
+        else if (heatExitConfirmButton != null)
+        {
+            MichskyUIBridge.BindButton(null, heatExitConfirmButton, ConfirmExitToHome);
+        }
+
+        if (exitHotkey != null)
+        {
+            exitHotkey.onHotkeyPress.RemoveListener(HandleExitHotkey);
+            exitHotkey.onHotkeyPress.AddListener(HandleExitHotkey);
+        }
+    }
+
+    /// <summary>
+    /// Handles hotkey press (Esc or UI HotKey button).
+    /// Prevents double-firing in the same frame if both HotkeyEvent and Keyboard fire.
+    /// </summary>
+    public void HandleExitHotkey()
+    {
+        if (Time.frameCount == _lastEscapeFrame) return;
+        _lastEscapeFrame = Time.frameCount;
+
+        // 1. If Exit Confirm Modal is already open, cancel/close it
+        if (exitConfirmModal != null && exitConfirmModal.isOn)
+        {
+            exitConfirmModal.CloseWindow();
+            return;
+        }
+
+        // 2. If Match Stake Modal is open, close/cancel it
+        if (matchStakeModal != null && matchStakeModal.isOn)
+        {
+            OnStakeModalCancelled();
+            return;
+        }
+
+        // 3. Otherwise, prompt the exit modal if assigned
+        RequestExitToHome();
+    }
+
+    public void RequestExitToHome()
+    {
+        if (exitConfirmModal != null)
+        {
+            if (!exitConfirmModal.gameObject.activeSelf)
+                exitConfirmModal.gameObject.SetActive(true);
+            exitConfirmModal.OpenWindow();
+        }
+    }
+
+    public void ConfirmExitToHome()
+    {
+        if (exitConfirmModal != null)
+        {
+            exitConfirmModal.CloseWindow();
+        }
+
+        if (LobbyUI.Instance != null)
+        {
+            LobbyUI.Instance.ConfirmDisconnect();
+        }
+        else
+        {
+            DestroyModel();
+            SetScreenVisible(false);
+        }
     }
 
     void OnEnable()
     {
+        InitExitBindings();
         Show();
     }
 
@@ -468,6 +577,24 @@ public class GirlPlayerScreen : MonoBehaviour
                 }
             }
         }
+
+        RebuildStatusLayout();
+    }
+
+    private void RebuildStatusLayout()
+    {
+        if (playerStatusContainer is RectTransform containerRt)
+        {
+            LayoutRebuilder.ForceRebuildLayoutImmediate(containerRt);
+            if (containerRt.parent is RectTransform parentRt)
+            {
+                LayoutRebuilder.ForceRebuildLayoutImmediate(parentRt);
+                if (parentRt.parent is RectTransform grandParentRt)
+                {
+                    LayoutRebuilder.ForceRebuildLayoutImmediate(grandParentRt);
+                }
+            }
+        }
     }
 
     private Sprite GetInvestigatorPortrait(int characterIndex)
@@ -502,6 +629,8 @@ public class GirlPlayerScreen : MonoBehaviour
                     : new Color(0.91f, 0.30f, 0.24f); // Vibrant Crimson Red
             }
         }
+
+        RebuildStatusLayout();
 
         // Only show status panel after the girl has pressed READY
         if (playerStatusPanel != null)
