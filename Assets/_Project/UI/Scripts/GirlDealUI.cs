@@ -28,6 +28,8 @@ public class GirlDealUI : MonoBehaviour
     [Tooltip("The DealPanel containing the scrollable deal cards and background.")]
     public GameObject dealPanel;
     public CanvasGroup canvasGroup;
+    [Tooltip("Animator on the Deals child object running SubPanel.controller.")]
+    public Animator dealsAnimator;
 
     [Header("Heat UI Modals")]
     [Tooltip("The DealModal (ModalWindowManager) that pops up when a card is selected.")]
@@ -65,11 +67,7 @@ public class GirlDealUI : MonoBehaviour
     private string _currentCardTitle = "DEAL PACT";
     private string _currentCardDesc = "";
     private bool _isOpen = false;
-    private float _lastToggleTime = -10f;
-    private const float ToggleCooldown = 0.25f;
-    // Cached once the local player is confirmed to be the Girl
     private bool _isGirl = false;
-    private bool _girlChecked = false;
 
     private void Awake()
     {
@@ -80,8 +78,39 @@ public class GirlDealUI : MonoBehaviour
         }
         Instance = this;
 
-        if (canvasGroup == null) canvasGroup = GetComponent<CanvasGroup>();
-        if (canvasGroup == null && dealPanel != null) canvasGroup = dealPanel.GetComponent<CanvasGroup>();
+        // In the scene, dealPanel may be assigned to DemonPanel (this gameObject) or null.
+        // Resolve it specifically to the child "DealPanel" so we never deactivate or hide sibling modals.
+        if (dealPanel == null || dealPanel == gameObject)
+        {
+            Transform childDealPanel = transform.Find("DealPanel");
+            if (childDealPanel != null) dealPanel = childDealPanel.gameObject;
+        }
+
+        // DealPanel visibility is controlled via CanvasGroup (alpha: 0 when closed, 1 when open)
+        if (canvasGroup == null && dealPanel != null)
+        {
+            canvasGroup = dealPanel.GetComponent<CanvasGroup>();
+            if (canvasGroup == null)
+                canvasGroup = dealPanel.AddComponent<CanvasGroup>();
+        }
+
+        // Find the SubPanel Animator on Deals (child of DealPanel)
+        if (dealsAnimator == null && dealPanel != null)
+        {
+            dealsAnimator = dealPanel.GetComponentInChildren<Animator>(true);
+        }
+
+        // Start hidden via CanvasGroup — do NOT call SetActive(false) on panels/parents
+        if (canvasGroup != null)
+        {
+            canvasGroup.alpha = 0f;
+            canvasGroup.interactable = false;
+            canvasGroup.blocksRaycasts = false;
+        }
+        if (dealsAnimator != null)
+        {
+            dealsAnimator.Play("Panel Instant Out");
+        }
 
         // Bind buttons
         if (sendButton != null)
@@ -107,16 +136,23 @@ public class GirlDealUI : MonoBehaviour
         // Clean up any default ExitGame calls on Modals
         SanitizeModal(dealModal);
         SanitizeModal(errorModal);
-
-        // Deactivate cards, background, and modals when game starts
-        SetVisible(false);
     }
 
     private void Start()
     {
         HookCardButtons();
-        // Ensure strictly hidden and closed at start of match
-        SetVisible(false);
+
+        // Ensure deal panel starts hidden via CanvasGroup
+        if (canvasGroup != null)
+        {
+            canvasGroup.alpha = 0f;
+            canvasGroup.interactable = false;
+            canvasGroup.blocksRaycasts = false;
+        }
+        if (dealsAnimator != null)
+        {
+            dealsAnimator.Play("Panel Instant Out");
+        }
     }
 
     private void OnDestroy()
@@ -137,27 +173,16 @@ public class GirlDealUI : MonoBehaviour
         if (IsAnyInputFocused())
         {
             if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame && _isOpen)
-            {
                 CloseUI();
-            }
             return;
         }
 
         if (Keyboard.current != null)
         {
-            bool pressed = Keyboard.current[toggleKey].wasPressedThisFrame;
-            float now = Time.unscaledTime;
-
-            if (pressed && IsLocalPlayerGirl() && (now - _lastToggleTime) >= ToggleCooldown)
-            {
-                _lastToggleTime = now;
+            if (Keyboard.current[toggleKey].wasPressedThisFrame && IsLocalPlayerGirl())
                 ToggleUI();
-            }
-            else if (_isOpen && Keyboard.current.escapeKey.wasPressedThisFrame && (now - _lastToggleTime) >= ToggleCooldown)
-            {
-                _lastToggleTime = now;
+            else if (_isOpen && Keyboard.current.escapeKey.wasPressedThisFrame)
                 CloseUI();
-            }
         }
     }
 
@@ -172,79 +197,78 @@ public class GirlDealUI : MonoBehaviour
 
     private bool IsLocalPlayerGirl()
     {
-        // Return cached result once confirmed — avoids PlayerObject null on game start
-        if (_isGirl) return true;
-        // Once we've confirmed NOT the girl (and NetworkManager is ready), stop checking
-        if (_girlChecked) return false;
-
         if (NetworkManager.Singleton == null || NetworkManager.Singleton.LocalClient == null) return false;
         var playerObj = NetworkManager.Singleton.LocalClient.PlayerObject;
         if (playerObj == null) return false;
 
-        // NetworkManager is ready — do the definitive check
-        _girlChecked = true;
-
+        // If currently possessing an investigator, cannot open deals
         if (playerObj.TryGetComponent<GirlPossession>(out var possession) && possession.isPossessing.Value)
             return false;
+
+        if (_isGirl) return true;
 
         bool result = playerObj.GetComponent<GirlStealth>() != null
             || playerObj.GetComponent<GirlMaterialController>() != null
             || playerObj.GetComponent<GirlPossession>() != null;
 
-        _isGirl = result; // Cache for all future frames
+        if (result) _isGirl = true;
         return result;
     }
 
     public void ToggleUI()
     {
-        _isOpen = !_isOpen;
-        SetVisible(_isOpen);
+        if (_isOpen) CloseUI();
+        else OpenUI();
+    }
+
+    public void OpenUI()
+    {
+        _isOpen = true;
+        RefreshLivingPlayers();
+        HookCardButtons();
+
+        // 1. Reveal DealPanel via CanvasGroup (alpha = 1)
+        if (canvasGroup != null)
+        {
+            canvasGroup.alpha = 1f;
+            canvasGroup.interactable = true;
+            canvasGroup.blocksRaycasts = true;
+        }
+
+        // 2. Play 'Panel In' on the Deals Animator (SubPanel.controller) so the cards animate in
+        if (dealsAnimator != null)
+        {
+            dealsAnimator.Play("Panel In");
+        }
+
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
     }
 
     public void CloseUI()
     {
         _isOpen = false;
-        SetVisible(false);
-        // SetVisible already calls ForceCloseDealModal / ForceCloseErrorModal
-    }
 
-    private void SetVisible(bool visible)
-    {
-        _isOpen = visible;
+        // Close sub-modals if open
+        if (dealModal  != null) dealModal.CloseWindow();
+        if (errorModal != null) errorModal.CloseWindow();
 
+        // Animate Deals cards out
+        if (dealsAnimator != null)
+        {
+            dealsAnimator.Play("Panel Instant Out");
+        }
+
+        // Hide DealPanel via CanvasGroup
         if (canvasGroup != null)
         {
-            canvasGroup.alpha = visible ? 1f : 0f;
-            canvasGroup.interactable = visible;
-            canvasGroup.blocksRaycasts = visible;
+            canvasGroup.alpha = 0f;
+            canvasGroup.interactable = false;
+            canvasGroup.blocksRaycasts = false;
         }
 
-        // Always toggle all direct children so no background child is ever left behind
-        foreach (Transform child in transform)
-        {
-            child.gameObject.SetActive(visible);
-        }
-
-        // Also handle dealPanel if it is a separate object (not this gameObject)
-        if (dealPanel != null && dealPanel != gameObject)
-        {
-            dealPanel.SetActive(visible);
-        }
-
-        if (visible)
-        {
-            RefreshLivingPlayers();
-            HookCardButtons();
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
-        }
-        else
-        {
-            ForceCloseDealModal();
-            ForceCloseErrorModal();
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
-        }
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
     }
 
     // =========================================================================
@@ -350,10 +374,9 @@ public class GirlDealUI : MonoBehaviour
             timeSlider.mainSlider.value = 120f;
         }
 
-        // Re-activate modal in case ForceClose deactivated it, then open
-        dealModal.gameObject.SetActive(true);
-        var modalCg = dealModal.GetComponent<CanvasGroup>();
-        if (modalCg != null) { modalCg.alpha = 1f; modalCg.interactable = true; modalCg.blocksRaycasts = true; }
+        // Ensure modal is active before opening
+        if (!dealModal.gameObject.activeSelf)
+            dealModal.gameObject.SetActive(true);
         dealModal.OpenWindow();
 
         Cursor.lockState = CursorLockMode.None;
@@ -368,20 +391,6 @@ public class GirlDealUI : MonoBehaviour
         }
     }
 
-    /// <summary>
-    /// Instantly hides the deal modal without waiting for the Michsky close animation.
-    /// Call this when the panel needs to vanish immediately (e.g. B key toggle).
-    /// </summary>
-    private void ForceCloseDealModal()
-    {
-        if (dealModal == null) return;
-        dealModal.CloseWindow(); // Trigger cleanup callbacks
-        // Also force-hide immediately so no ghost background lingers during animation
-        var cg = dealModal.GetComponent<CanvasGroup>();
-        if (cg != null) { cg.alpha = 0f; cg.interactable = false; cg.blocksRaycasts = false; }
-        dealModal.gameObject.SetActive(false);
-    }
-
     public void CloseErrorModal()
     {
         if (errorModal != null)
@@ -390,14 +399,9 @@ public class GirlDealUI : MonoBehaviour
         }
     }
 
-    private void ForceCloseErrorModal()
-    {
-        if (errorModal == null) return;
-        errorModal.CloseWindow();
-        var cg = errorModal.GetComponent<CanvasGroup>();
-        if (cg != null) { cg.alpha = 0f; cg.interactable = false; cg.blocksRaycasts = false; }
-        errorModal.gameObject.SetActive(false);
-    }
+    // ForceClose* kept for backward compat
+    private void ForceCloseDealModal()  => CloseDealModal();
+    private void ForceCloseErrorModal() => CloseErrorModal();
 
     // =========================================================================
     //  Player Selector Management

@@ -42,11 +42,7 @@ public class GirlPossessionUI : MonoBehaviour
 
     private readonly List<ulong> _targetClientIds = new List<ulong>();
     private bool _isOpen = false;
-    private float _lastToggleTime = -10f;
-    private const float ToggleCooldown = 0.25f;
-    // Cached once the local player is confirmed to be the Girl
     private bool _isGirl = false;
-    private bool _girlChecked = false;
 
     private void Awake()
     {
@@ -99,55 +95,39 @@ public class GirlPossessionUI : MonoBehaviour
             return;
         }
 
-        // Toggle possession modal with hotkey [P]
         if (Keyboard.current != null)
         {
-            bool pressed = Keyboard.current[toggleKey].wasPressedThisFrame;
-            float now = Time.unscaledTime;
-
-            if (pressed && IsLocalPlayerGirl() && (now - _lastToggleTime) >= ToggleCooldown)
-            {
-                _lastToggleTime = now;
+            if (Keyboard.current[toggleKey].wasPressedThisFrame && IsLocalPlayerGirl())
                 ToggleUI();
-            }
-            else if (_isOpen && Keyboard.current.escapeKey.wasPressedThisFrame && (now - _lastToggleTime) >= ToggleCooldown)
-            {
-                _lastToggleTime = now;
+            else if (_isOpen && Keyboard.current.escapeKey.wasPressedThisFrame)
                 CloseUI();
-            }
         }
 
-        // Maintain cursor and update time display while open
         if (_isOpen)
         {
             if (Cursor.lockState != CursorLockMode.None) Cursor.lockState = CursorLockMode.None;
             if (!Cursor.visible) Cursor.visible = true;
-
             UpdateTimeBankDisplay();
         }
     }
 
     private bool IsLocalPlayerGirl()
     {
-        // Return cached result once confirmed — avoids PlayerObject null in early game frames
-        if (_isGirl) return true;
-        if (_girlChecked) return false;
-
         if (NetworkManager.Singleton == null || NetworkManager.Singleton.LocalClient == null) return false;
         var playerObj = NetworkManager.Singleton.LocalClient.PlayerObject;
         if (playerObj == null) return false;
 
-        // NetworkManager is ready — lock in the answer
-        _girlChecked = true;
-
+        // If currently possessing an investigator, hotkeys should not open
         if (playerObj.TryGetComponent<GirlPossession>(out var possession) && possession.isPossessing.Value)
             return false;
+
+        if (_isGirl) return true;
 
         bool result = playerObj.GetComponent<GirlStealth>() != null
             || playerObj.GetComponent<GirlMaterialController>() != null
             || playerObj.GetComponent<GirlPossession>() != null;
 
-        _isGirl = result;
+        if (result) _isGirl = true;
         return result;
     }
 
@@ -172,10 +152,8 @@ public class GirlPossessionUI : MonoBehaviour
 
         if (possessionModal != null)
         {
-            // Re-activate in case ForceClose deactivated it
-            possessionModal.gameObject.SetActive(true);
-            var cg = possessionModal.GetComponent<CanvasGroup>();
-            if (cg != null) { cg.alpha = 1f; cg.interactable = true; cg.blocksRaycasts = true; }
+            if (!possessionModal.gameObject.activeSelf)
+                possessionModal.gameObject.SetActive(true);
             possessionModal.OpenWindow();
         }
 
@@ -188,14 +166,9 @@ public class GirlPossessionUI : MonoBehaviour
     {
         _isOpen = false;
 
-        // Force-hide modal immediately — don't rely on Michsky animation so nothing lingers
+        // Let Michsky's Animator handle visibility — do NOT touch SetActive or canvasGroup.alpha
         if (possessionModal != null)
-        {
-            possessionModal.CloseWindow(); // Fire internal cleanup callbacks
-            var cg = possessionModal.GetComponent<CanvasGroup>();
-            if (cg != null) { cg.alpha = 0f; cg.interactable = false; cg.blocksRaycasts = false; }
-            possessionModal.gameObject.SetActive(false);
-        }
+            possessionModal.CloseWindow();
 
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
