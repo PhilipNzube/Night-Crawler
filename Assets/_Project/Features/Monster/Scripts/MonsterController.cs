@@ -11,8 +11,11 @@ public class MonsterController : MonoBehaviour, IPossessable
     public LayerMask explorerLayer; // Set this to the layer your Explorers are on
     private float _attackTimer;
 
-    [Header("References")]
+    [Header("Camera References")]
+    [Tooltip("Target anchor for camera rotation and tracking.")]
     public Transform monsterCameraTarget; 
+    [Tooltip("Camera object or CinemachineCamera attached directly inside the monster prefab.")]
+    public GameObject monsterFollowCamera;
     
     private CharacterController _controller;
     private Animator _animator;
@@ -27,6 +30,56 @@ public class MonsterController : MonoBehaviour, IPossessable
     {
         _controller = GetComponent<CharacterController>();
         _animator = GetComponentInChildren<Animator>();
+
+        // Auto-detect monsterCameraTarget if not manually assigned
+        if (monsterCameraTarget == null)
+        {
+            var root = transform.Find("MonsterCameraRoot");
+            if (root != null)
+            {
+                monsterCameraTarget = root;
+            }
+            else
+            {
+                var allTransforms = GetComponentsInChildren<Transform>(true);
+                foreach (var tr in allTransforms)
+                {
+                    if (tr != null && (tr.name.Contains("MonsterCamera") || tr.name.Contains("CameraRoot") || tr.CompareTag("CinemachineTarget")))
+                    {
+                        monsterCameraTarget = tr;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Auto-detect MonsterFollowCamera if not manually assigned
+        if (monsterFollowCamera == null)
+        {
+            var cam = transform.Find("MonsterFollowCamera");
+            if (cam != null)
+            {
+                monsterFollowCamera = cam.gameObject;
+            }
+            else
+            {
+                var allTransforms = GetComponentsInChildren<Transform>(true);
+                foreach (var tr in allTransforms)
+                {
+                    if (tr != null && tr.name.Contains("MonsterFollowCamera"))
+                    {
+                        monsterFollowCamera = tr.gameObject;
+                        break;
+                    }
+                }
+            }
+        }
+
+        // Ensure monster follow camera is inactive while unpossessed
+        if (monsterFollowCamera != null)
+        {
+            monsterFollowCamera.SetActive(false);
+        }
     }
 
     public void Possess(GirlPossession girl)
@@ -38,12 +91,23 @@ public class MonsterController : MonoBehaviour, IPossessable
         MonsterAI ai = GetComponent<MonsterAI>();
         if (ai != null) ai.isBeingPossessed = true;
 
+        // Activate the monster's follow camera for the possessing player
+        if (monsterFollowCamera != null)
+        {
+            monsterFollowCamera.SetActive(true);
+        }
+
         // Initialize camera rotation to match monster's current rotation
         _yaw = transform.rotation.eulerAngles.y;
         _pitch = 0;
     }
 
-    public Transform GetCameraTarget() => monsterCameraTarget;
+    public Transform GetCameraTarget()
+    {
+        if (monsterCameraTarget != null) return monsterCameraTarget;
+        if (monsterFollowCamera != null) return monsterFollowCamera.transform;
+        return transform;
+    }
 
     void Update()
     {
@@ -69,7 +133,10 @@ public class MonsterController : MonoBehaviour, IPossessable
         _pitch = Mathf.Clamp(_pitch, -30f, 60f);
 
         // Rotate the camera target anchor
-        monsterCameraTarget.rotation = Quaternion.Euler(_pitch, _yaw, 0.0f);
+        if (monsterCameraTarget != null)
+        {
+            monsterCameraTarget.rotation = Quaternion.Euler(_pitch, _yaw, 0.0f);
+        }
     }
 
     private void HandleMovement()
@@ -131,6 +198,12 @@ public class MonsterController : MonoBehaviour, IPossessable
     public void Release()
     {
         _isPossessed = false;
+
+        if (monsterFollowCamera != null)
+        {
+            monsterFollowCamera.SetActive(false);
+        }
+
         MonsterAI ai = GetComponent<MonsterAI>();
         if (ai != null) ai.isBeingPossessed = false;
         _girlRef.ReturnFromMonster(transform.position);
