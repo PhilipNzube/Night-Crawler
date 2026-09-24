@@ -252,7 +252,7 @@ namespace NightCrawler.Monsters
                 {
                     if (binding.monsterDefinition != null)
                     {
-                        binding.heatShopCard.buttonText = binding.monsterDefinition.monsterName;
+                        binding.heatShopCard.buttonTitle = binding.monsterDefinition.monsterName;
                         if (binding.monsterDefinition.icon != null) binding.heatShopCard.buttonIcon = binding.monsterDefinition.icon;
                         binding.heatShopCard.UpdateUI();
                     }

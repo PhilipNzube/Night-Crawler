@@ -875,8 +875,6 @@ public class SpectatorController : MonoBehaviour
 
         if (th.TryGetComponent<MonsterController>(out var mc))
         {
-            if (mc.stats != null && !string.IsNullOrEmpty(mc.stats.entityName))
-                return mc.stats.entityName;
             return mc.gameObject.name.Replace("(Clone)", "").Trim();
         }
 
