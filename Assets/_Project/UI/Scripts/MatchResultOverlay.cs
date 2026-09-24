@@ -25,14 +25,40 @@ public class MatchResultOverlay : MonoBehaviour
     [Header("Michsky Heat / Dark UI")]
     public ModalWindowManager heatModalWindow;
 
+    [Header("Heat UI Hierarchy (GameScene)")]
+    public CanvasGroup allCanvasGroup;
+    public Animator allAnimator;
+    public Transform contentLayoutGroup;
+    public TextMeshProUGUI summaryText;
+    public Michsky.UI.Heat.HotkeyEvent endGameHotkey;
+    public Michsky.UI.Heat.ButtonManager endGameButton;
+
     private MatchPayoutSummary? _latestPayout;
 
     private void Awake()
     {
         EnsureUIRuntime();
 
+        // Wire EndGame button / hotkey
+        if (endGameHotkey != null)
+        {
+            endGameHotkey.onHotkeyPress.RemoveListener(OnEndGameClicked);
+            endGameHotkey.onHotkeyPress.AddListener(OnEndGameClicked);
+        }
+        if (endGameButton != null)
+        {
+            endGameButton.onClick.RemoveListener(OnEndGameClicked);
+            endGameButton.onClick.AddListener(OnEndGameClicked);
+        }
+
         // Force hide immediately on spawn/load
         if (overlayPanel != null) overlayPanel.SetActive(false);
+        if (allCanvasGroup != null)
+        {
+            allCanvasGroup.alpha = 0f;
+            allCanvasGroup.interactable = false;
+            allCanvasGroup.blocksRaycasts = false;
+        }
     }
 
     private void Start()
@@ -58,6 +84,33 @@ public class MatchResultOverlay : MonoBehaviour
         }
 
         MatchEconomyManager.OnLocalPayoutReceived -= HandlePayoutReceived;
+
+        if (endGameHotkey != null)
+        {
+            endGameHotkey.onHotkeyPress.RemoveListener(OnEndGameClicked);
+        }
+        if (endGameButton != null)
+        {
+            endGameButton.onClick.RemoveListener(OnEndGameClicked);
+        }
+    }
+
+    public void OnEndGameClicked()
+    {
+        Debug.Log("[MatchResultOverlay] EndGame triggered. Returning to Lobby...");
+        if (Unity.Netcode.NetworkManager.Singleton != null)
+        {
+            Unity.Netcode.NetworkManager.Singleton.Shutdown();
+        }
+
+        if (LoadingScreen.Instance != null)
+        {
+            LoadingScreen.Instance.LoadScene("LobbyScene");
+        }
+        else
+        {
+            UnityEngine.SceneManagement.SceneManager.LoadScene("LobbyScene");
+        }
     }
 
     private void HandlePayoutReceived(MatchPayoutSummary summary)
@@ -127,6 +180,24 @@ public class MatchResultOverlay : MonoBehaviour
         if (subText != null)
         {
             subText.text = $"{outcome} • Returning to Lobby...";
+        }
+
+        if (summaryText != null)
+        {
+            summaryText.text = $"{outcome}\n<size=75%>{msg}</size>";
+        }
+
+        if (allAnimator != null)
+        {
+            allAnimator.enabled = true;
+            allAnimator.Rebind();
+            allAnimator.Play("In");
+        }
+        else if (allCanvasGroup != null)
+        {
+            allCanvasGroup.alpha = 1f;
+            allCanvasGroup.interactable = true;
+            allCanvasGroup.blocksRaycasts = true;
         }
 
         if (heatModalWindow != null)
@@ -202,7 +273,7 @@ public class MatchResultOverlay : MonoBehaviour
 
     private void EnsureUIRuntime()
     {
-        if (overlayPanel != null) return;
+        if (overlayPanel != null || allCanvasGroup != null || allAnimator != null) return;
 
         Canvas targetCanvas = GetComponentInParent<Canvas>();
         if (targetCanvas == null) targetCanvas = FindFirstObjectByType<Canvas>();

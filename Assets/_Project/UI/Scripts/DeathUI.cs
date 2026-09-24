@@ -241,23 +241,29 @@ public class DeathUI : MonoBehaviour
         if (deathPanel != null) deathPanel.SetActive(true);
         NightCrawler.UI.MichskyUIBridge.OpenModal(heatModalWindow);
 
-        // No survivors left — hide every spectate UI element
-        if (spectatePromptObject != null) spectatePromptObject.SetActive(false);
-        if (spectatePromptText != null) spectatePromptText.gameObject.SetActive(false);
-        if (heatSpectateHotkey != null) heatSpectateHotkey.gameObject.SetActive(false);
+        // Keep spectate prompt available if survivors are still alive!
+        bool hasSurvivors = HasAliveSurvivorsToSpectate();
+
+        if (spectatePromptObject != null) spectatePromptObject.SetActive(hasSurvivors);
+        if (spectatePromptText != null) spectatePromptText.gameObject.SetActive(hasSurvivors);
+        if (heatSpectateHotkey != null) heatSpectateHotkey.gameObject.SetActive(hasSurvivors);
 
         if (subtitleText != null)
-            subtitleText.text = "All survivors have fallen.";
+        {
+            subtitleText.text = hasSurvivors
+                ? "Your soul has fallen. Allies can still loot your body."
+                : "All survivors have fallen.";
+        }
 
         if (deathCanvasGroup != null)
         {
             deathCanvasGroup.gameObject.SetActive(true);
             deathCanvasGroup.alpha = 1f;
-            deathCanvasGroup.blocksRaycasts = false;
-            deathCanvasGroup.interactable = false;
+            deathCanvasGroup.blocksRaycasts = hasSurvivors;
+            deathCanvasGroup.interactable = hasSurvivors;
         }
 
-        Debug.Log("[DeathUI] Returned from spectator — all survivors gone.");
+        Debug.Log($"[DeathUI] Returned from spectator — hasSurvivors: {hasSurvivors}");
     }
 
     /// <summary>
@@ -491,26 +497,40 @@ public class DeathUI : MonoBehaviour
         if (entryObj != null)
         {
             entryObj.SetActive(true);
-            var txt = entryObj.GetComponentInChildren<TMP_Text>();
-            if (txt != null)
-            {
-                txt.text = message;
-            }
 
-            if (accentColor.HasValue)
+            // Heat UI QuestItem support (user modified AlertEntry to use Heat UI QuestItem)
+            var questItem = entryObj.GetComponent<Michsky.UI.Heat.QuestItem>() ?? entryObj.GetComponentInChildren<Michsky.UI.Heat.QuestItem>();
+            if (questItem != null)
             {
-                foreach (var img in entryObj.GetComponentsInChildren<UnityEngine.UI.Image>())
+                questItem.questText = message;
+                questItem.minimizeAfter = alertLifetime;
+                questItem.afterMinimize = Michsky.UI.Heat.QuestItem.AfterMinimize.Destroy;
+                questItem.UpdateUI();
+                questItem.AnimateQuest();
+            }
+            else
+            {
+                var txt = entryObj.GetComponentInChildren<TMP_Text>();
+                if (txt != null)
                 {
-                    if (img.gameObject.name.ToLower().Contains("accent") || img.gameObject.name.ToLower().Contains("bar"))
+                    txt.text = message;
+                }
+
+                if (accentColor.HasValue)
+                {
+                    foreach (var img in entryObj.GetComponentsInChildren<UnityEngine.UI.Image>())
                     {
-                        img.color = accentColor.Value;
-                        break;
+                        if (img.gameObject.name.ToLower().Contains("accent") || img.gameObject.name.ToLower().Contains("bar"))
+                        {
+                            img.color = accentColor.Value;
+                            break;
+                        }
                     }
                 }
-            }
 
-            // Animate card in, keep on screen, then animate card out and destroy
-            StartCoroutine(AnimateAlertEntryLifecycle(entryObj, alertLifetime));
+                // Animate card in, keep on screen, then animate card out and destroy
+                StartCoroutine(AnimateAlertEntryLifecycle(entryObj, alertLifetime));
+            }
         }
 
         StartCoroutine(ScrollToBottomRoutine());

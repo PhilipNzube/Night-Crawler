@@ -167,6 +167,14 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Displays connected player count on the host panel, e.g. '2 / 6 players'.")]
     public TextMeshProUGUI hostPlayerCountText;
 
+    [Header("Heat UI PlayerCount Counters (Host)")]
+    [Tooltip("The PlayerCount root GameObject on HostLobbyModal.")]
+    public GameObject hostPlayerCountGO;
+    [Tooltip("Text component inside PlayerCount/Unlocked showing current players count.")]
+    public TextMeshProUGUI hostUnlockedCountText;
+    [Tooltip("Text component inside PlayerCount/Total showing maximum players allowed.")]
+    public TextMeshProUGUI hostTotalCountText;
+
     [Tooltip("Status message on host panel, e.g. 'Waiting for players...' or 'Ready to start!'.")]
     public TextMeshProUGUI hostStatusText;
 
@@ -188,6 +196,14 @@ public class LobbyUI : MonoBehaviour
 
     [Tooltip("Displays connected player count on client panel.")]
     public TextMeshProUGUI clientPlayerCountText;
+
+    [Header("Heat UI PlayerCount Counters (Client)")]
+    [Tooltip("The PlayerCount root GameObject on ClientLobbyModal.")]
+    public GameObject clientPlayerCountGO;
+    [Tooltip("Text component inside PlayerCount/Unlocked showing current players count.")]
+    public TextMeshProUGUI clientUnlockedCountText;
+    [Tooltip("Text component inside PlayerCount/Total showing maximum players allowed.")]
+    public TextMeshProUGUI clientTotalCountText;
 
     [Tooltip("Status message shown to client, e.g. 'Waiting for host to start...'")]
     public TextMeshProUGUI clientStatusText;
@@ -1204,6 +1220,8 @@ public class LobbyUI : MonoBehaviour
 
         // Refresh Host Panel
         if (hostPlayerCountText != null) hostPlayerCountText.text = countString;
+        if (hostUnlockedCountText != null) hostUnlockedCountText.text = current.ToString();
+        if (hostTotalCountText != null) hostTotalCountText.text = max.ToString();
         if (hostStatusText != null)
         {
             hostStatusText.text = canStart
@@ -1214,6 +1232,8 @@ public class LobbyUI : MonoBehaviour
 
         // Refresh Client Panel
         if (clientPlayerCountText != null) clientPlayerCountText.text = countString;
+        if (clientUnlockedCountText != null) clientUnlockedCountText.text = current.ToString();
+        if (clientTotalCountText != null) clientTotalCountText.text = max.ToString();
         if (clientStatusText != null)
         {
             clientStatusText.text = "Waiting for the host to start the match...";

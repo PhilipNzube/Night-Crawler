@@ -28,6 +28,38 @@ namespace NightCrawler.Monsters
         public TextMeshProUGUI monsterDescText;
         public TextMeshProUGUI dangerText;
 
+        [System.Serializable]
+        public class MonsterCardBinding
+        {
+            public MonsterDefinitionSO monsterDefinition;
+            public Michsky.UI.Heat.ShopButtonManager heatShopCard;
+            public Button selectButton;
+        }
+
+        [Header("Monster Card Bindings")]
+        [Tooltip("Pre-placed or dynamically bound monster cards in the Heat UI list.")]
+        public List<MonsterCardBinding> cardBindings = new List<MonsterCardBinding>();
+
+        [Header("Selection Confirmation Modal (Heat UI)")]
+        [Tooltip("The Michsky Modal Window Manager for the confirmation dialog.")]
+        public Michsky.UI.Heat.ModalWindowManager confirmationModal;
+
+        [Tooltip("Confirm button inside the confirmation modal.")]
+        public Michsky.UI.Heat.ButtonManager confirmSpawnButton;
+
+        [Tooltip("Cancel button inside the confirmation modal.")]
+        public Michsky.UI.Heat.ButtonManager cancelSpawnButton;
+
+        public Button standardConfirmButton;
+        public Button standardCancelButton;
+
+        [Header("Monster Spawn Camera Tracking")]
+        [Tooltip("Virtual camera or Cinemachine camera used to focus on newly spawned monster.")]
+        public Unity.Cinemachine.CinemachineVirtualCameraBase monsterSpawnVirtualCamera;
+
+        [Tooltip("How long the camera focuses on the monster before returning priority (seconds).")]
+        public float cameraFocusDuration = 3.5f;
+
         [Header("Scrollable Card Container")]
         [Tooltip("Parent transform with HorizontalLayoutGroup where monster cards are spawned.")]
         public Transform cardsContainer;
@@ -71,12 +103,35 @@ namespace NightCrawler.Monsters
             NightCrawler.UI.MichskyUIBridge.BindButton(summonButton, heatSummonButton, OnSummonClicked);
             NightCrawler.UI.MichskyUIBridge.BindButton(closeButton, heatCloseButton, CloseHUD);
 
+            // Wire Confirmation Modal buttons
+            if (confirmSpawnButton != null)
+            {
+                confirmSpawnButton.onClick.RemoveListener(OnConfirmSpawnClicked);
+                confirmSpawnButton.onClick.AddListener(OnConfirmSpawnClicked);
+            }
+            if (standardConfirmButton != null)
+            {
+                standardConfirmButton.onClick.RemoveListener(OnConfirmSpawnClicked);
+                standardConfirmButton.onClick.AddListener(OnConfirmSpawnClicked);
+            }
+            if (cancelSpawnButton != null)
+            {
+                cancelSpawnButton.onClick.RemoveListener(OnCancelSpawnClicked);
+                cancelSpawnButton.onClick.AddListener(OnCancelSpawnClicked);
+            }
+            if (standardCancelButton != null)
+            {
+                standardCancelButton.onClick.RemoveListener(OnCancelSpawnClicked);
+                standardCancelButton.onClick.AddListener(OnCancelSpawnClicked);
+            }
+
             SetVisible(false);
         }
 
         private void Start()
         {
             InitializeSummonCharges();
+            InitCardBindings();
             BuildMonsterCards();
         }
 
@@ -183,8 +238,45 @@ namespace NightCrawler.Monsters
             }
         }
 
+        private void InitCardBindings()
+        {
+            if (cardBindings == null || cardBindings.Count == 0) return;
+
+            for (int i = 0; i < cardBindings.Count; i++)
+            {
+                int index = i;
+                var binding = cardBindings[i];
+                if (binding == null) continue;
+
+                if (binding.heatShopCard != null)
+                {
+                    if (binding.monsterDefinition != null)
+                    {
+                        binding.heatShopCard.buttonText = binding.monsterDefinition.monsterName;
+                        if (binding.monsterDefinition.icon != null) binding.heatShopCard.buttonIcon = binding.monsterDefinition.icon;
+                        binding.heatShopCard.UpdateUI();
+                    }
+
+                    binding.heatShopCard.onClick.RemoveAllListeners();
+                    binding.heatShopCard.onClick.AddListener(() => OnCardSelectClicked(index));
+                }
+
+                if (binding.selectButton != null)
+                {
+                    binding.selectButton.onClick.RemoveAllListeners();
+                    binding.selectButton.onClick.AddListener(() => OnCardSelectClicked(index));
+                }
+            }
+        }
+
         private void BuildMonsterCards()
         {
+            // If cards are wired via Inspector cardBindings, preserve them
+            if (cardBindings != null && cardBindings.Count > 0)
+            {
+                return;
+            }
+
             if (cardsContainer == null) return;
 
             foreach (Transform child in cardsContainer)
@@ -298,12 +390,36 @@ namespace NightCrawler.Monsters
             UpdateChargesDisplay();
         }
 
-        private void OnSummonClicked()
+        public void OnCardSelectClicked(int index)
+        {
+            _selectedMonsterIndex = index;
+            SelectCard(index);
+
+            if (confirmationModal != null)
+            {
+                confirmationModal.OpenWindow();
+            }
+            else
+            {
+                OnConfirmSpawnClicked();
+            }
+        }
+
+        public void OnCancelSpawnClicked()
+        {
+            if (confirmationModal != null)
+            {
+                confirmationModal.CloseWindow();
+            }
+        }
+
+        public void OnConfirmSpawnClicked()
         {
             if (_remainingCharges <= 0)
             {
                 if (NotificationManager.Instance != null)
                     NotificationManager.Instance.ShowNotification("No risen summon charges remaining this match!", 2.5f);
+                if (confirmationModal != null) confirmationModal.CloseWindow();
                 return;
             }
 
@@ -320,7 +436,44 @@ namespace NightCrawler.Monsters
                 NotificationManager.Instance.ShowNotification("Awakening monster in the deep tunnels...", 3f);
             }
 
+            if (confirmationModal != null) confirmationModal.CloseWindow();
             CloseHUD();
+
+            StartCoroutine(FocusCameraOnSpawnedMonsterRoutine());
+        }
+
+        private void OnSummonClicked()
+        {
+            OnCardSelectClicked(_selectedMonsterIndex);
+        }
+
+        private System.Collections.IEnumerator FocusCameraOnSpawnedMonsterRoutine()
+        {
+            if (monsterSpawnVirtualCamera == null) yield break;
+
+            yield return new WaitForSeconds(0.25f);
+
+            var monsters = FindObjectsByType<MonsterController>(FindObjectsSortMode.None);
+            if (monsters == null || monsters.Length == 0) yield break;
+
+            MonsterController newestMonster = monsters[monsters.Length - 1];
+            if (newestMonster == null) yield break;
+
+            Transform camTarget = newestMonster.GetCameraTarget();
+            if (camTarget == null)
+            {
+                camTarget = newestMonster.transform.Find("CameraFollowAnchor") ?? newestMonster.transform;
+            }
+
+            monsterSpawnVirtualCamera.gameObject.SetActive(true);
+            monsterSpawnVirtualCamera.enabled = true;
+            monsterSpawnVirtualCamera.Follow = camTarget;
+            monsterSpawnVirtualCamera.LookAt = camTarget;
+            monsterSpawnVirtualCamera.Priority = 99999;
+
+            yield return new WaitForSeconds(cameraFocusDuration);
+
+            monsterSpawnVirtualCamera.Priority = 10;
         }
     }
 }

@@ -179,7 +179,7 @@ namespace NightCrawler.UI
 
         private void EnsureRuntimeUI()
         {
-            if (missionPanel != null) return;
+            if (missionPanel != null || missionTitleText != null) return;
 
             // Search HUDCanvas
             Canvas canvas = null;

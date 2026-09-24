@@ -13,6 +13,11 @@ namespace NightCrawler.UI
         [Header("UI References")]
         public TextMeshProUGUI potText;
         public GameObject rootContainer;
+        public CanvasGroup canvasGroup;
+
+        [Header("Format Settings")]
+        public string prefix = "POT: ";
+        public bool showCurrencySymbol = true;
 
         private void Start()
         {
@@ -42,7 +47,8 @@ namespace NightCrawler.UI
         {
             if (potText != null)
             {
-                potText.text = $"POT: {pot} {CurrencyConfig.CurrencySymbol}";
+                string sym = showCurrencySymbol ? $" {CurrencyConfig.CurrencySymbol}" : "";
+                potText.text = $"{prefix}{pot}{sym}";
             }
         }
     }

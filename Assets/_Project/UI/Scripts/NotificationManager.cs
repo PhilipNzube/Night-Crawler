@@ -32,6 +32,12 @@ public class NotificationManager : MonoBehaviour
     }
 
     [Header("UI References")]
+    [Tooltip("Root container GameObject of the header (disabled if notification has no header).")]
+    public GameObject headerContainer;
+
+    [Tooltip("TMP text component for the header title.")]
+    public TMP_Text headerText;
+
     [Tooltip("Text component to show the message body.")]
     public TMP_Text notificationText;
 
@@ -83,8 +89,7 @@ public class NotificationManager : MonoBehaviour
             if (canvasGroup == null) canvasGroup = gameObject.AddComponent<CanvasGroup>();
         }
 
-
-        if (canvasGroup != null)
+        if (canvasGroup != null && heatNotification == null)
         {
             canvasGroup.alpha = 0f;
             canvasGroup.blocksRaycasts = false;
@@ -102,8 +107,7 @@ public class NotificationManager : MonoBehaviour
     public void ShowHazardWarning(string message, float duration = 5.5f)
     {
         Color hazardColor = new Color(1f, 0.72f, 0.1f, 1f); // Toxic Amber
-        string formatted = message;
-        ShowStyledWarning("HAZARD", formatted, hazardColor, duration, hazardSound ?? notificationSound, isPulsing: false);
+        ShowStyledWarning("HAZARD", message, hazardColor, duration, hazardSound ?? notificationSound, isPulsing: false);
     }
 
     /// <summary>
@@ -123,34 +127,60 @@ public class NotificationManager : MonoBehaviour
     {
         Color healColor = new Color(0.15f, 0.92f, 0.45f, 1f); // Emerald Green
         string baseMsg = !string.IsNullOrEmpty(message) ? message : $"Healing vial administered (+{healAmount:F0} HP)! Vitals stabilized.";
-        string formatted = baseMsg;
-        ShowStyledWarning("VITAL SIGNS RESTORED", formatted, healColor, duration, healRestoredSound ?? notificationSound, isPulsing: false);
+        ShowStyledWarning("VITAL SIGNS RESTORED", baseMsg, healColor, duration, healRestoredSound ?? notificationSound, isPulsing: false);
     }
 
     /// <summary>
-    /// Standard notification banner (backwards compatibility).
+    /// Standard notification banner without a header (disables header container).
     /// </summary>
     public void ShowNotification(string message, float duration = 4f)
     {
-        string formatted = message;
-        ShowStyledWarning("NOTICE", formatted, new Color(0.3f, 0.8f, 1f, 1f), duration, notificationSound, isPulsing: false);
+        ShowStyledWarning(null, message, new Color(0.3f, 0.8f, 1f, 1f), duration, notificationSound, isPulsing: false);
     }
 
-    public void ShowStyledWarning(string badge, string message, Color accentColor, float duration, AudioClip sound = null, bool isPulsing = false)
+    public void ShowStyledWarning(string header, string message, Color accentColor, float duration, AudioClip sound = null, bool isPulsing = false)
     {
+        bool hasHeader = !string.IsNullOrWhiteSpace(header);
+
+        if (headerContainer != null)
+        {
+            headerContainer.SetActive(hasHeader);
+        }
+
+        if (headerText != null)
+        {
+            headerText.text = hasHeader ? header : "";
+        }
+
+        if (notificationText != null)
+        {
+            notificationText.text = message;
+        }
+
         if (heatNotification != null)
         {
-            heatNotification.notificationText = $"{badge}\n{message}";
+            heatNotification.notificationText = message;
             heatNotification.minimizeAfter = duration;
             heatNotification.UpdateUI();
             heatNotification.ExpandNotification();
+        }
+
+        if (_audioSource != null && sound != null)
+        {
+            _audioSource.PlayOneShot(sound);
+        }
+
+        if (heatNotification != null)
+        {
+            // Heat UI handles animation in/out via Animator
+            return;
         }
 
         if (_displayCoroutine != null)
         {
             StopCoroutine(_displayCoroutine);
         }
-        _displayCoroutine = StartCoroutine(DisplayRoutine(badge, message, accentColor, duration, sound, isPulsing));
+        _displayCoroutine = StartCoroutine(DisplayRoutine(header, message, accentColor, duration, sound, isPulsing));
     }
 
     private IEnumerator DisplayRoutine(string badge, string message, Color accentColor, float duration, AudioClip sound, bool isPulsing)

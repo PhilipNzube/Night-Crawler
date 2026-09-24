@@ -51,6 +51,33 @@ public class SpectatorController : MonoBehaviour
     [Tooltip("Minimum and maximum camera zoom limits with mouse scroll wheel.")]
     public Vector2 zoomRange = new Vector2(1.8f, 6.5f);
 
+    public enum SpectatorModeType
+    {
+        Survivors,
+        Monsters
+    }
+
+    [Header("Spectator Mode Settings")]
+    [Tooltip("Target type for this spectator controller: Survivors (Dead Player) or Monsters (Girl).")]
+    public SpectatorModeType modeType = SpectatorModeType.Survivors;
+
+    [Header("Heat UI Target & Count Elements (Clean Presentation)")]
+    [Tooltip("Text displaying strictly the name of the spectated entity without any prefix.")]
+    public TMP_Text cleanTargetNameText;
+
+    [Tooltip("Text displaying strictly the living count number (e.g. '3').")]
+    public TMP_Text cleanCountText;
+
+    [Tooltip("Text displaying total connected players in the game (e.g. '5').")]
+    public TMP_Text totalConnectedPlayersText;
+
+    [Header("Exit Hotkey")]
+    [Tooltip("Keyboard key to exit spectator mode (default: Escape).")]
+    public Key exitHotkey = Key.Escape;
+
+    [Tooltip("Optional Michsky Heat HotkeyEvent for exiting spectator mode.")]
+    public Michsky.UI.Heat.HotkeyEvent exitHotkeyEvent;
+
     [Header("Optional Custom UI References (Procedural if Null)")]
     public GameObject customCanvasRoot;
     public TMP_Text customTargetNameText;
@@ -283,6 +310,73 @@ public class SpectatorController : MonoBehaviour
             cursorHotkey.onHotkeyPress.RemoveListener(ToggleCursorLock);
             cursorHotkey.onHotkeyPress.AddListener(ToggleCursorLock);
         }
+        if (exitHotkeyEvent != null)
+        {
+            exitHotkeyEvent.onHotkeyPress.RemoveListener(ExitSpectating);
+            exitHotkeyEvent.onHotkeyPress.AddListener(ExitSpectating);
+        }
+    }
+
+    /// <summary>
+    /// Exits spectator mode via hotkey (e.g. Esc) and returns to death screen or normal view.
+    /// </summary>
+    public void ExitSpectating()
+    {
+        if (!_isSpectating) return;
+
+        StopSpectating();
+
+        if (modeType == SpectatorModeType.Survivors)
+        {
+            if (DeathUI.Instance != null)
+            {
+                DeathUI.Instance.ReturnFromSpectatorToDeath();
+            }
+        }
+        else
+        {
+            if (customCanvasRoot != null) customCanvasRoot.SetActive(false);
+            if (_spectatorCanvas != null) _spectatorCanvas.gameObject.SetActive(false);
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
+    }
+
+    /// <summary>
+    /// Checks if any active, living monsters exist in the mine.
+    /// </summary>
+    public static bool HasActiveMonstersInScene()
+    {
+        var monsters = FindObjectsByType<MonsterController>(FindObjectsSortMode.None);
+        foreach (var m in monsters)
+        {
+            if (m == null || m.gameObject == null) continue;
+            if (m.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) continue;
+            if (m.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) continue;
+            return true;
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Dedicated entry point for the Monster Spectator modal.
+    /// If no active monsters exist, notifies the user and closes modal.
+    /// </summary>
+    public void TryOpenMonsterSpectator(Michsky.UI.Heat.ModalWindowManager modal = null)
+    {
+        if (!HasActiveMonstersInScene())
+        {
+            if (modal != null) modal.CloseWindow();
+            if (NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification("There are no active monsters left in the mine!", 3.5f);
+            }
+            return;
+        }
+
+        if (modal != null) modal.CloseWindow();
+        modeType = SpectatorModeType.Monsters;
+        StartSpectating();
     }
 
     /// <summary>
@@ -397,6 +491,13 @@ public class SpectatorController : MonoBehaviour
     {
         if (PauseManager.IsGamePaused) return;
         if (Keyboard.current == null && Mouse.current == null) return;
+
+        // Exit Spectating: [ESC]
+        if (Keyboard.current != null && Keyboard.current[exitHotkey].wasPressedThisFrame)
+        {
+            ExitSpectating();
+            return;
+        }
 
         // Cycle Previous: [A], [Left Arrow], [Mouse Left Button]
         bool prevPressed = (Keyboard.current != null && (Keyboard.current.aKey.wasPressedThisFrame || Keyboard.current.leftArrowKey.wasPressedThisFrame)) ||
@@ -523,6 +624,31 @@ public class SpectatorController : MonoBehaviour
     {
         _aliveTargets.Clear();
 
+        if (modeType == SpectatorModeType.Monsters)
+        {
+            var monsters = FindObjectsByType<MonsterController>(FindObjectsSortMode.None);
+            foreach (var mc in monsters)
+            {
+                if (mc == null || mc.gameObject == null) continue;
+                if (mc.TryGetComponent<TargetHealth>(out var mth))
+                {
+                    if (mth.isCorpse.Value || mth.CurrentHealth <= 0) continue;
+                    _aliveTargets.Add(mth);
+                }
+                else
+                {
+                    var dummyTh = mc.GetComponent<TargetHealth>() ?? mc.gameObject.AddComponent<TargetHealth>();
+                    _aliveTargets.Add(dummyTh);
+                }
+            }
+
+            if (_aliveTargets.Count > 0)
+            {
+                _currentTargetIndex = Mathf.Clamp(_currentTargetIndex, 0, _aliveTargets.Count - 1);
+            }
+            return;
+        }
+
         ulong localClientId = NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : ulong.MaxValue;
 
         var allHealths = FindObjectsByType<TargetHealth>(FindObjectsSortMode.None);
@@ -603,13 +729,18 @@ public class SpectatorController : MonoBehaviour
     {
         if (target == null) return Vector3.zero;
 
+        if (target.TryGetComponent<MonsterController>(out var mc) && mc.GetCameraTarget() != null)
+        {
+            return mc.GetCameraTarget().position;
+        }
+
         // Try getting CinemachineCameraTarget or PlayerCameraRoot first
         if (target.TryGetComponent<StarterAssets.ThirdPersonController>(out var tpc) && tpc.CinemachineCameraTarget != null)
         {
             return tpc.CinemachineCameraTarget.transform.position;
         }
 
-        Transform root = target.transform.Find("PlayerCameraRoot");
+        Transform root = target.transform.Find("PlayerCameraRoot") ?? target.transform.Find("CameraFollowAnchor");
         if (root != null) return root.position;
 
         return target.transform.position + Vector3.up * 1.4f;
@@ -658,17 +789,28 @@ public class SpectatorController : MonoBehaviour
     {
         RefreshAliveTargets();
 
-        // 1. Survivors Alive count
-        int totalSurvivors = 0;
+        // 1. Survivors / Living Count & Total Connected Players
+        int totalConnected = 1;
         if (NetworkManager.Singleton != null)
         {
-            totalSurvivors = NetworkManager.Singleton.ConnectedClientsIds.Count - 1; // subtract Girl
-            if (totalSurvivors < 1) totalSurvivors = 1;
+            totalConnected = NetworkManager.Singleton.ConnectedClientsIds.Count;
         }
 
         int aliveCount = _aliveTargets.Count;
+
+        if (cleanCountText != null)
+        {
+            cleanCountText.text = aliveCount.ToString();
+        }
+
+        if (totalConnectedPlayersText != null)
+        {
+            totalConnectedPlayersText.text = totalConnected.ToString();
+        }
+
         if (_survivorsCountText != null)
         {
+            int totalSurvivors = Mathf.Max(1, totalConnected - 1);
             _survivorsCountText.text = $"SURVIVORS: <b>{aliveCount}</b> / {Mathf.Max(aliveCount, totalSurvivors)}";
         }
 
@@ -676,14 +818,19 @@ public class SpectatorController : MonoBehaviour
         if (_currentTarget != null)
         {
             string pName = GetPlayerName(_currentTarget);
+            string upperName = pName.ToUpper();
             string pRole = GetPlayerRole(_currentTarget);
             float curHp = Mathf.Max(0f, _currentTarget.CurrentHealth);
             float maxHp = Mathf.Max(1f, _currentTarget.MaxHealth);
             float hpPercent = Mathf.Clamp01(curHp / maxHp);
 
+            if (cleanTargetNameText != null)
+            {
+                cleanTargetNameText.text = upperName;
+            }
             if (_targetNameText != null)
             {
-                _targetNameText.text = $"<b>{pName.ToUpper()}</b>";
+                _targetNameText.text = upperName;
             }
             if (_roleBadgeText != null)
             {
@@ -710,10 +857,9 @@ public class SpectatorController : MonoBehaviour
         }
         else
         {
-            if (_targetNameText != null)
-            {
-                _targetNameText.text = "ALL SURVIVORS HAVE FALLEN";
-            }
+            string emptyMsg = modeType == SpectatorModeType.Monsters ? "NO ACTIVE MONSTERS" : "ALL SURVIVORS HAVE FALLEN";
+            if (cleanTargetNameText != null) cleanTargetNameText.text = emptyMsg;
+            if (_targetNameText != null) _targetNameText.text = emptyMsg;
             if (_roleBadgeText != null) _roleBadgeText.text = "";
             if (_healthReadoutText != null) _healthReadoutText.text = "Awaiting match outcome...";
             if (_healthFillImage != null) _healthFillImage.fillAmount = 0f;
@@ -725,7 +871,14 @@ public class SpectatorController : MonoBehaviour
 
     private string GetPlayerName(TargetHealth th)
     {
-        if (th == null) return "Investigator";
+        if (th == null) return modeType == SpectatorModeType.Monsters ? "Monster" : "Investigator";
+
+        if (th.TryGetComponent<MonsterController>(out var mc))
+        {
+            if (mc.stats != null && !string.IsNullOrEmpty(mc.stats.entityName))
+                return mc.stats.entityName;
+            return mc.gameObject.name.Replace("(Clone)", "").Trim();
+        }
 
         if (th.TryGetComponent<NetworkPlayerName>(out var npn) && !string.IsNullOrEmpty(npn.playerName.Value.ToString()))
         {
