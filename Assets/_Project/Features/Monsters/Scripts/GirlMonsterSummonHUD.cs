@@ -33,7 +33,12 @@ namespace NightCrawler.Monsters
         {
             public MonsterDefinitionSO monsterDefinition;
             public Michsky.UI.Heat.ShopButtonManager heatShopCard;
+            [Tooltip("Heat UI ButtonManager for selecting this monster (e.g. Select button on the card).")]
+            public Michsky.UI.Heat.ButtonManager selectButtonManager;
+            [Tooltip("Standard UI Button fallback.")]
             public Button selectButton;
+            [Tooltip("Optional image component to display the monster definition icon directly.")]
+            public Image cardIcon;
         }
 
         [Header("Monster Card Bindings")]
@@ -248,23 +253,51 @@ namespace NightCrawler.Monsters
                 var binding = cardBindings[i];
                 if (binding == null) continue;
 
+                Sprite icon = binding.monsterDefinition != null ? binding.monsterDefinition.icon : null;
+                string mName = binding.monsterDefinition != null ? binding.monsterDefinition.monsterName : "Monster";
+
                 if (binding.heatShopCard != null)
                 {
-                    if (binding.monsterDefinition != null)
+                    binding.heatShopCard.buttonTitle = mName;
+                    if (icon != null)
                     {
-                        binding.heatShopCard.buttonTitle = binding.monsterDefinition.monsterName;
-                        if (binding.monsterDefinition.icon != null) binding.heatShopCard.buttonIcon = binding.monsterDefinition.icon;
-                        binding.heatShopCard.UpdateUI();
+                        binding.heatShopCard.buttonIcon = icon;
+                        binding.heatShopCard.enableIcon = true;
+                        if (binding.heatShopCard.iconObj != null)
+                        {
+                            binding.heatShopCard.iconObj.gameObject.SetActive(true);
+                            binding.heatShopCard.iconObj.sprite = icon;
+                        }
                     }
+                    binding.heatShopCard.UpdateUI();
 
                     binding.heatShopCard.onClick.RemoveAllListeners();
                     binding.heatShopCard.onClick.AddListener(() => OnCardSelectClicked(index));
+                }
+
+                if (binding.selectButtonManager != null)
+                {
+                    if (icon != null)
+                    {
+                        binding.selectButtonManager.buttonIcon = icon;
+                        binding.selectButtonManager.enableIcon = true;
+                        binding.selectButtonManager.UpdateUI();
+                    }
+
+                    binding.selectButtonManager.onClick.RemoveAllListeners();
+                    binding.selectButtonManager.onClick.AddListener(() => OnCardSelectClicked(index));
                 }
 
                 if (binding.selectButton != null)
                 {
                     binding.selectButton.onClick.RemoveAllListeners();
                     binding.selectButton.onClick.AddListener(() => OnCardSelectClicked(index));
+                }
+
+                if (binding.cardIcon != null && icon != null)
+                {
+                    binding.cardIcon.gameObject.SetActive(true);
+                    binding.cardIcon.sprite = icon;
                 }
             }
         }

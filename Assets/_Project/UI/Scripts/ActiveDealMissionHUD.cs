@@ -56,7 +56,6 @@ namespace NightCrawler.UI
                 _audioSource.spatialBlend = 0f;
             }
 
-            EnsureRuntimeUI();
             SetVisible(false);
         }
 
@@ -80,8 +79,7 @@ namespace NightCrawler.UI
             {
                 int mins = Mathf.Max(0, Mathf.FloorToInt(_timeRemaining / 60f));
                 int secs = Mathf.Max(0, Mathf.FloorToInt(_timeRemaining % 60f));
-                string color = _timeRemaining <= 25f ? "#E74C3C" : (_timeRemaining <= 50f ? "#F39C12" : "#2ECC71");
-                missionTimerText.text = $"Time Left: <b>{mins:00}:{secs:00}</b>";
+                missionTimerText.text = $"{mins:00}:{secs:00}";
             }
 
             if (_timeRemaining <= 0f)
@@ -97,8 +95,6 @@ namespace NightCrawler.UI
             _timeRemaining = _totalDuration;
             _penaltyAmount = penaltyAmount;
             _isMissionActive = true;
-
-            EnsureRuntimeUI();
 
             if (missionTitleText != null)
             {
@@ -175,63 +171,6 @@ namespace NightCrawler.UI
             {
                 missionPanel.SetActive(visible);
             }
-        }
-
-        private void EnsureRuntimeUI()
-        {
-            if (missionPanel != null || missionTitleText != null) return;
-
-            // Search HUDCanvas
-            Canvas canvas = null;
-            var hudCanvasObj = GameObject.Find("HUDCanvas");
-            if (hudCanvasObj != null) canvas = hudCanvasObj.GetComponent<Canvas>();
-            if (canvas == null) canvas = FindFirstObjectByType<Canvas>();
-
-            if (canvas == null) return;
-
-            // Create procedural Mission HUD panel
-            missionPanel = new GameObject("ActiveDealMissionPanel", typeof(RectTransform), typeof(Image));
-            missionPanel.transform.SetParent(canvas.transform, false);
-
-            var rect = missionPanel.GetComponent<RectTransform>();
-            rect.anchorMin = new Vector2(0f, 0.75f);
-            rect.anchorMax = new Vector2(0f, 0.75f);
-            rect.pivot = new Vector2(0f, 1f);
-            rect.anchoredPosition = new Vector2(20f, -20f);
-            rect.sizeDelta = new Vector2(280f, 85f);
-
-            var img = missionPanel.GetComponent<Image>();
-            img.color = new Color(0.08f, 0.08f, 0.10f, 0.92f);
-
-            var vGroup = missionPanel.AddComponent<VerticalLayoutGroup>();
-            vGroup.padding = new RectOffset(12, 12, 8, 8);
-            vGroup.spacing = 4;
-            vGroup.childControlWidth = true;
-            vGroup.childControlHeight = false;
-
-            // Title
-            var titleObj = new GameObject("Title", typeof(RectTransform), typeof(TextMeshProUGUI));
-            titleObj.transform.SetParent(missionPanel.transform, false);
-            missionTitleText = titleObj.GetComponent<TextMeshProUGUI>();
-            missionTitleText.fontSize = 12;
-            missionTitleText.color = Color.white;
-            missionTitleText.richText = true;
-
-            // Timer
-            var timerObj = new GameObject("Timer", typeof(RectTransform), typeof(TextMeshProUGUI));
-            timerObj.transform.SetParent(missionPanel.transform, false);
-            missionTimerText = timerObj.GetComponent<TextMeshProUGUI>();
-            missionTimerText.fontSize = 13;
-            missionTimerText.color = new Color(0.2f, 0.8f, 0.4f);
-            missionTimerText.richText = true;
-
-            // Penalty Text
-            var penObj = new GameObject("Penalty", typeof(RectTransform), typeof(TextMeshProUGUI));
-            penObj.transform.SetParent(missionPanel.transform, false);
-            penaltyWarningText = penObj.GetComponent<TextMeshProUGUI>();
-            penaltyWarningText.fontSize = 10;
-            penaltyWarningText.color = new Color(0.9f, 0.3f, 0.3f);
-            penaltyWarningText.richText = true;
         }
     }
 }

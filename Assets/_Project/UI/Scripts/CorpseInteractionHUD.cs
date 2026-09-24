@@ -2,28 +2,37 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using Unity.Netcode;
+using Michsky.UI.Heat;
 
 /// <summary>
 /// SOLID — SRP: Shows on-screen prompt when looking at or standing near a lootable corpse.
-/// Displays "[E] Loot Corpse (X Vials)" when in range.
-/// Features self-contained procedural UI generation if not wired in the Inspector,
-/// and measures distance directly to the fallen ragdoll's physical body.
+/// Integrates with Michsky Heat UI QuestItem:
+/// - Header: Displays strictly the bound button (e.g. 'E', not '[E]')
+/// - Body: Displays the action prompt (e.g. 'Loot Body' or 'Loot Body (3 Vials)')
+/// - Animated In/Out smoothly using QuestItem Expand/Minimize.
 /// </summary>
 public class CorpseInteractionHUD : MonoBehaviour
 {
-    [Header("UI Reference")]
+    [Header("Heat UI Quest Structure")]
+    [Tooltip("Heat UI QuestItem component on PromptTextGO (handles In/Out animations).")]
+    public QuestItem questItem;
+
+    [Tooltip("Text component inside Header displaying strictly the bound button (e.g. 'E').")]
+    public TMP_Text headerButtonText;
+
+    [Tooltip("Text component inside PromptText displaying the prompt body text (e.g. 'Loot Body').")]
+    public TMP_Text promptBodyText;
+
+    [Header("Legacy / Direct UI Reference")]
     public TMP_Text promptText;
     public GameObject promptPanel;
 
     [Header("Detection Settings")]
     public float maxPromptDistance = 3.5f;
-
-    [Header("Prompt Formatting")]
-    [Tooltip("Format string for the prompt text. {0} is the key, {1} is the loot summary.")]
-    public string promptFormat = "Press <b>[{0}]</b> to loot body";
     public bool showLootSummaryInPrompt = true;
 
     private CanvasGroup _canvasGroup;
+    private bool _isPromptVisible = false;
 
     private void Awake()
     {
@@ -39,9 +48,38 @@ public class CorpseInteractionHUD : MonoBehaviour
 
     private void EnsureUI()
     {
-        if (promptPanel == null && promptText != null)
+        if (questItem == null)
         {
-            promptPanel = promptText.gameObject;
+            questItem = GetComponentInChildren<QuestItem>(true);
+        }
+
+        if (headerButtonText == null)
+        {
+            Transform headerTextTrans = transform.Find("PromptTextGO/PromptTextMain/Header/Text");
+            if (headerTextTrans == null) headerTextTrans = transform.Find("PromptTextGO/Header/Text");
+            if (headerTextTrans != null)
+            {
+                headerButtonText = headerTextTrans.GetComponent<TMP_Text>();
+            }
+        }
+
+        if (promptBodyText == null)
+        {
+            Transform bodyTextTrans = transform.Find("PromptTextGO/PromptTextMain/PromptText");
+            if (bodyTextTrans != null)
+            {
+                promptBodyText = bodyTextTrans.GetComponent<TMP_Text>();
+            }
+            else if (promptText != null)
+            {
+                promptBodyText = promptText;
+            }
+        }
+
+        if (promptPanel == null)
+        {
+            if (questItem != null) promptPanel = questItem.gameObject;
+            else if (promptText != null) promptPanel = promptText.gameObject;
         }
 
         if (promptPanel != null)
@@ -52,63 +90,6 @@ public class CorpseInteractionHUD : MonoBehaviour
                 _canvasGroup = promptPanel.AddComponent<CanvasGroup>();
             }
         }
-
-        // If no UI exists in scene/prefab, generate a sleek tactical prompt procedurally
-        if (promptText == null)
-        {
-            BuildProceduralPrompt();
-        }
-    }
-
-    private void BuildProceduralPrompt()
-    {
-        Transform canvasRoot = transform;
-        if (GetComponentInParent<Canvas>() == null)
-        {
-            var canvas = FindFirstObjectByType<Canvas>();
-            if (canvas != null) canvasRoot = canvas.transform;
-        }
-
-        var panelObj = new GameObject("CorpseLootPrompt_Panel");
-        panelObj.transform.SetParent(canvasRoot, false);
-
-        var rect = panelObj.AddComponent<RectTransform>();
-        rect.anchorMin = new Vector2(0.5f, 0.32f);
-        rect.anchorMax = new Vector2(0.5f, 0.32f);
-        rect.pivot = new Vector2(0.5f, 0.5f);
-        rect.anchoredPosition = Vector2.zero;
-        rect.sizeDelta = new Vector2(360f, 48f);
-
-        var bgImg = panelObj.AddComponent<Image>();
-        bgImg.color = new Color(0.04f, 0.06f, 0.09f, 0.90f);
-        bgImg.raycastTarget = false;
-
-        var outline = panelObj.AddComponent<Outline>();
-        outline.effectColor = new Color(0.15f, 0.75f, 0.95f, 0.65f);
-        outline.effectDistance = new Vector2(1.5f, -1.5f);
-
-        _canvasGroup = panelObj.AddComponent<CanvasGroup>();
-        _canvasGroup.alpha = 0f;
-        _canvasGroup.blocksRaycasts = false;
-        _canvasGroup.interactable = false;
-
-        var textObj = new GameObject("PromptText");
-        textObj.transform.SetParent(panelObj.transform, false);
-
-        var textRect = textObj.AddComponent<RectTransform>();
-        textRect.anchorMin = Vector2.zero;
-        textRect.anchorMax = Vector2.one;
-        textRect.offsetMin = new Vector2(15f, 0f);
-        textRect.offsetMax = new Vector2(-15f, 0f);
-
-        promptText = textObj.AddComponent<TextMeshProUGUI>();
-        promptText.fontSize = 17f;
-        promptText.color = Color.white;
-        promptText.alignment = TextAlignmentOptions.Center;
-        promptText.text = "Press <b>[E]</b> to loot body";
-
-        promptPanel = panelObj;
-        promptPanel.SetActive(false);
     }
 
     private GameObject GetActiveControlledCharacter()
@@ -186,13 +167,15 @@ public class CorpseInteractionHUD : MonoBehaviour
 
         if (nearestLootable != null)
         {
-            string keyName = nearestLootable.lootKey.ToString();
+            // Strictly the key name (e.g. "E", not "[E]")
+            string keyName = nearestLootable.lootKey.ToString().Replace("[", "").Replace("]", "").Trim();
             string lootDesc = nearestLootable.GetLootDescription();
-            string msg = showLootSummaryInPrompt && !string.IsNullOrEmpty(lootDesc) && lootDesc != "Empty"
-                ? string.Format(promptFormat, keyName) + $" <size=85%>({lootDesc})</size>"
-                : string.Format(promptFormat, keyName);
 
-            SetPromptVisible(true, msg);
+            string bodyMsg = showLootSummaryInPrompt && !string.IsNullOrEmpty(lootDesc) && lootDesc != "Empty"
+                ? $"Loot Body <size=85%>({lootDesc})</size>"
+                : "Loot Body";
+
+            SetPromptVisible(true, keyName, bodyMsg);
         }
         else
         {
@@ -200,44 +183,62 @@ public class CorpseInteractionHUD : MonoBehaviour
         }
     }
 
-    private void SetPromptVisible(bool visible, string text = "")
+    private void SetPromptVisible(bool visible, string keyName = "", string bodyMsg = "")
     {
-        if (promptPanel != null)
+        if (visible)
         {
-            // CRITICAL: Never deactivate our own GameObject, as that stops Update() permanently!
-            if (promptPanel == gameObject)
+            // 1. Header shows strictly the bound button ("E")
+            if (headerButtonText != null)
             {
-                if (_canvasGroup != null)
-                {
-                    _canvasGroup.alpha = visible ? 1f : 0f;
-                    _canvasGroup.blocksRaycasts = false;
-                    _canvasGroup.interactable = false;
-                }
-                else if (promptText != null && promptText.gameObject != gameObject)
-                {
-                    promptText.gameObject.SetActive(visible);
-                }
+                headerButtonText.text = keyName;
             }
-            else
+
+            // 2. Main body shows strictly the prompt text ("Loot Body")
+            if (promptBodyText != null)
             {
-                if (promptPanel.activeSelf != visible)
+                promptBodyText.text = bodyMsg;
+            }
+
+            // 3. Fallback single promptText if present
+            if (promptText != null && promptText != promptBodyText)
+            {
+                promptText.text = $"[{keyName}] {bodyMsg}";
+            }
+
+            // 4. Trigger In animation / display
+            if (!_isPromptVisible)
+            {
+                _isPromptVisible = true;
+                if (questItem != null)
                 {
-                    promptPanel.SetActive(visible);
+                    questItem.minimizeAfter = 0; // Don't auto-minimize while player is still near corpse
+                    questItem.afterMinimize = QuestItem.AfterMinimize.Disable;
+                    questItem.ExpandQuest();
                 }
-                if (_canvasGroup != null)
+                else if (promptPanel != null)
                 {
-                    _canvasGroup.alpha = visible ? 1f : 0f;
+                    if (promptPanel != gameObject) promptPanel.SetActive(true);
+                    if (_canvasGroup != null) _canvasGroup.alpha = 1f;
                 }
             }
         }
-
-        if (promptText != null)
+        else
         {
-            promptText.text = visible ? text : "";
-            if (promptPanel == null && promptText.gameObject != gameObject && promptText.gameObject.activeSelf != visible)
+            // Trigger Out animation / hide
+            if (_isPromptVisible)
             {
-                promptText.gameObject.SetActive(visible);
+                _isPromptVisible = false;
+                if (questItem != null)
+                {
+                    questItem.MinimizeQuest();
+                }
+                else if (promptPanel != null)
+                {
+                    if (_canvasGroup != null) _canvasGroup.alpha = 0f;
+                    if (promptPanel != gameObject) promptPanel.SetActive(false);
+                }
             }
         }
     }
 }
+

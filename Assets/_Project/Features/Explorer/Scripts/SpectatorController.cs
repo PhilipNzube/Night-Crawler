@@ -964,12 +964,13 @@ public class SpectatorController : MonoBehaviour
 
     private void BuildProceduralHUD()
     {
-        if (customCanvasRoot != null)
+        if (customCanvasRoot != null || cleanTargetNameText != null)
         {
-            _canvasGroup = customCanvasRoot.GetComponent<CanvasGroup>();
-            if (_canvasGroup == null) _canvasGroup = customCanvasRoot.AddComponent<CanvasGroup>();
+            GameObject root = customCanvasRoot != null ? customCanvasRoot : cleanTargetNameText.gameObject;
+            _canvasGroup = root.GetComponent<CanvasGroup>();
+            if (_canvasGroup == null) _canvasGroup = root.AddComponent<CanvasGroup>();
             _canvasGroup.alpha = 0f;
-            customCanvasRoot.SetActive(false);
+            if (customCanvasRoot != null) customCanvasRoot.SetActive(false);
 
             _targetNameText = customTargetNameText;
             _roleBadgeText = customRoleText;

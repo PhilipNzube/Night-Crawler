@@ -17,14 +17,6 @@ using Michsky.UI.Heat;
 /// </summary>
 public class MatchResultOverlay : MonoBehaviour
 {
-    public GameObject overlayPanel;
-    public TextMeshProUGUI resultText;
-    public TextMeshProUGUI subText;
-    public TextMeshProUGUI economyBreakdownText;
-
-    [Header("Michsky Heat / Dark UI")]
-    public ModalWindowManager heatModalWindow;
-
     [Header("Heat UI Hierarchy (GameScene)")]
     public CanvasGroup allCanvasGroup;
     public Animator allAnimator;
@@ -33,11 +25,38 @@ public class MatchResultOverlay : MonoBehaviour
     public Michsky.UI.Heat.HotkeyEvent endGameHotkey;
     public Michsky.UI.Heat.ButtonManager endGameButton;
 
+    [Header("Heat UI Achievements")]
+    [Tooltip("Prefab instantiated into contentLayoutGroup for each achievement (e.g. Heat Achievement Item prefab).")]
+    public GameObject achievementItemPrefab;
+
+    [Header("Heat UI Summary Counters (Bottom)")]
+    [Tooltip("The 'Summary' horizontal layout container GameObject.")]
+    public Transform summaryContainer;
+
+    [Tooltip("Displays the Total Stake Won counter (e.g. inside Summary/TotalStakeWon/Total).")]
+    public TextMeshProUGUI totalStakeWonText;
+
+    [Tooltip("Displays the initial Staked amount (e.g. inside Summary/Stake/Total).")]
+    public TextMeshProUGUI stakedAmountText;
+
+    [Tooltip("Displays the Achievements count / contribution bonus (e.g. inside Summary/Achievements/Total).")]
+    public TextMeshProUGUI achievementsCountText;
+
+    [Tooltip("Displays Net Payout total (e.g. inside Summary/NetPayout/Total).")]
+    public TextMeshProUGUI netPayoutText;
+
+    [Header("Legacy / Fallbacks")]
+    public GameObject overlayPanel;
+    public TextMeshProUGUI resultText;
+    public TextMeshProUGUI subText;
+    public TextMeshProUGUI economyBreakdownText;
+    public ModalWindowManager heatModalWindow;
+
     private MatchPayoutSummary? _latestPayout;
 
     private void Awake()
     {
-        EnsureUIRuntime();
+        ResolveSummaryReferences();
 
         // Wire EndGame button / hotkey
         if (endGameHotkey != null)
@@ -137,13 +156,10 @@ public class MatchResultOverlay : MonoBehaviour
     {
         Debug.Log($"[UI-OVERLAY] ShowResult called with: {msg}");
         
-        if (overlayPanel == null)
+        if (overlayPanel != null)
         {
-            EnsureUIRuntime();
-            if (overlayPanel == null) return;
+            overlayPanel.SetActive(true);
         }
-
-        overlayPanel.SetActive(true);
 
         // Unlock cursor for match end
         Cursor.lockState = CursorLockMode.None;
@@ -218,8 +234,30 @@ public class MatchResultOverlay : MonoBehaviour
         if (_latestPayout.HasValue)
         {
             var p = _latestPayout.Value;
-            var sb = new System.Text.StringBuilder();
 
+            // 1. Update Heat UI bottom summary counters
+            if (totalStakeWonText != null)
+            {
+                totalStakeWonText.text = p.won ? (p.potWinnings > 0 ? $"+{p.potWinnings}" : $"{p.stakedAmount}") : "0";
+            }
+            if (stakedAmountText != null)
+            {
+                stakedAmountText.text = p.stakedAmount.ToString();
+            }
+            if (achievementsCountText != null)
+            {
+                achievementsCountText.text = p.contributionBonus > 0 ? $"+{p.contributionBonus}" : "0";
+            }
+            if (netPayoutText != null)
+            {
+                netPayoutText.text = p.netPayout >= 0 ? $"+{p.netPayout}" : p.netPayout.ToString();
+            }
+
+            // 2. Populate Heat UI achievement items into layout group
+            PopulateAchievements(p);
+
+            // 3. Fallback text breakdown if legacy text components are present
+            var sb = new System.Text.StringBuilder();
             sb.AppendLine("<b>— MATCH SETTLEMENT —</b>");
 
             if (p.won)
@@ -257,6 +295,127 @@ public class MatchResultOverlay : MonoBehaviour
         }
     }
 
+    private void PopulateAchievements(MatchPayoutSummary p)
+    {
+        if (contentLayoutGroup == null || achievementItemPrefab == null) return;
+
+        // Clear previously instantiated items
+        for (int i = contentLayoutGroup.childCount - 1; i >= 0; i--)
+        {
+            Destroy(contentLayoutGroup.GetChild(i).gameObject);
+        }
+
+        // 1. Primary Match Objective
+        string outcomeTitle = p.won ? "Mission Accomplished" : "Mission Failed";
+        string outcomeDesc = p.won ? "Your team successfully survived and achieved the objective." : "The match ended in defeat against the dark entity.";
+        SpawnAchievementEntry(outcomeTitle, outcomeDesc, p.won);
+
+        // 2. Pot Share Bounty
+        if (p.won && p.potWinnings > 0)
+        {
+            SpawnAchievementEntry("High Roller Bounty", $"Secured +{p.potWinnings} {CurrencyConfig.CurrencySymbol} share from the shared match stake pot.", true);
+        }
+
+        // 3. Contribution Bonuses from bonusDetails
+        if (!string.IsNullOrEmpty(p.bonusDetails))
+        {
+            string[] items = p.bonusDetails.Split(new[] { ',', ';', '\n' }, System.StringSplitOptions.RemoveEmptyEntries);
+            foreach (var item in items)
+            {
+                string trimmed = item.Trim();
+                if (string.IsNullOrEmpty(trimmed)) continue;
+
+                string aTitle = "Field Merit";
+                string aDesc = trimmed;
+
+                if (trimmed.IndexOf("Exorcism", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    aTitle = "Master Exorcist";
+                else if (trimmed.IndexOf("Heal", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    aTitle = "Combat Medic";
+                else if (trimmed.IndexOf("Clue", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    aTitle = "Keen Investigator";
+                else if (trimmed.IndexOf("Slain", System.StringComparison.OrdinalIgnoreCase) >= 0 || trimmed.IndexOf("Wiped", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    aTitle = "Apex Predator";
+                else if (trimmed.IndexOf("Traitor", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    aTitle = "Dark Pact";
+                else if (trimmed.IndexOf("Abandon", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    aTitle = "MIA";
+
+                SpawnAchievementEntry(aTitle, aDesc, true);
+            }
+        }
+    }
+
+    private void SpawnAchievementEntry(string title, string desc, bool unlocked)
+    {
+        GameObject go = Instantiate(achievementItemPrefab, contentLayoutGroup);
+        go.SetActive(true);
+
+        var item = go.GetComponent<AchievementItem>();
+        if (item != null)
+        {
+            if (item.titleObj != null) item.titleObj.text = title;
+            if (item.descriptionObj != null) item.descriptionObj.text = desc;
+            if (item.lockedIndicator != null) item.lockedIndicator.SetActive(!unlocked);
+            if (item.unlockedIndicator != null) item.unlockedIndicator.SetActive(unlocked);
+        }
+        else
+        {
+            var tmpList = go.GetComponentsInChildren<TextMeshProUGUI>();
+            if (tmpList.Length > 0 && tmpList[0] != null) tmpList[0].text = title;
+            if (tmpList.Length > 1 && tmpList[1] != null) tmpList[1].text = desc;
+        }
+    }
+
+    private void ResolveSummaryReferences()
+    {
+        if (summaryContainer == null)
+        {
+            Transform found = transform.Find("Summary");
+            if (found != null) summaryContainer = found;
+        }
+
+        if (summaryContainer != null)
+        {
+            if (totalStakeWonText == null) totalStakeWonText = ResolveChildText(summaryContainer, "TotalStakeWon", "StakeWon", "Total Stake Won");
+            if (stakedAmountText == null) stakedAmountText = ResolveChildText(summaryContainer, "Stake", "Staked", "StakedAmount");
+            if (achievementsCountText == null) achievementsCountText = ResolveChildText(summaryContainer, "Achievements", "Achievement", "Contribution");
+            if (netPayoutText == null) netPayoutText = ResolveChildText(summaryContainer, "NetPayout", "Payout", "Net Payout");
+        }
+    }
+
+    private TextMeshProUGUI ResolveChildText(Transform parent, params string[] candidateNames)
+    {
+        foreach (var cName in candidateNames)
+        {
+            Transform found = parent.Find(cName);
+            if (found == null)
+            {
+                foreach (Transform child in parent)
+                {
+                    if (child.name.Replace(" ", "").Equals(cName.Replace(" ", ""), System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        found = child;
+                        break;
+                    }
+                }
+            }
+
+            if (found != null)
+            {
+                Transform total = found.Find("Total");
+                if (total != null)
+                {
+                    var tmp = total.GetComponent<TextMeshProUGUI>();
+                    if (tmp != null) return tmp;
+                }
+                var pillTmp = found.GetComponentInChildren<TextMeshProUGUI>();
+                if (pillTmp != null) return pillTmp;
+            }
+        }
+        return null;
+    }
+
     private IEnumerator ResultsPulse()
     {
         float t = 0;
@@ -269,64 +428,5 @@ public class MatchResultOverlay : MonoBehaviour
             }
             yield return null;
         }
-    }
-
-    private void EnsureUIRuntime()
-    {
-        if (overlayPanel != null || allCanvasGroup != null || allAnimator != null) return;
-
-        Canvas targetCanvas = GetComponentInParent<Canvas>();
-        if (targetCanvas == null) targetCanvas = FindFirstObjectByType<Canvas>();
-        if (targetCanvas == null) return;
-
-        var panel = new GameObject("MatchResultPanel", typeof(RectTransform), typeof(Image));
-        panel.transform.SetParent(targetCanvas.transform, false);
-
-        var rt = panel.GetComponent<RectTransform>();
-        rt.anchorMin = new Vector2(0.5f, 0.5f);
-        rt.anchorMax = new Vector2(0.5f, 0.5f);
-        rt.pivot = new Vector2(0.5f, 0.5f);
-        rt.sizeDelta = new Vector2(620, 440);
-
-        var img = panel.GetComponent<Image>();
-        img.color = new Color(0.04f, 0.05f, 0.07f, 0.95f);
-
-        // Result Text
-        var resObj = new GameObject("ResultText", typeof(RectTransform), typeof(TextMeshProUGUI));
-        resObj.transform.SetParent(panel.transform, false);
-        var resRt = resObj.GetComponent<RectTransform>();
-        resRt.anchoredPosition = new Vector2(0, 160);
-        resRt.sizeDelta = new Vector2(580, 50);
-        resultText = resObj.GetComponent<TextMeshProUGUI>();
-        resultText.fontSize = 28;
-        resultText.fontStyle = FontStyles.Bold;
-        resultText.alignment = TextAlignmentOptions.Center;
-        resultText.color = new Color(1f, 0.85f, 0.3f, 1f);
-
-        // Sub Text
-        var subObj = new GameObject("SubText", typeof(RectTransform), typeof(TextMeshProUGUI));
-        subObj.transform.SetParent(panel.transform, false);
-        var subRt = subObj.GetComponent<RectTransform>();
-        subRt.anchoredPosition = new Vector2(0, 115);
-        subRt.sizeDelta = new Vector2(580, 35);
-        subText = subObj.GetComponent<TextMeshProUGUI>();
-        subText.fontSize = 18;
-        subText.alignment = TextAlignmentOptions.Center;
-        subText.color = new Color(0.85f, 0.9f, 0.95f, 1f);
-
-        // Economy Breakdown Text
-        var ecoObj = new GameObject("EconomyBreakdownText", typeof(RectTransform), typeof(TextMeshProUGUI));
-        ecoObj.transform.SetParent(panel.transform, false);
-        var ecoRt = ecoObj.GetComponent<RectTransform>();
-        ecoRt.anchoredPosition = new Vector2(0, -20);
-        ecoRt.sizeDelta = new Vector2(540, 210);
-        economyBreakdownText = ecoObj.GetComponent<TextMeshProUGUI>();
-        economyBreakdownText.fontSize = 16;
-        economyBreakdownText.lineSpacing = 15;
-        economyBreakdownText.alignment = TextAlignmentOptions.Center;
-        economyBreakdownText.color = Color.white;
-
-        overlayPanel = panel;
-        overlayPanel.SetActive(false);
     }
 }
