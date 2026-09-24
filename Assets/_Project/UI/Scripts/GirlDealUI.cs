@@ -55,6 +55,12 @@ public class GirlDealUI : MonoBehaviour
     public ButtonManager sendButton;
     public ButtonManager cancelButton;
 
+    [Header("Deal Capacity & Slots")]
+    [Tooltip("Capsule GameObject displaying remaining deal slots (DealSlotsLeft).")]
+    public GameObject dealSlotsLeftCapsule;
+    [Tooltip("Text displaying remaining deal slots (e.g. Total).")]
+    public TextMeshProUGUI dealSlotsLeftText;
+
     [Header("Cards Container")]
     [Tooltip("Container where deal cards live (e.g. DealPanel/Deals/Content/List/Layout Group).")]
     public Transform cardsContainer;
@@ -135,6 +141,8 @@ public class GirlDealUI : MonoBehaviour
         }
         if (rewardSlider != null) rewardSlider.useRoundValue = true;
         if (penaltySlider != null) penaltySlider.useRoundValue = true;
+
+
 
         // Clean up any default ExitGame calls on Modals
         SanitizeModal(dealModal);
@@ -383,6 +391,9 @@ public class GirlDealUI : MonoBehaviour
             timeSlider.UpdateUI();
         }
 
+        // Update slots left
+        UpdateDealSlotsDisplay();
+
         // Ensure modal is active before opening
         if (!dealModal.gameObject.activeSelf)
             dealModal.gameObject.SetActive(true);
@@ -390,6 +401,30 @@ public class GirlDealUI : MonoBehaviour
 
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
+    }
+
+    private int _dealsSentThisMatch = 0;
+
+    public void UpdateDealSlotsDisplay()
+    {
+        int capLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.DealCapacity) : 0;
+        int maxDeals = UpgradeStatFormulas.GetGirlDealCapacity(capLvl);
+        int remainingSlots = Mathf.Max(0, maxDeals - _dealsSentThisMatch);
+
+        if (dealSlotsLeftCapsule != null)
+        {
+            dealSlotsLeftCapsule.SetActive(true);
+        }
+
+        if (dealSlotsLeftText != null)
+        {
+            dealSlotsLeftText.text = $"{remainingSlots} / {maxDeals}";
+        }
+
+        if (sendButton != null)
+        {
+            sendButton.Interactable(remainingSlots > 0);
+        }
     }
 
     public void CloseDealModal()
@@ -523,6 +558,17 @@ public class GirlDealUI : MonoBehaviour
             return;
         }
 
+        int capLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.DealCapacity) : 0;
+        int maxDeals = UpgradeStatFormulas.GetGirlDealCapacity(capLvl);
+        int remainingSlots = Mathf.Max(0, maxDeals - _dealsSentThisMatch);
+
+        if (remainingSlots <= 0)
+        {
+            ShowError("DEAL CAPACITY REACHED", 
+                $"You have exhausted all {maxDeals} dark deal slots for this match.\n\nUpgrade Deal Capacity in the store to offer more pacts per match.");
+            return;
+        }
+
         // All constraints passed! Dispatch deal
         string dealTitle = !string.IsNullOrEmpty(_currentCardTitle) ? _currentCardTitle : "DARK PACT";
         string dealTerms = !string.IsNullOrEmpty(_currentCardDesc) 
@@ -535,6 +581,9 @@ public class GirlDealUI : MonoBehaviour
         {
             DealSystemNet.Instance.SendDeal(targetRecipientId, dealTitle, dealTerms, rewardStr, grantWeapon, completionTime, penaltyAmount);
         }
+
+        _dealsSentThisMatch++;
+        UpdateDealSlotsDisplay();
 
         if (NotificationManager.Instance != null)
         {

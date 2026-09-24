@@ -694,7 +694,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             attackHitbox.DisableDamage();
         }
 
-        SafeSetTrigger(_dieHash);
+        if (healthBar != null)
+        {
+            healthBar.gameObject.SetActive(false);
+        }
+
+        TriggerRagdollPhysics();
 
         if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
         {
@@ -702,11 +707,47 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
     }
 
+    private void TriggerRagdollPhysics()
+    {
+        // 1. Check for NetworkRagdollController
+        if (TryGetComponent<NetworkRagdollController>(out var ragdoll))
+        {
+            ragdoll.TriggerRagdollDeath();
+            return;
+        }
+
+        // 2. Check for bone Rigidbodies
+        var rbs = GetComponentsInChildren<Rigidbody>(true);
+        bool foundBones = false;
+        foreach (var rb in rbs)
+        {
+            if (rb.gameObject == gameObject) continue;
+            foundBones = true;
+            rb.isKinematic = false;
+            rb.detectCollisions = true;
+        }
+
+        if (foundBones)
+        {
+            if (_animator != null) _animator.enabled = false;
+            var cols = GetComponentsInChildren<Collider>(true);
+            foreach (var col in cols)
+            {
+                if (col.gameObject != gameObject && !col.isTrigger) col.enabled = true;
+            }
+        }
+        else
+        {
+            // Fallback to animation if ragdoll components aren't set up yet
+            SafeSetTrigger(_dieHash);
+        }
+    }
+
     [ClientRpc]
     private void PlayDeathClientRpc()
     {
         if (IsServer) return;
-        SafeSetTrigger(_dieHash);
+        TriggerRagdollPhysics();
     }
 
     // =========================================================================

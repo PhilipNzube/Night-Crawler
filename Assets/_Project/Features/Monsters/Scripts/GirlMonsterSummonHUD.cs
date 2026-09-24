@@ -84,12 +84,36 @@ namespace NightCrawler.Monsters
         [Tooltip("Optional: Michsky ModalWindowManager to animate the summon dialog.")]
         public Michsky.UI.Heat.ModalWindowManager heatModalWindow;
 
+        [Header("Monster Summon Slots & Capsules (Manual Inspector Wiring)")]
+        [Tooltip("Capsule for Undead slots left (in SelectionConfirmationModal).")]
+        public GameObject undeadSlotsCapsule;
+        [Tooltip("Text displaying undead slots remaining (e.g. Total TMP).")]
+        public TextMeshProUGUI undeadSlotsText;
+
+        [Tooltip("Capsule for Berserker slots left (in SelectionConfirmationModal).")]
+        public GameObject berserkerSlotsCapsule;
+        [Tooltip("Text displaying berserker slots remaining (e.g. Total TMP).")]
+        public TextMeshProUGUI berserkerSlotsText;
+
+        [Header("Monster Spectate Hotkey (Manual Inspector Wiring)")]
+        [Tooltip("Root GameObject for the MonsterSpectateHotkey.")]
+        public GameObject monsterSpectateHotkey;
+        [Tooltip("Michsky Heat HotkeyEvent component on MonsterSpectateHotkey.")]
+        public Michsky.UI.Heat.HotkeyEvent monsterSpectateHotkeyEvent;
+        [Tooltip("Optional Button component on MonsterSpectateHotkey.")]
+        public Button monsterSpectateButton;
+
+        [Tooltip("Dead Summon Charges upgrade level required to unlock Berserker (default Level 3).")]
+        public int berserkerUnlockLevel = 3;
+
         [Header("Hotkeys")]
         [Tooltip("Hotkey to toggle this summon menu when playing as the Girl (default [X]).")]
         public Key toggleKey = Key.X;
 
         private int _totalCharges = 2;
         private int _remainingCharges = 2;
+        private int _undeadSummoned = 0;
+        private int _berserkerSummoned = 0;
         private int _selectedMonsterIndex = 0;
         private bool _isOpen = false;
         private readonly List<Button> _cardButtons = new List<Button>();
@@ -128,6 +152,18 @@ namespace NightCrawler.Monsters
             {
                 standardCancelButton.onClick.RemoveListener(OnCancelSpawnClicked);
                 standardCancelButton.onClick.AddListener(OnCancelSpawnClicked);
+            }
+
+            // Wire MonsterSpectateHotkey if assigned in inspector
+            if (monsterSpectateHotkeyEvent != null)
+            {
+                monsterSpectateHotkeyEvent.onHotkeyPress.RemoveListener(OnSpectateMonstersClicked);
+                monsterSpectateHotkeyEvent.onHotkeyPress.AddListener(OnSpectateMonstersClicked);
+            }
+            if (monsterSpectateButton != null)
+            {
+                monsterSpectateButton.onClick.RemoveListener(OnSpectateMonstersClicked);
+                monsterSpectateButton.onClick.AddListener(OnSpectateMonstersClicked);
             }
 
             SetVisible(false);
@@ -232,6 +268,16 @@ namespace NightCrawler.Monsters
 
         private void UpdateChargesDisplay()
         {
+            int summonLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.DeadSummonCharges) : 0;
+            int maxUndead = 2 + summonLvl;
+            int remainingUndead = Mathf.Max(0, maxUndead - _undeadSummoned);
+
+            int maxBerserker = summonLvl >= berserkerUnlockLevel ? 1 + ((summonLvl - berserkerUnlockLevel) / 2) : 0;
+            int remainingBerserker = Mathf.Max(0, maxBerserker - _berserkerSummoned);
+
+            _remainingCharges = remainingUndead + remainingBerserker;
+            _totalCharges = maxUndead + maxBerserker;
+
             if (chargesRemainingText != null)
             {
                 chargesRemainingText.text = $"Risen Summons Left: {_remainingCharges} / {_totalCharges}";
@@ -240,6 +286,13 @@ namespace NightCrawler.Monsters
             if (summonButton != null)
             {
                 summonButton.interactable = (_remainingCharges > 0);
+            }
+
+            // Sync MonsterSpectateHotkey visibility with whether active monsters exist in scene
+            bool hasMonsters = SpectatorController.HasActiveMonstersInScene();
+            if (monsterSpectateHotkey != null)
+            {
+                monsterSpectateHotkey.SetActive(hasMonsters);
             }
         }
 
@@ -423,10 +476,80 @@ namespace NightCrawler.Monsters
             UpdateChargesDisplay();
         }
 
+        public void OnSpectateMonstersClicked()
+        {
+            if (!SpectatorController.HasActiveMonstersInScene())
+            {
+                if (monsterSpectateHotkey != null) monsterSpectateHotkey.SetActive(false);
+                if (NotificationManager.Instance != null)
+                {
+                    NotificationManager.Instance.ShowNotification("There are no active monsters left in the mine to spectate!", 3.5f);
+                }
+                return;
+            }
+
+            CloseHUD();
+
+            var spec = FindFirstObjectByType<SpectatorController>();
+            if (spec != null)
+            {
+                spec.TryOpenMonsterSpectator();
+            }
+        }
+
         public void OnCardSelectClicked(int index)
         {
             _selectedMonsterIndex = index;
             SelectCard(index);
+
+            int summonLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.DeadSummonCharges) : 0;
+            bool isBerserker = IsSelectedMonsterBerserker(index);
+
+            if (isBerserker)
+            {
+                bool isUnlocked = summonLvl >= berserkerUnlockLevel;
+                if (!isUnlocked)
+                {
+                    if (NotificationManager.Instance != null)
+                    {
+                        NotificationManager.Instance.ShowNotification($"The Berserker is locked! Requires Dead Summon Charges Level {berserkerUnlockLevel}.", 3.5f);
+                    }
+                    return;
+                }
+
+                int maxBerserker = 1 + ((summonLvl - berserkerUnlockLevel) / 2);
+                int remainingBerserker = Mathf.Max(0, maxBerserker - _berserkerSummoned);
+
+                if (berserkerSlotsCapsule != null) berserkerSlotsCapsule.SetActive(true);
+                if (undeadSlotsCapsule != null) undeadSlotsCapsule.SetActive(false);
+
+                if (berserkerSlotsText != null)
+                {
+                    berserkerSlotsText.text = $"{remainingBerserker} / {maxBerserker}";
+                }
+
+                bool canSummon = remainingBerserker > 0;
+                if (confirmSpawnButton != null) confirmSpawnButton.Interactable(canSummon);
+                if (standardConfirmButton != null) standardConfirmButton.interactable = canSummon;
+            }
+            else
+            {
+                // Undead
+                int maxUndead = 2 + summonLvl;
+                int remainingUndead = Mathf.Max(0, maxUndead - _undeadSummoned);
+
+                if (undeadSlotsCapsule != null) undeadSlotsCapsule.SetActive(true);
+                if (berserkerSlotsCapsule != null) berserkerSlotsCapsule.SetActive(false);
+
+                if (undeadSlotsText != null)
+                {
+                    undeadSlotsText.text = $"{remainingUndead} / {maxUndead}";
+                }
+
+                bool canSummon = remainingUndead > 0;
+                if (confirmSpawnButton != null) confirmSpawnButton.Interactable(canSummon);
+                if (standardConfirmButton != null) standardConfirmButton.interactable = canSummon;
+            }
 
             if (confirmationModal != null)
             {
@@ -436,6 +559,21 @@ namespace NightCrawler.Monsters
             {
                 OnConfirmSpawnClicked();
             }
+        }
+
+        private bool IsSelectedMonsterBerserker(int index)
+        {
+            if (cardBindings != null && index >= 0 && index < cardBindings.Count && cardBindings[index] != null)
+            {
+                var def = cardBindings[index].monsterDefinition;
+                if (def != null && def.monsterName.ToLower().Contains("berserker")) return true;
+            }
+            List<MonsterDefinitionSO> monsters = DeadSpawnManager.Instance != null ? DeadSpawnManager.Instance.availableMonsters : null;
+            if (monsters != null && index >= 0 && index < monsters.Count && monsters[index] != null)
+            {
+                if (monsters[index].monsterName.ToLower().Contains("berserker")) return true;
+            }
+            return index == 1; // default index 1 is Berserker
         }
 
         public void OnCancelSpawnClicked()
@@ -448,15 +586,36 @@ namespace NightCrawler.Monsters
 
         public void OnConfirmSpawnClicked()
         {
-            if (_remainingCharges <= 0)
+            int summonLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.DeadSummonCharges) : 0;
+            bool isBerserker = IsSelectedMonsterBerserker(_selectedMonsterIndex);
+
+            if (isBerserker)
             {
-                if (NotificationManager.Instance != null)
-                    NotificationManager.Instance.ShowNotification("No risen summon charges remaining this match!", 2.5f);
-                if (confirmationModal != null) confirmationModal.CloseWindow();
-                return;
+                int maxBerserker = summonLvl >= berserkerUnlockLevel ? 1 + ((summonLvl - berserkerUnlockLevel) / 2) : 0;
+                int remainingBerserker = Mathf.Max(0, maxBerserker - _berserkerSummoned);
+                if (remainingBerserker <= 0)
+                {
+                    if (NotificationManager.Instance != null)
+                        NotificationManager.Instance.ShowNotification("No Berserker summon charges remaining this match!", 2.5f);
+                    if (confirmationModal != null) confirmationModal.CloseWindow();
+                    return;
+                }
+                _berserkerSummoned++;
+            }
+            else
+            {
+                int maxUndead = 2 + summonLvl;
+                int remainingUndead = Mathf.Max(0, maxUndead - _undeadSummoned);
+                if (remainingUndead <= 0)
+                {
+                    if (NotificationManager.Instance != null)
+                        NotificationManager.Instance.ShowNotification("No Undead summon charges remaining this match!", 2.5f);
+                    if (confirmationModal != null) confirmationModal.CloseWindow();
+                    return;
+                }
+                _undeadSummoned++;
             }
 
-            _remainingCharges--;
             UpdateChargesDisplay();
 
             if (DeadSpawnManager.Instance != null && NetworkManager.Singleton != null)

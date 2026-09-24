@@ -241,21 +241,33 @@ public class SpectatorController : MonoBehaviour
     {
         if (_isSpectating) return;
 
-        // Living players MUST NEVER enter spectator mode!
-        if (!IsLocalPlayerDead())
+        // Survivor spectating is strictly for dead investigators
+        if (modeType == SpectatorModeType.Survivors)
         {
-            Debug.LogWarning("[SpectatorController] Suppressed StartSpectating — Local player is still ALIVE!");
-            return;
+            if (!IsLocalPlayerDead())
+            {
+                Debug.LogWarning("[SpectatorController] Suppressed StartSpectating — Local player is still ALIVE!");
+                return;
+            }
+
+            // Verify local player is not the Girl (anti-ghosting)
+            if (IsLocalPlayerGirl())
+            {
+                Debug.Log("[SpectatorController] Suppressed — Local player is the Vengeful Spirit.");
+                return;
+            }
+        }
+        else if (modeType == SpectatorModeType.Monsters)
+        {
+            // Monster spectating is ONLY allowed when active monsters exist in scene
+            if (!HasActiveMonstersInScene())
+            {
+                Debug.LogWarning("[SpectatorController] Suppressed monster spectating — No active monsters exist in the mine!");
+                return;
+            }
         }
 
-        // Verify local player is not the Girl
-        if (IsLocalPlayerGirl())
-        {
-            Debug.Log("[SpectatorController] Suppressed — Local player is the Vengeful Spirit.");
-            return;
-        }
-
-        Debug.Log("[SpectatorController] Initiating Spectator Mode...");
+        Debug.Log($"[SpectatorController] Initiating Spectator Mode ({modeType})...");
         _isSpectating = true;
 
         // Resolve camera
@@ -347,14 +359,24 @@ public class SpectatorController : MonoBehaviour
     /// </summary>
     public static bool HasActiveMonstersInScene()
     {
-        var monsters = FindObjectsByType<MonsterController>(FindObjectsSortMode.None);
-        foreach (var m in monsters)
+        var controllers = FindObjectsByType<MonsterController>(FindObjectsSortMode.None);
+        foreach (var m in controllers)
         {
             if (m == null || m.gameObject == null) continue;
             if (m.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) continue;
             if (m.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) continue;
             return true;
         }
+
+        var ais = FindObjectsByType<MonsterAI>(FindObjectsSortMode.None);
+        foreach (var ai in ais)
+        {
+            if (ai == null || ai.gameObject == null) continue;
+            if (ai.currentState == MonsterAI.AIState.Dead) continue;
+            if (ai.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) continue;
+            return true;
+        }
+
         return false;
     }
 
@@ -626,21 +648,32 @@ public class SpectatorController : MonoBehaviour
 
         if (modeType == SpectatorModeType.Monsters)
         {
-            var monsters = FindObjectsByType<MonsterController>(FindObjectsSortMode.None);
-            foreach (var mc in monsters)
+            var monsterHealths = new HashSet<TargetHealth>();
+
+            var controllers = FindObjectsByType<MonsterController>(FindObjectsSortMode.None);
+            foreach (var mc in controllers)
             {
                 if (mc == null || mc.gameObject == null) continue;
                 if (mc.TryGetComponent<TargetHealth>(out var mth))
                 {
                     if (mth.isCorpse.Value || mth.CurrentHealth <= 0) continue;
-                    _aliveTargets.Add(mth);
-                }
-                else
-                {
-                    var dummyTh = mc.GetComponent<TargetHealth>() ?? mc.gameObject.AddComponent<TargetHealth>();
-                    _aliveTargets.Add(dummyTh);
+                    monsterHealths.Add(mth);
                 }
             }
+
+            var ais = FindObjectsByType<MonsterAI>(FindObjectsSortMode.None);
+            foreach (var ai in ais)
+            {
+                if (ai == null || ai.gameObject == null) continue;
+                if (ai.currentState == MonsterAI.AIState.Dead) continue;
+                if (ai.TryGetComponent<TargetHealth>(out var ath))
+                {
+                    if (ath.isCorpse.Value || ath.CurrentHealth <= 0) continue;
+                    monsterHealths.Add(ath);
+                }
+            }
+
+            _aliveTargets.AddRange(monsterHealths);
 
             if (_aliveTargets.Count > 0)
             {
@@ -850,10 +883,13 @@ public class SpectatorController : MonoBehaviour
             }
             if (customHealthSlider != null)
             {
-                customHealthSlider.value = hpPercent;
+                customHealthSlider.minValue = 0f;
+                customHealthSlider.maxValue = maxHp;
+                customHealthSlider.value = curHp;
             }
-            NightCrawler.UI.MichskyUIBridge.SetProgress(heatHealthProgressBar, hpPercent);
-            NightCrawler.UI.MichskyUIBridge.SetSliderValue(heatHealthSlider, hpPercent);
+            NightCrawler.UI.MichskyUIBridge.SetProgress(customHealthSlider, heatHealthProgressBar, curHp, maxHp);
+            NightCrawler.UI.MichskyUIBridge.SetSliderLimits(null, heatHealthSlider, 0f, maxHp);
+            NightCrawler.UI.MichskyUIBridge.SetSliderValue(heatHealthSlider, curHp);
         }
         else
         {

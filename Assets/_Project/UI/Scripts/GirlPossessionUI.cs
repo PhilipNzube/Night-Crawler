@@ -58,6 +58,16 @@ public class GirlPossessionUI : MonoBehaviour
             possessionModal = GetComponent<ModalWindowManager>();
         }
 
+        // If assigned to parent container, ensure we target child Total if present
+        if (timeBankText != null)
+        {
+            var total = timeBankText.transform.Find("Total");
+            if (total != null && total.TryGetComponent<TextMeshProUGUI>(out var totalTmp))
+            {
+                timeBankText = totalTmp;
+            }
+        }
+
         // Clean up any default template ExitGame calls
         SanitizeModal(possessionModal);
 
@@ -279,11 +289,13 @@ public class GirlPossessionUI : MonoBehaviour
         if (girlPossession == null) return;
 
         float remaining = girlPossession.RemainingPool;
-        float maxTime = girlPossession.maxPossessionTimePool;
 
         if (timeBankText != null)
         {
-            timeBankText.text = $"Possession Energy: {Mathf.CeilToInt(remaining)}s / {Mathf.CeilToInt(maxTime)}s";
+            int totalSeconds = Mathf.Max(0, Mathf.CeilToInt(remaining));
+            int minutes = totalSeconds / 60;
+            int seconds = totalSeconds % 60;
+            timeBankText.text = $"{minutes:00}:{seconds:00}";
         }
 
         if (remaining <= 0f && possessButton != null)

@@ -192,10 +192,14 @@ namespace NightCrawler.Monsters
 
         private void LateUpdate()
         {
-            // 1. Smooth Billboarding towards camera
+            // 1. Smooth Billboarding towards active camera
             if (_mainCamera == null || !_mainCamera.isActiveAndEnabled)
             {
                 _mainCamera = Camera.main;
+                if (_mainCamera == null || !_mainCamera.isActiveAndEnabled)
+                {
+                    _mainCamera = FindFirstObjectByType<Camera>();
+                }
             }
 
             if (_mainCamera != null)

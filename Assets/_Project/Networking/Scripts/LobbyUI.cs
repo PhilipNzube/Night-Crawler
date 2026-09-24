@@ -63,9 +63,6 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Check this box to activate accepting emojis in the name input field. Uncheck to disallow emojis.")]
     public bool allowEmojisInName = false;
 
-    [Tooltip("Placeholder text inside the input field (e.g. 'Enter your name...')")]
-    public TextMeshProUGUI nameEntryPlaceholder;
-
     [Tooltip("Error/hint label shown when the player tries to confirm with an empty name.")]
     public TextMeshProUGUI nameEntryErrorText;
 
@@ -168,8 +165,6 @@ public class LobbyUI : MonoBehaviour
     public TextMeshProUGUI hostPlayerCountText;
 
     [Header("Heat UI PlayerCount Counters (Host)")]
-    [Tooltip("The PlayerCount root GameObject on HostLobbyModal.")]
-    public GameObject hostPlayerCountGO;
     [Tooltip("Text component inside PlayerCount/Unlocked showing current players count.")]
     public TextMeshProUGUI hostUnlockedCountText;
     [Tooltip("Text component inside PlayerCount/Total showing maximum players allowed.")]
@@ -198,8 +193,6 @@ public class LobbyUI : MonoBehaviour
     public TextMeshProUGUI clientPlayerCountText;
 
     [Header("Heat UI PlayerCount Counters (Client)")]
-    [Tooltip("The PlayerCount root GameObject on ClientLobbyModal.")]
-    public GameObject clientPlayerCountGO;
     [Tooltip("Text component inside PlayerCount/Unlocked showing current players count.")]
     public TextMeshProUGUI clientUnlockedCountText;
     [Tooltip("Text component inside PlayerCount/Total showing maximum players allowed.")]

@@ -30,7 +30,6 @@ namespace NightCrawler.UI
         public ProgressBar heatProgressBar;
 
         [Header("Audio Feedback")]
-        public AudioClip urgentTickSound;
         public AudioClip failureLaughSound;
 
         private float _timeRemaining = 0f;

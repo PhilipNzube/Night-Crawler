@@ -23,8 +23,6 @@ namespace NightCrawler.UI
         [Header("Legacy / Direct UI References")]
         [Tooltip("Direct pot text component if not using the Header/Total structure.")]
         public TextMeshProUGUI potText;
-        public GameObject rootContainer;
-        public CanvasGroup canvasGroup;
 
         [Header("Format Settings")]
         public string prefix = "POT: ";

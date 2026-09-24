@@ -492,6 +492,17 @@ namespace NightCrawler.UI
             }
         }
 
+        public static void SetProgress(ProgressBar heatBar, float current, float max)
+        {
+            if (heatBar != null)
+            {
+                heatBar.minValue = 0;
+                heatBar.maxValue = max;
+                heatBar.currentValue = current;
+                heatBar.UpdateUI();
+            }
+        }
+
         public static void SetProgress(Slider standardSlider, ProgressBar heatBar, float fraction)
         {
             if (standardSlider != null)
