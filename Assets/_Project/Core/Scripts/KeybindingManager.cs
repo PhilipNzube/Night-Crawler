@@ -94,35 +94,35 @@ public class KeybindingManager : MonoBehaviour
                 },
                 new ActionBinding
                 {
-                    actionId = "Flashlight",
-                    displayName = "Illumination Flare",
-                    tacticalDescription = "Toggle high-intensity halogen flashlight. Pierces shadow gloom but exposes your position to light-sensitive crawlers.",
-                    defaultKey = Key.F,
+                    actionId = "Manifest",
+                    displayName = "Physical Manifestation",
+                    tacticalDescription = "Shift from incorporeal spirit form into physical reality to execute lethal strikes and hunt explorers. Consumes manifestation charges.",
+                    defaultKey = Key.T,
+                    defaultGamepadControl = "leftTrigger" // LT / L2
+                },
+                new ActionBinding
+                {
+                    actionId = "Exorcism",
+                    displayName = "Holy Exorcism Rite",
+                    tacticalDescription = "Channel sanctified rite against possessed companions to purge the invading demon and heavily drain her possession reserves.",
+                    defaultKey = Key.R,
                     defaultGamepadControl = "buttonNorth" // Y / Triangle
                 },
                 new ActionBinding
                 {
+                    actionId = "Heal",
+                    displayName = "Administer Medical Vial",
+                    tacticalDescription = "Inject coagulant from your medical vial supply to rapidly stabilize critical trauma and restore vital health points.",
+                    defaultKey = Key.H,
+                    defaultGamepadControl = "dpadDown"
+                },
+                new ActionBinding
+                {
                     actionId = "Resist",
-                    displayName = "Resist Exorcism",
+                    displayName = "Resist Exorcism (QTE)",
                     tacticalDescription = "Fight back against demonic host intrusion and reclaim somatic motor control during holy possession struggles.",
                     defaultKey = Key.F,
                     defaultGamepadControl = "buttonSouth" // A / Cross
-                },
-                new ActionBinding
-                {
-                    actionId = "Crouch",
-                    displayName = "Crouch / Stealth",
-                    tacticalDescription = "Lower silhouette to crawl through airshafts and suppress movement acoustics against auditory stalkers.",
-                    defaultKey = Key.C,
-                    defaultGamepadControl = "rightStickPress" // R3
-                },
-                new ActionBinding
-                {
-                    actionId = "Sense",
-                    displayName = "Occult Sense",
-                    tacticalDescription = "Channel dormant psychic perception to pulse thermal and supernatural entity signatures through cavern walls.",
-                    defaultKey = Key.V,
-                    defaultGamepadControl = "dpadUp"
                 },
                 new ActionBinding
                 {

@@ -20,7 +20,6 @@ public class GirlStealth : NetworkBehaviour
     private float _tauntCooldown;
 
     private GirlMaterialController _matCtrl;
-    private float _cooldownTimer;
     private CinemachineCamera _vcam;
     private Coroutine _fovCoroutine;
     private int _originalLayer;
@@ -60,14 +59,6 @@ public class GirlStealth : NetworkBehaviour
         if (_tauntCooldown > 0) _tauntCooldown -= Time.deltaTime;
 
         if (!IsOwner || PauseManager.IsGamePaused) return;
-
-        if (_cooldownTimer > 0) _cooldownTimer -= Time.deltaTime;
-
-        if (Keyboard.current.qKey.wasPressedThisFrame && _cooldownTimer <= 0)
-        {
-            IsStealthActive.Value = !IsStealthActive.Value;
-            if (!IsStealthActive.Value && stats != null) _cooldownTimer = stats.invisCooldown;
-        }
     }
 
     private void ApplyStealthVisuals(bool isActive)

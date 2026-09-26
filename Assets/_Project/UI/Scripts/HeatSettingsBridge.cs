@@ -85,6 +85,12 @@ public class HeatSettingsBridge : MonoBehaviour
     public Slider uiVolumeSlider;
 
     [Header("Visuals Tab Controls")]
+    [Tooltip("Dropdown for Screen Resolution (Heat UI Dropdown).")]
+    public Michsky.UI.Heat.Dropdown resolutionDropdown;
+
+    [Tooltip("Alternative Horizontal Selector for Screen Resolution if preferred.")]
+    public HorizontalSelector resolutionSelector;
+
     [Tooltip("Horizontal Selector for Window Mode (Borderless, Fullscreen, Windowed).")]
     public HorizontalSelector windowModeSelector;
 
@@ -105,6 +111,7 @@ public class HeatSettingsBridge : MonoBehaviour
     public List<SettingDescriptionEntry> settingDescriptions = new List<SettingDescriptionEntry>();
 
     private bool _isInitializing = false;
+    private List<Resolution> _availableResolutions = new List<Resolution>();
 
     // =========================================================================
     //  Auto Scene Discovery & Attachment Fallback
@@ -257,6 +264,19 @@ public class HeatSettingsBridge : MonoBehaviour
         Transform visPanel = FindPanelRecursive(transform, "Visuals");
         if (visPanel != null)
         {
+            if (resolutionDropdown == null && resolutionSelector == null)
+            {
+                var t = FindChildRecursive(visPanel, "Resolution");
+                if (t != null)
+                {
+                    resolutionDropdown = t.GetComponentInChildren<Michsky.UI.Heat.Dropdown>(true);
+                    if (resolutionDropdown == null)
+                    {
+                        resolutionSelector = t.GetComponentInChildren<HorizontalSelector>(true);
+                    }
+                }
+            }
+
             if (windowModeSelector == null)
             {
                 var t = FindChildRecursive(visPanel, "Window Mode");
@@ -360,6 +380,62 @@ public class HeatSettingsBridge : MonoBehaviour
                 elementName = "Key Bindings",
                 displayTitle = "Tactical Key Bindings",
                 description = "Rebind controls for Keyboard, Mouse, and Gamepad controllers. Click any slot to assign a new key or controller button.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Interact / Possess",
+                displayTitle = "Interact / Possess",
+                description = "Open bulkheads, collect extraction batteries, access maintenance terminals, or initiate host possession.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Sprint / Rush",
+                displayTitle = "Sprint / Rush",
+                description = "Accelerate traversal across open mining caverns. Depletes stamina; increases footstep acoustic profile.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Jump / Vault",
+                displayTitle = "Jump / Vault",
+                description = "Leap over collapsed mine rails, low pipes, and treacherous rock fissures.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Physical Manifestation",
+                displayTitle = "Physical Manifestation",
+                description = "Shift from incorporeal spirit form into physical reality to execute lethal strikes and hunt explorers. Consumes manifestation charges.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Holy Exorcism Rite",
+                displayTitle = "Holy Exorcism Rite",
+                description = "Channel sanctified rite against possessed companions to purge the invading demon and heavily drain her possession reserves.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Administer Medical Vial",
+                displayTitle = "Administer Medical Vial",
+                description = "Inject coagulant from your medical vial supply to rapidly stabilize critical trauma and restore vital health points.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Resist Exorcism (QTE)",
+                displayTitle = "Resist Exorcism (QTE)",
+                description = "Fight back against demonic host intrusion and reclaim somatic motor control during holy possession struggles.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Tactical Menu / Pause",
+                displayTitle = "Tactical Menu / Pause",
+                description = "Access environmental diagnostics, audio acoustic mixers, and system configuration.",
                 coverImage = null
             },
 
@@ -587,13 +663,11 @@ public class HeatSettingsBridge : MonoBehaviour
             SetRowTitleText(row, actionData.displayName);
 
             // 2. Description for Preview Area
-            var entry = new SettingDescriptionEntry
+            var entry = GetDescriptionEntry(actionData.displayName, actionData.displayName);
+            if (string.IsNullOrEmpty(entry.description))
             {
-                elementName = actionData.displayName,
-                displayTitle = actionData.displayName,
-                description = actionData.tacticalDescription,
-                coverImage = null
-            };
+                entry.description = actionData.tacticalDescription;
+            }
             AttachHoverPreview(row, entry);
 
             // 3. Binding 1 (Keyboard / Mouse Button)
@@ -723,6 +797,8 @@ public class HeatSettingsBridge : MonoBehaviour
     // =========================================================================
     private void SetupVisualsTab()
     {
+        SetupResolutionControl();
+
         if (windowModeSelector != null)
         {
             var entry = GetDescriptionEntry("Window Mode", "Display Mode");
@@ -804,6 +880,99 @@ public class HeatSettingsBridge : MonoBehaviour
         }
     }
 
+    private void SetupResolutionControl()
+    {
+        _availableResolutions.Clear();
+        var allRes = Screen.resolutions;
+        if (allRes != null && allRes.Length > 0)
+        {
+            var seen = new HashSet<string>();
+            foreach (var r in allRes)
+            {
+                string key = $"{r.width}x{r.height}";
+                if (!seen.Contains(key))
+                {
+                    seen.Add(key);
+                    _availableResolutions.Add(r);
+                }
+            }
+        }
+        else
+        {
+            _availableResolutions.Add(new Resolution { width = 1280, height = 720 });
+            _availableResolutions.Add(new Resolution { width = 1600, height = 900 });
+            _availableResolutions.Add(new Resolution { width = 1920, height = 1080 });
+            _availableResolutions.Add(new Resolution { width = 2560, height = 1440 });
+            _availableResolutions.Add(new Resolution { width = 3840, height = 2160 });
+        }
+
+        int curW = GameSettingsManager.Instance != null ? GameSettingsManager.Instance.resolutionWidth : Screen.width;
+        int curH = GameSettingsManager.Instance != null ? GameSettingsManager.Instance.resolutionHeight : Screen.height;
+
+        int curIdx = _availableResolutions.FindIndex(r => r.width == curW && r.height == curH);
+        if (curIdx < 0)
+        {
+            curIdx = _availableResolutions.FindIndex(r => r.width == Screen.currentResolution.width && r.height == Screen.currentResolution.height);
+            if (curIdx < 0) curIdx = _availableResolutions.Count - 1;
+        }
+
+        var entry = GetDescriptionEntry("Resolution", "Display Resolution");
+
+        if (resolutionDropdown != null)
+        {
+            SetRowTitleText(resolutionDropdown.transform, entry.displayTitle);
+            AttachHoverPreview(resolutionDropdown.transform, entry);
+
+            resolutionDropdown.items.Clear();
+            for (int i = 0; i < _availableResolutions.Count; i++)
+            {
+                var r = _availableResolutions[i];
+                var item = new Michsky.UI.Heat.Dropdown.Item
+                {
+                    itemName = $"{r.width} x {r.height}",
+                    localizationKey = string.Empty
+                };
+                resolutionDropdown.items.Add(item);
+            }
+
+            resolutionDropdown.saveSelected = false;
+            resolutionDropdown.selectedItemIndex = curIdx;
+            resolutionDropdown.Initialize();
+            resolutionDropdown.SetDropdownIndex(curIdx);
+
+            resolutionDropdown.onValueChanged.RemoveAllListeners();
+            resolutionDropdown.onValueChanged.AddListener(index =>
+            {
+                if (_isInitializing || GameSettingsManager.Instance == null) return;
+                if (index >= 0 && index < _availableResolutions.Count)
+                {
+                    var chosen = _availableResolutions[index];
+                    GameSettingsManager.Instance.resolutionWidth = chosen.width;
+                    GameSettingsManager.Instance.resolutionHeight = chosen.height;
+                    GameSettingsManager.Instance.SaveSettings();
+                    GameSettingsManager.Instance.ApplySettings();
+                }
+            });
+        }
+
+        if (resolutionSelector != null)
+        {
+            string[] options = _availableResolutions.Select(r => $"{r.width} x {r.height}").ToArray();
+            ConfigureSelectorComponent(resolutionSelector, entry, options, curIdx, index =>
+            {
+                if (_isInitializing || GameSettingsManager.Instance == null) return;
+                if (index >= 0 && index < _availableResolutions.Count)
+                {
+                    var chosen = _availableResolutions[index];
+                    GameSettingsManager.Instance.resolutionWidth = chosen.width;
+                    GameSettingsManager.Instance.resolutionHeight = chosen.height;
+                    GameSettingsManager.Instance.SaveSettings();
+                    GameSettingsManager.Instance.ApplySettings();
+                }
+            });
+        }
+    }
+
     // =========================================================================
     //  Description Application & Preview Card Sync
     // =========================================================================
@@ -863,6 +1032,16 @@ public class HeatSettingsBridge : MonoBehaviour
         if (windowModeSelector != null) SetSelectorIndex(windowModeSelector, GameSettingsManager.Instance.displayMode);
         if (textureQualitySelector != null) SetSelectorIndex(textureQualitySelector, GameSettingsManager.Instance.textureQuality);
         if (anisotropicSelector != null) SetSelectorIndex(anisotropicSelector, GameSettingsManager.Instance.anisotropicFiltering);
+
+        if (_availableResolutions != null && _availableResolutions.Count > 0)
+        {
+            int idx = _availableResolutions.FindIndex(r => r.width == GameSettingsManager.Instance.resolutionWidth && r.height == GameSettingsManager.Instance.resolutionHeight);
+            if (idx >= 0)
+            {
+                if (resolutionDropdown != null) resolutionDropdown.SetDropdownIndex(idx);
+                if (resolutionSelector != null) SetSelectorIndex(resolutionSelector, idx);
+            }
+        }
 
         _isInitializing = false;
     }
@@ -926,7 +1105,20 @@ public class HeatSettingsBridge : MonoBehaviour
 
     private void SetRowTitleText(Transform root, string title)
     {
-        Transform textChild = root.Find("Text");
+        Transform textChild = root.Find("Label") ?? root.Find("Text");
+        if (textChild == null)
+        {
+            foreach (Transform c in root.GetComponentsInChildren<Transform>(true))
+            {
+                if (c.name.Equals("Label", StringComparison.OrdinalIgnoreCase) || c.name.Equals("Text", StringComparison.OrdinalIgnoreCase))
+                {
+                    if (c.parent != null && c.parent.name.Equals("Header", StringComparison.OrdinalIgnoreCase)) continue;
+                    textChild = c;
+                    break;
+                }
+            }
+        }
+
         if (textChild != null)
         {
             var tmp = textChild.GetComponent<TextMeshProUGUI>();
