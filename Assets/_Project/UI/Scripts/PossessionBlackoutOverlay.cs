@@ -201,6 +201,16 @@ public class PossessionBlackoutOverlay : MonoBehaviour
             }
         }
 
+        bool holdMode = GameSettingsManager.StruggleHoldActive;
+        if (mashTextPulse != null)
+        {
+            var tmp = mashTextPulse.GetComponent<TMP_Text>();
+            if (tmp != null)
+            {
+                tmp.text = holdMode ? "HOLD" : "MASH";
+            }
+        }
+
         Vector3 baseKeyScale = keyIndicatorPunchTarget != null ? keyIndicatorPunchTarget.localScale : Vector3.one;
         RectTransform barRect = heatStruggleBar != null ? heatStruggleBar.GetComponent<RectTransform>() : null;
         Vector2 origBarPos = barRect != null ? barRect.anchoredPosition : Vector2.zero;
@@ -208,6 +218,7 @@ public class PossessionBlackoutOverlay : MonoBehaviour
         float currentProgress = Mathf.Clamp(initialStruggle, 10f, 90f);
         float displayedProgress = currentProgress;
         float elapsed = 0f;
+        float holdPunchTimer = 0f;
         bool won = false;
 
         while (elapsed < maxDuration)
@@ -223,42 +234,82 @@ public class PossessionBlackoutOverlay : MonoBehaviour
             // 1. Natural demonic decay pulling the bar down
             currentProgress -= demonDecayPerSecond * dt;
 
-            // 2. Rapid button mash detection dynamically checking assigned key
-            bool mashed = false;
-
-            if (Keyboard.current != null)
+            // 2. Resistance detection (Rapid Mash vs Sustained Hold)
+            if (holdMode)
             {
-                var keyControl = Keyboard.current[assignedResistKey];
-                if (keyControl != null && keyControl.wasPressedThisFrame)
+                bool isHolding = false;
+                if (Keyboard.current != null)
                 {
-                    mashed = true;
+                    var keyControl = Keyboard.current[assignedResistKey];
+                    if ((keyControl != null && keyControl.isPressed) || Keyboard.current.spaceKey.isPressed)
+                    {
+                        isHolding = true;
+                    }
                 }
-                else if (Keyboard.current.spaceKey.wasPressedThisFrame)
+                else
                 {
-                    mashed = true;
+                    if (Input.GetKey(fallbackKeyCode) || Input.GetKey(KeyCode.Space))
+                    {
+                        isHolding = true;
+                    }
+                }
+
+                if (Gamepad.current != null)
+                {
+                    if (Gamepad.current.buttonWest.isPressed || Gamepad.current.buttonSouth.isPressed)
+                    {
+                        isHolding = true;
+                    }
+                }
+
+                if (isHolding)
+                {
+                    currentProgress += (playerBoostPerMash * 4.25f) * dt;
+                    holdPunchTimer += dt;
+                    if (holdPunchTimer >= 0.14f)
+                    {
+                        holdPunchTimer = 0f;
+                        TriggerKeyPunch();
+                    }
                 }
             }
             else
             {
-                if (Input.GetKeyDown(fallbackKeyCode) || Input.GetKeyDown(KeyCode.Space))
+                bool mashed = false;
+                if (Keyboard.current != null)
                 {
-                    mashed = true;
+                    var keyControl = Keyboard.current[assignedResistKey];
+                    if (keyControl != null && keyControl.wasPressedThisFrame)
+                    {
+                        mashed = true;
+                    }
+                    else if (Keyboard.current.spaceKey.wasPressedThisFrame)
+                    {
+                        mashed = true;
+                    }
                 }
-            }
-
-            if (Gamepad.current != null)
-            {
-                if (Gamepad.current.buttonWest.wasPressedThisFrame ||
-                    Gamepad.current.buttonSouth.wasPressedThisFrame)
+                else
                 {
-                    mashed = true;
+                    if (Input.GetKeyDown(fallbackKeyCode) || Input.GetKeyDown(KeyCode.Space))
+                    {
+                        mashed = true;
+                    }
                 }
-            }
 
-            if (mashed)
-            {
-                currentProgress += playerBoostPerMash;
-                TriggerKeyPunch();
+                if (Gamepad.current != null)
+                {
+                    if (Gamepad.current.buttonWest.wasPressedThisFrame ||
+                        Gamepad.current.buttonSouth.wasPressedThisFrame)
+                    {
+                        mashed = true;
+                    }
+                }
+
+                if (mashed)
+                {
+                    currentProgress += playerBoostPerMash;
+                    TriggerKeyPunch();
+                }
             }
 
             currentProgress = Mathf.Clamp(currentProgress, 0f, 100f);
@@ -282,7 +333,7 @@ public class PossessionBlackoutOverlay : MonoBehaviour
                 currentColor = Color.Lerp(strugglingColor, winningColor, t);
             }
 
-            if (enableBarStrainShake && barRect != null)
+            if (enableBarStrainShake && GameSettingsManager.CameraShakeActive && barRect != null)
             {
                 float barShake = (displayedProgress < 35f) ? (Mathf.Sin(Time.time * 42f) * Mathf.Lerp(0f, 2.8f, (35f - displayedProgress) / 35f)) : 0f;
                 barRect.anchoredPosition = new Vector2(origBarPos.x + barShake, origBarPos.y);

@@ -355,7 +355,13 @@ public class NetworkPlayer : NetworkBehaviour
 
     private void OnLookPerformed(InputAction.CallbackContext ctx)
     {
-        if (inputs != null) inputs.LookInput(ctx.ReadValue<Vector2>());
+        if (inputs != null)
+        {
+            Vector2 val = ctx.ReadValue<Vector2>();
+            float sens = GameSettingsManager.MouseSens;
+            float invertY = GameSettingsManager.InvertY ? -1.0f : 1.0f;
+            inputs.LookInput(new Vector2(val.x * sens, val.y * sens * invertY));
+        }
     }
 
     private void OnLookCanceled(InputAction.CallbackContext ctx)
@@ -375,12 +381,28 @@ public class NetworkPlayer : NetworkBehaviour
 
     private void OnSprintPerformed(InputAction.CallbackContext ctx)
     {
-        if (inputs != null) inputs.SprintInput(ctx.ReadValueAsButton());
+        if (inputs != null)
+        {
+            if (GameSettingsManager.SprintToggle)
+            {
+                inputs.SprintInput(!inputs.sprint);
+            }
+            else
+            {
+                inputs.SprintInput(ctx.ReadValueAsButton());
+            }
+        }
     }
 
     private void OnSprintCanceled(InputAction.CallbackContext ctx)
     {
-        if (inputs != null) inputs.SprintInput(false);
+        if (inputs != null)
+        {
+            if (!GameSettingsManager.SprintToggle)
+            {
+                inputs.SprintInput(false);
+            }
+        }
     }
 
     public void TeardownInputActions()

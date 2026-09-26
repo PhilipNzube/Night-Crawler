@@ -19,29 +19,40 @@ public class GameSettingsManager : MonoBehaviour
     // Events
     public static event Action OnSettingsChanged;
     public static event Action<float> OnSFXVolumeChanged;
+    public static event Action<float> OnUIVolumeChanged;
+    public static event Action<bool>  OnPerformanceOverlayChanged;
+    public static event Action<bool>  OnCameraShakeChanged;
+    public static event Action<bool>  OnStruggleModeChanged;
 
     // =========================================================================
     //  PlayerPrefs Keys
     // =========================================================================
-    private const string PREF_MASTER_VOL    = "NC_Setting_MasterVolume";
-    private const string PREF_MUSIC_VOL     = "NC_Setting_MusicVolume";
-    private const string PREF_SFX_VOL       = "NC_Setting_SFXVolume";
+    private const string PREF_MASTER_VOL      = "NC_Setting_MasterVolume";
+    private const string PREF_MUSIC_VOL       = "NC_Setting_MusicVolume";
+    private const string PREF_SFX_VOL         = "NC_Setting_SFXVolume";
+    private const string PREF_UI_VOL          = "NC_Setting_UIVolume";
     
-    private const string PREF_RES_WIDTH     = "NC_Setting_ResWidth";
-    private const string PREF_RES_HEIGHT    = "NC_Setting_ResHeight";
-    private const string PREF_RES_REFRESH   = "NC_Setting_ResRefresh";
-    private const string PREF_DISPLAY_MODE  = "NC_Setting_DisplayMode";
-    private const string PREF_VSYNC         = "NC_Setting_VSync";
-    private const string PREF_TARGET_FPS    = "NC_Setting_TargetFPS";
+    private const string PREF_RES_WIDTH       = "NC_Setting_ResWidth";
+    private const string PREF_RES_HEIGHT      = "NC_Setting_ResHeight";
+    private const string PREF_RES_REFRESH     = "NC_Setting_ResRefresh";
+    private const string PREF_DISPLAY_MODE    = "NC_Setting_DisplayMode";
+    private const string PREF_VSYNC           = "NC_Setting_VSync";
+    private const string PREF_TARGET_FPS      = "NC_Setting_TargetFPS";
 
-    private const string PREF_QUALITY_LEVEL = "NC_Setting_QualityLevel";
-    private const string PREF_SHADOW_QUAL   = "NC_Setting_ShadowQuality";
-    private const string PREF_AA_LEVEL      = "NC_Setting_AntiAliasing";
-    private const string PREF_TEXTURE_QUAL  = "NC_Setting_TextureQuality";
-    private const string PREF_ANISOTROPIC   = "NC_Setting_Anisotropic";
+    private const string PREF_QUALITY_LEVEL   = "NC_Setting_QualityLevel";
+    private const string PREF_SHADOW_QUAL     = "NC_Setting_ShadowQuality";
+    private const string PREF_AA_LEVEL        = "NC_Setting_AntiAliasing";
+    private const string PREF_TEXTURE_QUAL    = "NC_Setting_TextureQuality";
+    private const string PREF_ANISOTROPIC     = "NC_Setting_Anisotropic";
 
-    private const string PREF_SENSITIVITY   = "NC_Setting_Sensitivity";
-    private const string PREF_INVERT_Y      = "NC_Setting_InvertY";
+    private const string PREF_SENSITIVITY     = "NC_Setting_Sensitivity";
+    private const string PREF_INVERT_Y        = "NC_Setting_InvertY";
+    private const string PREF_SPRINT_TOGGLE   = "NC_Setting_SprintToggle";
+
+    private const string PREF_PERF_OVERLAY    = "NC_Setting_PerfOverlay";
+    private const string PREF_CAM_SHAKE       = "NC_Setting_CamShake";
+    private const string PREF_STRUGGLE_HOLD   = "NC_Setting_StruggleHold";
+    private const string PREF_UI_SCALE        = "NC_Setting_UIScale";
 
     // =========================================================================
     //  Public Settings State
@@ -50,6 +61,7 @@ public class GameSettingsManager : MonoBehaviour
     public float masterVolume = 1.0f;   // Full master volume
     public float musicVolume  = 0.75f;  // Slightly under full so SFX doesn't compete
     public float sfxVolume    = 1.0f;   // Full SFX
+    public float uiVolume     = 1.0f;   // Full UI sounds
 
     [Header("Video / Display Settings")]
     public int resolutionWidth  = 1920;
@@ -69,11 +81,23 @@ public class GameSettingsManager : MonoBehaviour
     [Header("Controls Settings")]
     public float mouseSensitivity = 1.0f;
     public bool  invertYAxis      = false;
+    public bool  sprintToggleMode = false; // false = Hold to Sprint, true = Toggle Sprint
+
+    [Header("General / Gameplay & Accessibility")]
+    public bool showPerformanceOverlay = false; // FPS & Ping network HUD
+    public bool cameraShakeEnabled      = true;  // Seismic tremors, roars, possession strain
+    public bool struggleQTEHoldMode     = false; // false = Rapid Mash, true = Hold Key
+    public int  uiScaleIndex            = 2;     // 0=0.25x, 1=0.5x, 2=1.0x, 3=1.5x, 4=2.0x
 
     // Static Accessors for convenience
-    public static float MouseSens  => Instance != null ? Instance.mouseSensitivity : 1.0f;
-    public static bool  InvertY    => Instance != null ? Instance.invertYAxis : false;
-    public static float SFXVolume  => Instance != null ? Instance.sfxVolume : 1.0f;
+    public static float MouseSens           => Instance != null ? Instance.mouseSensitivity : 1.0f;
+    public static bool  InvertY             => Instance != null ? Instance.invertYAxis : false;
+    public static float SFXVolume           => Instance != null ? Instance.sfxVolume : 1.0f;
+    public static float UIVolumeVal         => Instance != null ? Instance.uiVolume : 1.0f;
+    public static bool  SprintToggle        => Instance != null ? Instance.sprintToggleMode : false;
+    public static bool  ShowPerfOverlay     => Instance != null ? Instance.showPerformanceOverlay : false;
+    public static bool  CameraShakeActive   => Instance != null ? Instance.cameraShakeEnabled : true;
+    public static bool  StruggleHoldActive  => Instance != null ? Instance.struggleQTEHoldMode : false;
 
     // =========================================================================
     //  Unity Lifecycle & Initialization
@@ -113,6 +137,7 @@ public class GameSettingsManager : MonoBehaviour
         masterVolume = PlayerPrefs.GetFloat(PREF_MASTER_VOL, 1.0f);
         musicVolume  = PlayerPrefs.GetFloat(PREF_MUSIC_VOL, 0.8f);
         sfxVolume    = PlayerPrefs.GetFloat(PREF_SFX_VOL, 1.0f);
+        uiVolume     = PlayerPrefs.GetFloat(PREF_UI_VOL, 1.0f);
 
         // Display defaults
         Resolution defaultRes = Screen.currentResolution;
@@ -134,6 +159,13 @@ public class GameSettingsManager : MonoBehaviour
         // Controls
         mouseSensitivity = PlayerPrefs.GetFloat(PREF_SENSITIVITY, 1.0f);
         invertYAxis      = PlayerPrefs.GetInt(PREF_INVERT_Y, 0) == 1;
+        sprintToggleMode = PlayerPrefs.GetInt(PREF_SPRINT_TOGGLE, 0) == 1;
+
+        // General / Gameplay & Accessibility
+        showPerformanceOverlay = PlayerPrefs.GetInt(PREF_PERF_OVERLAY, 0) == 1;
+        cameraShakeEnabled      = PlayerPrefs.GetInt(PREF_CAM_SHAKE, 1) == 1;
+        struggleQTEHoldMode     = PlayerPrefs.GetInt(PREF_STRUGGLE_HOLD, 0) == 1;
+        uiScaleIndex            = PlayerPrefs.GetInt(PREF_UI_SCALE, 2);
     }
 
     public void SaveSettings()
@@ -141,6 +173,7 @@ public class GameSettingsManager : MonoBehaviour
         PlayerPrefs.SetFloat(PREF_MASTER_VOL, masterVolume);
         PlayerPrefs.SetFloat(PREF_MUSIC_VOL, musicVolume);
         PlayerPrefs.SetFloat(PREF_SFX_VOL, sfxVolume);
+        PlayerPrefs.SetFloat(PREF_UI_VOL, uiVolume);
 
         PlayerPrefs.SetInt(PREF_RES_WIDTH, resolutionWidth);
         PlayerPrefs.SetInt(PREF_RES_HEIGHT, resolutionHeight);
@@ -157,6 +190,12 @@ public class GameSettingsManager : MonoBehaviour
 
         PlayerPrefs.SetFloat(PREF_SENSITIVITY, mouseSensitivity);
         PlayerPrefs.SetInt(PREF_INVERT_Y, invertYAxis ? 1 : 0);
+        PlayerPrefs.SetInt(PREF_SPRINT_TOGGLE, sprintToggleMode ? 1 : 0);
+
+        PlayerPrefs.SetInt(PREF_PERF_OVERLAY, showPerformanceOverlay ? 1 : 0);
+        PlayerPrefs.SetInt(PREF_CAM_SHAKE, cameraShakeEnabled ? 1 : 0);
+        PlayerPrefs.SetInt(PREF_STRUGGLE_HOLD, struggleQTEHoldMode ? 1 : 0);
+        PlayerPrefs.SetInt(PREF_UI_SCALE, uiScaleIndex);
 
         PlayerPrefs.Save();
         Debug.Log("[GameSettingsManager] Settings successfully saved to PlayerPrefs.");
@@ -174,6 +213,7 @@ public class GameSettingsManager : MonoBehaviour
             GameMusicManager.Instance.bgMaxVolume = Mathf.Clamp01(musicVolume);
         }
         OnSFXVolumeChanged?.Invoke(sfxVolume);
+        OnUIVolumeChanged?.Invoke(uiVolume);
 
         // 2. Video / Display Mode & Resolution
         FullScreenMode windowMode = FullScreenMode.FullScreenWindow;
@@ -213,8 +253,16 @@ public class GameSettingsManager : MonoBehaviour
             case 2: QualitySettings.anisotropicFiltering = AnisotropicFiltering.ForceEnable; break;
         }
 
+        // 4. Gameplay & Accessibility Dispatches
+        OnPerformanceOverlayChanged?.Invoke(showPerformanceOverlay);
+        OnCameraShakeChanged?.Invoke(cameraShakeEnabled);
+        OnStruggleModeChanged?.Invoke(struggleQTEHoldMode);
+
+        // Ensure PerformanceOverlay instance matches setting
+        PerformanceOverlay.SetOverlayActive(showPerformanceOverlay);
+
         OnSettingsChanged?.Invoke();
-        Debug.Log($"[GameSettingsManager] Applied settings: Res={resolutionWidth}x{resolutionHeight}@{refreshRate}Hz, Mode={windowMode}, Quality={QualitySettings.names[qualityLevel]}, VSync={vSync}");
+        Debug.Log($"[GameSettingsManager] Applied settings: Res={resolutionWidth}x{resolutionHeight}@{refreshRate}Hz, Mode={windowMode}, Quality={QualitySettings.names[qualityLevel]}, VSync={vSync}, Overlay={showPerformanceOverlay}");
     }
 
     // =========================================================================
@@ -225,6 +273,7 @@ public class GameSettingsManager : MonoBehaviour
         masterVolume = 1.0f;
         musicVolume  = 0.8f;
         sfxVolume    = 1.0f;
+        uiVolume     = 1.0f;
 
         Resolution currentRes = Screen.currentResolution;
         resolutionWidth  = currentRes.width;
@@ -242,6 +291,12 @@ public class GameSettingsManager : MonoBehaviour
 
         mouseSensitivity = 1.0f;
         invertYAxis      = false;
+        sprintToggleMode = false;
+
+        showPerformanceOverlay = false;
+        cameraShakeEnabled      = true;
+        struggleQTEHoldMode     = false;
+        uiScaleIndex            = 2;
 
         SaveSettings();
         ApplySettings();
