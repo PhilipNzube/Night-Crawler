@@ -49,6 +49,17 @@ public class CharacterSelectUI : MonoBehaviour
     public float modelSwapDuration = 0.35f;
 
     // =========================================================================
+    //  Inspector — Selection Style (Horizontal Selector vs Slot Cards)
+    // =========================================================================
+
+    [Header("Selection Style")]
+    [Tooltip("Check this box to use the new CharacterSelector (HorizontalSelector) in the lobby scene. Uncheck to revert to the slot cards style.")]
+    public bool useHorizontalSelectorStyle = true;
+
+    [Tooltip("Reference to the CharacterSelector (HorizontalSelector) in the lobby scene (e.g. under InvestigatorFlow).")]
+    public HorizontalSelector characterSelector;
+
+    // =========================================================================
     //  Inspector — 2D Slot Card Row
     // =========================================================================
 
@@ -290,7 +301,7 @@ public class CharacterSelectUI : MonoBehaviour
         if (playerStatusPanel != null) playerStatusPanel.SetActive(false);
 
         // Reset visibility of selection controls
-        if (slotCardContainer != null) slotCardContainer.gameObject.SetActive(true);
+        ApplySelectionStyle();
         if (heatConfirmButton != null) heatConfirmButton.gameObject.SetActive(true);
         if (heatBoxConfirmButton != null) heatBoxConfirmButton.gameObject.SetActive(true);
         if (detailsAbilitiesText != null) detailsAbilitiesText.gameObject.SetActive(true);
@@ -371,7 +382,7 @@ public class CharacterSelectUI : MonoBehaviour
         }
 
         CheckLocalRole();
-        BuildSlotCards();
+        ApplySelectionStyle();
 
         int savedIndex = PersistentCharacterSelection.GetSelectedCharacterIndex();
         SelectProfession(savedIndex);
@@ -582,6 +593,7 @@ public class CharacterSelectUI : MonoBehaviour
 
         // Hide selection controls & ready button
         if (slotCardContainer != null) slotCardContainer.gameObject.SetActive(false);
+        if (characterSelector != null) characterSelector.gameObject.SetActive(false);
         if (heatConfirmButton != null) heatConfirmButton.gameObject.SetActive(false);
         if (heatBoxConfirmButton != null) heatBoxConfirmButton.gameObject.SetActive(false);
 
@@ -734,7 +746,20 @@ public class CharacterSelectUI : MonoBehaviour
         }
         PersistentCharacterSelection.SetIsVengefulSpirit(false);
 
-        UpdateSlotCardHighlights();
+        if (useHorizontalSelectorStyle)
+        {
+            if (characterSelector != null && characterSelector.index != _selectedIndex)
+            {
+                _isUpdatingSelectorInternally = true;
+                characterSelector.index = _selectedIndex;
+                characterSelector.UpdateUI();
+                _isUpdatingSelectorInternally = false;
+            }
+        }
+        else
+        {
+            UpdateSlotCardHighlights();
+        }
 
         UpdateCharacterStatProgressBars(_selectedIndex);
 
@@ -940,6 +965,139 @@ public class CharacterSelectUI : MonoBehaviour
         if (s.Contains("hazard") && t.Contains("hazard")) return true;
 
         return false;
+    }
+
+    // =========================================================================
+    //  Horizontal Selector Integration (Style Switcher)
+    // =========================================================================
+
+    private bool _isUpdatingSelectorInternally = false;
+
+    private void EnsureCharacterSelectorReference()
+    {
+        if (characterSelector != null) return;
+
+        // 1. Try finding on parent (InvestigatorFlow)
+        if (transform.parent != null)
+        {
+            var sel = transform.parent.Find("CharacterSelector");
+            if (sel != null)
+            {
+                characterSelector = sel.GetComponent<HorizontalSelector>();
+            }
+        }
+
+        // 2. Fallback search across scene
+        if (characterSelector == null)
+        {
+            var allSelectors = FindObjectsByType<HorizontalSelector>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+            foreach (var s in allSelectors)
+            {
+                if (s.gameObject.name == "CharacterSelector")
+                {
+                    characterSelector = s;
+                    break;
+                }
+            }
+            if (characterSelector == null && allSelectors.Length > 0)
+            {
+                characterSelector = allSelectors[0];
+            }
+        }
+    }
+
+    public void ApplySelectionStyle()
+    {
+        EnsureCharacterSelectorReference();
+
+        if (useHorizontalSelectorStyle)
+        {
+            if (slotCardContainer != null) slotCardContainer.gameObject.SetActive(false);
+            if (characterSelector != null)
+            {
+                characterSelector.gameObject.SetActive(true);
+                SetupCharacterSelector();
+            }
+        }
+        else
+        {
+            if (characterSelector != null) characterSelector.gameObject.SetActive(false);
+            if (slotCardContainer != null)
+            {
+                slotCardContainer.gameObject.SetActive(true);
+                BuildSlotCards();
+            }
+        }
+    }
+
+    private void SetupCharacterSelector()
+    {
+        EnsureCharacterSelectorReference();
+        if (characterSelector == null) return;
+
+        characterSelector.useLocalization = false;
+
+        RefreshFilteredRoster();
+        bool useSO = _filteredDefinitions.Count > 0;
+        int count = GetTotalCharacterCount();
+
+        characterSelector.items.Clear();
+
+        for (int i = 0; i < count; i++)
+        {
+            string charName = "";
+            Sprite portrait = null;
+
+            if (useSO && i < _filteredDefinitions.Count && _filteredDefinitions[i] != null)
+            {
+                charName = _filteredDefinitions[i].characterName;
+                portrait = _filteredDefinitions[i].portrait;
+            }
+            else
+            {
+                InvestigatorCharacterData data = GetCharacterData(i);
+                if (data != null)
+                {
+                    charName = data.characterName;
+                    portrait = data.characterIcon;
+                }
+            }
+
+            var item = new HorizontalSelector.Item();
+            item.itemTitle = charName;
+            item.itemIcon = portrait;
+            item.localizationKey = string.Empty;
+            characterSelector.items.Add(item);
+        }
+
+        characterSelector.onValueChanged.RemoveListener(OnSelectorValueChanged);
+        characterSelector.onValueChanged.AddListener(OnSelectorValueChanged);
+
+        int savedIndex = PersistentCharacterSelection.GetSelectedCharacterIndex();
+        if (savedIndex < 0 || savedIndex >= count) savedIndex = 0;
+
+        _isUpdatingSelectorInternally = true;
+        characterSelector.index = savedIndex;
+        characterSelector.defaultIndex = savedIndex;
+        characterSelector.UpdateUI();
+        _isUpdatingSelectorInternally = false;
+    }
+
+    private void OnSelectorValueChanged(int newIndex)
+    {
+        if (_isUpdatingSelectorInternally) return;
+        if (newIndex >= 0 && newIndex < GetTotalCharacterCount())
+        {
+            SelectProfession(newIndex);
+        }
+    }
+
+    private void OnValidate()
+    {
+        if (Application.isPlaying && _initialized)
+        {
+            ApplySelectionStyle();
+        }
     }
 
     // =========================================================================
