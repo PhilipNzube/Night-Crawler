@@ -59,6 +59,16 @@ public class CharacterSelectUI : MonoBehaviour
     [Tooltip("Reference to the CharacterSelector (HorizontalSelector) in the lobby scene (e.g. under InvestigatorFlow).")]
     public HorizontalSelector characterSelector;
 
+    [Header("Selector Indicators Styling")]
+    [Tooltip("Check this to override the indicator dot colors directly from this Inspector.")]
+    public bool overrideIndicatorColors = false;
+
+    [Tooltip("Color applied to the active indicator dot (when ON).")]
+    public Color indicatorOnColor = new Color(1f, 0.85f, 0.2f, 1f);
+
+    [Tooltip("Color applied to inactive indicator dots (when OFF).")]
+    public Color indicatorOffColor = new Color(1f, 1f, 1f, 0.25f);
+
     // =========================================================================
     //  Inspector — 2D Slot Card Row
     // =========================================================================
@@ -300,37 +310,45 @@ public class CharacterSelectUI : MonoBehaviour
         _localConfirmed = false;
         if (playerStatusPanel != null) playerStatusPanel.SetActive(false);
 
-        // Reset visibility of selection controls
+        // This screen is strictly for investigator character selection.
+        // Clear any stale Vengeful Spirit flag so this panel is never prematurely killed.
+        PersistentCharacterSelection.SetIsVengefulSpirit(false);
+        _isVengefulSpirit = false;
+
+        // Ensure character data and definitions are ready before UI building
+        EnsureDefaultCharacterData();
+        RefreshFilteredRoster();
+
+        // Reset visibility of selection controls according to selected style
         ApplySelectionStyle();
+
         if (heatConfirmButton != null) heatConfirmButton.gameObject.SetActive(true);
         if (heatBoxConfirmButton != null) heatBoxConfirmButton.gameObject.SetActive(true);
         if (detailsAbilitiesText != null) detailsAbilitiesText.gameObject.SetActive(true);
         if (detailsDescriptionText != null) detailsDescriptionText.gameObject.SetActive(true);
         if (sideDetailsPanel != null) sideDetailsPanel.SetActive(true);
 
-        bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
-        if (forceInvestigator)
-        {
-            PersistentCharacterSelection.SetIsVengefulSpirit(false);
-        }
-        else if (PersistentCharacterSelection.IsVengefulSpirit())
-        {
-            gameObject.SetActive(false);
-            return;
-        }
-
-        EnsureDefaultCharacterData();
-
+        // Ensure 3D character select environment / camera is activated
         if (CharacterSceneController.Instance != null)
+        {
             CharacterSceneController.Instance.EnableCharacterSelectEnvironment();
+        }
+        else
+        {
+            var csc = FindFirstObjectByType<CharacterSceneController>(FindObjectsInactive.Include);
+            if (csc != null) csc.EnableCharacterSelectEnvironment();
+        }
 
         if (!_initialized)
             InitialSetup();
 
         CheckLocalRole();
 
-        // Refresh UI state when enabled
-        SelectProfession(_selectedIndex);
+        // Refresh UI state and spawn the 3D character preview model
+        int savedIndex = PersistentCharacterSelection.GetSelectedCharacterIndex();
+        int totalCount = GetTotalCharacterCount();
+        if (savedIndex < 0 || (totalCount > 0 && savedIndex >= totalCount)) savedIndex = 0;
+        SelectProfession(savedIndex);
 
         // Subscribe to live ready-state updates
         if (PlayerReadyTracker.Instance != null)
@@ -748,11 +766,19 @@ public class CharacterSelectUI : MonoBehaviour
 
         if (useHorizontalSelectorStyle)
         {
-            if (characterSelector != null && characterSelector.index != _selectedIndex)
+            if (characterSelector != null)
             {
                 _isUpdatingSelectorInternally = true;
-                characterSelector.index = _selectedIndex;
-                characterSelector.UpdateUI();
+                if (characterSelector.index != _selectedIndex)
+                {
+                    characterSelector.index = _selectedIndex;
+                    characterSelector.UpdateUI();
+                }
+                if (characterSelector.label != null && _selectedIndex < characterSelector.items.Count)
+                {
+                    characterSelector.label.text = characterSelector.items[_selectedIndex].itemTitle;
+                }
+                ApplyIndicatorColors();
                 _isUpdatingSelectorInternally = false;
             }
         }
@@ -1035,14 +1061,18 @@ public class CharacterSelectUI : MonoBehaviour
         EnsureCharacterSelectorReference();
         if (characterSelector == null) return;
 
-        characterSelector.useLocalization = false;
-
+        EnsureDefaultCharacterData();
         RefreshFilteredRoster();
-        bool useSO = _filteredDefinitions.Count > 0;
         int count = GetTotalCharacterCount();
+        if (count == 0) return;
+
+        characterSelector.useLocalization = false;
+        characterSelector.saveSelected = false;
+        characterSelector.invokeOnAwake = false;
 
         characterSelector.items.Clear();
 
+        bool useSO = _filteredDefinitions.Count > 0;
         for (int i = 0; i < count; i++)
         {
             string charName = "";
@@ -1070,17 +1100,88 @@ public class CharacterSelectUI : MonoBehaviour
             characterSelector.items.Add(item);
         }
 
-        characterSelector.onValueChanged.RemoveListener(OnSelectorValueChanged);
-        characterSelector.onValueChanged.AddListener(OnSelectorValueChanged);
-
         int savedIndex = PersistentCharacterSelection.GetSelectedCharacterIndex();
         if (savedIndex < 0 || savedIndex >= count) savedIndex = 0;
 
         _isUpdatingSelectorInternally = true;
-        characterSelector.index = savedIndex;
         characterSelector.defaultIndex = savedIndex;
+        characterSelector.index = savedIndex;
+        characterSelector.InitializeSelector();
         characterSelector.UpdateUI();
+
+        if (characterSelector.label != null && savedIndex < characterSelector.items.Count)
+        {
+            characterSelector.label.text = characterSelector.items[savedIndex].itemTitle;
+        }
+
+        characterSelector.onValueChanged.RemoveListener(OnSelectorValueChanged);
+        characterSelector.onValueChanged.AddListener(OnSelectorValueChanged);
+
+        ApplyIndicatorColors();
+
         _isUpdatingSelectorInternally = false;
+    }
+
+    public void ApplyIndicatorColors()
+    {
+        if (!overrideIndicatorColors || characterSelector == null || characterSelector.indicatorParent == null) return;
+
+        ApplyIndicatorColorsImmediate();
+
+        // Run delayed checks to ensure Heat UI's dynamic instantiation and UIManager lifecycle
+        // don't overwrite the colors on the initial frame
+        if (gameObject.activeInHierarchy)
+        {
+            StartCoroutine(ApplyIndicatorColorsDelayedRoutine());
+        }
+    }
+
+    private void ApplyIndicatorColorsImmediate()
+    {
+        if (!overrideIndicatorColors || characterSelector == null || characterSelector.indicatorParent == null) return;
+
+        foreach (Transform child in characterSelector.indicatorParent)
+        {
+            var onTransform = child.Find("On");
+            if (onTransform != null)
+            {
+                var uiMgr = onTransform.GetComponent<UIManagerImage>();
+                if (uiMgr != null)
+                {
+                    uiMgr.useCustomColor = true;
+                    uiMgr.enabled = false;
+                }
+                var onImg = onTransform.GetComponent<Image>();
+                if (onImg != null)
+                {
+                    onImg.color = indicatorOnColor;
+                }
+            }
+
+            var offTransform = child.Find("Off");
+            if (offTransform != null)
+            {
+                var uiMgr = offTransform.GetComponent<UIManagerImage>();
+                if (uiMgr != null)
+                {
+                    uiMgr.useCustomColor = true;
+                    uiMgr.enabled = false;
+                }
+                var offImg = offTransform.GetComponent<Image>();
+                if (offImg != null)
+                {
+                    offImg.color = indicatorOffColor;
+                }
+            }
+        }
+    }
+
+    private IEnumerator ApplyIndicatorColorsDelayedRoutine()
+    {
+        yield return null;
+        ApplyIndicatorColorsImmediate();
+        yield return new WaitForEndOfFrame();
+        ApplyIndicatorColorsImmediate();
     }
 
     private void OnSelectorValueChanged(int newIndex)
@@ -1097,6 +1198,8 @@ public class CharacterSelectUI : MonoBehaviour
         if (Application.isPlaying && _initialized)
         {
             ApplySelectionStyle();
+            SelectProfession(_selectedIndex);
+            ApplyIndicatorColors();
         }
     }
 
@@ -1229,6 +1332,12 @@ public class CharacterSelectUI : MonoBehaviour
 
     private void SwapFeaturedModel(GameObject prefabToSpawn)
     {
+        if (modelPreviewPivot == null)
+        {
+            var pivotObj = GameObject.Find("CharacterPreviewPivot");
+            if (pivotObj != null) modelPreviewPivot = pivotObj.transform;
+        }
+
         if (_swapCoroutine != null) StopCoroutine(_swapCoroutine);
         _swapCoroutine = StartCoroutine(SwapModelRoutine(prefabToSpawn));
     }
@@ -1239,6 +1348,12 @@ public class CharacterSelectUI : MonoBehaviour
         {
             Destroy(_currentPreviewInstance);
             _currentPreviewInstance = null;
+        }
+
+        if (modelPreviewPivot == null)
+        {
+            var pivotObj = GameObject.Find("CharacterPreviewPivot");
+            if (pivotObj != null) modelPreviewPivot = pivotObj.transform;
         }
 
         if (modelPreviewPivot == null || prefabToSpawn == null) yield break;

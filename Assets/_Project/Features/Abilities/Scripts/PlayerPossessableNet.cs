@@ -19,6 +19,10 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
     public NetworkVariable<ulong> possessingClientId = new NetworkVariable<ulong>(
         0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
+    [Header("Priest Possession Struggle Settings")]
+    [Tooltip("Maximum duration in seconds for the Priest's button-mash struggle QTE.")]
+    public float priestResistWindowDuration = 5.0f;
+
     private CharacterController _characterController;
     private ThirdPersonController _thirdPersonController;
     private InvestigatorCombatNet _combatNet;
@@ -126,51 +130,52 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
 
     private System.Collections.IEnumerator PriestRejectionWindowRoutine(float windowDuration)
     {
-        if (PossessionBlackoutOverlay.Instance != null)
-        {
-            PossessionBlackoutOverlay.Instance.ShowRejectionPrompt(windowDuration);
-        }
-
-        float elapsed = 0f;
         bool rejected = false;
 
-        while (elapsed < windowDuration && isPossessed.Value)
+        if (PossessionBlackoutOverlay.Instance != null)
         {
-            elapsed += Time.deltaTime;
-
-            if (UnityEngine.InputSystem.Keyboard.current != null)
+            yield return PossessionBlackoutOverlay.Instance.RunPriestStruggleRoutine(
+                windowDuration,
+                () => isPossessed.Value,
+                (won) => rejected = won
+            );
+        }
+        else
+        {
+            float elapsed = 0f;
+            while (elapsed < windowDuration && isPossessed.Value)
             {
-                bool rPressed = UnityEngine.InputSystem.Keyboard.current.rKey.wasPressedThisFrame;
-                bool spacePressed = UnityEngine.InputSystem.Keyboard.current.spaceKey.wasPressedThisFrame;
+                elapsed += Time.deltaTime;
 
-                if (rPressed || spacePressed)
+                if (UnityEngine.InputSystem.Keyboard.current != null)
+                {
+                    bool rPressed = UnityEngine.InputSystem.Keyboard.current.rKey.wasPressedThisFrame;
+                    bool spacePressed = UnityEngine.InputSystem.Keyboard.current.spaceKey.wasPressedThisFrame;
+
+                    if (rPressed || spacePressed)
+                    {
+                        rejected = true;
+                        break;
+                    }
+                }
+                else if (Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.Space))
                 {
                     rejected = true;
                     break;
                 }
-            }
-            else if (Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.Space))
-            {
-                rejected = true;
-                break;
-            }
 
-            yield return null;
-        }
-
-        if (PossessionBlackoutOverlay.Instance != null)
-        {
-            PossessionBlackoutOverlay.Instance.HideRejectionPrompt();
+                yield return null;
+            }
         }
 
         if (rejected)
         {
-            Debug.Log("[PlayerPossessableNet] Priest successfully rejected possession!");
+            Debug.Log("[PlayerPossessableNet] Priest successfully rejected possession via struggle QTE!");
             RejectPossessionServerRpc();
         }
         else if (isPossessed.Value)
         {
-            Debug.Log("[PlayerPossessableNet] Priest did not reject in time. Possession confirmed.");
+            Debug.Log("[PlayerPossessableNet] Priest did not break free in time. Possession confirmed.");
             NotifyPossessionAcceptedServerRpc();
         }
 
@@ -670,10 +675,11 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             if (isPriest)
             {
                 float penalty = girl != null ? girl.exorcismPenaltySeconds : 30f;
+                float duration = priestResistWindowDuration > 0f ? priestResistWindowDuration : 5.0f;
                 if (_priestServerTimerCoroutine != null) StopCoroutine(_priestServerTimerCoroutine);
-                _priestServerTimerCoroutine = StartCoroutine(PriestRejectionServerTimerRoutine(victimId, girl.OwnerClientId, 4.0f));
+                _priestServerTimerCoroutine = StartCoroutine(PriestRejectionServerTimerRoutine(victimId, girl.OwnerClientId, duration));
                 // Priest resistance window: ownership stays with Priest during resistance
-                NotifyPriestRejectionWindowClientRpc(victimId, girl.OwnerClientId, 4.0f, penalty);
+                NotifyPriestRejectionWindowClientRpc(victimId, girl.OwnerClientId, duration, penalty);
             }
             else
             {
