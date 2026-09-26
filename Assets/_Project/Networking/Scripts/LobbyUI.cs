@@ -117,8 +117,6 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Confirm button inside the Exit Confirmation modal (calls ConfirmDisconnect).")]
     public ButtonManager heatExitConfirmButton;
 
-    [Tooltip("Optional single button that triggers the Exit Confirmation Modal (e.g. Top 'X' button).")]
-    public ButtonManager heatExitTriggerButton;
 
     [Tooltip("Multiple Heat Buttons that trigger the Exit Confirmation Modal (e.g. Top 'X', Quit Button, Leave Button). Drag any number of buttons here!")]
     public List<ButtonManager> exitTriggerButtons = new List<ButtonManager>();
@@ -161,8 +159,6 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Button that copies the session Join Code to the host's clipboard.")]
     public ButtonManager heatHostCopyCodeButton;
 
-    [Tooltip("Displays connected player count on the host panel, e.g. '2 / 6 players'.")]
-    public TextMeshProUGUI hostPlayerCountText;
 
     [Header("Heat UI PlayerCount Counters (Host)")]
     [Tooltip("Text component inside PlayerCount/Unlocked showing current players count.")]
@@ -189,8 +185,6 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Displays connected room code to client (e.g. 'ROOM: A9F3X2').")]
     public TextMeshProUGUI clientJoinCodeText;
 
-    [Tooltip("Displays connected player count on client panel.")]
-    public TextMeshProUGUI clientPlayerCountText;
 
     [Header("Heat UI PlayerCount Counters (Client)")]
     [Tooltip("Text component inside PlayerCount/Unlocked showing current players count.")]
@@ -545,8 +539,7 @@ public class LobbyUI : MonoBehaviour
             }
         }
 
-        // Exit Triggers (Single + Lists of any number of buttons)
-        MichskyUIBridge.BindButton(null, heatExitTriggerButton, RequestDisconnect);
+        // Exit Triggers (Lists of any number of buttons)
 
         if (exitTriggerButtons != null)
         {
@@ -1212,7 +1205,6 @@ public class LobbyUI : MonoBehaviour
         string countString = $"{current}  /  {max}  players";
 
         // Refresh Host Panel
-        if (hostPlayerCountText != null) hostPlayerCountText.text = countString;
         if (hostUnlockedCountText != null) hostUnlockedCountText.text = current.ToString();
         if (hostTotalCountText != null) hostTotalCountText.text = max.ToString();
         if (hostStatusText != null)
@@ -1224,7 +1216,6 @@ public class LobbyUI : MonoBehaviour
         MichskyUIBridge.SetButtonInteractable(heatHostStartMatchButton, canStart);
 
         // Refresh Client Panel
-        if (clientPlayerCountText != null) clientPlayerCountText.text = countString;
         if (clientUnlockedCountText != null) clientUnlockedCountText.text = current.ToString();
         if (clientTotalCountText != null) clientTotalCountText.text = max.ToString();
         if (clientStatusText != null)

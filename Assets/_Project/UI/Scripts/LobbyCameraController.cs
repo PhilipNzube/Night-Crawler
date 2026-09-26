@@ -124,16 +124,6 @@ public class LobbyCameraController : MonoBehaviour
     [Tooltip("Speed of the vertical breathe cycle.")]
     public float squadOrbitalBreathSpeed = 0.5f;
 
-    [Header("Squad — Dolly Pan (fallback when no OrbitalTarget set)")]
-    [Tooltip("Optional CinemachineSplineDolly component on the squad VCam. " +
-             "Automatically drives position along spline from 0 to 1 to pan across the lineup.")]
-    public CinemachineSplineDolly squadDollyComp;
-
-    [Tooltip("How long the dolly pan takes to travel from start to end of the path.")]
-    public float squadDollyPanDuration = 7f;
-
-    [Tooltip("Ease curve for the dolly pan. Ease-in-out gives the most cinematic feel.")]
-    public AnimationCurve squadDollyPanCurve = AnimationCurve.EaseInOut(0f, 0f, 1f, 1f);
 
     // =========================================================================
     //  Inspector — Reveal Impulse
@@ -196,9 +186,6 @@ public class LobbyCameraController : MonoBehaviour
             lobbyCam.Priority = ACTIVE_PRIORITY;
         }
 
-        // Squad dolly starts at position 0
-        if (squadDollyComp != null)
-            squadDollyComp.CameraPosition = 0f;
     }
 
     // =========================================================================
@@ -239,14 +226,9 @@ public class LobbyCameraController : MonoBehaviour
                 {
                     _dollyCoroutine = StartCoroutine(RunSquadOrbitalCamera());
                 }
-                else if (!enableSquadOrbit)
+                else
                 {
                     // Clean, stationary cinematic camera — no spinning, no glitching
-                }
-                else if (squadDollyComp != null)
-                {
-                    squadDollyComp.CameraPosition = 0f;
-                    _dollyCoroutine = StartCoroutine(RunDollyPan());
                 }
                 break;
 
@@ -407,26 +389,6 @@ public class LobbyCameraController : MonoBehaviour
         }
     }
 
-    // =========================================================================
-    //  Private — Squad Dolly Pan
-    // =========================================================================
-
-    private IEnumerator RunDollyPan()
-    {
-        if (squadDollyComp == null) yield break;
-
-        float elapsed = 0f;
-        while (elapsed < squadDollyPanDuration)
-        {
-            elapsed += Time.deltaTime;
-            float t = Mathf.Clamp01(elapsed / squadDollyPanDuration);
-            squadDollyComp.CameraPosition = squadDollyPanCurve.Evaluate(t);
-            yield return null;
-        }
-
-        squadDollyComp.CameraPosition = 1f;
-        _dollyCoroutine = null;
-    }
 
     // =========================================================================
     //  Private — Girl Screen FOV Breathe

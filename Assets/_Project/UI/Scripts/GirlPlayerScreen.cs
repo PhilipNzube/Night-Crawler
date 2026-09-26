@@ -77,17 +77,11 @@ public class GirlPlayerScreen : MonoBehaviour
     [Tooltip("Confirm button inside the stake modal. Inactive until 2+ credits entered.")]
     public ButtonManager heatStakeConfirmButton;
 
-    [Tooltip("Box Button for confirming stake (optional).")]
-    public BoxButtonManager heatBoxStakeConfirmButton;
-
     [Tooltip("Cancel / Close button inside the stake modal.")]
     public ButtonManager heatStakeCancelButton;
 
     [Tooltip("Error / Hint label inside the stake modal (e.g. 'Min 2 credits').")]
     public TextMeshProUGUI stakeErrorText;
-
-    [Tooltip("Label inside the modal displaying player's current credit balance.")]
-    public TextMeshProUGUI creditBalanceText;
 
     [Header("Player Status Panel (Live Investigator Status)")]
     [Tooltip("Root panel to show all players' ready status on the girl screen.")]
@@ -106,10 +100,7 @@ public class GirlPlayerScreen : MonoBehaviour
     [Tooltip("Explicit reference to the Exit Confirmation Modal for Girl Screen (e.g. ExitModal under GirlFlow). No auto-finding.")]
     public ModalWindowManager exitConfirmModal;
 
-    [Tooltip("Optional explicit reference to the Confirm button inside the exit modal.")]
-    public BoxButtonManager heatBoxExitConfirmButton;
-
-    [Tooltip("Optional standard/Heat ButtonManager for confirming exit.")]
+    [Tooltip("Explicit reference to the Confirm button inside the exit modal.")]
     public ButtonManager heatExitConfirmButton;
 
     [Tooltip("Optional explicit reference to the Exit Hotkey indicator/button (e.g. ExitHotKey under GirlFlow).")]
@@ -155,11 +146,7 @@ public class GirlPlayerScreen : MonoBehaviour
             exitConfirmModal.onConfirm.AddListener(ConfirmExitToHome);
         }
 
-        if (heatBoxExitConfirmButton != null)
-        {
-            MichskyUIBridge.BindButton(null, heatBoxExitConfirmButton, ConfirmExitToHome);
-        }
-        else if (heatExitConfirmButton != null)
+        if (heatExitConfirmButton != null)
         {
             MichskyUIBridge.BindButton(null, heatExitConfirmButton, ConfirmExitToHome);
         }
@@ -353,16 +340,11 @@ public class GirlPlayerScreen : MonoBehaviour
             ? CloudCharacterSaveManager.Instance.CurrentCredits
             : 50;
 
-        if (creditBalanceText != null)
-            creditBalanceText.text = CurrencyConfig.FormatBalance(balance);
-
         // Bind input typing validation
         MichskyUIBridge.BindInputField(null, heatStakeInputField, OnStakeInputChanged);
 
         // Bind confirm and cancel buttons
         MichskyUIBridge.BindButton(null, heatStakeConfirmButton, OnStakeModalConfirmed);
-        if (heatBoxStakeConfirmButton != null)
-            MichskyUIBridge.BindButton(null, heatBoxStakeConfirmButton, OnStakeModalConfirmed);
 
         if (heatStakeCancelButton != null)
             MichskyUIBridge.BindButton(null, heatStakeCancelButton, OnStakeModalCancelled);
@@ -452,14 +434,7 @@ public class GirlPlayerScreen : MonoBehaviour
             heatStakeConfirmButton.isInteractable = interactable;
             heatStakeConfirmButton.UpdateUI();
         }
-        if (heatBoxStakeConfirmButton != null)
-        {
-            heatBoxStakeConfirmButton.isInteractable = interactable;
-            heatBoxStakeConfirmButton.UpdateUI();
-        }
         MichskyUIBridge.SetButtonInteractable(null, heatStakeConfirmButton, interactable);
-        if (heatBoxStakeConfirmButton != null)
-            MichskyUIBridge.SetButtonInteractable(null, heatBoxStakeConfirmButton, interactable);
     }
 
     private void OnStakeModalCancelled()

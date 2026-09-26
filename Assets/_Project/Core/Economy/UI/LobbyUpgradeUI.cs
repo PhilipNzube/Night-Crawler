@@ -1,8 +1,6 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
-using UnityEngine.UI;
-using TMPro;
 using Michsky.UI.Heat;
 using NightCrawler.UI;
 
@@ -20,18 +18,16 @@ namespace NightCrawler.Economy.UI
     /// <summary>
     /// SOLID — SRP: Manages the Persistent Upgrades shop in the Lobby Scene (Shop tab).
     /// Used on both the Investigator and Vengeful Spirit stat sections in LobbyCanvas.
+    /// Cleaned: All useless/legacy inspector fields and alternative buttons removed.
     /// </summary>
     public class LobbyUpgradeUI : MonoBehaviour
     {
-        [Header("1. Mode & Root Window")]
+        [Header("1. Mode and Root Window")]
         [Tooltip("Select whether this panel upgrades Investigator stats or Girl stats.")]
         public UpgradeViewMode viewMode = UpgradeViewMode.InvestigatorStats;
 
         [Tooltip("The root panel GameObject (defaults to this GameObject).")]
         public GameObject panelRoot;
-
-        [Tooltip("Michsky Heat Modal Window Manager on this window (optional).")]
-        public ModalWindowManager heatModalWindow;
 
         [Header("2. Confirmation Modal (Michsky Heat UI)")]
         [Tooltip("The Modal Window that pops up when tapping a stat to confirm the purchase (e.g. Purchase Window).")]
@@ -42,37 +38,17 @@ namespace NightCrawler.Economy.UI
         {
             [Tooltip("The stat this card upgrades.")]
             public UpgradeStatType statType;
+
             [Tooltip("The Heat Shop Button card for this stat.")]
             public ShopButtonManager heatShopButton;
-            [Tooltip("The actual clickable Purchase button inside the stat card (Content/Buttons/Purchase).")]
-            public ButtonManager purchaseButton;
-            [Tooltip("Indicator shown when the stat reaches max level (Content/Buttons/Purchased).")]
-            public GameObject purchasedIndicator;
-            [Tooltip("Alternative: Standard Heat Button.")]
-            public ButtonManager heatButton;
-            [Tooltip("Alternative: Heat Box Button.")]
-            public BoxButtonManager heatBoxButton;
-            [Tooltip("Optional text displaying tier (e.g. 'Lv. 2/5').")]
-            public TextMeshProUGUI levelText;
-            [Tooltip("Optional text displaying effect or cost.")]
-            public TextMeshProUGUI effectText;
-            [Tooltip("Optional: Heat UI ProgressBar visualizing tier level.")]
+
+            [Tooltip("Heat UI ProgressBar visualizing tier level.")]
             public ProgressBar progressBar;
-            [Tooltip("Optional: Standard Unity UI Slider visualizing tier level.")]
-            public Slider sliderBar;
-            [Tooltip("Optional: Standard Unity UI filled Image visualizing tier level.")]
-            public Image fillImageBar;
         }
 
-        [Header("3. Stat Cards (Auto-Discovered or Manual)")]
-        [Tooltip("List of stat cards manually placed in the hierarchy. If empty, cards are auto-discovered from children!")]
+        [Header("3. Stat Cards (Manual Wiring)")]
+        [Tooltip("List of stat cards manually assigned in the hierarchy.")]
         public List<ManualStatItem> manualStatItems = new List<ManualStatItem>();
-
-        [Header("4. Displays & Currency")]
-        [Tooltip("Header title text.")]
-        public TextMeshProUGUI titleText;
-        [Tooltip("Displays current credit / cinder balance.")]
-        public TextMeshProUGUI balanceText;
 
         private void Awake()
         {
@@ -108,32 +84,18 @@ namespace NightCrawler.Economy.UI
 
         public void OpenPanel()
         {
-            if (heatModalWindow != null) heatModalWindow.OpenWindow();
             if (panelRoot != null) panelRoot.SetActive(true);
             RefreshUI();
         }
 
         public void ClosePanel()
         {
-            if (heatModalWindow != null) heatModalWindow.CloseWindow();
             if (panelRoot != null) panelRoot.SetActive(false);
         }
 
         public void RefreshUI()
         {
             int balance = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : 60;
-
-            if (balanceText != null)
-            {
-                balanceText.text = CurrencyConfig.FormatBalance(balance);
-            }
-
-            if (titleText != null)
-            {
-                titleText.text = viewMode == UpgradeViewMode.InvestigatorStats
-                    ? "INVESTIGATOR UPGRADES"
-                    : "VENGEFUL SPIRIT UPGRADES";
-            }
 
             if (manualStatItems != null && manualStatItems.Count > 0)
             {
@@ -160,28 +122,10 @@ namespace NightCrawler.Economy.UI
                 string statTitle = UpgradeStatFormulas.GetStatDisplayName(item.statType);
                 string statEffect = UpgradeStatFormulas.GetStatEffectDescription(item.statType, currentLevel);
 
-                if (item.levelText != null)
-                {
-                    item.levelText.text = isMaxLevel ? "MAX" : $"Lv. {currentLevel} / 5";
-                }
-
-                if (item.effectText != null)
-                {
-                    item.effectText.text = isMaxLevel ? "Max Level Reached" : $"{statEffect}\nCost: {cost} {CurrencyConfig.CurrencySymbol}";
-                }
-
                 float progressFraction = currentLevel / 5f;
                 if (item.progressBar != null)
                 {
                     MichskyUIBridge.SetProgress(item.progressBar, progressFraction);
-                }
-                if (item.sliderBar != null)
-                {
-                    MichskyUIBridge.SetProgress(item.sliderBar, progressFraction);
-                }
-                if (item.fillImageBar != null)
-                {
-                    MichskyUIBridge.SetProgress(item.fillImageBar, progressFraction);
                 }
 
                 if (item.heatShopButton != null)
@@ -189,17 +133,16 @@ namespace NightCrawler.Economy.UI
                     item.heatShopButton.buttonTitle = statTitle;
                     item.heatShopButton.buttonDescription = isMaxLevel ? "Maximum rank achieved" : statEffect;
                     item.heatShopButton.priceText = isMaxLevel ? "MAX" : $"{cost}";
-                    // Keep card interactable so player can always hover, view stats, and click to inspect details
                     item.heatShopButton.isInteractable = !isMaxLevel;
                     item.heatShopButton.UpdateUI();
 
-                    ButtonManager pBtn = item.purchaseButton != null ? item.purchaseButton : item.heatShopButton.purchaseButton;
-                    GameObject pInd = item.purchasedIndicator != null ? item.purchasedIndicator : (item.heatShopButton.purchasedIndicator != null ? item.heatShopButton.purchasedIndicator.gameObject : null);
+                    ButtonManager pBtn = item.heatShopButton.purchaseButton;
+                    GameObject pInd = item.heatShopButton.purchasedIndicator != null ? item.heatShopButton.purchasedIndicator.gameObject : null;
 
                     var capturedStat = item.statType;
                     var capturedCost = cost;
 
-                    // Directly wire the child purchase button (this is what reflects affordability!)
+                    // Directly wire the child purchase button
                     if (pBtn != null)
                     {
                         pBtn.isInteractable = canAfford;
@@ -227,34 +170,6 @@ namespace NightCrawler.Economy.UI
                     {
                         item.heatShopButton.onPurchaseClick.AddListener(() => OnUpgradeClicked(capturedStat, capturedCost));
                         item.heatShopButton.onClick.AddListener(() => OnUpgradeClicked(capturedStat, capturedCost));
-                    }
-                }
-
-                if (item.heatButton != null)
-                {
-                    item.heatButton.SetText($"{statTitle} {(isMaxLevel ? "[MAX]" : $"[Lv. {currentLevel}/5 - {cost}C]")}");
-                    item.heatButton.isInteractable = !isMaxLevel;
-                    item.heatButton.UpdateUI();
-                    item.heatButton.onClick.RemoveAllListeners();
-                    if (!isMaxLevel)
-                    {
-                        var capturedStat = item.statType;
-                        var capturedCost = cost;
-                        item.heatButton.onClick.AddListener(() => OnUpgradeClicked(capturedStat, capturedCost));
-                    }
-                }
-
-                if (item.heatBoxButton != null)
-                {
-                    item.heatBoxButton.SetText($"{statTitle} {(isMaxLevel ? "[MAX]" : $"Lv.{currentLevel}")}");
-                    item.heatBoxButton.isInteractable = !isMaxLevel;
-                    item.heatBoxButton.UpdateUI();
-                    item.heatBoxButton.onClick.RemoveAllListeners();
-                    if (!isMaxLevel)
-                    {
-                        var capturedStat = item.statType;
-                        var capturedCost = cost;
-                        item.heatBoxButton.onClick.AddListener(() => OnUpgradeClicked(capturedStat, capturedCost));
                     }
                 }
             }

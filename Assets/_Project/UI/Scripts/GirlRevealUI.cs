@@ -63,8 +63,6 @@ public class GirlRevealUI : MonoBehaviour
     public AudioClip tickSound;
     public AudioClip winnerLockSound;
 
-    [Header("Background FX")]
-    public Image backgroundPulse;
 
     // -------------------------------------------------------------------------
     //  Inspector — Timing Configuration
@@ -270,8 +268,6 @@ public class GirlRevealUI : MonoBehaviour
             PlayTickSFX(pitch);
             currentIndex = (currentIndex + 1) % _playerNames.Length;
 
-            if (backgroundPulse != null)
-                backgroundPulse.color = Color.Lerp(bgColorFast, bgColorWinner, t);
 
             yield return new WaitForSecondsRealtime(interval);
         }
@@ -378,8 +374,6 @@ public class GirlRevealUI : MonoBehaviour
 
     private void SetBgColor(Color target)
     {
-        if (backgroundPulse != null)
-            backgroundPulse.color = target;
     }
 
     private IEnumerator AnimateScale(Transform t, float from, float to, float duration)
