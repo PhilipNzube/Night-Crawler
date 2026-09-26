@@ -76,6 +76,13 @@ public class PlayerHUD : MonoBehaviour
     [Tooltip("Optional: Displays current healing vials count (e.g. 'VIALS  3').")]
     public TextMeshProUGUI vialText;
 
+    [Header("Vial Count UI Element")]
+    [Tooltip("The 'VialCount' GameObject from HUDCanvas. Displayed for Medic or when other characters carry >= 1 vial.")]
+    public GameObject vialCountGO;
+
+    [Tooltip("The text component inside VialCount (e.g. VialText) showing the number.")]
+    public TextMeshProUGUI vialCountNumberText;
+
     // -------------------------------------------------------------------------
     //  Inspector — Vengeful Spirit-Only Panel
     // -------------------------------------------------------------------------
@@ -150,20 +157,40 @@ public class PlayerHUD : MonoBehaviour
             Debug.Log("[PlayerHUD] Activated inactive BloodScreenOverlay on HUD Canvas.");
         }
 
-        // Auto-ensure CorpseInteractionHUD is present on the HUD Canvas
-        var corpseHUD = GetComponentInChildren<CorpseInteractionHUD>(true);
-        if (corpseHUD == null)
+        // Auto-ensure ContextInteractionHUD is present on the HUD Canvas
+        var interactionHUD = GetComponentInChildren<ContextInteractionHUD>(true);
+        if (interactionHUD == null)
         {
-            corpseHUD = FindFirstObjectByType<CorpseInteractionHUD>(FindObjectsInactive.Include);
+            interactionHUD = FindFirstObjectByType<ContextInteractionHUD>(FindObjectsInactive.Include);
         }
-        if (corpseHUD == null)
+        if (interactionHUD == null)
         {
-            corpseHUD = gameObject.AddComponent<CorpseInteractionHUD>();
-            Debug.Log("[PlayerHUD] Auto-created CorpseInteractionHUD component on PlayerHUD Canvas.");
+            interactionHUD = gameObject.AddComponent<ContextInteractionHUD>();
+            Debug.Log("[PlayerHUD] Auto-created ContextInteractionHUD component on PlayerHUD Canvas.");
         }
-        if (corpseHUD != null && !corpseHUD.gameObject.activeSelf)
+        if (interactionHUD != null && !interactionHUD.gameObject.activeSelf)
         {
-            corpseHUD.gameObject.SetActive(true);
+            interactionHUD.gameObject.SetActive(true);
+        }
+
+        // Auto-locate VialCount GameObject on HUDCanvas if not manually wired
+        if (vialCountGO == null)
+        {
+            var canvas = transform.root;
+            foreach (var t in canvas.GetComponentsInChildren<Transform>(true))
+            {
+                if (t.name == "VialCount")
+                {
+                    vialCountGO = t.gameObject;
+                    break;
+                }
+            }
+        }
+        if (vialCountGO != null && vialCountNumberText == null)
+        {
+            var vt = vialCountGO.transform.Find("VialText");
+            if (vt != null) vialCountNumberText = vt.GetComponent<TextMeshProUGUI>();
+            if (vialCountNumberText == null) vialCountNumberText = vialCountGO.GetComponentInChildren<TextMeshProUGUI>(true);
         }
     }
 
@@ -239,6 +266,7 @@ public class PlayerHUD : MonoBehaviour
         if (healthSlider != null) healthSlider.gameObject.SetActive(true);
         if (healthText != null) healthText.gameObject.SetActive(true);
         if (roleLabel != null) roleLabel.gameObject.SetActive(true);
+        if (vialCountGO != null) vialCountGO.SetActive(false);
 
         UnsubscribeHealthEvents();
         AdventurerMinimapSetup.OnPossessionChanged(null, false);
@@ -265,6 +293,7 @@ public class PlayerHUD : MonoBehaviour
         if (roleLabel != null) roleLabel.gameObject.SetActive(false);
         if (explorerPanel != null) explorerPanel.SetActive(false);
         if (demonPanel != null) demonPanel.SetActive(false);
+        if (vialCountGO != null) vialCountGO.SetActive(false);
         if (hudRoot != null && hudRoot != gameObject) hudRoot.SetActive(false);
 
         // Hide minimap for dead explorer
@@ -275,10 +304,10 @@ public class PlayerHUD : MonoBehaviour
             bloodScreenOverlay.gameObject.SetActive(false);
         }
 
-        var corpseHUD = GetComponentInChildren<CorpseInteractionHUD>(true);
-        if (corpseHUD != null)
+        var interactionHUD = GetComponentInChildren<ContextInteractionHUD>(true);
+        if (interactionHUD != null)
         {
-            corpseHUD.gameObject.SetActive(false);
+            interactionHUD.gameObject.SetActive(false);
         }
     }
 
@@ -400,10 +429,10 @@ public class PlayerHUD : MonoBehaviour
 
         _isBound = true;
         // Ensure auxiliary HUD overlays (Corpse looting prompt, Blood damage vignette) are active
-        var corpseHUD = GetComponentInChildren<CorpseInteractionHUD>(true);
-        if (corpseHUD != null && !corpseHUD.gameObject.activeSelf)
+        var interactionHUD = GetComponentInChildren<ContextInteractionHUD>(true);
+        if (interactionHUD != null && !interactionHUD.gameObject.activeSelf)
         {
-            corpseHUD.gameObject.SetActive(true);
+            interactionHUD.gameObject.SetActive(true);
         }
 
         var bloodOverlay = FindFirstObjectByType<BloodScreenOverlay>(FindObjectsInactive.Include);
@@ -537,6 +566,21 @@ public class PlayerHUD : MonoBehaviour
     private void RefreshExplorerPanel()
     {
         int vialCount = _localVials != null ? _localVials.VialCount : 0;
+        bool isMedic = _localVials != null && _localVials.IsMedicCharacter();
+
+        // VialCount GO visibility:
+        // Visible for Medic or appears when another character carries >= 1 vial
+        if (vialCountGO != null)
+        {
+            bool showVials = !_isDemon && !_isDead && (isMedic || vialCount > 0);
+            vialCountGO.SetActive(showVials);
+        }
+
+        if (vialCountNumberText != null)
+        {
+            vialCountNumberText.text = vialCount.ToString();
+        }
+
         if (vialText != null)
         {
             vialText.text = $"VIALS  {vialCount}";

@@ -65,32 +65,54 @@ public class HealingVialInventoryNet : NetworkBehaviour
         }
     }
 
+    [Header("Capacity Settings")]
+    [Tooltip("Maximum vials a non-Medic character can hold in inventory.")]
+    public int nonMedicMaxCapacity = 2;
+
+    public bool IsMedicCharacter()
+    {
+        if (gameObject.name.ToLower().Contains("medic")) return true;
+        if (CharacterSelectManager.Instance != null)
+        {
+            int idx = CharacterSelectManager.Instance.GetSelectedCharacterIndex(OwnerClientId);
+            if (idx >= 0 && CharacterSelectManager.Instance.availableCharacters != null && idx < CharacterSelectManager.Instance.availableCharacters.Count)
+            {
+                var data = CharacterSelectManager.Instance.availableCharacters[idx];
+                if (data != null && data.profession == InvestigatorProfession.FieldMedic)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    public int MaxCapacity
+    {
+        get
+        {
+            int vialCountLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.VialCount) : 0;
+            if (IsMedicCharacter())
+            {
+                return UpgradeStatFormulas.GetStartingVialCount(vialCountLvl);
+            }
+            return nonMedicMaxCapacity;
+        }
+    }
+
     public override void OnNetworkSpawn()
     {
         currentVials.OnValueChanged += HandleVialsChanged;
 
         if (IsServer)
         {
-            // Auto-detect if this character is the Field Medic
-            bool isMedic = gameObject.name.ToLower().Contains("medic");
-            if (!isMedic && CharacterSelectManager.Instance != null)
-            {
-                int idx = CharacterSelectManager.Instance.GetSelectedCharacterIndex(OwnerClientId);
-                if (idx >= 0 && CharacterSelectManager.Instance.availableCharacters != null && idx < CharacterSelectManager.Instance.availableCharacters.Count)
-                {
-                    var data = CharacterSelectManager.Instance.availableCharacters[idx];
-                    if (data != null && data.profession == InvestigatorProfession.FieldMedic)
-                    {
-                        isMedic = true;
-                    }
-                }
-            }
+            bool isMedic = IsMedicCharacter();
 
             // Only Medic starts with vials. Scale starting capacity by persistent VialCountLevel.
             int vialCountLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.VialCount) : 0;
             int startingVials = UpgradeStatFormulas.GetStartingVialCount(vialCountLvl);
             currentVials.Value = isMedic ? startingVials : 0;
-            Debug.Log($"[HealingVialInventoryNet] '{gameObject.name}' spawned with {currentVials.Value} vials (isMedic: {isMedic}, VialCountLevel: {vialCountLvl}).");
+            Debug.Log($"[HealingVialInventoryNet] '{gameObject.name}' spawned with {currentVials.Value} vials (isMedic: {isMedic}, MaxCapacity: {MaxCapacity}, VialCountLevel: {vialCountLvl}).");
         }
     }
 
@@ -113,7 +135,7 @@ public class HealingVialInventoryNet : NetworkBehaviour
             _cameraTransform = Camera.main.transform;
         }
 
-        // Heal teammate with E key (when aiming at them) or self-heal with H key
+        // Send vial to teammate with E key (when aiming at them) or self-heal with H key
         if (Keyboard.current != null)
         {
             if (Keyboard.current.eKey.wasPressedThisFrame)
@@ -128,7 +150,7 @@ public class HealingVialInventoryNet : NetworkBehaviour
     }
 
     /// <summary>
-    /// Attempts to heal an aiming teammate within healRange, or self if no teammate is targeted.
+    /// Attempts to send a vial to a targeted teammate within healRange.
     /// </summary>
     public void TryInteractHeal()
     {
@@ -144,19 +166,70 @@ public class HealingVialInventoryNet : NetworkBehaviour
         {
             if (hit.collider.gameObject != gameObject)
             {
-                HealthSystem targetHealth = hit.collider.GetComponentInParent<HealthSystem>();
-                if (targetHealth != null && !targetHealth.IsDead && targetHealth.CurrentHealth < targetHealth.MaxHealth)
+                HealingVialInventoryNet targetInv = hit.collider.GetComponentInParent<HealingVialInventoryNet>();
+                if (targetInv != null)
                 {
-                    NetworkObject targetNetObj = targetHealth.GetComponent<NetworkObject>();
-                    if (targetNetObj != null)
-                    {
-                        PerformHealServerRpc(targetNetObj.NetworkObjectId);
-                        PlayHealEffects();
-                        return;
-                    }
+                    TrySendVialToTeammate(targetInv);
+                    return;
                 }
             }
         }
+    }
+
+    /// <summary>
+    /// Transfers a healing vial to a target teammate's inventory.
+    /// The recipient decides when to consume it and is not healed immediately.
+    /// If the recipient's stats cannot carry more vials, sending fails and a warning notification is displayed.
+    /// </summary>
+    public bool TrySendVialToTeammate(HealingVialInventoryNet recipient)
+    {
+        if (currentVials.Value <= 0)
+        {
+            if (NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification("You have no healing vials left to give!", 2.5f);
+            }
+            return false;
+        }
+
+        if (recipient == null || recipient == this) return false;
+
+        var recHealth = recipient.GetComponent<HealthSystem>();
+        if (recHealth != null && recHealth.IsDead) return false;
+
+        // Check recipient capacity against their stats
+        if (recipient.VialCount >= recipient.MaxCapacity)
+        {
+            if (NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification($"Teammate cannot carry any more vials! (Full: {recipient.VialCount}/{recipient.MaxCapacity})", 3f);
+            }
+            return false;
+        }
+
+        NetworkObject recNetObj = recipient.GetComponent<NetworkObject>();
+        if (recNetObj != null)
+        {
+            SendVialTransferServerRpc(recNetObj.NetworkObjectId);
+            PlayHealEffects();
+            return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Administers/sends a healing vial directly to a designated target teammate.
+    /// </summary>
+    public bool TryHealTarget(HealthSystem targetHealth)
+    {
+        if (targetHealth == null) return false;
+        HealingVialInventoryNet targetInv = targetHealth.GetComponent<HealingVialInventoryNet>();
+        if (targetInv != null)
+        {
+            return TrySendVialToTeammate(targetInv);
+        }
+        return false;
     }
 
     /// <summary>
@@ -177,11 +250,58 @@ public class HealingVialInventoryNet : NetworkBehaviour
     }
 
     [Rpc(SendTo.Server)]
+    private void SendVialTransferServerRpc(ulong recipientNetId)
+    {
+        if (currentVials.Value <= 0) return;
+
+        if (NetworkManager.Singleton != null &&
+            NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(recipientNetId, out var targetObj))
+        {
+            HealingVialInventoryNet recipientInv = targetObj.GetComponent<HealingVialInventoryNet>();
+            if (recipientInv != null && recipientInv.VialCount < recipientInv.MaxCapacity)
+            {
+                currentVials.Value--;
+                recipientInv.currentVials.Value++;
+
+                NotifyVialTransferClientRpc(OwnerClientId, targetObj.OwnerClientId);
+
+                if (MatchEconomyManager.Instance != null)
+                {
+                    MatchEconomyManager.Instance.LogHeal(OwnerClientId);
+                }
+            }
+        }
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void NotifyVialTransferClientRpc(ulong senderClientId, ulong recipientClientId)
+    {
+        PlayHealEffects();
+
+        ulong myClientId = NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0;
+        if (myClientId == recipientClientId)
+        {
+            if (NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification("Received a Healing Vial! Press [H] to use.", 3.5f);
+            }
+        }
+        else if (myClientId == senderClientId)
+        {
+            if (NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification("Healing vial transferred to teammate!", 3f);
+            }
+        }
+    }
+
+    [Rpc(SendTo.Server)]
     private void PerformHealServerRpc(ulong targetNetId)
     {
         if (currentVials.Value <= 0) return;
 
-        if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetNetId, out var targetObj))
+        if (NetworkManager.Singleton != null &&
+            NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetNetId, out var targetObj))
         {
             HealthSystem targetHp = targetObj.GetComponent<HealthSystem>();
             if (targetHp != null && !targetHp.IsDead)

@@ -258,7 +258,7 @@ public class CorpseLootableNet : NetworkBehaviour
         }
     }
 
-    private void StartLooting(GameObject activePlayer, NetworkObject looterNetObj)
+    public void StartLooting(GameObject activePlayer, NetworkObject looterNetObj)
     {
         if (_isLootingInProgress || !HasLoot) return;
 

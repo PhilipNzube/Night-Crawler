@@ -31,6 +31,9 @@ public class GirlMaterialController : NetworkBehaviour
     public NetworkVariable<bool> isManifested = new NetworkVariable<bool>(
         false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
+    public NetworkVariable<float> currentManifestDuration = new NetworkVariable<float>(
+        8f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
     private Renderer[] _allRenderers;
     private Dictionary<Renderer, Material[]> _originalMaterials = new Dictionary<Renderer, Material[]>();
     private ModelDissolveController _dissolveController;
@@ -82,26 +85,42 @@ public class GirlMaterialController : NetworkBehaviour
     private void HandleManifestationChanged(bool previous, bool current)
     {
         ApplyVisualState(current, immediate: false);
+
+        if (ManifestationHUD.Instance != null)
+        {
+            if (current)
+            {
+                float dur = currentManifestDuration.Value > 0f ? currentManifestDuration.Value : _manifestDurationSeconds;
+                ManifestationHUD.Instance.Show(dur);
+            }
+            else
+            {
+                ManifestationHUD.Instance.Hide();
+            }
+        }
     }
 
     /// <summary>
     /// Toggles manifestation on/off across the network (callable by Owner or Server).
     /// </summary>
-    public void SetManifested(bool visible)
+    public void SetManifested(bool visible, float customDuration = -1f)
     {
+        float dur = customDuration > 0f ? customDuration : _manifestDurationSeconds;
         if (IsServer)
         {
+            currentManifestDuration.Value = dur;
             isManifested.Value = visible;
         }
         else
         {
-            SetManifestedServerRpc(visible);
+            SetManifestedServerRpc(visible, dur);
         }
     }
 
     [Rpc(SendTo.Server)]
-    private void SetManifestedServerRpc(bool visible)
+    private void SetManifestedServerRpc(bool visible, float duration = 8f)
     {
+        currentManifestDuration.Value = duration;
         isManifested.Value = visible;
     }
 
