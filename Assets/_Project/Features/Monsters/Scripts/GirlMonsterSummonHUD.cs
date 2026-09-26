@@ -45,7 +45,10 @@ namespace NightCrawler.Monsters
         [Tooltip("Pre-placed or dynamically bound monster cards in the Heat UI list.")]
         public List<MonsterCardBinding> cardBindings = new List<MonsterCardBinding>();
 
-        [Header("Selection Confirmation Modal (Heat UI)")]
+        [Header("Selection Confirmation Modal")]
+        [Tooltip("The SelectionConfirmationModal script attached to SelectionConfirmationModal GameObject (recommended).")]
+        public SelectionConfirmationModal selectionConfirmationModal;
+
         [Tooltip("The Michsky Modal Window Manager for the confirmation dialog.")]
         public Michsky.UI.Heat.ModalWindowManager confirmationModal;
 
@@ -84,15 +87,13 @@ namespace NightCrawler.Monsters
         [Tooltip("Optional: Michsky ModalWindowManager to animate the summon dialog.")]
         public Michsky.UI.Heat.ModalWindowManager heatModalWindow;
 
-        [Header("Monster Summon Slots & Capsules (Manual Inspector Wiring)")]
-        [Tooltip("Capsule for Undead slots left (in SelectionConfirmationModal).")]
+        [Header("Fallback Slots (Optional if not using SelectionConfirmationModal)")]
+        [Tooltip("Direct fallback capsule for Undead slots left.")]
         public GameObject undeadSlotsCapsule;
-        [Tooltip("Text displaying undead slots remaining (e.g. Total TMP).")]
         public TextMeshProUGUI undeadSlotsText;
 
-        [Tooltip("Capsule for Berserker slots left (in SelectionConfirmationModal).")]
+        [Tooltip("Direct fallback capsule for Berserker slots left.")]
         public GameObject berserkerSlotsCapsule;
-        [Tooltip("Text displaying berserker slots remaining (e.g. Total TMP).")]
         public TextMeshProUGUI berserkerSlotsText;
 
         [Header("Monster Spectate Hotkey (Manual Inspector Wiring)")]
@@ -132,21 +133,33 @@ namespace NightCrawler.Monsters
             NightCrawler.UI.MichskyUIBridge.BindButton(summonButton, heatSummonButton, OnSummonClicked);
             NightCrawler.UI.MichskyUIBridge.BindButton(closeButton, heatCloseButton, CloseHUD);
 
-            // Wire Confirmation Modal buttons
-            if (confirmSpawnButton != null)
+            if (selectionConfirmationModal == null && confirmationModal != null)
             {
-                confirmSpawnButton.onClick.RemoveListener(OnConfirmSpawnClicked);
-                confirmSpawnButton.onClick.AddListener(OnConfirmSpawnClicked);
+                selectionConfirmationModal = confirmationModal.GetComponent<SelectionConfirmationModal>();
+            }
+
+            // Wire Confirmation Modal buttons
+            var confirmBtn = selectionConfirmationModal != null && selectionConfirmationModal.confirmButton != null 
+                ? selectionConfirmationModal.confirmButton 
+                : confirmSpawnButton;
+            if (confirmBtn != null)
+            {
+                confirmBtn.onClick.RemoveListener(OnConfirmSpawnClicked);
+                confirmBtn.onClick.AddListener(OnConfirmSpawnClicked);
             }
             if (standardConfirmButton != null)
             {
                 standardConfirmButton.onClick.RemoveListener(OnConfirmSpawnClicked);
                 standardConfirmButton.onClick.AddListener(OnConfirmSpawnClicked);
             }
-            if (cancelSpawnButton != null)
+
+            var cancelBtn = selectionConfirmationModal != null && selectionConfirmationModal.cancelButton != null 
+                ? selectionConfirmationModal.cancelButton 
+                : cancelSpawnButton;
+            if (cancelBtn != null)
             {
-                cancelSpawnButton.onClick.RemoveListener(OnCancelSpawnClicked);
-                cancelSpawnButton.onClick.AddListener(OnCancelSpawnClicked);
+                cancelBtn.onClick.RemoveListener(OnCancelSpawnClicked);
+                cancelBtn.onClick.AddListener(OnCancelSpawnClicked);
             }
             if (standardCancelButton != null)
             {
@@ -519,39 +532,57 @@ namespace NightCrawler.Monsters
 
                 int maxBerserker = 1 + ((summonLvl - berserkerUnlockLevel) / 2);
                 int remainingBerserker = Mathf.Max(0, maxBerserker - _berserkerSummoned);
-
-                if (berserkerSlotsCapsule != null) berserkerSlotsCapsule.SetActive(true);
-                if (undeadSlotsCapsule != null) undeadSlotsCapsule.SetActive(false);
-
-                if (berserkerSlotsText != null)
-                {
-                    berserkerSlotsText.text = $"{remainingBerserker} / {maxBerserker}";
-                }
-
                 bool canSummon = remainingBerserker > 0;
-                if (confirmSpawnButton != null) confirmSpawnButton.Interactable(canSummon);
-                if (standardConfirmButton != null) standardConfirmButton.interactable = canSummon;
+
+                if (selectionConfirmationModal != null)
+                {
+                    selectionConfirmationModal.ShowBerserkerSlots(remainingBerserker, maxBerserker, canSummon);
+                }
+                else
+                {
+                    if (berserkerSlotsCapsule != null) berserkerSlotsCapsule.SetActive(true);
+                    if (undeadSlotsCapsule != null) undeadSlotsCapsule.SetActive(false);
+
+                    if (berserkerSlotsText != null)
+                    {
+                        berserkerSlotsText.text = $"{remainingBerserker} / {maxBerserker}";
+                    }
+
+                    if (confirmSpawnButton != null) confirmSpawnButton.Interactable(canSummon);
+                    if (standardConfirmButton != null) standardConfirmButton.interactable = canSummon;
+                }
             }
             else
             {
                 // Undead
                 int maxUndead = 2 + summonLvl;
                 int remainingUndead = Mathf.Max(0, maxUndead - _undeadSummoned);
-
-                if (undeadSlotsCapsule != null) undeadSlotsCapsule.SetActive(true);
-                if (berserkerSlotsCapsule != null) berserkerSlotsCapsule.SetActive(false);
-
-                if (undeadSlotsText != null)
-                {
-                    undeadSlotsText.text = $"{remainingUndead} / {maxUndead}";
-                }
-
                 bool canSummon = remainingUndead > 0;
-                if (confirmSpawnButton != null) confirmSpawnButton.Interactable(canSummon);
-                if (standardConfirmButton != null) standardConfirmButton.interactable = canSummon;
+
+                if (selectionConfirmationModal != null)
+                {
+                    selectionConfirmationModal.ShowUndeadSlots(remainingUndead, maxUndead, canSummon);
+                }
+                else
+                {
+                    if (undeadSlotsCapsule != null) undeadSlotsCapsule.SetActive(true);
+                    if (berserkerSlotsCapsule != null) berserkerSlotsCapsule.SetActive(false);
+
+                    if (undeadSlotsText != null)
+                    {
+                        undeadSlotsText.text = $"{remainingUndead} / {maxUndead}";
+                    }
+
+                    if (confirmSpawnButton != null) confirmSpawnButton.Interactable(canSummon);
+                    if (standardConfirmButton != null) standardConfirmButton.interactable = canSummon;
+                }
             }
 
-            if (confirmationModal != null)
+            if (selectionConfirmationModal != null)
+            {
+                selectionConfirmationModal.OpenWindow();
+            }
+            else if (confirmationModal != null)
             {
                 confirmationModal.OpenWindow();
             }
@@ -578,7 +609,11 @@ namespace NightCrawler.Monsters
 
         public void OnCancelSpawnClicked()
         {
-            if (confirmationModal != null)
+            if (selectionConfirmationModal != null)
+            {
+                selectionConfirmationModal.CloseWindow();
+            }
+            else if (confirmationModal != null)
             {
                 confirmationModal.CloseWindow();
             }
@@ -597,7 +632,8 @@ namespace NightCrawler.Monsters
                 {
                     if (NotificationManager.Instance != null)
                         NotificationManager.Instance.ShowNotification("No Berserker summon charges remaining this match!", 2.5f);
-                    if (confirmationModal != null) confirmationModal.CloseWindow();
+                    if (selectionConfirmationModal != null) selectionConfirmationModal.CloseWindow();
+                    else if (confirmationModal != null) confirmationModal.CloseWindow();
                     return;
                 }
                 _berserkerSummoned++;
@@ -610,7 +646,8 @@ namespace NightCrawler.Monsters
                 {
                     if (NotificationManager.Instance != null)
                         NotificationManager.Instance.ShowNotification("No Undead summon charges remaining this match!", 2.5f);
-                    if (confirmationModal != null) confirmationModal.CloseWindow();
+                    if (selectionConfirmationModal != null) selectionConfirmationModal.CloseWindow();
+                    else if (confirmationModal != null) confirmationModal.CloseWindow();
                     return;
                 }
                 _undeadSummoned++;
@@ -628,7 +665,8 @@ namespace NightCrawler.Monsters
                 NotificationManager.Instance.ShowNotification("Awakening monster in the deep tunnels...", 3f);
             }
 
-            if (confirmationModal != null) confirmationModal.CloseWindow();
+            if (selectionConfirmationModal != null) selectionConfirmationModal.CloseWindow();
+            else if (confirmationModal != null) confirmationModal.CloseWindow();
             CloseHUD();
 
             StartCoroutine(FocusCameraOnSpawnedMonsterRoutine());

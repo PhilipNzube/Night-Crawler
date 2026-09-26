@@ -8,7 +8,6 @@ namespace NightCrawler.Monsters
     /// Controlled directly by MonsterAI or Animation Events.
     /// Accurately detects when the physical attack connects with an investigator/player.
     /// </summary>
-    [RequireComponent(typeof(Collider))]
     public class MonsterAttackHitbox : MonoBehaviour
     {
         [Header("Damage Settings")]
@@ -17,6 +16,9 @@ namespace NightCrawler.Monsters
 
         [Tooltip("Layers representing players/investigators.")]
         public LayerMask targetLayers;
+
+        [Tooltip("Explicit collider to use as trigger hitbox. If null, automatically uses GetComponent<Collider>().")]
+        public Collider hitboxCollider;
 
         [Header("Feedback")]
         public AudioClip hitSound;
@@ -33,9 +35,12 @@ namespace NightCrawler.Monsters
 
         private void Awake()
         {
-            _hitboxCollider = GetComponent<Collider>();
-            _hitboxCollider.isTrigger = true;
-            _hitboxCollider.enabled = false;
+            _hitboxCollider = hitboxCollider != null ? hitboxCollider : GetComponent<Collider>();
+            if (_hitboxCollider != null)
+            {
+                _hitboxCollider.isTrigger = true;
+                _hitboxCollider.enabled = false;
+            }
 
             // Find root monster GameObject to prevent friendly fire on self
             var ai = GetComponentInParent<MonsterAI>();
