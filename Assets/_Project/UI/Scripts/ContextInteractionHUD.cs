@@ -35,13 +35,6 @@ public class ContextInteractionHUD : MonoBehaviour
     [Tooltip("Text component inside PromptText displaying the prompt body text (e.g. 'Loot Body' or 'Send Healing Vial').")]
     public TMP_Text promptBodyText;
 
-    [Header("Interaction Buttons (Clickable)")]
-    [Tooltip("Optional clickable button on the prompt itself (ButtonManager or UI Button).")]
-    public ButtonManager heatActionButton;
-    public Button standardActionButton;
-
-    [Header("Legacy / Direct UI Reference")]
-    public TMP_Text promptText;
     public GameObject promptPanel;
 
     [Header("Healing Interaction Settings")]
@@ -71,16 +64,7 @@ public class ContextInteractionHUD : MonoBehaviour
         EnsureUI();
         SetPromptVisible(false);
 
-        if (heatActionButton != null)
-        {
-            heatActionButton.onClick.RemoveListener(ExecuteCurrentAction);
-            heatActionButton.onClick.AddListener(ExecuteCurrentAction);
-        }
-        if (standardActionButton != null)
-        {
-            standardActionButton.onClick.RemoveListener(ExecuteCurrentAction);
-            standardActionButton.onClick.AddListener(ExecuteCurrentAction);
-        }
+
     }
 
     protected virtual void OnEnable()
@@ -113,16 +97,12 @@ public class ContextInteractionHUD : MonoBehaviour
             {
                 promptBodyText = bodyTextTrans.GetComponent<TMP_Text>();
             }
-            else if (promptText != null)
-            {
-                promptBodyText = promptText;
-            }
         }
 
         if (promptPanel == null)
         {
             if (questItem != null) promptPanel = questItem.gameObject;
-            else if (promptText != null) promptPanel = promptText.gameObject;
+    
         }
 
         if (promptPanel != null)
@@ -134,14 +114,7 @@ public class ContextInteractionHUD : MonoBehaviour
             }
         }
 
-        if (heatActionButton == null)
-        {
-            heatActionButton = GetComponentInChildren<ButtonManager>(true);
-        }
-        if (standardActionButton == null && heatActionButton == null)
-        {
-            standardActionButton = GetComponentInChildren<Button>(true);
-        }
+
     }
 
     private GameObject GetActiveControlledCharacter()
@@ -332,11 +305,7 @@ public class ContextInteractionHUD : MonoBehaviour
                 promptBodyText.text = bodyMsg;
             }
 
-            // 3. Fallback single promptText if present
-            if (promptText != null && promptText != promptBodyText)
-            {
-                promptText.text = $"[{keyName}] {bodyMsg}";
-            }
+
 
             // 4. Trigger In animation / display
             if (!_isPromptVisible)

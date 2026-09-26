@@ -35,9 +35,6 @@ public class HostDisconnectUI : MonoBehaviour
     [Tooltip("Main title text (e.g., 'HOST DISCONNECTED').")]
     public TMP_Text titleText;
 
-    [Tooltip("Subtitle / explanation text (e.g., 'The Host has disconnected. Returning to Lobby...').")]
-    public TMP_Text subtitleText;
-
     [Tooltip("Countdown text (e.g., 'Returning in 3s...').")]
     public TMP_Text countdownText;
 
@@ -48,18 +45,8 @@ public class HostDisconnectUI : MonoBehaviour
     [Tooltip("Optional title text for success panel.")]
     public TMP_Text successTitleText;
 
-    [Tooltip("Optional subtitle text for success panel.")]
-    public TMP_Text successSubtitleText;
-
     [Tooltip("Optional countdown text for success panel.")]
     public TMP_Text successCountdownText;
-
-    [Header("Michsky Heat / Dark UI")]
-    [Tooltip("Optional: ModalWindowManager to display Disconnect dialog.")]
-    public Michsky.UI.Heat.ModalWindowManager heatDisconnectModal;
-
-    [Tooltip("Optional: ModalWindowManager to display Victory / Success dialog.")]
-    public Michsky.UI.Heat.ModalWindowManager heatSuccessModal;
 
     [Header("Settings")]
     public float returnDelaySeconds = 3.5f;
@@ -165,10 +152,8 @@ public class HostDisconnectUI : MonoBehaviour
         DisableLocalPlayerControls();
 
         // 4. Determine panel and text components
-        NightCrawler.UI.MichskyUIBridge.OpenModal(heatSuccessModal);
         GameObject activePanel = successPanel != null ? successPanel : disconnectPanel;
         TMP_Text titleComp = successTitleText != null ? successTitleText : titleText;
-        TMP_Text subComp = successSubtitleText != null ? successSubtitleText : subtitleText;
         TMP_Text countComp = successCountdownText != null ? successCountdownText : countdownText;
 
         if (activePanel != null)
@@ -183,10 +168,6 @@ public class HostDisconnectUI : MonoBehaviour
             {
                 titleComp.text = title;
                 titleComp.color = new Color(0.2f, 1f, 0.4f); // Victory Green
-            }
-            if (subComp != null)
-            {
-                subComp.text = subtitle;
             }
         }
         else if (DeathUI.Instance != null)
@@ -208,10 +189,6 @@ public class HostDisconnectUI : MonoBehaviour
             if (countComp != null)
             {
                 countComp.text = countStr;
-            }
-            else if (subComp != null)
-            {
-                subComp.text = $"{subtitle}\n{countStr}";
             }
             else if (DeathUI.Instance != null && DeathUI.Instance.subtitleText != null)
             {
@@ -246,7 +223,6 @@ public class HostDisconnectUI : MonoBehaviour
         DisableLocalPlayerControls();
 
         // 4. Display UI Overlay
-        NightCrawler.UI.MichskyUIBridge.OpenModal(heatDisconnectModal);
         if (disconnectPanel != null)
         {
             disconnectPanel.SetActive(true);
@@ -256,7 +232,6 @@ public class HostDisconnectUI : MonoBehaviour
                 canvasGroup.blocksRaycasts = true;
             }
             if (titleText != null) titleText.text = "HOST DISCONNECTED";
-            if (subtitleText != null) subtitleText.text = "The Host has disconnected. Returning to Lobby...";
         }
         else if (DeathUI.Instance != null)
         {
@@ -278,10 +253,6 @@ public class HostDisconnectUI : MonoBehaviour
             if (countdownText != null)
             {
                 countdownText.text = countStr;
-            }
-            else if (subtitleText != null && disconnectPanel != null)
-            {
-                subtitleText.text = countStr;
             }
             else if (DeathUI.Instance != null && DeathUI.Instance.subtitleText != null)
             {

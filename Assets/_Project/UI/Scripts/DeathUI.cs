@@ -51,14 +51,9 @@ public class DeathUI : MonoBehaviour
     [Tooltip("Optional Michsky Heat HotkeyEvent component for the spectate prompt.")]
     public Michsky.UI.Heat.HotkeyEvent heatSpectateHotkey;
 
-    [Header("Michsky Heat / Dark UI")]
-    [Tooltip("Optional: ModalWindowManager to display death screen dialog.")]
-    public Michsky.UI.Heat.ModalWindowManager heatModalWindow;
-
     [Header("Optional Ally Death Banner (Other Players)")]
     [Tooltip("Banner displayed when a teammate dies.")]
     public GameObject allyDeathBanner;
-    public TMP_Text allyDeathText;
 
     [Header("Ally Alert Feed (Bottom-Right Scrollable)")]
     [Tooltip("ScrollRect container for the bottom-right ally alert feed.")]
@@ -99,6 +94,11 @@ public class DeathUI : MonoBehaviour
             heatSpectateHotkey.onHotkeyPress.AddListener(RequestSkipToSpectator);
         }
 
+        if (spectatePromptText == null && deathPanel != null)
+        {
+            spectatePromptText = deathPanel.transform.Find("DeathSkipPromptText")?.GetComponent<TMP_Text>();
+        }
+
         // Hide death screen initially
         if (deathCanvasGroup != null)
         {
@@ -132,11 +132,7 @@ public class DeathUI : MonoBehaviour
             }
         }
 
-        // Hide the template text if assigned so only dynamic entries appear
-        if (allyDeathText != null)
-        {
-            allyDeathText.gameObject.SetActive(false);
-        }
+
     }
 
     private void OnDestroy()
@@ -179,7 +175,7 @@ public class DeathUI : MonoBehaviour
         if (deathPanel != null) deathPanel.SetActive(true);
         if (titleText != null) titleText.text = title;
 
-        NightCrawler.UI.MichskyUIBridge.OpenModal(heatModalWindow);
+
 
         // ── Determine whether there are survivors left to spectate ──────────
         bool hasSurvivors = HasAliveSurvivorsToSpectate();
@@ -239,7 +235,6 @@ public class DeathUI : MonoBehaviour
         }
 
         if (deathPanel != null) deathPanel.SetActive(true);
-        NightCrawler.UI.MichskyUIBridge.OpenModal(heatModalWindow);
 
         // Keep spectate prompt available if survivors are still alive!
         bool hasSurvivors = HasAliveSurvivorsToSpectate();
@@ -325,8 +320,6 @@ public class DeathUI : MonoBehaviour
         {
             deathPanel.SetActive(false);
         }
-
-        NightCrawler.UI.MichskyUIBridge.CloseModal(heatModalWindow);
     }
 
     public void RequestSkipToSpectator()
@@ -488,10 +481,6 @@ public class DeathUI : MonoBehaviour
         if (alertItemPrefab != null)
         {
             entryObj = Instantiate(alertItemPrefab, allyAlertContent);
-        }
-        else if (allyDeathText != null)
-        {
-            entryObj = Instantiate(allyDeathText.gameObject, allyAlertContent);
         }
 
         if (entryObj != null)

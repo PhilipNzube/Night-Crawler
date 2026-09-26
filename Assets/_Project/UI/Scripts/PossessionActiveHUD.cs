@@ -32,17 +32,8 @@ public class PossessionActiveHUD : MonoBehaviour
     public GameObject hudContainer;
     public TMP_Text victimNameText;
     public TMP_Text timeRemainingText;
-    [Tooltip("Text hint displaying the hotkey to exit possession, e.g. '[E] Exit Body'. Replaces the release button.")]
+    [Tooltip("Text hint displaying the hotkey to exit possession, e.g. '[E] Exit Body'.")]
     public TMP_Text exitPromptText;
-    [Tooltip("Optional button if kept, otherwise exit is performed with the hotkey.")]
-    public Button releaseButton;
-
-    [Header("Michsky Heat / Dark UI")]
-    [Tooltip("Optional: Michsky ButtonManager to release possession.")]
-    public Michsky.UI.Heat.ButtonManager heatReleaseButton;
-
-    [Tooltip("Optional: Michsky ProgressBar to show possession time remaining.")]
-    public Michsky.UI.Heat.ProgressBar heatTimeRemainingBar;
 
     private GirlPossession _activeGirlPossession;
     private bool _isActive = false;
@@ -56,7 +47,11 @@ public class PossessionActiveHUD : MonoBehaviour
         }
         Instance = this;
 
-        NightCrawler.UI.MichskyUIBridge.BindButton(releaseButton, heatReleaseButton, OnReleaseClicked);
+        // Auto-wire missing hierarchy references
+        if (hudContainer == null) hudContainer = gameObject;
+        if (victimNameText == null) victimNameText = transform.Find("VictimName/PlayerName")?.GetComponent<TMP_Text>();
+        if (timeRemainingText == null) timeRemainingText = transform.Find("TimerText/Time")?.GetComponent<TMP_Text>();
+        if (exitPromptText == null) exitPromptText = transform.Find("ExitPromptText/NotificationText")?.GetComponent<TMP_Text>();
 
         Hide();
     }
@@ -76,8 +71,6 @@ public class PossessionActiveHUD : MonoBehaviour
         {
             timeRemainingText.text = $"{Mathf.CeilToInt(rem)}s left";
         }
-
-        NightCrawler.UI.MichskyUIBridge.SetProgress(heatTimeRemainingBar, Mathf.Clamp01(rem / 15f));
 
         if (_activeGirlPossession.RemainingPool <= 0.05f)
         {

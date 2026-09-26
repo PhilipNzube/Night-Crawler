@@ -33,48 +33,12 @@ public class PlayerHUD : MonoBehaviour
     [Tooltip("Slider that displays the player's current health.")]
     public Slider healthSlider;
 
-    [Header("Michsky Heat / Dark UI")]
-    [Tooltip("Michsky Heat/Dark UI Progress Bar for health display.")]
-    public ProgressBar heatHealthProgressBar;
-
     [Tooltip("Fills the health bar with color (optional gradient tinting done via script).")]
     public Image healthFill;
-
-    [Tooltip("Invert the fill fraction if using a slider that fills in reverse (e.g. 1 - fraction).")]
-    public bool invertHealthBar = false;
-
-    [Tooltip("Tint the health bar from red to green. Set to false for Bloodlines UI since its sprites are already textured blood-red (tinting green blacks them out).")]
-    public bool tintHealthBarWithColor = false;
-
-    [Tooltip("Displays current / max health as text, e.g. '75 / 100'.")]
-    public TextMeshProUGUI healthText;
 
     [Header("Damage / Blood Overlay")]
     [Tooltip("Vignette blood screen overlay. If null, will auto-locate on HUDCanvas even if inactive.")]
     public BloodScreenOverlay bloodScreenOverlay;
-
-    // -------------------------------------------------------------------------
-    //  Inspector — Role
-    // -------------------------------------------------------------------------
-    [Header("Role")]
-    [Tooltip("Displays the player's role: VENGEFUL SPIRIT or INVESTIGATOR.")]
-    public TextMeshProUGUI roleLabel;
-
-    // -------------------------------------------------------------------------
-    //  Inspector — Investigator-Only Panel
-    // -------------------------------------------------------------------------
-    [Header("Investigator Panel (hidden for Vengeful Spirit)")]
-    [Tooltip("Root GameObject for the Investigator weapon/ammo UI. Hidden for the Vengeful Spirit.")]
-    public GameObject explorerPanel;
-
-    [Tooltip("Displays current ammo count.")]
-    public TextMeshProUGUI ammoText;
-
-    [Tooltip("Displays current weapon name.")]
-    public TextMeshProUGUI weaponText;
-
-    [Tooltip("Optional: Displays current healing vials count (e.g. 'VIALS  3').")]
-    public TextMeshProUGUI vialText;
 
     [Header("Vial Count UI Element")]
     [Tooltip("The 'VialCount' GameObject from HUDCanvas. Displayed for Medic or when other characters carry >= 1 vial.")]
@@ -83,25 +47,9 @@ public class PlayerHUD : MonoBehaviour
     [Tooltip("The text component inside VialCount (e.g. VialText) showing the number.")]
     public TextMeshProUGUI vialCountNumberText;
 
-    // -------------------------------------------------------------------------
-    //  Inspector — Vengeful Spirit-Only Panel
-    // -------------------------------------------------------------------------
     [Header("Vengeful Spirit Panel (hidden for Investigator)")]
     [Tooltip("Root GameObject for Vengeful Spirit-specific UI (stealth prompt, taunt prompt, etc). Hidden for Investigators.")]
     public GameObject demonPanel;
-
-    [Tooltip("Radial fill image that shows the stealth ability cooldown (0 = ready, 1 = on cooldown).")]
-    public Image stealthCooldownFill;
-
-    [Tooltip("Text hint shown when stealth is available (e.g. '[Q] Vanish').")]
-    public TextMeshProUGUI stealthPromptText;
-
-    // -------------------------------------------------------------------------
-    //  Inspector — Match State
-    // -------------------------------------------------------------------------
-    [Header("Match State")]
-    [Tooltip("Shown when waiting for the match to start.")]
-    public GameObject waitingOverlay;
 
     // -------------------------------------------------------------------------
     //  Private State
@@ -227,9 +175,8 @@ public class PlayerHUD : MonoBehaviour
             _localHealth.maxHealth.OnValueChanged     += OnTargetHealthChanged;
         }
 
-        // Show investigator HUD, hide demon HUD
+        // Bind to target
         _isDemon = false;
-        if (explorerPanel != null) explorerPanel.SetActive(true);
         if (demonPanel != null) demonPanel.SetActive(false);
 
         // Turn on minimap if target is an Adventurer/Explorer
@@ -239,13 +186,6 @@ public class PlayerHUD : MonoBehaviour
         if (bloodScreenOverlay != null)
         {
             bloodScreenOverlay.BindToTarget(targetObj);
-        }
-
-        string targetName = targetObj.name.Replace("(Clone)", "").Trim();
-        if (roleLabel != null)
-        {
-            roleLabel.text = $"POSSESSING: {targetName.ToUpper()}";
-            roleLabel.color = new Color(0.7f, 0.4f, 1f);
         }
 
         _isBound = true;
@@ -264,8 +204,6 @@ public class PlayerHUD : MonoBehaviour
         _isDead = false;
 
         if (healthSlider != null) healthSlider.gameObject.SetActive(true);
-        if (healthText != null) healthText.gameObject.SetActive(true);
-        if (roleLabel != null) roleLabel.gameObject.SetActive(true);
         if (vialCountGO != null) vialCountGO.SetActive(false);
 
         UnsubscribeHealthEvents();
@@ -288,10 +226,6 @@ public class PlayerHUD : MonoBehaviour
         UnsubscribeHealthEvents();
 
         if (healthSlider != null) healthSlider.gameObject.SetActive(false);
-        if (heatHealthProgressBar != null) heatHealthProgressBar.gameObject.SetActive(false);
-        if (healthText != null) healthText.gameObject.SetActive(false);
-        if (roleLabel != null) roleLabel.gameObject.SetActive(false);
-        if (explorerPanel != null) explorerPanel.SetActive(false);
         if (demonPanel != null) demonPanel.SetActive(false);
         if (vialCountGO != null) vialCountGO.SetActive(false);
         if (hudRoot != null && hudRoot != gameObject) hudRoot.SetActive(false);
@@ -393,8 +327,6 @@ public class PlayerHUD : MonoBehaviour
 
         _isDead = false;
         if (healthSlider != null) healthSlider.gameObject.SetActive(true);
-        if (healthText != null) healthText.gameObject.SetActive(true);
-        if (roleLabel != null) roleLabel.gameObject.SetActive(true);
 
         // Determine role
         _isDemon = localPlayer.TryGetComponent<GirlStealth>(out _localStealth);
@@ -415,18 +347,7 @@ public class PlayerHUD : MonoBehaviour
         }
 
         // Configure role-specific panels
-        if (explorerPanel != null) explorerPanel.SetActive(!_isDemon);
-        if (demonPanel     != null) demonPanel.SetActive(_isDemon);
-
-        // Set role label
-        if (roleLabel != null)
-        {
-            roleLabel.text  = _isDemon ? "VENGEFUL SPIRIT" : "INVESTIGATOR";
-            roleLabel.color = _isDemon
-                ? new Color(0.7f, 0.1f, 1f)   // Vengeful Spirit purple
-                : new Color(0.2f, 0.8f, 1f);   // Investigator cyan
-        }
-
+        if (demonPanel != null) demonPanel.SetActive(_isDemon);
         _isBound = true;
         // Ensure auxiliary HUD overlays (Corpse looting prompt, Blood damage vignette) are active
         var interactionHUD = GetComponentInChildren<ContextInteractionHUD>(true);
@@ -509,13 +430,12 @@ public class PlayerHUD : MonoBehaviour
 
         _maxHealth = max > 0 ? max : 100f;
         float fraction = Mathf.Clamp01(current / _maxHealth);
-        float displayFraction = invertHealthBar ? (1f - fraction) : fraction;
 
         if (healthSlider != null)
         {
             healthSlider.minValue = 0f;
             healthSlider.maxValue = 1f;
-            healthSlider.value    = displayFraction;
+            healthSlider.value    = fraction;
 
             if (healthFill == null && healthSlider.fillRect != null)
             {
@@ -523,38 +443,16 @@ public class PlayerHUD : MonoBehaviour
             }
         }
 
-        if (heatHealthProgressBar != null)
-        {
-            heatHealthProgressBar.minValue = 0f;
-            heatHealthProgressBar.maxValue = _maxHealth;
-            heatHealthProgressBar.currentValue = current;
-            heatHealthProgressBar.UpdateUI();
-        }
-
         if (healthFill != null)
         {
-            // If the image uses Unity's Filled type (e.g. Bloodlines UI Horizontal Fill),
-            // ensure the fill container is full-span and drive fillAmount linearly!
             if (healthFill.type == Image.Type.Filled)
             {
                 healthFill.rectTransform.anchorMin = new Vector2(0f, 0f);
                 healthFill.rectTransform.anchorMax = new Vector2(1f, 1f);
-                healthFill.fillAmount = displayFraction;
+                healthFill.fillAmount = fraction;
             }
-
-            // Tint health bar: Bloodlines UI textures are already blood-red.
-            if (tintHealthBarWithColor)
-            {
-                healthFill.color = Color.Lerp(Color.red, Color.green, fraction);
-            }
-            else
-            {
-                healthFill.color = Color.white;
-            }
+            healthFill.color = Color.white;
         }
-
-        if (healthText != null)
-            healthText.text = $"{Mathf.CeilToInt(current)} / {Mathf.CeilToInt(_maxHealth)}";
 
         // Push health updates to Blood Screen Overlay immediately
         if (bloodScreenOverlay != null)
@@ -580,58 +478,13 @@ public class PlayerHUD : MonoBehaviour
         {
             vialCountNumberText.text = vialCount.ToString();
         }
-
-        if (vialText != null)
-        {
-            vialText.text = $"VIALS  {vialCount}";
-        }
-
-        if (_localCombat == null || ammoText == null) return;
-
-        bool isGun = _localCombat.currentWeaponIndex.Value == 1;
-        if (weaponText != null) weaponText.text = isGun ? "GUN" : "AXE";
-
-        if (isGun)
-        {
-            int ammo = _localCombat.currentAmmo.Value;
-            ammoText.text  = (vialText != null) ? $"AMMO  {ammo}" : $"AMMO  {ammo}  |  VIALS  {vialCount}";
-            ammoText.color = ammo <= 3 ? new Color(1f, 0.3f, 0.3f) : Color.white;
-        }
-        else
-        {
-            ammoText.text  = (vialText != null) ? "──" : $"VIALS  {vialCount}";
-            ammoText.color = Color.gray;
-        }
     }
 
     private void RefreshDemonPanel()
     {
-        if (_localStealth == null) return;
-
-        // Stealth cooldown fill (requires internal access — GirlStealth exposes CanTaunt/CanStealth publicly)
-        // We read the public NetworkVariable to show active state
-        bool stealthOn = _localStealth.IsStealthActive.Value;
-
-        if (stealthPromptText != null)
-        {
-            stealthPromptText.text  = stealthOn 
-                ? "VANISHED [Q] | [T] Manifest | [E] Possess | [B] Deals" 
-                : "[Q] Vanish | [T] Manifest | [E] Possess | [B] Deals";
-            stealthPromptText.color = stealthOn
-                ? new Color(0.7f, 0.2f, 1f)  // Purple when active
-                : Color.white;
-        }
-
-        // stealthCooldownFill driven by CanTaunt (re-use the same boolean gate)
-        if (stealthCooldownFill != null)
-            stealthCooldownFill.fillAmount = _localStealth.CanTaunt() ? 1f : 0f;
     }
 
-    // =========================================================================
-    //  Helpers
-    // =========================================================================
     private void SetWaitingState(bool waiting)
     {
-        if (waitingOverlay != null) waitingOverlay.SetActive(waiting);
     }
 }

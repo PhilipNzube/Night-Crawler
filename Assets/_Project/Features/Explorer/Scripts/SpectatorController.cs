@@ -80,13 +80,7 @@ public class SpectatorController : MonoBehaviour
 
     [Header("Optional Custom UI References (Procedural if Null)")]
     public GameObject customCanvasRoot;
-    public TMP_Text customTargetNameText;
     public TMP_Text customRoleText;
-    public TMP_Text customHealthText;
-    public Slider customHealthSlider;
-    public TMP_Text customSurvivorsCountText;
-    public TMP_Text customToastText;
-    public TMP_Text customModePromptText;
 
     [Header("Michsky Heat / Hotkey References")]
     [Tooltip("Optional Michsky Heat HotkeyEvent for cycling to Previous Survivor.")]
@@ -104,9 +98,6 @@ public class SpectatorController : MonoBehaviour
     [Header("Michsky Heat / Dark UI")]
     [Tooltip("Optional: Michsky ProgressBar to display spectated player's health.")]
     public Michsky.UI.Heat.ProgressBar heatHealthProgressBar;
-
-    [Tooltip("Optional: Michsky SliderManager to display spectated player's health.")]
-    public Michsky.UI.Heat.SliderManager heatHealthSlider;
 
     // Runtime state
     private bool _isSpectating = false;
@@ -881,15 +872,7 @@ public class SpectatorController : MonoBehaviour
                 else if (hpPercent > 0.25f) _healthFillImage.color = new Color(1f, 0.65f, 0.1f, 1f);
                 else _healthFillImage.color = new Color(1f, 0.2f, 0.25f, 1f);
             }
-            if (customHealthSlider != null)
-            {
-                customHealthSlider.minValue = 0f;
-                customHealthSlider.maxValue = maxHp;
-                customHealthSlider.value = curHp;
-            }
-            NightCrawler.UI.MichskyUIBridge.SetProgress(customHealthSlider, heatHealthProgressBar, curHp, maxHp);
-            NightCrawler.UI.MichskyUIBridge.SetSliderLimits(null, heatHealthSlider, 0f, maxHp);
-            NightCrawler.UI.MichskyUIBridge.SetSliderValue(heatHealthSlider, curHp);
+            NightCrawler.UI.MichskyUIBridge.SetProgress(heatHealthProgressBar, curHp, maxHp);
         }
         else
         {
@@ -899,9 +882,7 @@ public class SpectatorController : MonoBehaviour
             if (_roleBadgeText != null) _roleBadgeText.text = "";
             if (_healthReadoutText != null) _healthReadoutText.text = "Awaiting match outcome...";
             if (_healthFillImage != null) _healthFillImage.fillAmount = 0f;
-            if (customHealthSlider != null) customHealthSlider.value = 0f;
             NightCrawler.UI.MichskyUIBridge.SetProgress(heatHealthProgressBar, 0f);
-            NightCrawler.UI.MichskyUIBridge.SetSliderValue(heatHealthSlider, 0f);
         }
     }
 
@@ -1008,20 +989,7 @@ public class SpectatorController : MonoBehaviour
             _canvasGroup.alpha = 0f;
             if (customCanvasRoot != null) customCanvasRoot.SetActive(false);
 
-            _targetNameText = customTargetNameText;
             _roleBadgeText = customRoleText;
-            _healthReadoutText = customHealthText;
-            _survivorsCountText = customSurvivorsCountText;
-            _toastText = customToastText;
-            if (customModePromptText != null) _modePromptText = customModePromptText;
-
-            if (customToastText != null)
-            {
-                _toastBanner = customToastText.transform.parent != null ? customToastText.transform.parent.gameObject : customToastText.gameObject;
-                _toastCanvasGroup = _toastBanner.GetComponent<CanvasGroup>();
-                if (_toastCanvasGroup == null) _toastCanvasGroup = _toastBanner.AddComponent<CanvasGroup>();
-                _toastBanner.SetActive(false);
-            }
             InitHotkeys();
             return;
         }

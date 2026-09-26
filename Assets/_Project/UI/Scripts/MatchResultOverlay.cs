@@ -21,9 +21,7 @@ public class MatchResultOverlay : MonoBehaviour
     public CanvasGroup allCanvasGroup;
     public Animator allAnimator;
     public Transform contentLayoutGroup;
-    public TextMeshProUGUI summaryText;
     public Michsky.UI.Heat.HotkeyEvent endGameHotkey;
-    public Michsky.UI.Heat.ButtonManager endGameButton;
 
     [Header("Heat UI Achievements")]
     [Tooltip("Prefab instantiated into contentLayoutGroup for each achievement (e.g. Heat Achievement Item prefab).")]
@@ -45,33 +43,20 @@ public class MatchResultOverlay : MonoBehaviour
     [Tooltip("Displays Net Payout total (e.g. inside Summary/NetPayout/Total).")]
     public TextMeshProUGUI netPayoutText;
 
-    [Header("Legacy / Fallbacks")]
-    public GameObject overlayPanel;
-    public TextMeshProUGUI resultText;
-    public TextMeshProUGUI subText;
-    public TextMeshProUGUI economyBreakdownText;
-    public ModalWindowManager heatModalWindow;
-
     private MatchPayoutSummary? _latestPayout;
 
     private void Awake()
     {
         ResolveSummaryReferences();
 
-        // Wire EndGame button / hotkey
+        // Wire EndGame hotkey
         if (endGameHotkey != null)
         {
             endGameHotkey.onHotkeyPress.RemoveListener(OnEndGameClicked);
             endGameHotkey.onHotkeyPress.AddListener(OnEndGameClicked);
         }
-        if (endGameButton != null)
-        {
-            endGameButton.onClick.RemoveListener(OnEndGameClicked);
-            endGameButton.onClick.AddListener(OnEndGameClicked);
-        }
 
         // Force hide immediately on spawn/load
-        if (overlayPanel != null) overlayPanel.SetActive(false);
         if (allCanvasGroup != null)
         {
             allCanvasGroup.alpha = 0f;
@@ -107,10 +92,6 @@ public class MatchResultOverlay : MonoBehaviour
         if (endGameHotkey != null)
         {
             endGameHotkey.onHotkeyPress.RemoveListener(OnEndGameClicked);
-        }
-        if (endGameButton != null)
-        {
-            endGameButton.onClick.RemoveListener(OnEndGameClicked);
         }
     }
 
@@ -156,53 +137,6 @@ public class MatchResultOverlay : MonoBehaviour
     {
         Debug.Log($"[UI-OVERLAY] ShowResult called with: {msg}");
         
-        if (overlayPanel != null)
-        {
-            overlayPanel.SetActive(true);
-        }
-
-        // Unlock cursor for match end
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
-
-        if (Unity.Netcode.NetworkManager.Singleton != null && Unity.Netcode.NetworkManager.Singleton.LocalClient?.PlayerObject != null)
-        {
-            var inputs = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject.GetComponent<StarterAssets.StarterAssetsInputs>();
-            if (inputs != null) 
-            {
-                inputs.cursorLocked = false;
-                inputs.cursorInputForLook = false;
-            }
-        }
-
-        // Primary message
-        if (resultText != null)
-        {
-            resultText.text = msg;
-        }
-
-        // Outcome subtext
-        string outcome = "GAME OVER";
-        if (Unity.Netcode.NetworkManager.Singleton != null && Unity.Netcode.NetworkManager.Singleton.LocalClient?.PlayerObject != null)
-        {
-            bool isGirl = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject.name.Contains("Girl");
-            bool demonWon = msg.Contains("Vengeful Spirit Wins") || msg.Contains("Demon Wins") || msg.Contains("No Survivors");
-            bool explorersWon = msg.Contains("Investigators Win") || msg.Contains("Explorers Win") || msg.Contains("Survived") || msg.Contains("Slain");
-
-            if ((isGirl && demonWon) || (!isGirl && explorersWon)) outcome = "VICTORY";
-            else if ((isGirl && explorersWon) || (!isGirl && demonWon)) outcome = "DEFEAT";
-        }
-
-        if (subText != null)
-        {
-            subText.text = $"{outcome} • Returning to Lobby...";
-        }
-
-        if (summaryText != null)
-        {
-            summaryText.text = $"{outcome}\n<size=75%>{msg}</size>";
-        }
-
         if (allAnimator != null)
         {
             allAnimator.enabled = true;
@@ -216,17 +150,7 @@ public class MatchResultOverlay : MonoBehaviour
             allCanvasGroup.blocksRaycasts = true;
         }
 
-        if (heatModalWindow != null)
-        {
-            heatModalWindow.titleText = msg;
-            heatModalWindow.descriptionText = subText != null ? subText.text : outcome;
-            heatModalWindow.UpdateUI();
-            heatModalWindow.OpenWindow();
-        }
-
         UpdateEconomyText();
-
-        StartCoroutine(ResultsPulse());
     }
 
     private void UpdateEconomyText()
@@ -280,18 +204,6 @@ public class MatchResultOverlay : MonoBehaviour
             }
 
             sb.AppendLine($"<size=14>Current Balance: <b>{p.newBalance} {CurrencyConfig.CurrencyName}</b></size>");
-
-            if (economyBreakdownText != null) economyBreakdownText.text = sb.ToString();
-
-            if (heatModalWindow != null)
-            {
-                heatModalWindow.descriptionText = $"{subText?.text}\n\n{sb.ToString()}";
-                heatModalWindow.UpdateUI();
-            }
-        }
-        else
-        {
-            if (economyBreakdownText != null) economyBreakdownText.text = "Calculating match earnings...";
         }
     }
 
@@ -377,10 +289,21 @@ public class MatchResultOverlay : MonoBehaviour
 
         if (summaryContainer != null)
         {
-            if (totalStakeWonText == null) totalStakeWonText = ResolveChildText(summaryContainer, "TotalStakeWon", "StakeWon", "Total Stake Won");
+            if (totalStakeWonText == null) totalStakeWonText = ResolveChildText(summaryContainer, "TotalStakeWon", "StakeWon", "Total Stake Won", "Total");
             if (stakedAmountText == null) stakedAmountText = ResolveChildText(summaryContainer, "Stake", "Staked", "StakedAmount");
             if (achievementsCountText == null) achievementsCountText = ResolveChildText(summaryContainer, "Achievements", "Achievement", "Contribution");
-            if (netPayoutText == null) netPayoutText = ResolveChildText(summaryContainer, "NetPayout", "Payout", "Net Payout");
+            if (netPayoutText == null)
+            {
+                netPayoutText = ResolveChildText(summaryContainer, "NetPayout", "Payout", "Net Payout", "Common");
+                if (netPayoutText != null && netPayoutText.transform.parent != null)
+                {
+                    var header = netPayoutText.transform.parent.Find("Header")?.GetComponentInChildren<TextMeshProUGUI>();
+                    if (header != null && (header.text == "Common" || header.text == "Card Title"))
+                    {
+                        header.text = "NET PAYOUT";
+                    }
+                }
+            }
         }
     }
 
@@ -416,17 +339,5 @@ public class MatchResultOverlay : MonoBehaviour
         return null;
     }
 
-    private IEnumerator ResultsPulse()
-    {
-        float t = 0;
-        while (t < 1.0f)
-        {
-            t += Time.deltaTime;
-            if (overlayPanel != null)
-            {
-                overlayPanel.transform.localScale = Vector3.one * (1.0f + Mathf.PingPong(t * 2, 0.05f));
-            }
-            yield return null;
-        }
-    }
+
 }

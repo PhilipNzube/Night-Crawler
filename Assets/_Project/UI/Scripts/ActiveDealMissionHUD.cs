@@ -23,14 +23,6 @@ namespace NightCrawler.UI
         public GameObject missionPanel;
         public TextMeshProUGUI missionTitleText;
         public TextMeshProUGUI missionTimerText;
-        public TextMeshProUGUI penaltyWarningText;
-        public Slider timeProgressBar;
-
-        [Header("Michsky Heat / Dark UI")]
-        public ProgressBar heatProgressBar;
-
-        [Header("Audio Feedback")]
-        public AudioClip failureLaughSound;
 
         private float _timeRemaining = 0f;
         private float _totalDuration = 0f;
@@ -69,10 +61,7 @@ namespace NightCrawler.UI
 
             _timeRemaining -= Time.deltaTime;
 
-            if (_totalDuration > 0f)
-            {
-                MichskyUIBridge.SetProgress(timeProgressBar, heatProgressBar, Mathf.Clamp01(_timeRemaining / _totalDuration), 1f);
-            }
+
 
             if (missionTimerText != null)
             {
@@ -100,10 +89,7 @@ namespace NightCrawler.UI
                 missionTitleText.text = $"<b>PACT OBJECTIVE:</b> {title}";
             }
 
-            if (penaltyWarningText != null)
-            {
-                penaltyWarningText.text = $"<size=11>Penalty on Expiry: -{penaltyAmount} {CurrencyConfig.CurrencySymbol} (from Stake)</size>";
-            }
+
 
             SetVisible(true);
             Debug.Log($"[ActiveDealMissionHUD] Started pact mission '{title}' with {durationSeconds}s timer and {penaltyAmount} penalty.");
@@ -140,19 +126,9 @@ namespace NightCrawler.UI
                 MatchEconomyManager.Instance.ApplyPactFailurePenalty(NetworkManager.Singleton.LocalClientId, _penaltyAmount);
             }
 
-            if (failureLaughSound != null && _audioSource != null)
-            {
-                _audioSource.PlayOneShot(failureLaughSound);
-            }
-
             if (missionTitleText != null)
             {
                 missionTitleText.text = "<b>PACT FAILED — TIME EXPIRED</b>";
-            }
-
-            if (penaltyWarningText != null)
-            {
-                penaltyWarningText.text = $"-{_penaltyAmount} {CurrencyConfig.CurrencySymbol} deducted from your stake!";
             }
 
             StartCoroutine(HideAfterDelay(4.5f));

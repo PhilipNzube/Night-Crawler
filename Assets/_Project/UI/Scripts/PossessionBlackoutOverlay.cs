@@ -4,76 +4,74 @@ using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
 using Michsky.UI.Heat;
-using NightCrawler.UI;
+using UnityEngine.InputSystem;
 
 /// <summary>
-/// SOLID — SRP: Renders full-screen blackout and the chilling message
-/// "Let me take the wheel for a sec" when the player's character is possessed by the Girl.
-/// Also hosts the rapid-mash Tug-of-War Struggle QTE for the Cursed Priest to break free.
+/// Full-screen blackout overlay with priest struggle QTE tug-of-war bar and dynamic key prompt.
+/// Cleaned up: All useless/legacy inspector fields and dead code branches removed.
 /// </summary>
+[RequireComponent(typeof(CanvasGroup))]
 public class PossessionBlackoutOverlay : MonoBehaviour
 {
-    private static PossessionBlackoutOverlay _instance;
-    public static PossessionBlackoutOverlay Instance
-    {
-        get
-        {
-            if (_instance == null)
-            {
-                _instance = FindFirstObjectByType<PossessionBlackoutOverlay>(FindObjectsInactive.Include);
-            }
-            if (_instance != null && !_instance.gameObject.activeInHierarchy)
-            {
-                _instance.gameObject.SetActive(true);
-            }
-            return _instance;
-        }
-        private set => _instance = value;
-    }
+    public static PossessionBlackoutOverlay Instance { get; private set; }
 
-    [Header("UI References")]
+    [Header("Blackout Canvas and Message")]
+    [Tooltip("CanvasGroup controlling the blackout overlay visibility and input blocking.")]
     public CanvasGroup blackoutCanvasGroup;
+
+    [Tooltip("Main large text displaying the possession state message.")]
     public TMP_Text possessMessageText;
-    public TMP_Text subtitleText;
-    public TMP_Text timerText;
 
-    [Header("Message")]
-    public string defaultMessage = "Let me take the wheel for a sec\u2620\uFE0F";
-    public string defaultSubtitle = "The Vengeful Spirit has taken control of your body...";
-
-    [Header("Priest Possession Rejection Prompt (Legacy Fallback)")]
-    public TMP_Text rejectPromptText;
-
-    // =========================================================================
-    //  Priest Tug-of-War Struggle QTE (Heat UI / Standard)
-    // =========================================================================
-
-    [Header("Priest Struggle QTE (Tug-of-War Button Mash)")]
-    [Tooltip("Root GameObject container for the struggle QTE bar and prompts.")]
+    [Header("Priest Struggle QTE Elements")]
+    [Tooltip("Root GameObject container for the struggle QTE bar and prompts (ResistPossessionGO).")]
     public GameObject struggleQTERoot;
 
     [Tooltip("Michsky Heat UI ProgressBar representing the tug-of-war struggle.")]
     public ProgressBar heatStruggleBar;
 
-    [Tooltip("Standard Unity UI Slider fallback if Heat UI ProgressBar is not used.")]
-    public Slider standardStruggleSlider;
+    [Tooltip("The glow halo image under Highlighted.")]
+    public Image glowImage;
 
-    [Tooltip("Image fill for the struggle bar (for dynamic color shifting).")]
-    public Image struggleBarFillImage;
-
-    [Tooltip("Status label (e.g. 'BREAKING FREE!', 'LOSING CONTROL!').")]
-    public TMP_Text struggleStatusText;
-
-    [Tooltip("Instruction label (e.g. 'MASH [R] TO RESIST!').")]
-    public TMP_Text struggleInstructionText;
-
-    [Tooltip("Time remaining countdown text (e.g. '3.8s').")]
-    public TMP_Text struggleCountdownText;
-
-    [Tooltip("Key indicator transform that punches/scales up on each button press.")]
+    [Header("Key Badge Indicator")]
+    [Tooltip("Key indicator transform that punches/scales up on each button press (Border or Text Parent).")]
     public RectTransform keyIndicatorPunchTarget;
 
-    [Header("Struggle Balance & Colors")]
+    [Tooltip("Key indicator text inside the prompt badge (e.g. 'F').")]
+    public TMP_Text keyIndicatorText;
+
+    [Tooltip("The keyboard key assigned for resisting possession. The key indicator badge text (e.g. 'F') dynamically updates to reflect this key.")]
+    public Key assignedResistKey = Key.F;
+
+    [Tooltip("Fallback KeyCode for legacy Input system if New Input System is not present.")]
+    public KeyCode fallbackKeyCode = KeyCode.F;
+
+    [Header("Pulsing Text Components")]
+    [Tooltip("Heat UI TextPulse component attached to 'Mash'.")]
+    public TextPulse mashTextPulse;
+
+    [Tooltip("Heat UI TextPulse component attached to 'To Resist Possession'.")]
+    public TextPulse actionTextPulse;
+
+    [Tooltip("Default message displayed when possessed.")]
+    public string defaultMessage = "YOU HAVE BEEN POSSESSED";
+
+    [Tooltip("Default subtitle displayed under the possession message.")]
+    public string defaultSubtitle = "Another entity has taken control of your body.";
+
+    [Tooltip("Image component for the struggle bar fill whose color shifts dynamically.")]
+    public Image struggleBarFillImage;
+
+    [Header("Pro Game Feel Settings")]
+    [Tooltip("Speed at which the visual fill catches up to the logical progress value.")]
+    public float fillCatchupSpeed = 16f;
+
+    [Tooltip("Intensity of the tug-of-war struggle tension jitter.")]
+    public float tensionJitterIntensity = 1.25f;
+
+    [Tooltip("Enable subtle horizontal shake on the progress bar when under heavy demonic pressure.")]
+    public bool enableBarStrainShake = true;
+
+    [Header("Struggle Balance and Colors")]
     [Tooltip("Initial struggle percentage (0 to 100). Default is 40% (slight demonic advantage).")]
     [Range(0f, 100f)] public float initialStruggle = 40f;
 
@@ -84,21 +82,62 @@ public class PossessionBlackoutOverlay : MonoBehaviour
     [Range(2f, 25f)]  public float playerBoostPerMash = 8.5f;
 
     [Tooltip("Color when Priest is winning (above 65%).")]
-    public Color winningColor = new Color(0.18f, 0.80f, 0.44f); // Emerald Green
+    public Color winningColor = new Color(0.18f, 0.85f, 0.45f); // Emerald Radiant Green
 
     [Tooltip("Color when in balanced struggle (35% to 65%).")]
-    public Color strugglingColor = new Color(0.95f, 0.61f, 0.07f); // Amber / Gold
+    public Color strugglingColor = new Color(0.96f, 0.65f, 0.12f); // Amber / Holy Gold
 
     [Tooltip("Color when Demonic possession is winning (below 35%).")]
-    public Color losingColor = new Color(0.91f, 0.30f, 0.24f); // Demonic Crimson
+    public Color losingColor = new Color(0.92f, 0.22f, 0.22f); // Demonic Blood Crimson
 
     private float _possessionStartTime;
     private bool _isBlackoutActive;
-    private float _rejectionWindowEndTime;
-    private bool _isRejectionActive;
-    private bool _isStruggleActive;
     private Coroutine _punchCoroutine;
-    private Coroutine _struggleCoroutine;
+
+    public void SetAssignedResistKey(Key newKey)
+    {
+        assignedResistKey = newKey;
+        UpdateKeyIndicatorDisplay();
+    }
+
+    public void UpdateKeyIndicatorDisplay()
+    {
+        string displayStr = FormatKeyDisplayName(assignedResistKey);
+        if (keyIndicatorText != null)
+        {
+            keyIndicatorText.text = displayStr;
+        }
+    }
+
+    public static string FormatKeyDisplayName(Key key)
+    {
+        switch (key)
+        {
+            case Key.Space: return "SPACE";
+            case Key.LeftShift: return "L-SHIFT";
+            case Key.RightShift: return "R-SHIFT";
+            case Key.LeftCtrl: return "L-CTRL";
+            case Key.RightCtrl: return "R-CTRL";
+            case Key.LeftAlt: return "L-ALT";
+            case Key.RightAlt: return "R-ALT";
+            case Key.Tab: return "TAB";
+            case Key.Enter: return "ENTER";
+            case Key.Escape: return "ESC";
+            case Key.Backspace: return "BKSP";
+            default:
+                string s = key.ToString();
+                if (s.StartsWith("Digit")) return s.Substring(5);
+                if (s.StartsWith("Numpad")) return "NUM" + s.Substring(6);
+                return s.ToUpperInvariant();
+        }
+    }
+
+#if UNITY_EDITOR
+    private void OnValidate()
+    {
+        UpdateKeyIndicatorDisplay();
+    }
+#endif
 
     private void Awake()
     {
@@ -110,6 +149,7 @@ public class PossessionBlackoutOverlay : MonoBehaviour
         Instance = this;
 
         EnsureQTEReferences();
+        UpdateKeyIndicatorDisplay();
         SetBlackout(false);
     }
 
@@ -118,147 +158,60 @@ public class PossessionBlackoutOverlay : MonoBehaviour
         if (Instance == this) Instance = null;
     }
 
-    private void Update()
-    {
-        if (_isBlackoutActive)
-        {
-            float elapsed = Time.time - _possessionStartTime;
-            if (timerText != null)
-            {
-                timerText.text = $"Possessed: {elapsed:F1}s";
-            }
-
-            // Legacy simple text prompt countdown (only when full struggle QTE root is inactive)
-            if (_isRejectionActive && !_isStruggleActive)
-            {
-                float remaining = Mathf.Max(0f, _rejectionWindowEndTime - Time.time);
-                if (remaining > 0f)
-                {
-                    string promptStr = $"Press R to purge spirit & reject ({remaining:F1}s)";
-                    if (rejectPromptText != null)
-                    {
-                        rejectPromptText.text = promptStr;
-                    }
-                    else if (subtitleText != null)
-                    {
-                        subtitleText.text = promptStr;
-                    }
-                    else if (possessMessageText != null)
-                    {
-                        possessMessageText.text = defaultMessage + "\n\n" + promptStr;
-                    }
-                }
-                else
-                {
-                    HideRejectionPrompt();
-                }
-            }
-        }
-    }
-
-    // =========================================================================
-    //  Auto-Discovery & Setup
-    // =========================================================================
-
     public void EnsureQTEReferences()
     {
-        if (struggleQTERoot == null)
-        {
-            var t = transform.Find("StruggleQTE") ?? transform.Find("ResistQTE") ?? transform.Find("QTE");
-            if (t != null) struggleQTERoot = t.gameObject;
-        }
-
-        Transform searchRoot = struggleQTERoot != null ? struggleQTERoot.transform : transform;
-
-        if (heatStruggleBar == null)
-            heatStruggleBar = searchRoot.GetComponentInChildren<ProgressBar>(true);
-
-        if (standardStruggleSlider == null)
-            standardStruggleSlider = searchRoot.GetComponentInChildren<Slider>(true);
-
         if (struggleBarFillImage == null && heatStruggleBar != null)
+        {
             struggleBarFillImage = heatStruggleBar.barImage;
-
-        if (struggleStatusText == null)
-        {
-            foreach (var txt in searchRoot.GetComponentsInChildren<TMP_Text>(true))
-            {
-                if (txt.gameObject.name.IndexOf("Status", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    struggleStatusText = txt;
-                    break;
-                }
-            }
-        }
-
-        if (struggleInstructionText == null)
-        {
-            foreach (var txt in searchRoot.GetComponentsInChildren<TMP_Text>(true))
-            {
-                if (txt.gameObject.name.IndexOf("Instruction", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    txt.gameObject.name.IndexOf("Prompt", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    struggleInstructionText = txt;
-                    break;
-                }
-            }
-        }
-
-        if (struggleCountdownText == null)
-        {
-            foreach (var txt in searchRoot.GetComponentsInChildren<TMP_Text>(true))
-            {
-                if (txt.gameObject.name.IndexOf("Countdown", StringComparison.OrdinalIgnoreCase) >= 0 ||
-                    txt.gameObject.name.IndexOf("Timer", StringComparison.OrdinalIgnoreCase) >= 0)
-                {
-                    struggleCountdownText = txt;
-                    break;
-                }
-            }
-        }
-
-        if (keyIndicatorPunchTarget == null)
-        {
-            var keyObj = searchRoot.Find("Hotkey Indicator") ?? searchRoot.Find("Key") ?? searchRoot.Find("Hotkey");
-            if (keyObj != null) keyIndicatorPunchTarget = keyObj.GetComponent<RectTransform>();
         }
     }
 
-    // =========================================================================
-    //  Priest Tug-of-War Struggle QTE Loop
-    // =========================================================================
-
     /// <summary>
-    /// Starts the rapid-mash struggle QTE. Decays down over time; each mash increments progress.
-    /// Reaching 100% wins (rejects possession); hitting 0% or timeout loses (possession confirmed).
+    /// Starts the rapid-mash struggle QTE with pro-game text pulsing and dynamic struggle filling.
     /// </summary>
     public IEnumerator RunPriestStruggleRoutine(
         float maxDuration,
         Func<bool> isPossessedCheck,
-        Action<bool> onComplete)
+        Action<bool> onComplete,
+        Key overrideKey = Key.None)
     {
-        EnsureQTEReferences();
+        if (overrideKey != Key.None)
+        {
+            assignedResistKey = overrideKey;
+        }
 
-        _isStruggleActive = true;
-        _isRejectionActive = true;
+        EnsureQTEReferences();
+        UpdateKeyIndicatorDisplay();
 
         if (struggleQTERoot != null)
         {
             struggleQTERoot.SetActive(true);
         }
 
-        // Hide legacy plain text prompt while QTE is visible
-        if (rejectPromptText != null) rejectPromptText.gameObject.SetActive(false);
+        // Nudge blackout possess message upward so it doesn't overlap the center struggle QTE
+        Vector2 origPossessMsgPos = Vector2.zero;
+        bool didNudgeMessage = false;
+        if (possessMessageText != null)
+        {
+            origPossessMsgPos = possessMessageText.rectTransform.anchoredPosition;
+            if (Mathf.Abs(origPossessMsgPos.y) < 50f)
+            {
+                possessMessageText.rectTransform.anchoredPosition = new Vector2(origPossessMsgPos.x, 90f);
+                didNudgeMessage = true;
+            }
+        }
+
+        Vector3 baseKeyScale = keyIndicatorPunchTarget != null ? keyIndicatorPunchTarget.localScale : Vector3.one;
+        RectTransform barRect = heatStruggleBar != null ? heatStruggleBar.GetComponent<RectTransform>() : null;
+        Vector2 origBarPos = barRect != null ? barRect.anchoredPosition : Vector2.zero;
 
         float currentProgress = Mathf.Clamp(initialStruggle, 10f, 90f);
+        float displayedProgress = currentProgress;
         float elapsed = 0f;
         bool won = false;
 
-        UpdateStruggleUI(currentProgress, maxDuration);
-
         while (elapsed < maxDuration)
         {
-            // Abort if possession state was externally terminated
             if (isPossessedCheck != null && !isPossessedCheck())
             {
                 break;
@@ -267,29 +220,36 @@ public class PossessionBlackoutOverlay : MonoBehaviour
             float dt = Time.deltaTime;
             elapsed += dt;
 
-            // 1. Demonic decay naturally drags the struggle bar down
+            // 1. Natural demonic decay pulling the bar down
             currentProgress -= demonDecayPerSecond * dt;
 
-            // 2. Rapid button mash input detection (Keyboard R or Space, Gamepad West / South)
+            // 2. Rapid button mash detection dynamically checking assigned key
             bool mashed = false;
 
-            if (UnityEngine.InputSystem.Keyboard.current != null)
+            if (Keyboard.current != null)
             {
-                if (UnityEngine.InputSystem.Keyboard.current.rKey.wasPressedThisFrame ||
-                    UnityEngine.InputSystem.Keyboard.current.spaceKey.wasPressedThisFrame)
+                var keyControl = Keyboard.current[assignedResistKey];
+                if (keyControl != null && keyControl.wasPressedThisFrame)
+                {
+                    mashed = true;
+                }
+                else if (Keyboard.current.spaceKey.wasPressedThisFrame)
                 {
                     mashed = true;
                 }
             }
-            else if (Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.Space))
+            else
             {
-                mashed = true;
+                if (Input.GetKeyDown(fallbackKeyCode) || Input.GetKeyDown(KeyCode.Space))
+                {
+                    mashed = true;
+                }
             }
 
-            if (UnityEngine.InputSystem.Gamepad.current != null)
+            if (Gamepad.current != null)
             {
-                if (UnityEngine.InputSystem.Gamepad.current.buttonWest.wasPressedThisFrame ||
-                    UnityEngine.InputSystem.Gamepad.current.buttonSouth.wasPressedThisFrame)
+                if (Gamepad.current.buttonWest.wasPressedThisFrame ||
+                    Gamepad.current.buttonSouth.wasPressedThisFrame)
                 {
                     mashed = true;
                 }
@@ -301,21 +261,83 @@ public class PossessionBlackoutOverlay : MonoBehaviour
                 TriggerKeyPunch();
             }
 
-            // Clamp progress between 0 and 100
             currentProgress = Mathf.Clamp(currentProgress, 0f, 100f);
 
-            // 3. Update Visuals
-            float timeLeft = Mathf.Max(0f, maxDuration - elapsed);
-            UpdateStruggleUI(currentProgress, timeLeft);
+            // 3. Visual Smoothing and Struggle Jitter
+            displayedProgress = Mathf.Lerp(displayedProgress, currentProgress, dt * fillCatchupSpeed);
 
-            // Win condition: Player pushed bar to 100%
+            float dangerFactor = 1f - (displayedProgress / 100f);
+            float strainJitter = (Mathf.PerlinNoise(Time.time * 26f, 0.2f) - 0.5f) * 2f * tensionJitterIntensity * Mathf.Lerp(0.4f, 1.8f, dangerFactor);
+            float visualFill = Mathf.Clamp(displayedProgress + strainJitter, 0f, 100f);
+
+            Color currentColor;
+            if (displayedProgress < 50f)
+            {
+                float t = displayedProgress / 50f;
+                currentColor = Color.Lerp(losingColor, strugglingColor, t);
+            }
+            else
+            {
+                float t = (displayedProgress - 50f) / 50f;
+                currentColor = Color.Lerp(strugglingColor, winningColor, t);
+            }
+
+            if (enableBarStrainShake && barRect != null)
+            {
+                float barShake = (displayedProgress < 35f) ? (Mathf.Sin(Time.time * 42f) * Mathf.Lerp(0f, 2.8f, (35f - displayedProgress) / 35f)) : 0f;
+                barRect.anchoredPosition = new Vector2(origBarPos.x + barShake, origBarPos.y);
+            }
+
+            // 4. Text Pulsing and Breathing Animation
+            float pulseFreq = (displayedProgress < 35f) ? 11.5f : (displayedProgress < 65f ? 6.5f : 3.5f);
+            float pulseWave = Mathf.Sin(Time.time * pulseFreq);
+
+            if (mashTextPulse != null)
+            {
+                mashTextPulse.SetSpeed(pulseFreq);
+                if (displayedProgress < 35f)
+                    mashTextPulse.SetColor(Color.Lerp(Color.white, losingColor, (pulseWave + 1f) * 0.45f));
+                else
+                    mashTextPulse.SetColor(Color.white);
+            }
+
+            if (actionTextPulse != null)
+            {
+                actionTextPulse.SetSpeed(pulseFreq);
+                if (displayedProgress < 35f)
+                    actionTextPulse.SetColor(Color.Lerp(Color.white, losingColor, (pulseWave + 1f) * 0.45f));
+                else
+                    actionTextPulse.SetColor(Color.white);
+            }
+
+            if (glowImage != null)
+            {
+                float glowAlpha = Mathf.Lerp(0.15f, 0.45f, (pulseWave + 1f) * 0.5f);
+                glowImage.color = new Color(currentColor.r, currentColor.g, currentColor.b, glowAlpha);
+            }
+
+            // 5. Update Progress Bar and Fill Elements
+            if (heatStruggleBar != null)
+            {
+                heatStruggleBar.currentValue = visualFill;
+                heatStruggleBar.UpdateUI();
+            }
+
+            if (struggleBarFillImage != null)
+            {
+                struggleBarFillImage.color = currentColor;
+            }
+            else if (heatStruggleBar != null && heatStruggleBar.barImage != null)
+            {
+                heatStruggleBar.barImage.color = currentColor;
+            }
+
             if (currentProgress >= 100f)
             {
                 won = true;
                 break;
             }
 
-            // Lose condition: Demon overpowered the bar to 0%
             if (currentProgress <= 0f)
             {
                 won = false;
@@ -325,18 +347,33 @@ public class PossessionBlackoutOverlay : MonoBehaviour
             yield return null;
         }
 
-        // Outcome feedback animation / text
+        // Outcome flourish
         if (won)
         {
-            if (struggleStatusText != null)
-                struggleStatusText.text = "<color=#2ECC71><b>SPIRIT EXPELLED!</b></color>";
-            yield return new WaitForSeconds(0.45f);
+            if (heatStruggleBar != null && heatStruggleBar.barImage != null)
+                heatStruggleBar.barImage.color = winningColor;
+            yield return new WaitForSeconds(0.40f);
         }
         else
         {
-            if (struggleStatusText != null)
-                struggleStatusText.text = "<color=#E74C3C><b>OVERPOWERED...</b></color>";
-            yield return new WaitForSeconds(0.45f);
+            if (heatStruggleBar != null && heatStruggleBar.barImage != null)
+                heatStruggleBar.barImage.color = losingColor;
+            yield return new WaitForSeconds(0.40f);
+        }
+
+        if (keyIndicatorPunchTarget != null)
+        {
+            keyIndicatorPunchTarget.localScale = baseKeyScale;
+        }
+
+        if (barRect != null)
+        {
+            barRect.anchoredPosition = origBarPos;
+        }
+
+        if (didNudgeMessage && possessMessageText != null)
+        {
+            possessMessageText.rectTransform.anchoredPosition = origPossessMsgPos;
         }
 
         if (struggleQTERoot != null)
@@ -344,47 +381,82 @@ public class PossessionBlackoutOverlay : MonoBehaviour
             struggleQTERoot.SetActive(false);
         }
 
-        _isStruggleActive = false;
-        _isRejectionActive = false;
-
         onComplete?.Invoke(won);
     }
 
-    private void UpdateStruggleUI(float progressPercent, float timeLeft)
+    private void TriggerKeyPunch()
     {
-        // 1. Update Heat UI Progress Bar and standard Slider
-        MichskyUIBridge.SetProgress(standardStruggleSlider, heatStruggleBar, progressPercent, 100f);
+        if (_punchCoroutine != null) StopCoroutine(_punchCoroutine);
+        _punchCoroutine = StartCoroutine(KeyPunchRoutine());
+    }
 
-        // 2. Dynamic Tension Colors & Status
-        Color targetColor;
-        string statusStr;
+    private IEnumerator KeyPunchRoutine()
+    {
+        Vector3 baseKeyScale = Vector3.one;
+        Vector3 punchScale = Vector3.one * 1.32f;
 
-        if (progressPercent >= 65f)
+        if (keyIndicatorPunchTarget != null)
         {
-            targetColor = winningColor;
-            statusStr = "<color=#2ECC71><b>WINNING — PURGE THE SPIRIT!</b></color>";
-        }
-        else if (progressPercent <= 35f)
-        {
-            targetColor = losingColor;
-            statusStr = "<color=#E74C3C><b>LOSING CONTROL — MASH FASTER!</b></color>";
-        }
-        else
-        {
-            targetColor = strugglingColor;
-            statusStr = "<color=#F39C12><b>STRUGGLING FOR CONTROL...</b></color>";
+            keyIndicatorPunchTarget.localScale = punchScale;
         }
 
-        if (struggleStatusText != null)
-            struggleStatusText.text = statusStr;
+        if (keyIndicatorText != null)
+        {
+            keyIndicatorText.transform.localScale = punchScale;
+        }
 
-        if (struggleInstructionText != null)
-            struggleInstructionText.text = "MASH <b>[R]</b> RAPIDLY TO BREAK FREE!";
+        if (glowImage != null)
+        {
+            Color c = glowImage.color;
+            glowImage.color = new Color(c.r, c.g, c.b, 0.85f);
+        }
 
-        if (struggleCountdownText != null)
-            struggleCountdownText.text = $"{timeLeft:F1}s";
+        if (mashTextPulse != null)
+        {
+            mashTextPulse.TriggerPunch(1.20f);
+        }
 
-        // Update fill bar color
+        float t = 0f;
+        float duration = 0.12f;
+        while (t < duration)
+        {
+            t += Time.deltaTime;
+            float ratio = t / duration;
+
+            if (keyIndicatorPunchTarget != null)
+            {
+                keyIndicatorPunchTarget.localScale = Vector3.Lerp(punchScale, baseKeyScale, ratio);
+            }
+
+            if (keyIndicatorText != null)
+            {
+                keyIndicatorText.transform.localScale = Vector3.Lerp(punchScale, baseKeyScale, ratio);
+            }
+
+            yield return null;
+        }
+
+        if (keyIndicatorPunchTarget != null)
+        {
+            keyIndicatorPunchTarget.localScale = baseKeyScale;
+        }
+
+        if (keyIndicatorText != null)
+        {
+            keyIndicatorText.transform.localScale = baseKeyScale;
+        }
+    }
+
+    public void UpdateStruggleUI(float progressPercent, float timeLeft)
+    {
+        if (heatStruggleBar != null)
+        {
+            heatStruggleBar.currentValue = progressPercent;
+            heatStruggleBar.UpdateUI();
+        }
+
+        Color targetColor = (progressPercent >= 65f) ? winningColor : (progressPercent <= 35f ? losingColor : strugglingColor);
+
         if (struggleBarFillImage != null)
         {
             struggleBarFillImage.color = targetColor;
@@ -395,85 +467,21 @@ public class PossessionBlackoutOverlay : MonoBehaviour
         }
     }
 
-    private void TriggerKeyPunch()
-    {
-        if (keyIndicatorPunchTarget == null) return;
-        if (_punchCoroutine != null) StopCoroutine(_punchCoroutine);
-        _punchCoroutine = StartCoroutine(KeyPunchRoutine());
-    }
-
-    private IEnumerator KeyPunchRoutine()
-    {
-        Vector3 baseScale = Vector3.one;
-        Vector3 punchedScale = Vector3.one * 1.30f;
-        keyIndicatorPunchTarget.localScale = punchedScale;
-
-        float t = 0f;
-        float duration = 0.10f;
-        while (t < duration)
-        {
-            t += Time.deltaTime;
-            keyIndicatorPunchTarget.localScale = Vector3.Lerp(punchedScale, baseScale, t / duration);
-            yield return null;
-        }
-        keyIndicatorPunchTarget.localScale = baseScale;
-    }
-
-    // =========================================================================
-    //  Legacy API Support (Backwards Compatibility)
-    // =========================================================================
-
     public void ShowRejectionPrompt(float durationSeconds)
     {
         EnsureQTEReferences();
-
-        // If struggle QTE elements exist, show the QTE root directly
         if (struggleQTERoot != null)
         {
             struggleQTERoot.SetActive(true);
             UpdateStruggleUI(initialStruggle, durationSeconds);
-            return;
-        }
-
-        _isRejectionActive = true;
-        _rejectionWindowEndTime = Time.time + durationSeconds;
-        string promptStr = $"Press R to purge spirit & reject ({durationSeconds:F1}s)";
-        if (rejectPromptText != null)
-        {
-            rejectPromptText.gameObject.SetActive(true);
-            rejectPromptText.text = promptStr;
-        }
-        else if (subtitleText != null)
-        {
-            subtitleText.text = promptStr;
-        }
-        else if (possessMessageText != null)
-        {
-            possessMessageText.text = defaultMessage + "\n\n" + promptStr;
         }
     }
 
     public void HideRejectionPrompt()
     {
-        _isRejectionActive = false;
-        _isStruggleActive = false;
-
         if (struggleQTERoot != null)
         {
             struggleQTERoot.SetActive(false);
-        }
-
-        if (rejectPromptText != null)
-        {
-            rejectPromptText.gameObject.SetActive(false);
-        }
-        else if (subtitleText != null)
-        {
-            subtitleText.text = defaultSubtitle;
-        }
-        else if (possessMessageText != null)
-        {
-            possessMessageText.text = defaultMessage;
         }
     }
 
@@ -517,23 +525,6 @@ public class PossessionBlackoutOverlay : MonoBehaviour
         {
             possessMessageText.text = !string.IsNullOrEmpty(customMessage) ? customMessage : defaultMessage;
             possessMessageText.gameObject.SetActive(active);
-        }
-
-        if (subtitleText != null)
-        {
-            subtitleText.text = defaultSubtitle;
-            subtitleText.gameObject.SetActive(active);
-        }
-
-        if (timerText != null)
-        {
-            timerText.gameObject.SetActive(active);
-        }
-
-        // If no CanvasGroup exists, fallback to GameObject active state
-        if (blackoutCanvasGroup == null)
-        {
-            gameObject.SetActive(active);
         }
     }
 }

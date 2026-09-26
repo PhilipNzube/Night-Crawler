@@ -53,8 +53,7 @@ public class NotificationManager : MonoBehaviour
     [Tooltip("Accent indicator line.")]
     public Image accentBar;
 
-    [Header("Michsky Heat / Dark UI")]
-    public Michsky.UI.Heat.NotificationManager heatNotification;
+
 
     [Header("Audio (Optional)")]
     public AudioClip hazardSound;
@@ -89,7 +88,10 @@ public class NotificationManager : MonoBehaviour
             if (canvasGroup == null) canvasGroup = gameObject.AddComponent<CanvasGroup>();
         }
 
-        if (canvasGroup != null && heatNotification == null)
+        if (panelBackground == null) panelBackground = transform.Find("NotificationTextGO/Background")?.GetComponent<Image>();
+        if (accentBar == null) accentBar = transform.Find("NotificationTextGO/Indicator")?.GetComponent<Image>();
+
+        if (canvasGroup != null)
         {
             canvasGroup.alpha = 0f;
             canvasGroup.blocksRaycasts = false;
@@ -157,23 +159,9 @@ public class NotificationManager : MonoBehaviour
             notificationText.text = message;
         }
 
-        if (heatNotification != null)
-        {
-            heatNotification.notificationText = message;
-            heatNotification.minimizeAfter = duration;
-            heatNotification.UpdateUI();
-            heatNotification.ExpandNotification();
-        }
-
         if (_audioSource != null && sound != null)
         {
             _audioSource.PlayOneShot(sound);
-        }
-
-        if (heatNotification != null)
-        {
-            // Heat UI handles animation in/out via Animator
-            return;
         }
 
         if (_displayCoroutine != null)

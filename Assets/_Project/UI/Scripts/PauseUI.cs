@@ -23,9 +23,6 @@ public class PauseUI : MonoBehaviour
     [Tooltip("The panel name of the Settings panel in PanelManager (default: 'Settings').")]
     public string settingsPanelName = "Settings";
 
-    [Tooltip("The ImageFading component on Background to smoothly fade in/out when pausing.")]
-    public ImageFading backgroundFader;
-
     [Header("Heat UI Pause Buttons (PanelButton)")]
     [Tooltip("The Resume button (PanelButton on Btn_Resume).")]
     public PanelButton resumeButton;
@@ -35,11 +32,6 @@ public class PauseUI : MonoBehaviour
 
     [Tooltip("The Exit button (PanelButton on Btn_Exit).")]
     public PanelButton exitButton;
-
-    [Header("Alternate Button Managers (Optional fallback)")]
-    public ButtonManager altResumeButton;
-    public ButtonManager altSettingsButton;
-    public ButtonManager altExitButton;
 
     [Header("Heat UI Exit Modal Window")]
     [Tooltip("The Exit Confirmation Modal Window (ModalWindowManager).")]
@@ -78,9 +70,9 @@ public class PauseUI : MonoBehaviour
     {
         _pauseManager = FindFirstObjectByType<PauseManager>();
 
-        BindButton(OnResumePressed, resumeButton, altResumeButton);
-        BindButton(OnSettingsPressed, settingsButton, altSettingsButton);
-        BindButton(OnExitPressed, exitButton, altExitButton);
+        BindButton(OnResumePressed, resumeButton);
+        BindButton(OnSettingsPressed, settingsButton);
+        BindButton(OnExitPressed, exitButton);
 
         if (exitModal != null)
         {
@@ -102,12 +94,10 @@ public class PauseUI : MonoBehaviour
         SetCanvasState(false);
     }
 
-    private void BindButton(System.Action callback, PanelButton panelBtn, ButtonManager btnMgr)
+    private void BindButton(System.Action callback, PanelButton panelBtn)
     {
         if (panelBtn != null)
             panelBtn.onClick.AddListener(() => callback());
-        if (btnMgr != null)
-            btnMgr.onClick.AddListener(() => callback());
     }
 
     // =========================================================================
@@ -128,7 +118,7 @@ public class PauseUI : MonoBehaviour
             }
         }
 
-        if (backgroundFader != null) backgroundFader.FadeIn();
+
 
         if (panelManager != null)
         {
@@ -160,7 +150,7 @@ public class PauseUI : MonoBehaviour
 
     public void HidePauseMenu()
     {
-        if (backgroundFader != null) backgroundFader.FadeOut();
+
         if (exitModal != null && exitModal.isOn) exitModal.CloseWindow();
         if (panelManager != null) panelManager.HideCurrentPanel();
 

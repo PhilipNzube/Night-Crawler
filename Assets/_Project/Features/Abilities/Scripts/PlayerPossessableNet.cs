@@ -1,6 +1,7 @@
 using UnityEngine;
 using Unity.Netcode;
 using StarterAssets;
+using UnityEngine.InputSystem;
 
 /// <summary>
 /// SOLID — SRP: Enables any player investigator to be possessed by the Girl.
@@ -22,6 +23,12 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
     [Header("Priest Possession Struggle Settings")]
     [Tooltip("Maximum duration in seconds for the Priest's button-mash struggle QTE.")]
     public float priestResistWindowDuration = 5.0f;
+
+    [Tooltip("Key required by the Priest to mash and resist possession. Dynamically reflected on the HUD.")]
+    public Key resistKey = Key.F;
+
+    [Tooltip("Fallback KeyCode for legacy input system.")]
+    public KeyCode fallbackResistKeyCode = KeyCode.F;
 
     private CharacterController _characterController;
     private ThirdPersonController _thirdPersonController;
@@ -137,7 +144,8 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             yield return PossessionBlackoutOverlay.Instance.RunPriestStruggleRoutine(
                 windowDuration,
                 () => isPossessed.Value,
-                (won) => rejected = won
+                (won) => rejected = won,
+                resistKey
             );
         }
         else
@@ -147,18 +155,19 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             {
                 elapsed += Time.deltaTime;
 
-                if (UnityEngine.InputSystem.Keyboard.current != null)
+                if (Keyboard.current != null)
                 {
-                    bool rPressed = UnityEngine.InputSystem.Keyboard.current.rKey.wasPressedThisFrame;
-                    bool spacePressed = UnityEngine.InputSystem.Keyboard.current.spaceKey.wasPressedThisFrame;
+                    var keyControl = Keyboard.current[resistKey];
+                    bool keyMashed = (keyControl != null && keyControl.wasPressedThisFrame) ||
+                                     Keyboard.current.spaceKey.wasPressedThisFrame;
 
-                    if (rPressed || spacePressed)
+                    if (keyMashed)
                     {
                         rejected = true;
                         break;
                     }
                 }
-                else if (Input.GetKeyDown(KeyCode.R) || Input.GetKeyDown(KeyCode.Space))
+                else if (Input.GetKeyDown(fallbackResistKeyCode) || Input.GetKeyDown(KeyCode.Space))
                 {
                     rejected = true;
                     break;
