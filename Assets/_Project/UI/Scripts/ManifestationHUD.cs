@@ -57,26 +57,27 @@ public class ManifestationHUD : MonoBehaviour
             hudContainer = gameObject;
         }
 
+        EnsureOnScreen();
+
         if (timerText == null)
         {
-            // Auto-locate 'Total' child
-            var totalChild = transform.Find("Total");
-            if (totalChild != null)
-            {
-                timerText = totalChild.GetComponent<TextMeshProUGUI>();
-            }
-            if (timerText == null)
-            {
-                timerText = GetComponentInChildren<TextMeshProUGUI>(true);
-            }
-        }
-
-        if (canvasGroup == null)
-        {
-            canvasGroup = GetComponent<CanvasGroup>();
+            Debug.LogWarning("[ManifestationHUD] timerText is not assigned in the Inspector. Please assign the TextMeshProUGUI component in the Editor.");
         }
 
         Hide();
+    }
+
+    private void EnsureOnScreen()
+    {
+        if (transform is RectTransform rect)
+        {
+            // If anchored to the top of the canvas, positive Y pushes the HUD offscreen above the viewport.
+            if (rect.anchorMin.y >= 0.8f && rect.anchoredPosition.y > 0f)
+            {
+                Debug.LogWarning($"[ManifestationHUD] RectTransform anchoredPosition.y was offscreen ({rect.anchoredPosition.y}). Adjusting to -60f.");
+                rect.anchoredPosition = new Vector2(rect.anchoredPosition.x, -60f);
+            }
+        }
     }
 
     private void OnDestroy()
@@ -107,15 +108,12 @@ public class ManifestationHUD : MonoBehaviour
     /// </summary>
     public void Show(float duration)
     {
-        if (onlyVisibleToGirl)
+        if (onlyVisibleToGirl && !IsLocalPlayerGirl())
         {
-            // Check if local player is the Girl
-            var localGirl = FindFirstObjectByType<GirlMaterialController>();
-            if (localGirl == null || !localGirl.IsOwner)
-            {
-                return;
-            }
+            return;
         }
+
+        EnsureOnScreen();
 
         _timeRemaining = duration;
         _isCountingDown = true;
@@ -164,5 +162,34 @@ public class ManifestationHUD : MonoBehaviour
         int mins = totalSec / 60;
         int secs = totalSec % 60;
         timerText.text = $"{mins:00}:{secs:00}";
+    }
+
+    private bool IsLocalPlayerGirl()
+    {
+        if (Unity.Netcode.NetworkManager.Singleton != null && Unity.Netcode.NetworkManager.Singleton.IsListening)
+        {
+            var localClient = Unity.Netcode.NetworkManager.Singleton.LocalClient;
+            if (localClient?.PlayerObject != null)
+            {
+                if (localClient.PlayerObject.GetComponent<GirlMaterialController>() != null ||
+                    localClient.PlayerObject.name.ToLower().Contains("girl"))
+                {
+                    return true;
+                }
+            }
+        }
+
+        var girls = FindObjectsByType<GirlMaterialController>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        foreach (var girl in girls)
+        {
+            if (girl != null && girl.IsOwner) return true;
+        }
+
+        if (Unity.Netcode.NetworkManager.Singleton == null || !Unity.Netcode.NetworkManager.Singleton.IsListening)
+        {
+            return true;
+        }
+
+        return false;
     }
 }

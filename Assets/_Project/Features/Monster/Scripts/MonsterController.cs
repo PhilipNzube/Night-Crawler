@@ -44,7 +44,7 @@ public class MonsterController : MonoBehaviour, IPossessable
                 var allTransforms = GetComponentsInChildren<Transform>(true);
                 foreach (var tr in allTransforms)
                 {
-                    if (tr != null && (tr.name.Contains("MonsterCamera") || tr.name.Contains("CameraRoot") || tr.CompareTag("CinemachineTarget")))
+                    if (tr != null && (tr.name.Contains("MonsterCamera") || tr.name.Contains("CameraRoot") || tr.name.Contains("CinemachineTarget")))
                     {
                         monsterCameraTarget = tr;
                         break;

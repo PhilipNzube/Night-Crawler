@@ -22,10 +22,11 @@ namespace NightCrawler.Economy
         {
             if (target == null) return false;
 
-            bool isMonster = target.CompareTag("Monster") ||
+            bool isMonster = target.GetComponentInParent<MonsterAI>() != null ||
+                             target.GetComponentInParent<MonsterController>() != null ||
                              target.name.ToLower().Contains("monster") ||
                              target.name.ToLower().Contains("creep") ||
-                             target.name.ToLower().Contains("demon") && !target.name.ToLower().Contains("girl");
+                             (target.name.ToLower().Contains("demon") && !target.name.ToLower().Contains("girl"));
 
             // Deal-granted weapons CANNOT damage monsters!
             if (origin == WeaponOrigin.DealGranted && isMonster)

@@ -196,7 +196,7 @@ public class ContextInteractionHUD : MonoBehaviour
                 if (hs == null || hs.gameObject == _activePlayer || hs.IsDead) continue;
 
                 // Ignore monsters
-                if (hs.CompareTag("Monster") || hs.GetComponent<TargetHealth>() != null && !hs.GetComponent<TargetHealth>().isCorpse.Value && hs.GetComponent<MonsterAI>() != null)
+                if (hs.GetComponent<MonsterAI>() != null || hs.GetComponent<MonsterController>() != null)
                     continue;
 
                 // Check critical health threshold (<= 25%)

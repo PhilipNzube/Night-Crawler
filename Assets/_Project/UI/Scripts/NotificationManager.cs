@@ -5,12 +5,13 @@ using UnityEngine.UI;
 using TMPro;
 
 /// <summary>
-/// SOLID — SRP: Dedicated Health & Hazard Warning HUD System.
-/// Specializes in displaying high-priority physical and environmental alerts:
-/// 1. Poisonous air / toxic atmosphere (Suffocation system)
+/// SOLID — SRP: High-priority Environmental & Combat Warning HUD System.
+/// Specializes in displaying critical alerts:
+/// 1. Poisonous air / toxic atmosphere (Suffocation)
 /// 2. Critical low-health warnings (Vital signs failing)
 /// 3. Revival and healing vial administrations (Vitals restored)
-/// Features modern glassmorphism aesthetics, dynamic color badging, and smooth spring animations.
+/// 4. Risen dead monster alerts & Dark Pact broadcasts
+/// Fully drives Michsky Heat UI QuestItem with glassmorphism badging and smooth animations.
 /// </summary>
 public class NotificationManager : MonoBehaviour
 {
@@ -22,44 +23,35 @@ public class NotificationManager : MonoBehaviour
             if (_instance == null)
             {
                 _instance = FindFirstObjectByType<NotificationManager>(FindObjectsInactive.Include);
-                if (_instance != null && !_instance.gameObject.activeInHierarchy)
-                {
-                    _instance.gameObject.SetActive(true);
-                }
             }
             return _instance;
         }
         private set => _instance = value;
     }
 
-    [Header("UI References")]
-    [Tooltip("Root container GameObject of the header (disabled if notification has no header).")]
-    public GameObject headerContainer;
-
-    [Tooltip("TMP text component for the header title.")]
-    public TMP_Text headerText;
-
-    [Tooltip("Text component to show the message body.")]
-    public TMP_Text notificationText;
-
-    [Tooltip("Optional badge or title text (e.g. 'HAZARD WARNING'). Generated dynamically if null.")]
-    public TMP_Text categoryBadgeText;
-
-    [Tooltip("Panel or CanvasGroup containing the notification.")]
+    [Header("Core UI Wiring")]
+    [Tooltip("CanvasGroup on NotificationManager driving visibility and opacity.")]
     public CanvasGroup canvasGroup;
 
-    [Tooltip("Background Image for glassmorphic styling.")]
-    public Image panelBackground;
-
-    [Tooltip("Accent indicator line.")]
-    public Image accentBar;
-
-    [Header("Heat UI Quest Structure (Optional)")]
-    [Tooltip("Michsky Heat UI QuestItem attached to NotificationTextGO for official animations.")]
+    [Tooltip("Michsky Heat UI QuestItem component on NotificationTextGO.")]
     public Michsky.UI.Heat.QuestItem questItem;
 
-    [Tooltip("Target RectTransform that animates. Automatically resolves to NotificationTextGO if null.")]
-    public RectTransform notificationRect;
+    [Tooltip("Text component to show the message body (drag NotificationTextGO/Content/Text here).")]
+    public TMP_Text notificationText;
+
+    [Header("Header Elements")]
+    [Tooltip("Root container GameObject of the header (enabled when an alert has a header, hidden for plain notifications).")]
+    public GameObject headerContainer;
+
+    [Tooltip("TMP text component for the header title (drag Header/Text or Header/Header here).")]
+    public TMP_Text headerText;
+
+    [Header("Styling Elements (Optional)")]
+    [Tooltip("Background Image on NotificationTextGO/Background for pulse animations.")]
+    public Image panelBackground;
+
+    [Tooltip("Accent indicator line on NotificationTextGO/Indicator.")]
+    public Image accentBar;
 
     [Header("Audio (Optional)")]
     public AudioClip hazardSound;
@@ -77,59 +69,31 @@ public class NotificationManager : MonoBehaviour
         public bool isPulsing;
     }
 
-    private readonly System.Collections.Generic.Queue<NotificationData> _queue = new System.Collections.Generic.Queue<NotificationData>();
+    private readonly Queue<NotificationData> _queue = new Queue<NotificationData>();
     private bool _isDisplaying = false;
     private bool _interruptCurrent = false;
-    private Vector2 _initialAnchoredPos = new Vector2(0, 30);
-    private Vector3 _initialScale = Vector3.one;
+    private string _currentActiveMessage = null;
+    private string _currentActiveHeader = null;
+    private float _currentHoldElapsed = 0f;
 
     private AudioSource _audioSource;
     private Coroutine _displayCoroutine;
-    private RectTransform _rectTransform;
 
     private void Awake()
     {
-        if (Instance != null && Instance != this)
+        if (_instance != null && _instance != this)
         {
             Destroy(gameObject);
             return;
         }
-        Instance = this;
+        _instance = this;
 
-        _rectTransform = GetComponent<RectTransform>();
         _audioSource = GetComponent<AudioSource>();
         if (_audioSource == null)
         {
             _audioSource = gameObject.AddComponent<AudioSource>();
             _audioSource.spatialBlend = 0f;
         }
-
-        if (canvasGroup == null)
-        {
-            canvasGroup = GetComponent<CanvasGroup>();
-            if (canvasGroup == null) canvasGroup = gameObject.AddComponent<CanvasGroup>();
-        }
-
-        if (questItem == null)
-        {
-            questItem = GetComponentInChildren<Michsky.UI.Heat.QuestItem>(true);
-        }
-
-        if (notificationRect == null)
-        {
-            if (questItem != null) notificationRect = questItem.GetComponent<RectTransform>();
-            else notificationRect = transform.Find("NotificationTextGO")?.GetComponent<RectTransform>();
-        }
-
-        if (notificationRect != null)
-        {
-            _initialAnchoredPos = notificationRect.anchoredPosition;
-            _initialScale = notificationRect.localScale;
-            if (_initialScale == Vector3.zero) _initialScale = Vector3.one;
-        }
-
-        if (panelBackground == null) panelBackground = transform.Find("NotificationTextGO/Background")?.GetComponent<Image>();
-        if (accentBar == null) accentBar = transform.Find("NotificationTextGO/Indicator")?.GetComponent<Image>();
 
         if (canvasGroup != null)
         {
@@ -141,17 +105,23 @@ public class NotificationManager : MonoBehaviour
         if (questItem != null)
         {
             questItem.defaultState = Michsky.UI.Heat.QuestItem.DefaultState.Minimized;
+            questItem.minimizeAfter = 0; // NotificationManager handles display duration
+            questItem.afterMinimize = Michsky.UI.Heat.QuestItem.AfterMinimize.Disable;
+
+            // Safeguard: Ensure questTextObj on QuestItem is assigned so Heat UI won't throw NRE
+            var field = typeof(Michsky.UI.Heat.QuestItem).GetField("questTextObj", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Instance);
+            if (field != null && field.GetValue(questItem) == null && notificationText != null)
+            {
+                field.SetValue(questItem, notificationText as TMPro.TextMeshProUGUI);
+            }
+
             questItem.gameObject.SetActive(false);
-        }
-        else if (notificationRect != null)
-        {
-            notificationRect.gameObject.SetActive(false);
         }
     }
 
     private void OnDestroy()
     {
-        if (Instance == this) Instance = null;
+        if (_instance == this) _instance = null;
     }
 
     /// <summary>
@@ -184,7 +154,7 @@ public class NotificationManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Standard notification banner without a header (disables header container).
+    /// Standard notification banner without a header.
     /// </summary>
     public void ShowNotification(string message, float duration = 4f)
     {
@@ -192,11 +162,31 @@ public class NotificationManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Enqueues and displays a styled warning. If a notification is currently displayed,
-    /// the current one animates out first, and then the new notification animates in.
+    /// Enqueues and displays a styled warning. If it is the exact same notification as the one
+    /// currently displaying or already in queue, it will NOT trigger a re-animation or duplicate queue buildup.
+    /// Only after the notification has animated out can the same notification animate in again.
     /// </summary>
     public void ShowStyledWarning(string header, string message, Color accentColor, float duration, AudioClip sound = null, bool isPulsing = false)
     {
+        // 1. If identical notification is already waiting in queue, ignore it
+        foreach (var item in _queue)
+        {
+            if (string.Equals(item.message, message, System.StringComparison.Ordinal) &&
+                string.Equals(item.header, header, System.StringComparison.Ordinal))
+            {
+                return;
+            }
+        }
+
+        // 2. If identical notification is currently displaying/animating, refresh hold timer and do not re-animate
+        if (_isDisplaying &&
+            string.Equals(_currentActiveMessage, message, System.StringComparison.Ordinal) &&
+            string.Equals(_currentActiveHeader, header, System.StringComparison.Ordinal))
+        {
+            _currentHoldElapsed = 0f;
+            return;
+        }
+
         var data = new NotificationData
         {
             header = header,
@@ -211,7 +201,7 @@ public class NotificationManager : MonoBehaviour
 
         if (_isDisplaying)
         {
-            // Interrupt current hold so it begins animating out immediately to show the next one
+            // Interrupt current hold only if a DIFFERENT notification has arrived
             _interruptCurrent = true;
         }
         else
@@ -229,23 +219,25 @@ public class NotificationManager : MonoBehaviour
         {
             NotificationData current = _queue.Dequeue();
             _interruptCurrent = false;
+            _currentActiveMessage = current.message;
+            _currentActiveHeader = current.header;
+            _currentHoldElapsed = 0f;
 
             ApplyNotificationData(current);
 
-            // 1. ANIMATE IN (Smooth Ease-Out Spring)
+            // 1. ANIMATE IN
             yield return AnimateInRoutine();
 
-            // 2. HOLD (cuts short if a new notification enters the queue)
-            float holdElapsed = 0f;
+            // 2. HOLD (cuts short if a different notification enters the queue)
             float targetDuration = _queue.Count > 0 ? Mathf.Min(current.duration, 1.4f) : current.duration;
             Color originalBgColor = panelBackground != null ? panelBackground.color : Color.white;
 
-            while (holdElapsed < targetDuration && !_interruptCurrent)
+            while (_currentHoldElapsed < targetDuration && !_interruptCurrent)
             {
-                holdElapsed += Time.deltaTime;
+                _currentHoldElapsed += Time.deltaTime;
                 if (current.isPulsing && panelBackground != null)
                 {
-                    float pulse = 0.5f + 0.5f * Mathf.Sin(holdElapsed * 8f);
+                    float pulse = 0.5f + 0.5f * Mathf.Sin(_currentHoldElapsed * 8f);
                     panelBackground.color = Color.Lerp(originalBgColor, new Color(0.4f, 0.05f, 0.05f, originalBgColor.a), pulse);
                 }
                 yield return null;
@@ -256,8 +248,12 @@ public class NotificationManager : MonoBehaviour
                 panelBackground.color = originalBgColor;
             }
 
-            // 3. ANIMATE OUT (Smooth Ease-In Tuck)
+            // 3. ANIMATE OUT (Notification remains active until it has fully finished animating out)
             yield return AnimateOutRoutine();
+
+            // Clear active tracking only after animation out has fully concluded
+            _currentActiveMessage = null;
+            _currentActiveHeader = null;
 
             // Pacing pause between consecutive notifications
             if (_queue.Count > 0)
@@ -268,6 +264,8 @@ public class NotificationManager : MonoBehaviour
 
         _isDisplaying = false;
         _displayCoroutine = null;
+        _currentActiveMessage = null;
+        _currentActiveHeader = null;
     }
 
     private void ApplyNotificationData(NotificationData data)
@@ -281,7 +279,8 @@ public class NotificationManager : MonoBehaviour
 
         if (headerText != null)
         {
-            headerText.text = hasHeader ? data.header : "";
+            headerText.text = hasHeader ? data.header : string.Empty;
+            headerText.color = data.accentColor;
         }
 
         if (notificationText != null)
@@ -289,11 +288,11 @@ public class NotificationManager : MonoBehaviour
             notificationText.text = data.message;
         }
 
-        if (categoryBadgeText != null)
+        if (questItem != null)
         {
-            categoryBadgeText.text = data.header;
-            categoryBadgeText.color = data.accentColor;
-            categoryBadgeText.gameObject.SetActive(hasHeader);
+            questItem.minimizeAfter = 0;
+            questItem.questText = data.message;
+            questItem.UpdateUI();
         }
 
         if (accentBar != null)
@@ -309,113 +308,51 @@ public class NotificationManager : MonoBehaviour
 
     private IEnumerator AnimateInRoutine()
     {
-        if (notificationRect != null)
+        if (canvasGroup != null)
         {
-            notificationRect.gameObject.SetActive(true);
+            canvasGroup.alpha = 1f;
         }
 
         if (questItem != null)
         {
             questItem.gameObject.SetActive(true);
-            questItem.minimizeAfter = 0;
-            questItem.afterMinimize = Michsky.UI.Heat.QuestItem.AfterMinimize.Disable;
-            questItem.ExpandQuest();
-        }
-
-        float duration = 0.35f;
-        float elapsed = 0f;
-        Vector2 startPos = _initialAnchoredPos + new Vector2(0f, -25f);
-        Vector2 endPos = _initialAnchoredPos;
-        Vector3 startScale = _initialScale * 0.88f;
-        Vector3 endScale = _initialScale;
-
-        while (elapsed < duration)
-        {
-            elapsed += Time.deltaTime;
-            float t = Mathf.Clamp01(elapsed / duration);
-
-            // Ease-out back curve (spring-like pop)
-            float ease = 1f + 2.70158f * Mathf.Pow(t - 1f, 3) + 1.70158f * Mathf.Pow(t - 1f, 2);
-
-            if (notificationRect != null)
+            if (questItem.gameObject.activeInHierarchy && questItem.enabled)
             {
-                notificationRect.anchoredPosition = Vector2.LerpUnclamped(startPos, endPos, ease);
-                notificationRect.localScale = Vector3.LerpUnclamped(startScale, endScale, ease);
+                questItem.ExpandQuest();
+                // Allow Heat UI Quest In animation transition
+                yield return new WaitForSeconds(0.35f);
             }
-
-            if (canvasGroup != null)
+        }
+        else
+        {
+            float duration = 0.3f;
+            float elapsed = 0f;
+            while (elapsed < duration)
             {
-                canvasGroup.alpha = Mathf.Clamp01(t * 1.5f);
+                elapsed += Time.deltaTime;
+                if (canvasGroup != null) canvasGroup.alpha = Mathf.Clamp01(elapsed / duration);
+                yield return null;
             }
-
-            yield return null;
-        }
-
-        if (notificationRect != null)
-        {
-            notificationRect.anchoredPosition = endPos;
-            notificationRect.localScale = endScale;
-        }
-        if (canvasGroup != null)
-        {
-            canvasGroup.alpha = 1f;
+            if (canvasGroup != null) canvasGroup.alpha = 1f;
         }
     }
 
     private IEnumerator AnimateOutRoutine()
     {
-        if (questItem != null)
+        if (questItem != null && questItem.gameObject.activeInHierarchy && questItem.enabled)
         {
             questItem.MinimizeQuest();
+            yield return new WaitForSeconds(0.35f);
         }
 
-        float duration = 0.28f;
-        float elapsed = 0f;
-        Vector2 startPos = _initialAnchoredPos;
-        Vector2 endPos = _initialAnchoredPos + new Vector2(0f, -20f);
-        Vector3 startScale = _initialScale;
-        Vector3 endScale = _initialScale * 0.88f;
-
-        while (elapsed < duration)
+        if (questItem != null && questItem.gameObject.activeSelf)
         {
-            elapsed += Time.deltaTime;
-            float t = Mathf.Clamp01(elapsed / duration);
-
-            // Smooth ease-in quad
-            float ease = t * t;
-
-            if (notificationRect != null)
-            {
-                notificationRect.anchoredPosition = Vector2.Lerp(startPos, endPos, ease);
-                notificationRect.localScale = Vector3.Lerp(startScale, endScale, ease);
-            }
-
-            if (canvasGroup != null)
-            {
-                canvasGroup.alpha = 1f - ease;
-            }
-
-            yield return null;
+            questItem.gameObject.SetActive(false);
         }
 
         if (canvasGroup != null)
         {
             canvasGroup.alpha = 0f;
-        }
-
-        if (notificationRect != null)
-        {
-            notificationRect.anchoredPosition = _initialAnchoredPos;
-            notificationRect.localScale = _initialScale;
-            if (questItem == null)
-            {
-                notificationRect.gameObject.SetActive(false);
-            }
-        }
-
-        if (categoryBadgeText != null)
-        {
-            categoryBadgeText.gameObject.SetActive(false);
         }
     }
 }

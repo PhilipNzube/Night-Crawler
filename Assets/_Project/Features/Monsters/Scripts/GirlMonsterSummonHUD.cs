@@ -30,6 +30,12 @@ namespace NightCrawler.Monsters
             public Michsky.UI.Heat.ShopButtonManager heatShopCard;
             [Tooltip("Heat UI ButtonManager for selecting this monster (e.g. Select button on the card).")]
             public Michsky.UI.Heat.ButtonManager selectButtonManager;
+
+            [Header("Lock State (Berserker)")]
+            [Tooltip("A dark overlay GameObject that covers the card when it is locked. Drag the lock-overlay panel here.")]
+            public GameObject lockedOverlay;
+            [Tooltip("TMP Text inside the lockedOverlay that displays the unlock requirement, e.g. 'Reach Level 5 to unlock'.")]
+            public TMPro.TextMeshProUGUI lockedLabel;
         }
 
         [Header("Monster Card Bindings")]
@@ -62,8 +68,19 @@ namespace NightCrawler.Monsters
         [Tooltip("Michsky Heat HotkeyEvent component on MonsterSpectateHotkey.")]
         public Michsky.UI.Heat.HotkeyEvent monsterSpectateHotkeyEvent;
 
-        [Tooltip("Dead Summon Charges upgrade level required to unlock Berserker (default Level 3).")]
+        [Header("Progression & Inspector Testing")]
+        [Tooltip("If checked, immediately unlocks the Berserker regardless of level (for quick testing in the editor).")]
+        public bool debugForceUnlockBerserker = false;
+
+        [Tooltip("Dead Summon Charges upgrade level required to unlock the first Berserker (default Level 3 / Mid-level).")]
         public int berserkerUnlockLevel = 3;
+
+        [Tooltip("Dead Summon Charges upgrade level required to unlock the second Berserker slot (default Level 5 / Final level).")]
+        public int berserkerSecondUnlockLevel = 5;
+
+        [Tooltip("Override summon upgrade level for testing (-1 uses real Cloud/Economy save level, 0 to 5 forces specific level).")]
+        [Range(-1, 5)]
+        public int debugOverrideSummonLevel = -1;
 
         [Header("Hotkeys")]
         [Tooltip("Hotkey to toggle this summon menu when playing as the Girl (default [X]).")]
@@ -76,8 +93,6 @@ namespace NightCrawler.Monsters
         private int _selectedMonsterIndex = 0;
         private bool _isOpen = false;
         public bool IsOpen => _isOpen;
-        private readonly List<Button> _cardButtons = new List<Button>();
-        private readonly List<Image> _cardFrames = new List<Image>();
 
         private void Awake()
         {
@@ -169,7 +184,7 @@ namespace NightCrawler.Monsters
         {
             InitializeSummonCharges();
             InitCardBindings();
-            BuildMonsterCards();
+            ApplyLockStates();
 
             // Ensure summon panel starts hidden via CanvasGroup & Instant Out
             if (canvasGroup != null)
@@ -186,12 +201,9 @@ namespace NightCrawler.Monsters
 
         private void InitializeSummonCharges()
         {
-            int level = 0;
-            if (CloudCharacterSaveManager.Instance != null)
-            {
-                level = CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.DeadSummonCharges);
-            }
-            _totalCharges = UpgradeStatFormulas.GetGirlDeadSummonCharges(level);
+            int maxUndead = GetMaxUndeadSlots();
+            int maxBerserker = GetMaxBerserkerSlots();
+            _totalCharges = maxUndead + maxBerserker;
             _remainingCharges = _totalCharges;
             UpdateChargesDisplay();
         }
@@ -252,6 +264,9 @@ namespace NightCrawler.Monsters
         {
             _isOpen = true;
 
+            // Re-evaluate lock states every open (player may have levelled up mid-match)
+            ApplyLockStates();
+
             // 1. Reveal Summon HUD via CanvasGroup
             if (canvasGroup != null)
             {
@@ -304,13 +319,78 @@ namespace NightCrawler.Monsters
             else CloseHUD();
         }
 
+        /// <summary>
+        /// Gets the effective summon upgrade level, taking into account any debug inspector override.
+        /// </summary>
+        public int GetEffectiveSummonLevel()
+        {
+            if (debugOverrideSummonLevel >= 0)
+            {
+                return debugOverrideSummonLevel;
+            }
+            if (CloudCharacterSaveManager.Instance != null)
+            {
+                return CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.DeadSummonCharges);
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// True if the Berserker is unlocked (either forced via inspector toggle or meets unlock level).
+        /// </summary>
+        public bool IsBerserkerUnlocked()
+        {
+            if (debugForceUnlockBerserker) return true;
+            return GetEffectiveSummonLevel() >= berserkerUnlockLevel;
+        }
+
+        /// <summary>
+        /// Berserker capacity progression:
+        /// - Locked: 0 slots
+        /// - Mid-level (Level 3+): 1 slot
+        /// - Final level (Level 5 / Max): 2 slots
+        /// </summary>
+        public int GetMaxBerserkerSlots()
+        {
+            int lvl = GetEffectiveSummonLevel();
+            if (debugForceUnlockBerserker && lvl < berserkerUnlockLevel)
+            {
+                return 1;
+            }
+            if (lvl >= berserkerSecondUnlockLevel)
+            {
+                return 2;
+            }
+            if (lvl >= berserkerUnlockLevel)
+            {
+                return 1;
+            }
+            return 0;
+        }
+
+        /// <summary>
+        /// Undead capacity progression (scales smoothly across all levels):
+        /// - Level 0: 2 Undead
+        /// - Level 1: 3 Undead
+        /// - Level 2: 4 Undead
+        /// - Level 3 (Mid-level milestone): 4 Undead (+1 Berserker = 5 total)
+        /// - Level 4: 5 Undead (+1 Berserker = 6 total)
+        /// - Level 5 (Final / Apex milestone): 6 Undead (+2 Berserkers = 8 total)
+        /// </summary>
+        public int GetMaxUndeadSlots()
+        {
+            int lvl = GetEffectiveSummonLevel();
+            if (lvl >= 5) return 6;
+            if (lvl >= 3) return 1 + lvl; // Level 3 -> 4, Level 4 -> 5
+            return 2 + lvl;               // Level 0 -> 2, Level 1 -> 3, Level 2 -> 4
+        }
+
         private void UpdateChargesDisplay()
         {
-            int summonLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.DeadSummonCharges) : 0;
-            int maxUndead = 2 + summonLvl;
+            int maxUndead = GetMaxUndeadSlots();
             int remainingUndead = Mathf.Max(0, maxUndead - _undeadSummoned);
 
-            int maxBerserker = summonLvl >= berserkerUnlockLevel ? 1 + ((summonLvl - berserkerUnlockLevel) / 2) : 0;
+            int maxBerserker = GetMaxBerserkerSlots();
             int remainingBerserker = Mathf.Max(0, maxBerserker - _berserkerSummoned);
 
             _remainingCharges = remainingUndead + remainingBerserker;
@@ -365,32 +445,81 @@ namespace NightCrawler.Monsters
             }
         }
 
-        private void BuildMonsterCards()
+
+        /// <summary>
+        /// Shows or hides the locked overlay and toggles the Heat UI ShopButtonManager
+        /// Purchased/Default state on each card based on Dead Summon Charges upgrade level.
+        /// Call this at start and every time the HUD opens.
+        /// </summary>
+        private void ApplyLockStates()
         {
+            if (cardBindings == null) return;
+
+            bool berserkerUnlocked = IsBerserkerUnlocked();
+
+            for (int i = 0; i < cardBindings.Count; i++)
+            {
+                var binding = cardBindings[i];
+                if (binding == null) continue;
+
+                bool isBerserker = IsSelectedMonsterBerserker(i);
+                bool isLocked = isBerserker && !berserkerUnlocked;
+
+                // 1. Native Heat UI ShopButtonManager state:
+                // When locked, switch to State.Purchased which displays purchasedButton and purchasedIndicator.
+                // When unlocked, switch to State.Default which displays the normal purchase/select button.
+                if (binding.heatShopCard != null)
+                {
+                    binding.heatShopCard.SetState(isLocked ? Michsky.UI.Heat.ShopButtonManager.State.Purchased : Michsky.UI.Heat.ShopButtonManager.State.Default);
+
+                    if (isLocked)
+                    {
+                        if (binding.heatShopCard.purchasedButton != null)
+                        {
+                            binding.heatShopCard.purchasedButton.SetText("LOCKED");
+                            binding.heatShopCard.purchasedButton.Interactable(false);
+                        }
+                    }
+                    else
+                    {
+                        if (binding.heatShopCard.purchaseButton != null)
+                        {
+                            binding.heatShopCard.purchaseButton.Interactable(true);
+                        }
+                    }
+
+                    // Subtle dimming on the card body CanvasGroup when locked
+                    var cg = binding.heatShopCard.GetComponent<CanvasGroup>();
+                    if (cg != null)
+                    {
+                        cg.alpha = isLocked ? 0.6f : 1f;
+                    }
+                }
+
+                // 2. Custom Atmospheric Locked Overlay (covers the card or portrait)
+                if (binding.lockedOverlay != null)
+                {
+                    binding.lockedOverlay.SetActive(isLocked);
+                }
+
+                if (binding.lockedLabel != null)
+                {
+                    binding.lockedLabel.text = isLocked
+                        ? $"Reach Dead Summon Charges Level {berserkerUnlockLevel} to unlock"
+                        : string.Empty;
+                }
+
+                // 3. Fallback select button
+                if (binding.selectButtonManager != null)
+                {
+                    binding.selectButtonManager.Interactable(!isLocked);
+                }
+            }
         }
 
         public void SelectCard(int index)
         {
             _selectedMonsterIndex = index;
-
-            List<MonsterDefinitionSO> monsters = DeadSpawnManager.Instance != null ? DeadSpawnManager.Instance.availableMonsters : null;
-
-            if (monsters != null && index >= 0 && index < monsters.Count && monsters[index] != null)
-            {
-                var def = monsters[index];
-            }
-
-            // Update card highlights
-            for (int i = 0; i < _cardFrames.Count; i++)
-            {
-                if (_cardFrames[i] != null)
-                {
-                    _cardFrames[i].color = (i == _selectedMonsterIndex)
-                        ? new Color(0.9f, 0.2f, 0.2f, 1f) // Crimson glow for selected
-                        : new Color(0.2f, 0.2f, 0.25f, 0.9f);
-                }
-            }
-
             UpdateChargesDisplay();
         }
 
@@ -420,12 +549,11 @@ namespace NightCrawler.Monsters
             _selectedMonsterIndex = index;
             SelectCard(index);
 
-            int summonLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.DeadSummonCharges) : 0;
             bool isBerserker = IsSelectedMonsterBerserker(index);
 
             if (isBerserker)
             {
-                bool isUnlocked = summonLvl >= berserkerUnlockLevel;
+                bool isUnlocked = IsBerserkerUnlocked();
                 if (!isUnlocked)
                 {
                     if (NotificationManager.Instance != null)
@@ -435,7 +563,7 @@ namespace NightCrawler.Monsters
                     return;
                 }
 
-                int maxBerserker = 1 + ((summonLvl - berserkerUnlockLevel) / 2);
+                int maxBerserker = GetMaxBerserkerSlots();
                 int remainingBerserker = Mathf.Max(0, maxBerserker - _berserkerSummoned);
                 bool canSummon = remainingBerserker > 0;
 
@@ -447,7 +575,7 @@ namespace NightCrawler.Monsters
             else
             {
                 // Undead
-                int maxUndead = 2 + summonLvl;
+                int maxUndead = GetMaxUndeadSlots();
                 int remainingUndead = Mathf.Max(0, maxUndead - _undeadSummoned);
                 bool canSummon = remainingUndead > 0;
 
@@ -471,17 +599,24 @@ namespace NightCrawler.Monsters
             }
         }
 
-        private bool IsSelectedMonsterBerserker(int index)
+        /// <summary>
+        /// Returns the MonsterDefinitionSO associated with the card binding index.
+        /// </summary>
+        public MonsterDefinitionSO GetMonsterDefinition(int index)
         {
             if (cardBindings != null && index >= 0 && index < cardBindings.Count && cardBindings[index] != null)
             {
-                var def = cardBindings[index].monsterDefinition;
-                if (def != null && def.monsterName.ToLower().Contains("berserker")) return true;
+                return cardBindings[index].monsterDefinition;
             }
-            List<MonsterDefinitionSO> monsters = DeadSpawnManager.Instance != null ? DeadSpawnManager.Instance.availableMonsters : null;
-            if (monsters != null && index >= 0 && index < monsters.Count && monsters[index] != null)
+            return null;
+        }
+
+        private bool IsSelectedMonsterBerserker(int index)
+        {
+            var def = GetMonsterDefinition(index);
+            if (def != null && !string.IsNullOrEmpty(def.monsterName))
             {
-                if (monsters[index].monsterName.ToLower().Contains("berserker")) return true;
+                return def.monsterName.ToLower().Contains("berserker");
             }
             return index == 1; // default index 1 is Berserker
         }
@@ -500,12 +635,11 @@ namespace NightCrawler.Monsters
 
         public void OnConfirmSpawnClicked()
         {
-            int summonLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.DeadSummonCharges) : 0;
             bool isBerserker = IsSelectedMonsterBerserker(_selectedMonsterIndex);
 
             if (isBerserker)
             {
-                int maxBerserker = summonLvl >= berserkerUnlockLevel ? 1 + ((summonLvl - berserkerUnlockLevel) / 2) : 0;
+                int maxBerserker = GetMaxBerserkerSlots();
                 int remainingBerserker = Mathf.Max(0, maxBerserker - _berserkerSummoned);
                 if (remainingBerserker <= 0)
                 {
@@ -519,7 +653,7 @@ namespace NightCrawler.Monsters
             }
             else
             {
-                int maxUndead = 2 + summonLvl;
+                int maxUndead = GetMaxUndeadSlots();
                 int remainingUndead = Mathf.Max(0, maxUndead - _undeadSummoned);
                 if (remainingUndead <= 0)
                 {
@@ -534,9 +668,10 @@ namespace NightCrawler.Monsters
 
             UpdateChargesDisplay();
 
-            if (DeadSpawnManager.Instance != null && NetworkManager.Singleton != null)
+            var spawnMgr = DeadSpawnManager.Instance != null ? DeadSpawnManager.Instance : FindFirstObjectByType<DeadSpawnManager>();
+            if (spawnMgr != null && NetworkManager.Singleton != null)
             {
-                DeadSpawnManager.Instance.RequestSpawnMonsterServerRpc(_selectedMonsterIndex, NetworkManager.Singleton.LocalClientId);
+                spawnMgr.RequestSpawnMonsterServerRpc(_selectedMonsterIndex, NetworkManager.Singleton.LocalClientId);
             }
 
             if (NotificationManager.Instance != null)
@@ -549,11 +684,6 @@ namespace NightCrawler.Monsters
             CloseHUD();
 
             StartCoroutine(FocusCameraOnSpawnedMonsterRoutine());
-        }
-
-        private void OnSummonClicked()
-        {
-            OnCardSelectClicked(_selectedMonsterIndex);
         }
 
         private System.Collections.IEnumerator FocusCameraOnSpawnedMonsterRoutine()

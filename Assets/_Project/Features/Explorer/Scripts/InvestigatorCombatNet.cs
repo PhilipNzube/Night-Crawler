@@ -329,11 +329,11 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
             SwitchWeapon(1);
         }
 
-        // Attack (Left Click) — support both click-spam and holding left click for continuous combos
+        // Attack (Left Click) — each combo step requires a deliberate click.
+        // Intentionally do NOT use leftButton.isPressed: holding must not spam the full combo.
         bool clickDown = Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame;
-        bool clickHeld = Mouse.current != null && Mouse.current.leftButton.isPressed;
 
-        if ((clickDown || clickHeld) && !_isReloading)
+        if (clickDown && !_isReloading)
         {
             if (UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
             {
@@ -350,7 +350,7 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                 {
                     PerformAttack();
                 }
-                else if (clickDown || _attackTimer <= inputBufferWindow)
+                else if (_attackTimer <= inputBufferWindow)
                 {
                     _hasBufferedAttack = true;
                 }
@@ -502,7 +502,8 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                 receiver.TakeDamage(finalDamage);
 
                 // Log monster kill for Miner / weapon holder bonus
-                if (hit.CompareTag("Monster") && MatchEconomyManager.Instance != null)
+                bool isMonsterTarget = hit.GetComponentInParent<MonsterAI>() != null || hit.GetComponentInParent<MonsterController>() != null || hit.name.ToLower().Contains("monster");
+                if (isMonsterTarget && MatchEconomyManager.Instance != null)
                 {
                     MatchEconomyManager.Instance.LogMonsterKill(OwnerClientId);
                 }
@@ -540,7 +541,8 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                 float finalDamage = CombatEconomyFilter.CalculateEffectiveDamage(stats.damage, attackerWpnLvl, 0, true);
                 receiver.TakeDamage(finalDamage);
 
-                if (hit.collider.CompareTag("Monster") && MatchEconomyManager.Instance != null)
+                bool isMonsterCol = hit.collider.GetComponentInParent<MonsterAI>() != null || hit.collider.GetComponentInParent<MonsterController>() != null || hit.collider.name.ToLower().Contains("monster");
+                if (isMonsterCol && MatchEconomyManager.Instance != null)
                 {
                     MatchEconomyManager.Instance.LogMonsterKill(OwnerClientId);
                 }

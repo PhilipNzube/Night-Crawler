@@ -159,10 +159,15 @@ namespace NightCrawler.Economy
         }
 
         /// <summary>
-        /// Girl dead / monster summon charges per match. Baseline = 2, +1 per level.
+        /// Girl dead / monster summon charges per match.
+        /// Levels 0-2: 2, 3, 4 Undead.
+        /// Level 3 (Mid): 4 Undead + 1 Berserker (5 total).
+        /// Level 4: 5 Undead + 1 Berserker (6 total).
+        /// Level 5 (Final/Max): 6 Undead + 2 Berserkers (8 total).
         /// </summary>
         public static int GetGirlDeadSummonCharges(int level)
         {
+            if (level >= 5) return 8;
             return 2 + level;
         }
 
@@ -219,7 +224,9 @@ namespace NightCrawler.Economy
                 case UpgradeStatType.VisibilityDuration:
                     return $"{GetGirlVisibilityDuration(level):0}s Manifest Duration";
                 case UpgradeStatType.DeadSummonCharges:
-                    return $"{GetGirlDeadSummonCharges(level)} Monsters Can Be Risen / Match";
+                    if (level >= 5) return $"{GetGirlDeadSummonCharges(level)} Monsters (6 Undead + 2 Berserkers)";
+                    if (level >= 3) return $"{GetGirlDeadSummonCharges(level)} Monsters (Includes Berserker Unlock)";
+                    return $"{GetGirlDeadSummonCharges(level)} Undead Monsters / Match";
                 default: return string.Empty;
             }
         }

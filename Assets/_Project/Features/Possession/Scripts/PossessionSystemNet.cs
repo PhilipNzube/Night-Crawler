@@ -31,8 +31,10 @@ public class PossessionSystemNet : NetworkBehaviour
         Ray ray = mainCamera.ScreenPointToRay(new Vector2(Screen.width / 2, Screen.height / 2));
         if (Physics.Raycast(ray, out RaycastHit hit, stats.possessionRange, stats.possessionTargetLayer))
         {
-            // Make sure the monster has a "MonsterID" or similar script
-            if (hit.collider.CompareTag("Monster"))
+            bool isMonster = hit.collider.GetComponentInParent<MonsterAI>() != null ||
+                             hit.collider.GetComponentInParent<MonsterController>() != null ||
+                             hit.collider.name.ToLower().Contains("monster");
+            if (isMonster)
             {
                 _activeMonster = hit.collider.gameObject;
                 TogglePossessionServerRpc(_activeMonster.GetComponent<NetworkObject>().NetworkObjectId, true);

@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.AI;
 using Unity.Netcode;
 
 namespace NightCrawler.Monsters
@@ -8,21 +9,14 @@ namespace NightCrawler.Monsters
     /// <summary>
     /// SOLID — SRP: Manages server-authoritative random dead monster spawning.
     /// Auto-discovers all DeadSpawnPoints in the scene and handles network instantiation
-    /// when the Girl requests a dead summon.
+    /// when the Girl requests a dead summon from GirlMonsterSummonHUD.
     /// </summary>
     public class DeadSpawnManager : NetworkBehaviour
     {
         public static DeadSpawnManager Instance { get; private set; }
 
-        [Header("Available Monster Definitions")]
-        [Tooltip("List of MonsterDefinitionSO assets available for the Girl to summon. Add as many as you like!")]
-        public List<MonsterDefinitionSO> availableMonsters = new List<MonsterDefinitionSO>();
-
-        [Header("Fallback Prefabs")]
-        [Tooltip("Used if availableMonsters is empty. Assign standard monster prefabs here.")]
-        public List<GameObject> fallbackMonsterPrefabs = new List<GameObject>();
-
         [Header("Audio")]
+        [Tooltip("Fallback 2D broadcast sound played if the summoned monster has no specific spawnSound assigned.")]
         public AudioClip globalSummonSound;
 
         private readonly List<DeadSpawnPoint> _registeredSpawnPoints = new List<DeadSpawnPoint>();
@@ -53,7 +47,10 @@ namespace NightCrawler.Monsters
         public override void OnNetworkSpawn()
         {
             base.OnNetworkSpawn();
-            DiscoverSpawnPoints();
+            if (_registeredSpawnPoints.Count == 0)
+            {
+                DiscoverSpawnPoints();
+            }
         }
 
         /// <summary>
@@ -76,38 +73,32 @@ namespace NightCrawler.Monsters
 
         /// <summary>
         /// Request from the Girl client to spawn a monster by index.
+        /// Definitions and prefabs are resolved directly from GirlMonsterSummonHUD.
         /// </summary>
         [Rpc(SendTo.Server)]
         public void RequestSpawnMonsterServerRpc(int monsterIndex, ulong summonerClientId)
         {
             if (!IsServer) return;
 
-            GameObject prefabToSpawn = null;
-            string monsterName = "Abyssal Monster";
-            AudioClip customSound = null;
-
-            if (availableMonsters != null && monsterIndex >= 0 && monsterIndex < availableMonsters.Count)
+            MonsterDefinitionSO def = null;
+            if (GirlMonsterSummonHUD.Instance != null)
             {
-                var def = availableMonsters[monsterIndex];
-                if (def != null)
-                {
-                    prefabToSpawn = def.monsterPrefab;
-                    monsterName = def.monsterName;
-                    customSound = def.spawnSound;
-                }
+                def = GirlMonsterSummonHUD.Instance.GetMonsterDefinition(monsterIndex);
             }
 
-            if (prefabToSpawn == null && fallbackMonsterPrefabs != null && fallbackMonsterPrefabs.Count > 0)
+            if (def == null || def.monsterPrefab == null)
             {
-                int safeIdx = Mathf.Clamp(monsterIndex, 0, fallbackMonsterPrefabs.Count - 1);
-                prefabToSpawn = fallbackMonsterPrefabs[safeIdx];
-                if (prefabToSpawn != null) monsterName = prefabToSpawn.name;
-            }
-
-            if (prefabToSpawn == null)
-            {
-                Debug.LogError($"[DeadSpawnManager] Failed to spawn monster: No prefab assigned for index {monsterIndex}!");
+                Debug.LogError($"[DeadSpawnManager] Failed to spawn monster: No MonsterDefinitionSO or monsterPrefab found for index {monsterIndex} in GirlMonsterSummonHUD!");
                 return;
+            }
+
+            GameObject prefabToSpawn = def.monsterPrefab;
+            string monsterName = def.monsterName;
+
+            // Ensure spawn points are discovered
+            if (_registeredSpawnPoints.Count == 0)
+            {
+                DiscoverSpawnPoints();
             }
 
             // Pick a random spawn point
@@ -134,6 +125,12 @@ namespace NightCrawler.Monsters
                 spawnPos = hit.point + Vector3.up * 0.05f;
             }
 
+            // Sample nearest NavMesh point so NavMeshAgent places cleanly
+            if (NavMesh.SamplePosition(spawnPos, out NavMeshHit navHit, 5.0f, NavMesh.AllAreas))
+            {
+                spawnPos = navHit.position;
+            }
+
             // Instantiate and network spawn
             GameObject spawnedObj = Instantiate(prefabToSpawn, spawnPos, spawnRot);
             if (spawnedObj.TryGetComponent<NetworkObject>(out var netObj))
@@ -148,15 +145,30 @@ namespace NightCrawler.Monsters
             Debug.Log($"[DeadSpawnManager] Client {summonerClientId} successfully rose '{monsterName}' at {spawnPos}!");
 
             // Broadcast sound and notification to all clients
-            BroadcastMonsterSummonedClientRpc(monsterName);
+            BroadcastMonsterSummonedClientRpc(monsterIndex, monsterName);
         }
 
         [ClientRpc]
-        private void BroadcastMonsterSummonedClientRpc(string monsterName)
+        private void BroadcastMonsterSummonedClientRpc(int monsterIndex, string monsterName)
         {
-            if (globalSummonSound != null && _audioSource != null)
+            AudioClip soundToPlay = null;
+            if (GirlMonsterSummonHUD.Instance != null)
             {
-                _audioSource.PlayOneShot(globalSummonSound);
+                var def = GirlMonsterSummonHUD.Instance.GetMonsterDefinition(monsterIndex);
+                if (def != null && def.spawnSound != null)
+                {
+                    soundToPlay = def.spawnSound;
+                }
+            }
+
+            if (soundToPlay == null)
+            {
+                soundToPlay = globalSummonSound;
+            }
+
+            if (soundToPlay != null && _audioSource != null)
+            {
+                _audioSource.PlayOneShot(soundToPlay);
             }
 
             if (NotificationManager.Instance != null)

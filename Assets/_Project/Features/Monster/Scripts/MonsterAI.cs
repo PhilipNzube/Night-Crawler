@@ -502,7 +502,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         foreach (var hit in hits)
         {
             if (hit == null || hit.gameObject == gameObject) continue;
-            if (hit.CompareTag("Monster")) continue;
+            if (IsMonster(hit.gameObject)) continue;
 
             if (hit.TryGetComponent<IDamageReceiver>(out var receiver) || hit.GetComponentInParent<IDamageReceiver>() is { } pReceiver)
             {
@@ -517,6 +517,14 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 break;
             }
         }
+    }
+
+    private static bool IsMonster(GameObject go)
+    {
+        if (go == null) return false;
+        if (go.GetComponentInParent<MonsterAI>() != null || go.GetComponentInParent<MonsterController>() != null) return true;
+        string n = go.name.ToLower();
+        return n.Contains("monster") || n.Contains("creep") || (n.Contains("demon") && !n.Contains("girl"));
     }
 
     private void RotateTowardsTarget(Transform t)
@@ -569,7 +577,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         {
             Collider col = _searchBuffer[i];
             if (col == null || col.gameObject == gameObject) continue;
-            if (col.CompareTag("Monster")) continue;
+            if (IsMonster(col.gameObject)) continue;
 
             // Only target Players
             if (col.CompareTag("Player") || (col.transform.root != null && col.transform.root.CompareTag("Player")))

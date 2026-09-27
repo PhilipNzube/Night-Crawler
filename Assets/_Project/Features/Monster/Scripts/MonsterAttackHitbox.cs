@@ -141,7 +141,7 @@ namespace NightCrawler.Monsters
             if (other == null || other.gameObject == _ownerRoot) return;
 
             // Ignore hits on other monsters
-            if (other.CompareTag("Monster") || (other.transform.root != null && other.transform.root.CompareTag("Monster")))
+            if (other.GetComponentInParent<MonsterAI>() != null || other.GetComponentInParent<MonsterController>() != null)
             {
                 return;
             }
