@@ -99,7 +99,7 @@ public class PriestExorcismNet : NetworkBehaviour
             _cooldownTimer -= Time.deltaTime;
         }
 
-        if (Keyboard.current != null && Keyboard.current[castKey].wasPressedThisFrame && CanCast)
+        if ((KeybindingManager.IsActionTriggered("Exorcism") || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current[castKey].wasPressedThisFrame)) && CanCast)
         {
             TryCastExorcism();
         }

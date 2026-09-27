@@ -188,7 +188,8 @@ public class GirlDealUI : MonoBehaviour
             return;
         }
 
-        bool triggerDeal = KeybindingManager.IsActionTriggered("Deal") || (Keyboard.current != null && Keyboard.current[toggleKey].wasPressedThisFrame);
+        bool triggerDeal = KeybindingManager.IsActionTriggered("Deal") 
+            || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current[toggleKey].wasPressedThisFrame);
         if (triggerDeal && IsLocalPlayerGirl())
         {
             if (!_isOpen)

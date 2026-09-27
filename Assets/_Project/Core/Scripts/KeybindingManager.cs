@@ -20,7 +20,9 @@ public enum KeybindingActionType
     ExitPossession,
     Loot,
     SpectateCycle,
-    SpectateExit
+    SpectateExit,
+    Summon,
+    Possession
 }
 
 /// <summary>
@@ -238,7 +240,22 @@ public class KeybindingManager : MonoBehaviour
                 defaultKey = Key.Escape,
                 defaultGamepadControl = "select" // View / Share
             },
-
+            new ActionBinding
+            {
+                actionId = "Summon",
+                displayName = "Monster Summon Rite",
+                tacticalDescription = "Open the necrotic summon rites menu to raise Undead and Berserker abominations in the subterranean mines.",
+                defaultKey = Key.X,
+                defaultGamepadControl = "dpadUp"
+            },
+            new ActionBinding
+            {
+                actionId = "Possession",
+                displayName = "Possession Selection Menu",
+                tacticalDescription = "Open the possession target selection modal to choose an investigator host to inhabit.",
+                defaultKey = Key.P,
+                defaultGamepadControl = "dpadRight"
+            }
         };
 
         actions = new List<ActionBinding>(defaultList);
@@ -276,6 +293,7 @@ public class KeybindingManager : MonoBehaviour
             PlayerPrefs.SetString($"NC_Bind_Pad_{act.actionId}", act.currentGamepadControl);
         }
         PlayerPrefs.Save();
+        ApplyToAllPlayerInputs();
         OnBindingsChanged?.Invoke();
     }
 
@@ -327,6 +345,15 @@ public class KeybindingManager : MonoBehaviour
                     if (control is KeyControl keyControl && keyControl.wasPressedThisFrame)
                     {
                         act.currentKey = keyControl.keyCode;
+                        // Prevent duplicate keys: unbind any conflicting actions
+                        foreach (var other in actions)
+                        {
+                            if (other != act && other.currentKey == act.currentKey)
+                            {
+                                other.currentKey = Key.None;
+                                PlayerPrefs.SetString($"NC_Bind_Key_{other.actionId}", Key.None.ToString());
+                            }
+                        }
                         bound = true;
                         break;
                     }
@@ -364,6 +391,15 @@ public class KeybindingManager : MonoBehaviour
                     if (control is ButtonControl btnControl && btnControl.wasPressedThisFrame)
                     {
                         act.currentGamepadControl = btnControl.name;
+                        // Prevent duplicate gamepad controls: unbind any conflicting actions
+                        foreach (var other in actions)
+                        {
+                            if (other != act && !string.IsNullOrEmpty(other.currentGamepadControl) && other.currentGamepadControl.Equals(act.currentGamepadControl, StringComparison.OrdinalIgnoreCase))
+                            {
+                                other.currentGamepadControl = "";
+                                PlayerPrefs.SetString($"NC_Bind_Pad_{other.actionId}", "");
+                            }
+                        }
                         bound = true;
                         break;
                     }
@@ -376,6 +412,79 @@ public class KeybindingManager : MonoBehaviour
         SaveBindings();
         onComplete?.Invoke(FormatGamepadName(act.currentGamepadControl, IsPlayStationActive()));
         _rebindCoroutine = null;
+    }
+
+    public static void ApplyToPlayerInput(PlayerInput playerInput)
+    {
+        if (playerInput == null || playerInput.actions == null || Instance == null) return;
+
+        var jumpAct = playerInput.actions.FindAction("Jump");
+        if (jumpAct != null)
+        {
+            var jumpBinding = Instance.actions.Find(a => a.actionId.Equals("Jump", StringComparison.OrdinalIgnoreCase));
+            if (jumpBinding != null && jumpBinding.currentKey != Key.None)
+            {
+                string kPath = GetInputControlPath(jumpBinding.currentKey);
+                ApplyBindingOverrideToGroup(jumpAct, "KeyboardMouse", kPath);
+                if (!string.IsNullOrEmpty(jumpBinding.currentGamepadControl))
+                {
+                    ApplyBindingOverrideToGroup(jumpAct, "Gamepad", $"<Gamepad>/{jumpBinding.currentGamepadControl}");
+                }
+            }
+        }
+
+        var sprintAct = playerInput.actions.FindAction("Sprint");
+        if (sprintAct != null)
+        {
+            var sprintBinding = Instance.actions.Find(a => a.actionId.Equals("Sprint", StringComparison.OrdinalIgnoreCase));
+            if (sprintBinding != null && sprintBinding.currentKey != Key.None)
+            {
+                string kPath = GetInputControlPath(sprintBinding.currentKey);
+                ApplyBindingOverrideToGroup(sprintAct, "KeyboardMouse", kPath);
+                if (!string.IsNullOrEmpty(sprintBinding.currentGamepadControl))
+                {
+                    ApplyBindingOverrideToGroup(sprintAct, "Gamepad", $"<Gamepad>/{sprintBinding.currentGamepadControl}");
+                }
+            }
+        }
+    }
+
+    public static void ApplyToAllPlayerInputs()
+    {
+        var playerInputs = UnityEngine.Object.FindObjectsByType<PlayerInput>(FindObjectsSortMode.None);
+        foreach (var pi in playerInputs)
+        {
+            ApplyToPlayerInput(pi);
+        }
+    }
+
+    private static void ApplyBindingOverrideToGroup(InputAction action, string group, string newPath)
+    {
+        if (action == null || string.IsNullOrEmpty(newPath)) return;
+        for (int i = 0; i < action.bindings.Count; i++)
+        {
+            var b = action.bindings[i];
+            if (!string.IsNullOrEmpty(b.groups) && b.groups.Contains(group))
+            {
+                action.ApplyBindingOverride(i, newPath);
+            }
+        }
+    }
+
+    private static string GetInputControlPath(Key key)
+    {
+        if (key == Key.None) return string.Empty;
+        if (Keyboard.current != null)
+        {
+            try
+            {
+                var ctrl = Keyboard.current[key];
+                if (ctrl != null && !string.IsNullOrEmpty(ctrl.path)) return ctrl.path;
+            }
+            catch { }
+        }
+        string keyStr = key.ToString();
+        return $"<Keyboard>/{char.ToLower(keyStr[0])}{(keyStr.Length > 1 ? keyStr.Substring(1) : string.Empty)}";
     }
 
     // =========================================================================

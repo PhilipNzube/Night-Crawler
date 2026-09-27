@@ -139,10 +139,10 @@ public class GirlMaterialController : NetworkBehaviour
             // Do NOT trigger if ANY panel/modal is open or if any text input field is focused!
             if (GirlDealUI.IsAnyPanelOrModalOpen()) return;
 
-            bool tPressed = (Keyboard.current != null && Keyboard.current.tKey.wasPressedThisFrame)
-                         || Input.GetKeyDown(KeyCode.T);
+            bool manifestPressed = KeybindingManager.IsActionTriggered("Manifest")
+                                || (KeybindingManager.Instance == null && ((Keyboard.current != null && Keyboard.current.tKey.wasPressedThisFrame) || Input.GetKeyDown(KeyCode.T)));
 
-                if (tPressed)
+            if (manifestPressed)
                 {
                     if (!isManifested.Value)
                     {

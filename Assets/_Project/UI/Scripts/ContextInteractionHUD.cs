@@ -218,13 +218,15 @@ public class ContextInteractionHUD : MonoBehaviour
             _targetTeammateToHeal = nearestCriticalTeammate;
             _targetCorpseToLoot = null;
 
-            string keyName = healKey.ToString().Trim();
+            string keyName = KeybindingManager.IsGamepadActive()
+                ? KeybindingManager.GetBoundGamepadString("Heal", "D-PAD DOWN")
+                : KeybindingManager.GetBoundKeyString("Heal", "H");
             string bodyMsg = $"Send Healing Vial <size=85%>({vialInventory.VialCount} left)</size>";
 
             SetPromptVisible(true, keyName, bodyMsg);
 
             // Handle Key press
-            if (Keyboard.current != null && Keyboard.current[healKey].wasPressedThisFrame)
+            if (KeybindingManager.IsActionTriggered("Heal") || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current[healKey].wasPressedThisFrame))
             {
                 ExecuteCurrentAction();
             }
@@ -273,7 +275,7 @@ public class ContextInteractionHUD : MonoBehaviour
             SetPromptVisible(true, keyName, bodyMsg);
 
             // Handle Key / Gamepad press
-            if (KeybindingManager.IsActionTriggered("Loot") || (Keyboard.current != null && Keyboard.current[nearestLootable.lootKey].wasPressedThisFrame))
+            if (KeybindingManager.IsActionTriggered("Loot") || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current[nearestLootable.lootKey].wasPressedThisFrame))
             {
                 ExecuteCurrentAction();
             }

@@ -142,7 +142,7 @@ public class HealingVialInventoryNet : NetworkBehaviour
             {
                 TryInteractHeal();
             }
-            else if (Keyboard.current.hKey.wasPressedThisFrame)
+            else if (KeybindingManager.IsActionTriggered("Heal") || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current.hKey.wasPressedThisFrame))
             {
                 TrySelfHeal();
             }

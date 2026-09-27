@@ -337,6 +337,10 @@ public class NetworkPlayer : NetworkBehaviour
                 _sprintAction.canceled += OnSprintCanceled;
                 _sprintAction.Enable();
             }
+
+            KeybindingManager.ApplyToPlayerInput(playerInput);
+            KeybindingManager.OnBindingsChanged -= HandleBindingsChanged;
+            KeybindingManager.OnBindingsChanged += HandleBindingsChanged;
         }
 
         playerInput.enabled = true;
@@ -433,6 +437,16 @@ public class NetworkPlayer : NetworkBehaviour
             _sprintAction.performed -= OnSprintPerformed;
             _sprintAction.canceled -= OnSprintCanceled;
             _sprintAction = null;
+        }
+
+        KeybindingManager.OnBindingsChanged -= HandleBindingsChanged;
+    }
+
+    private void HandleBindingsChanged()
+    {
+        if (playerInput != null)
+        {
+            KeybindingManager.ApplyToPlayerInput(playerInput);
         }
     }
 

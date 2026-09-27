@@ -105,13 +105,13 @@ public class GirlPossessionUI : MonoBehaviour
             return;
         }
 
-        if (Keyboard.current != null)
-        {
-            if (Keyboard.current[toggleKey].wasPressedThisFrame && IsLocalPlayerGirl())
-                ToggleUI();
-            else if (_isOpen && Keyboard.current.escapeKey.wasPressedThisFrame)
-                CloseUI();
-        }
+        bool triggerPossess = KeybindingManager.IsActionTriggered("Possession")
+            || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current[toggleKey].wasPressedThisFrame);
+
+        if (triggerPossess && IsLocalPlayerGirl())
+            ToggleUI();
+        else if (_isOpen && (KeybindingManager.IsActionTriggered("SpectateExit") || (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)))
+            CloseUI();
 
         if (_isOpen)
         {

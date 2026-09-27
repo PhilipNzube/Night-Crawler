@@ -291,17 +291,20 @@ public class PossessionBlackoutOverlay : MonoBehaviour
             else
             {
                 bool mashed = KeybindingManager.IsActionTriggered("Resist");
-                if (!mashed && Keyboard.current != null)
+                if (!mashed && KeybindingManager.Instance == null)
                 {
-                    var keyControl = Keyboard.current[assignedResistKey];
-                    if ((keyControl != null && keyControl.wasPressedThisFrame) || Keyboard.current.spaceKey.wasPressedThisFrame)
+                    if (Keyboard.current != null)
+                    {
+                        var keyControl = Keyboard.current[assignedResistKey];
+                        if (keyControl != null && keyControl.wasPressedThisFrame)
+                        {
+                            mashed = true;
+                        }
+                    }
+                    else if (Input.GetKeyDown(fallbackKeyCode))
                     {
                         mashed = true;
                     }
-                }
-                else if (!mashed && (Input.GetKeyDown(fallbackKeyCode) || Input.GetKeyDown(KeyCode.Space)))
-                {
-                    mashed = true;
                 }
 
                 if (mashed)

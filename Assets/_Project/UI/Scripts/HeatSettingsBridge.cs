@@ -598,6 +598,20 @@ public class HeatSettingsBridge : MonoBehaviour
                 description = "Exit spectator observation mode or toggle between tactical free-orbit and direct over-shoulder camera.",
                 coverImage = null
             },
+            new SettingDescriptionEntry
+            {
+                elementName = "Monster Summon Rite",
+                displayTitle = "Monster Summon Rite",
+                description = "Open the necrotic summon rites menu to raise Undead and Berserker abominations in the subterranean mines.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Possession Selection Menu",
+                displayTitle = "Possession Selection Menu",
+                description = "Open the possession target selection modal to choose an investigator host to inhabit.",
+                coverImage = null
+            },
 
             // --- AUDIO TAB ---
             new SettingDescriptionEntry

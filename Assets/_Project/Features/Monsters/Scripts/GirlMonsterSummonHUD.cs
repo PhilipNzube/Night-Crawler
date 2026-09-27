@@ -20,6 +20,8 @@ namespace NightCrawler.Monsters
 
         [Header("Root & Panels")]
         public CanvasGroup canvasGroup;
+        [Tooltip("Animator on Monsters child driving Heat SubPanel In/Out animations.")]
+        public Animator monstersAnimator;
 
         [System.Serializable]
         public class MonsterCardBinding
@@ -136,7 +138,31 @@ namespace NightCrawler.Monsters
                 monsterSpectateHotkeyEvent.onHotkeyPress.AddListener(OnSpectateMonstersClicked);
             }
 
-            SetVisible(false);
+            if (monstersAnimator == null)
+            {
+                monstersAnimator = GetComponentInChildren<Animator>(true);
+            }
+
+            // Ensure all children are active so Heat UI components & layout don't reset
+            foreach (Transform child in transform)
+            {
+                if (child != null && child.gameObject != gameObject)
+                {
+                    child.gameObject.SetActive(true);
+                }
+            }
+
+            // Start hidden via CanvasGroup — exact mechanic of GirlDealUI
+            if (canvasGroup != null)
+            {
+                canvasGroup.alpha = 0f;
+                canvasGroup.interactable = false;
+                canvasGroup.blocksRaycasts = false;
+            }
+            if (monstersAnimator != null)
+            {
+                monstersAnimator.Play("Panel Instant Out");
+            }
         }
 
         private void Start()
@@ -144,7 +170,18 @@ namespace NightCrawler.Monsters
             InitializeSummonCharges();
             InitCardBindings();
             BuildMonsterCards();
-            SetVisible(false);
+
+            // Ensure summon panel starts hidden via CanvasGroup & Instant Out
+            if (canvasGroup != null)
+            {
+                canvasGroup.alpha = 0f;
+                canvasGroup.interactable = false;
+                canvasGroup.blocksRaycasts = false;
+            }
+            if (monstersAnimator != null)
+            {
+                monstersAnimator.Play("Panel Instant Out");
+            }
         }
 
         private void InitializeSummonCharges()
@@ -169,25 +206,24 @@ namespace NightCrawler.Monsters
 
             if (GirlDealUI.IsAnyInputFocused()) return;
 
-            if (Keyboard.current != null)
+            bool triggerSummon = KeybindingManager.IsActionTriggered("Summon")
+                || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current[toggleKey].wasPressedThisFrame);
+
+            if (triggerSummon && IsLocalPlayerGirl())
             {
-                if (Keyboard.current[toggleKey].wasPressedThisFrame && IsLocalPlayerGirl())
+                if (!_isOpen)
                 {
-                    if (!_isOpen)
-                    {
-                        if (GirlDealUI.IsAnyPanelOrModalOpen()) return;
-                        _isOpen = true;
-                        SetVisible(true);
-                    }
-                    else
-                    {
-                        CloseHUD();
-                    }
+                    if (GirlDealUI.IsAnyPanelOrModalOpen()) return;
+                    OpenHUD();
                 }
-                else if (_isOpen && Keyboard.current.escapeKey.wasPressedThisFrame)
+                else
                 {
                     CloseHUD();
                 }
+            }
+            else if (_isOpen && (KeybindingManager.IsActionTriggered("SpectateExit") || (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)))
+            {
+                CloseHUD();
             }
         }
 
@@ -204,47 +240,68 @@ namespace NightCrawler.Monsters
 
         public void ToggleHUD()
         {
-            _isOpen = !_isOpen;
-            SetVisible(_isOpen);
+            if (_isOpen) CloseHUD();
+            else
+            {
+                if (GirlDealUI.IsAnyPanelOrModalOpen()) return;
+                OpenHUD();
+            }
+        }
+
+        public void OpenHUD()
+        {
+            _isOpen = true;
+
+            // 1. Reveal Summon HUD via CanvasGroup
+            if (canvasGroup != null)
+            {
+                canvasGroup.alpha = 1f;
+                canvasGroup.interactable = true;
+                canvasGroup.blocksRaycasts = true;
+            }
+
+            // 2. Play 'Panel In' on the Animator (SubPanel.controller) so cards animate in smoothly
+            if (monstersAnimator != null)
+            {
+                monstersAnimator.Play("Panel In");
+            }
+
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+            UpdateChargesDisplay();
+            SelectCard(_selectedMonsterIndex);
         }
 
         public void CloseHUD()
         {
             _isOpen = false;
-            SetVisible(false);
-        }
 
-        private void SetVisible(bool visible)
-        {
-            _isOpen = visible;
+            // Close sub-modals if open
+            if (selectionConfirmationModal != null) selectionConfirmationModal.CloseWindow();
+            else if (confirmationModal != null) confirmationModal.CloseWindow();
 
+            // Animate cards out
+            if (monstersAnimator != null)
+            {
+                monstersAnimator.Play("Panel Instant Out");
+            }
+
+            // Hide Summon HUD via CanvasGroup
             if (canvasGroup != null)
             {
-                canvasGroup.alpha = visible ? 1f : 0f;
-                canvasGroup.interactable = visible;
-                canvasGroup.blocksRaycasts = visible;
+                canvasGroup.alpha = 0f;
+                canvasGroup.interactable = false;
+                canvasGroup.blocksRaycasts = false;
             }
 
-            foreach (Transform child in transform)
-            {
-                if (child != null && child.gameObject != gameObject)
-                {
-                    child.gameObject.SetActive(visible);
-                }
-            }
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
 
-            if (visible)
-            {
-                Cursor.lockState = CursorLockMode.None;
-                Cursor.visible = true;
-                UpdateChargesDisplay();
-                SelectCard(_selectedMonsterIndex);
-            }
-            else
-            {
-                Cursor.lockState = CursorLockMode.Locked;
-                Cursor.visible = false;
-            }
+        public void SetVisible(bool visible)
+        {
+            if (visible) OpenHUD();
+            else CloseHUD();
         }
 
         private void UpdateChargesDisplay()

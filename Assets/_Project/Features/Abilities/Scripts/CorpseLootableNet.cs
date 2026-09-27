@@ -247,7 +247,7 @@ public class CorpseLootableNet : NetworkBehaviour
         float dist = Vector3.Distance(activePlayer.transform.position, GetCorpsePosition());
         if (dist <= interactionDistance)
         {
-            if (Keyboard.current != null && Keyboard.current[lootKey].wasPressedThisFrame)
+            if (KeybindingManager.IsActionTriggered("Loot") || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current[lootKey].wasPressedThisFrame))
             {
                 var netObj = activePlayer.GetComponent<NetworkObject>();
                 if (netObj != null)
