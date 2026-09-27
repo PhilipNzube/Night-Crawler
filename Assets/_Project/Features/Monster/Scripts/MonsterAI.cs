@@ -36,6 +36,13 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     public enum Command { Hunt, Follow }
 
+    public enum ZombiePosture : byte
+    {
+        Crawling = 0,
+        StandingUp = 1,
+        Standing = 2
+    }
+
     [Header("Monster Identity")]
     public MonsterType monsterType = MonsterType.Zombie;
     public Command currentCommand = Command.Hunt;
@@ -43,6 +50,31 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     [Header("Scriptable Data")]
     public EntityStats stats;
+
+    [Header("Zombie Locomotion & Postures")]
+    [Tooltip("Current posture of the Zombie (Crawling on all fours vs Standing upright).")]
+    public ZombiePosture currentPosture = ZombiePosture.Crawling;
+
+    [Tooltip("Distance to target at which a crawling zombie initiates standing up.")]
+    public float standTransitionDistance = 8.5f;
+
+    [Tooltip("Distance beyond which a standing zombie drops back down to a crawl (hysteresis).")]
+    public float crawlTransitionDistance = 16.0f;
+
+    [Tooltip("Duration in seconds of the Zombie Stand Up animation.")]
+    public float standUpDuration = 1.25f;
+
+    [Tooltip("Duration in seconds of the Zombie Hit Reaction stagger.")]
+    public float hitReactionDuration = 0.5f;
+
+    [Tooltip("Walking speed in standing posture (used when following Girl or patrolling near her).")]
+    public float walkSpeed = 2.6f;
+
+    [Tooltip("Standing run speed while pursuing targets or catching up to the Girl.")]
+    public float standRunSpeed = 5.6f;
+
+    [Tooltip("Crawl run speed while sprinting on all fours across long distances.")]
+    public float crawlSpeed = 6.8f;
 
     [Header("Movement & Pursuit (Running Only)")]
     [Tooltip("Movement speed while sprinting at targets.")]
@@ -89,6 +121,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     [Header("Runtime State")]
     public AIState currentState = AIState.Falling;
 
+    public NetworkVariable<ZombiePosture> netPosture = new NetworkVariable<ZombiePosture>(
+        ZombiePosture.Crawling,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
     // Component references
     private NavMeshAgent _agent;
     private CharacterController _characterController;
@@ -97,17 +135,36 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     private TargetHealth _targetHealth;
 
     // Animation parameter hashes
-    private readonly int _speedHash      = Animator.StringToHash("Speed");
-    private readonly int _isRunningHash  = Animator.StringToHash("IsRunning");
-    private readonly int _attackHash     = Animator.StringToHash("Attack");
-    private readonly int _screamHash     = Animator.StringToHash("Scream");
-    private readonly int _roarHash       = Animator.StringToHash("Roar");
-    private readonly int _dieHash        = Animator.StringToHash("Die");
+    private readonly int _speedHash       = Animator.StringToHash("Speed");
+    private readonly int _isRunningHash   = Animator.StringToHash("IsRunning");
+    private readonly int _attackHash      = Animator.StringToHash("Attack");
+    private readonly int _screamHash      = Animator.StringToHash("Scream");
+    private readonly int _roarHash        = Animator.StringToHash("Roar");
+    private readonly int _dieHash         = Animator.StringToHash("Die");
+    private readonly int _hitHash         = Animator.StringToHash("Hit");
+    private readonly int _hitReactionHash = Animator.StringToHash("HitReaction");
+    private readonly int _standUpHash     = Animator.StringToHash("StandUp");
+    private readonly int _isStandingHash  = Animator.StringToHash("IsStanding");
+    private readonly int _isCrawlingHash  = Animator.StringToHash("IsCrawling");
+    private readonly int _isWalkingHash   = Animator.StringToHash("IsWalking");
     private readonly HashSet<int> _animParams = new HashSet<int>();
+
+    // Direct Animator state hashes
+    private readonly int _stateHitReaction  = Animator.StringToHash("Zombie Reaction Hit");
+    private readonly int _stateStandUp      = Animator.StringToHash("Zombie Stand Up");
+    private readonly int _stateRun          = Animator.StringToHash("Zombie Run");
+    private readonly int _stateWalk         = Animator.StringToHash("Zombie Walk");
+    private readonly int _stateIdle         = Animator.StringToHash("Zombie Idle");
+    private readonly int _stateRunningCrawl = Animator.StringToHash("Running Crawl");
+    private readonly int _stateZombieNeck   = Animator.StringToHash("Zombie Neck");
+    private readonly int _stateZombieAttack = Animator.StringToHash("Zombie Attack");
 
     // Internal state timers & caches
     private float _attackTimer;
     private float _retargetTimer;
+    private float _hitStaggerTimer;
+    private float _hitCooldownTimer;
+    private Coroutine _standUpCoroutine;
     private bool _hasLanded = false;
     private bool _hasScreamed = false;
     private static readonly Collider[] _searchBuffer = new Collider[20];
@@ -118,6 +175,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     private float _roamWaitTimer = 0f;
     private bool _isRoamWaiting = false;
     private Vector3 _roamDestination;
+
+    // Close-guard wandering state near the Girl
+    private bool _isGuardIdling = true;
+    private float _guardIdleTimer = 2.0f;
+    private float _guardWalkTimer = 0f;
+    private Vector3 _guardWanderDestination;
 
     private bool HasAuthority => (NetworkObject != null && NetworkObject.IsSpawned) ? IsServer : true;
 
@@ -194,8 +257,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
         else
         {
-            // Zombie
-            if (runSpeed < 5.0f) runSpeed = 5.5f;
+            // Zombie defaults
+            if (crawlSpeed <= 0f) crawlSpeed = 6.8f;
+            if (standRunSpeed <= 0f) standRunSpeed = 5.6f;
+            if (walkSpeed <= 0f) walkSpeed = 2.6f;
+            if (runSpeed < 5.0f) runSpeed = standRunSpeed;
             if (attackDamage < 25f) attackDamage = 35f;
             if (screamDuration <= 0f) screamDuration = 2.2f;
         }
@@ -203,8 +269,15 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         // ScriptableObject stats override if present
         if (stats != null)
         {
-            if (stats.runSpeed > 0) runSpeed = stats.runSpeed;
-            else if (stats.walkSpeed > 0) runSpeed = stats.walkSpeed;
+            if (stats.runSpeed > 0)
+            {
+                runSpeed = stats.runSpeed;
+                standRunSpeed = stats.runSpeed;
+            }
+            else if (stats.walkSpeed > 0)
+            {
+                walkSpeed = stats.walkSpeed;
+            }
 
             if (stats.damageAmount > 0) attackDamage = stats.damageAmount;
             if (stats.attackRange > 0) attackRange = stats.attackRange;
@@ -220,6 +293,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         {
             _targetHealth.currentHealth.OnValueChanged += HandleTargetHealthChanged;
         }
+
+        netPosture.OnValueChanged += HandlePostureChanged;
     }
 
     public override void OnNetworkDespawn()
@@ -229,6 +304,31 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (_targetHealth != null)
         {
             _targetHealth.currentHealth.OnValueChanged -= HandleTargetHealthChanged;
+        }
+
+        netPosture.OnValueChanged -= HandlePostureChanged;
+    }
+
+    private void HandlePostureChanged(ZombiePosture prev, ZombiePosture curr)
+    {
+        currentPosture = curr;
+        if (IsServer) return; // Server already drives transitions directly
+
+        if (curr == ZombiePosture.StandingUp)
+        {
+            SafeSetTrigger(_standUpHash);
+            SafeCrossFade(_stateStandUp, "Zombie Stand Up", 0.12f);
+        }
+        else if (curr == ZombiePosture.Standing)
+        {
+            SafeSetBool(_isStandingHash, true);
+            SafeSetBool(_isCrawlingHash, false);
+        }
+        else if (curr == ZombiePosture.Crawling)
+        {
+            SafeSetBool(_isStandingHash, false);
+            SafeSetBool(_isCrawlingHash, true);
+            SafeCrossFade(_stateRunningCrawl, "Running Crawl", 0.2f);
         }
     }
 
@@ -266,6 +366,19 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             return;
         }
 
+        if (_hitCooldownTimer > 0f) _hitCooldownTimer -= Time.deltaTime;
+
+        // Hit stagger: pause movement and attack updates briefly on impact
+        if (_hitStaggerTimer > 0f)
+        {
+            _hitStaggerTimer -= Time.deltaTime;
+            if (_agent != null && _agent.enabled && _agent.isOnNavMesh)
+            {
+                _agent.isStopped = true;
+            }
+            return;
+        }
+
         if (_attackTimer > 0) _attackTimer -= Time.deltaTime;
 
         // 3. State Machine
@@ -273,7 +386,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         {
             case AIState.SpawningScream:
                 // Stay stationary while roaring/screaming
-                if (_agent != null && _agent.enabled) _agent.isStopped = true;
+                if (_agent != null && _agent.enabled && _agent.isOnNavMesh) _agent.isStopped = true;
                 RotateTowardsTarget(target);
                 break;
 
@@ -440,11 +553,17 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         Transform leader = _commandLeader != null ? _commandLeader : (GameManager.Instance != null ? GameManager.Instance.GirlTransform : null);
         if (leader == null)
         {
-            ExecuteRoam(2.8f);
+            ExecuteRoam(walkSpeed);
             return;
         }
 
-        // Bodyguard guard position offset around the Girl
+        if (monsterType == MonsterType.Zombie)
+        {
+            HandleZombieGuardingBehavior(leader);
+            return;
+        }
+
+        // --- Berserker Guard Behavior ---
         float angleOffset = (GetInstanceID() % 6) * 60f * Mathf.Deg2Rad;
         Vector3 guardOffset = new Vector3(Mathf.Sin(angleOffset), 0f, Mathf.Cos(angleOffset)) * 2.2f;
         Vector3 targetSpot = leader.position + guardOffset;
@@ -452,7 +571,6 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         float distToGirl = Vector3.Distance(transform.position, leader.position);
         float distToSpot = Vector3.Distance(transform.position, targetSpot);
 
-        // Defensive protection: if an investigator gets close (< 4m to Girl or < 3.2m to monster), strike the threat!
         Transform threat = FindBestTarget();
         if (threat != null)
         {
@@ -482,15 +600,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             }
         }
 
-        // Move to guard position beside the Girl
         if (distToSpot <= 1.2f || (distToGirl <= 2.2f && _agent.velocity.magnitude < 0.2f))
         {
-            // Reached guard position — stand vigilant beside the Girl
             _agent.isStopped = true;
             SafeSetFloat(_speedHash, 0f);
             SafeSetBool(_isRunningHash, false);
 
-            // Turn outward matching Girl's forward view
             Vector3 lookDir = leader.forward;
             lookDir.y = 0f;
             if (lookDir != Vector3.zero)
@@ -520,6 +635,232 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
     }
 
+    /// <summary>
+    /// Handles Zombie Guarding behavior:
+    /// - Close to Girl (<=2.5m): Stands up, walks randomly, stops, idles, walks again.
+    /// - Moving with Girl (2.5m - 6m): Stands up and walks alongside her.
+    /// - Far from Girl (6m - 16m): Stands up and runs.
+    /// - Quite Far from Girl (>16m): Crawls rapidly on all fours to catch up.
+    /// - Threat approaching: Crawls if far, stands up when close and attacks!
+    /// </summary>
+    private void HandleZombieGuardingBehavior(Transform leader)
+    {
+        float distToGirl = Vector3.Distance(transform.position, leader.position);
+
+        // 1. Check defensive threat near the Girl or Zombie
+        Transform threat = FindBestTarget();
+        if (threat != null)
+        {
+            float distToThreat = Vector3.Distance(transform.position, threat.position);
+            float girlToThreat = Vector3.Distance(leader.position, threat.position);
+
+            if (girlToThreat <= 14f || distToThreat <= 12f)
+            {
+                _isGuardIdling = false;
+                _guardIdleTimer = 0f;
+                HandleZombieThreatEngagement(threat, distToThreat);
+                return;
+            }
+        }
+
+        // 2. No threat: follow / guard the Girl with tiered locomotion
+        if (currentPosture == ZombiePosture.StandingUp)
+        {
+            RotateTowardsTarget(leader);
+            return;
+        }
+
+        // TIER 1: Quite Far (> crawlTransitionDistance, ~16m) -> Drop to all fours and crawl sprint
+        if (distToGirl > crawlTransitionDistance)
+        {
+            _isGuardIdling = false;
+            _guardIdleTimer = 0f;
+
+            DropToCrawl();
+            _agent.isStopped = false;
+            _agent.speed = crawlSpeed;
+            _agent.SetDestination(leader.position);
+            PlayZombieCrawlingLocomotion();
+            return;
+        }
+
+        // TIER 2: Too Far (6m - 16m) -> Stand up and run standing
+        if (distToGirl > 6.0f)
+        {
+            _isGuardIdling = false;
+            _guardIdleTimer = 0f;
+
+            if (currentPosture == ZombiePosture.Crawling)
+            {
+                StartStandUp();
+                return;
+            }
+
+            _agent.isStopped = false;
+            _agent.speed = standRunSpeed;
+            _agent.SetDestination(leader.position);
+            PlayZombieStandingRunLocomotion();
+            return;
+        }
+
+        // TIER 3: Moving with her (2.5m - 6.0m) -> Stand up and walk with her
+        if (distToGirl > 2.5f)
+        {
+            _isGuardIdling = false;
+            _guardIdleTimer = 0f;
+
+            if (currentPosture == ZombiePosture.Crawling)
+            {
+                StartStandUp();
+                return;
+            }
+
+            _agent.isStopped = false;
+            _agent.speed = walkSpeed;
+            _agent.SetDestination(leader.position);
+            PlayZombieStandingWalkLocomotion();
+            return;
+        }
+
+        // TIER 4: Close with the Girl (<= 2.5m) -> Stand up, wander randomly, stop, idle, repeat
+        if (currentPosture == ZombiePosture.Crawling)
+        {
+            StartStandUp();
+            return;
+        }
+
+        HandleZombieCloseGuardRoutine(leader);
+    }
+
+    private void HandleZombieCloseGuardRoutine(Transform leader)
+    {
+        if (_isGuardIdling)
+        {
+            _agent.isStopped = true;
+            PlayZombieIdleLocomotion();
+
+            Vector3 lookDir = leader.forward;
+            lookDir.y = 0f;
+            if (lookDir != Vector3.zero)
+            {
+                Quaternion targetRot = Quaternion.LookRotation(lookDir);
+                transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * 3f);
+            }
+
+            _guardIdleTimer -= Time.deltaTime;
+            if (_guardIdleTimer <= 0f)
+            {
+                _isGuardIdling = false;
+                PickNewGuardWanderSpot(leader);
+            }
+        }
+        else
+        {
+            _guardWalkTimer -= Time.deltaTime;
+            bool arrived = !_agent.pathPending && (_agent.remainingDistance <= 0.6f || (_agent.remainingDistance == 0f && !_agent.hasPath));
+
+            if (arrived || _guardWalkTimer <= 0f)
+            {
+                _isGuardIdling = true;
+                _guardIdleTimer = Random.Range(2.5f, 5.0f);
+                _agent.isStopped = true;
+                PlayZombieIdleLocomotion();
+            }
+            else
+            {
+                _agent.isStopped = false;
+                _agent.speed = walkSpeed * 0.85f;
+                PlayZombieStandingWalkLocomotion();
+            }
+        }
+    }
+
+    private void PickNewGuardWanderSpot(Transform leader)
+    {
+        _guardWalkTimer = Random.Range(3.0f, 6.0f);
+
+        float randomAngle = Random.Range(0f, 360f) * Mathf.Deg2Rad;
+        float randomDist = Random.Range(1.3f, 2.7f);
+        Vector3 offset = new Vector3(Mathf.Sin(randomAngle), 0f, Mathf.Cos(randomAngle)) * randomDist;
+        Vector3 candidateSpot = leader.position + offset;
+
+        if (NavMesh.SamplePosition(candidateSpot, out NavMeshHit hit, 2.5f, NavMesh.AllAreas))
+        {
+            _guardWanderDestination = hit.position;
+            if (_agent != null && _agent.isOnNavMesh)
+            {
+                _agent.isStopped = false;
+                _agent.SetDestination(_guardWanderDestination);
+            }
+        }
+    }
+
+    private void HandleZombieThreatEngagement(Transform threat, float distToThreat)
+    {
+        if (distToThreat <= attackRange)
+        {
+            if (currentPosture == ZombiePosture.Crawling)
+            {
+                StartStandUp();
+                return;
+            }
+
+            if (currentPosture == ZombiePosture.StandingUp)
+            {
+                RotateTowardsTarget(threat);
+                return;
+            }
+
+            _agent.isStopped = true;
+            SafeSetFloat(_speedHash, 0f);
+            SafeSetBool(_isRunningHash, false);
+            RotateTowardsTarget(threat);
+
+            if (_attackTimer <= 0f)
+            {
+                StartCoroutine(PerformAttackRoutine());
+            }
+            return;
+        }
+
+        if (currentPosture == ZombiePosture.Crawling)
+        {
+            if (distToThreat <= standTransitionDistance)
+            {
+                StartStandUp();
+                return;
+            }
+
+            _agent.isStopped = false;
+            _agent.speed = crawlSpeed;
+            _agent.SetDestination(threat.position);
+            PlayZombieCrawlingLocomotion();
+        }
+        else if (currentPosture == ZombiePosture.StandingUp)
+        {
+            RotateTowardsTarget(threat);
+        }
+        else // Standing
+        {
+            // HYSTERESIS: Do not drop to crawl unless threat escapes quite far
+            if (distToThreat > crawlTransitionDistance)
+            {
+                DropToCrawl();
+                _agent.isStopped = false;
+                _agent.speed = crawlSpeed;
+                _agent.SetDestination(threat.position);
+                PlayZombieCrawlingLocomotion();
+            }
+            else
+            {
+                _agent.isStopped = false;
+                _agent.speed = standRunSpeed;
+                _agent.SetDestination(threat.position);
+                PlayZombieStandingRunLocomotion();
+            }
+        }
+    }
+
     private void HandleHuntingBehavior()
     {
         // Periodic smart retargeting tick (every 0.4s)
@@ -534,9 +875,15 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         {
             float distance = Vector3.Distance(transform.position, target.position);
 
+            if (monsterType == MonsterType.Zombie)
+            {
+                HandleZombieThreatEngagement(target, distance);
+                return;
+            }
+
+            // Berserker hunting pursuit
             if (distance <= attackRange)
             {
-                // Within strike range
                 _agent.isStopped = true;
                 SafeSetFloat(_speedHash, 0f);
                 SafeSetBool(_isRunningHash, false);
@@ -549,7 +896,6 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             }
             else
             {
-                // Relentless sprint towards target
                 _agent.isStopped = false;
                 _agent.speed = runSpeed;
                 _agent.SetDestination(target.position);
@@ -562,16 +908,28 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         // When no human targets exist or are in range, execute NavMesh roaming!
         target = null;
-        ExecuteRoam(2.8f);
+        ExecuteRoam(walkSpeed);
     }
 
     private void ExecuteRoam(float patrolSpeed)
     {
+        if (monsterType == MonsterType.Zombie && currentPosture == ZombiePosture.StandingUp)
+        {
+            return;
+        }
+
         if (_isRoamWaiting)
         {
             _agent.isStopped = true;
-            SafeSetFloat(_speedHash, 0f);
-            SafeSetBool(_isRunningHash, false);
+            if (monsterType == MonsterType.Zombie)
+            {
+                PlayZombieIdleLocomotion();
+            }
+            else
+            {
+                SafeSetFloat(_speedHash, 0f);
+                SafeSetBool(_isRunningHash, false);
+            }
 
             _roamWaitTimer -= Time.deltaTime;
             if (_roamWaitTimer <= 0f)
@@ -589,15 +947,29 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             _isRoamWaiting = true;
             _roamWaitTimer = Random.Range(2.0f, 4.0f);
             _agent.isStopped = true;
-            SafeSetFloat(_speedHash, 0f);
-            SafeSetBool(_isRunningHash, false);
+            if (monsterType == MonsterType.Zombie)
+            {
+                PlayZombieIdleLocomotion();
+            }
+            else
+            {
+                SafeSetFloat(_speedHash, 0f);
+                SafeSetBool(_isRunningHash, false);
+            }
             return;
         }
 
         _agent.isStopped = false;
         _agent.speed = patrolSpeed;
-        SafeSetFloat(_speedHash, patrolSpeed);
-        SafeSetBool(_isRunningHash, false);
+        if (monsterType == MonsterType.Zombie)
+        {
+            PlayZombieStandingWalkLocomotion();
+        }
+        else
+        {
+            SafeSetFloat(_speedHash, patrolSpeed);
+            SafeSetBool(_isRunningHash, false);
+        }
     }
 
     private void PickNewRoamDestination()
@@ -615,6 +987,125 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
     }
 
+    // =========================================================================
+    //  Zombie Posture & Locomotion Animation Helpers
+    // =========================================================================
+
+    public void StartStandUp()
+    {
+        if (currentPosture != ZombiePosture.Crawling) return;
+        if (_standUpCoroutine != null) StopCoroutine(_standUpCoroutine);
+        _standUpCoroutine = StartCoroutine(StandUpRoutine());
+    }
+
+    private IEnumerator StandUpRoutine()
+    {
+        currentPosture = ZombiePosture.StandingUp;
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            netPosture.Value = ZombiePosture.StandingUp;
+        }
+
+        if (_agent != null && _agent.enabled && _agent.isOnNavMesh)
+        {
+            _agent.isStopped = true;
+        }
+
+        SafeSetTrigger(_standUpHash);
+        SafeCrossFade(_stateStandUp, "Zombie Stand Up", 0.12f);
+
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            PlayStandUpClientRpc();
+        }
+
+        yield return new WaitForSeconds(standUpDuration);
+
+        currentPosture = ZombiePosture.Standing;
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            netPosture.Value = ZombiePosture.Standing;
+        }
+
+        SafeSetBool(_isStandingHash, true);
+        SafeSetBool(_isCrawlingHash, false);
+
+        if (_agent != null && _agent.enabled && _agent.isOnNavMesh)
+        {
+            _agent.isStopped = false;
+        }
+
+        _standUpCoroutine = null;
+    }
+
+    public void DropToCrawl()
+    {
+        if (currentPosture == ZombiePosture.Crawling) return;
+        if (_standUpCoroutine != null)
+        {
+            StopCoroutine(_standUpCoroutine);
+            _standUpCoroutine = null;
+        }
+
+        currentPosture = ZombiePosture.Crawling;
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            netPosture.Value = ZombiePosture.Crawling;
+        }
+
+        SafeSetBool(_isStandingHash, false);
+        SafeSetBool(_isCrawlingHash, true);
+        SafeCrossFade(_stateRunningCrawl, "Running Crawl", 0.2f);
+    }
+
+    [ClientRpc]
+    private void PlayStandUpClientRpc()
+    {
+        if (IsServer) return;
+        SafeSetTrigger(_standUpHash);
+        SafeCrossFade(_stateStandUp, "Zombie Stand Up", 0.12f);
+    }
+
+    private void PlayZombieCrawlingLocomotion()
+    {
+        SafeSetFloat(_speedHash, crawlSpeed);
+        SafeSetBool(_isRunningHash, true);
+        SafeSetBool(_isWalkingHash, false);
+        SafeSetBool(_isStandingHash, false);
+        SafeSetBool(_isCrawlingHash, true);
+        SafeCrossFade(_stateRunningCrawl, "Running Crawl", 0.2f);
+    }
+
+    private void PlayZombieStandingRunLocomotion()
+    {
+        SafeSetFloat(_speedHash, standRunSpeed);
+        SafeSetBool(_isRunningHash, true);
+        SafeSetBool(_isWalkingHash, false);
+        SafeSetBool(_isStandingHash, true);
+        SafeSetBool(_isCrawlingHash, false);
+        SafeCrossFade(_stateRun, "Zombie Run", 0.2f);
+    }
+
+    private void PlayZombieStandingWalkLocomotion()
+    {
+        SafeSetFloat(_speedHash, walkSpeed);
+        SafeSetBool(_isRunningHash, false);
+        SafeSetBool(_isWalkingHash, true);
+        SafeSetBool(_isStandingHash, true);
+        SafeSetBool(_isCrawlingHash, false);
+        SafeCrossFade(_stateWalk, "Zombie Walk", 0.2f);
+    }
+
+    private void PlayZombieIdleLocomotion()
+    {
+        SafeSetFloat(_speedHash, 0f);
+        SafeSetBool(_isRunningHash, false);
+        SafeSetBool(_isWalkingHash, false);
+        SafeSetBool(_isStandingHash, true);
+        SafeSetBool(_isCrawlingHash, false);
+        SafeCrossFade(_stateIdle, "Zombie Idle", 0.25f);
+    }
+
     private IEnumerator PerformAttackRoutine()
     {
         currentState = AIState.Attacking;
@@ -628,6 +1119,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         SafeSetFloat(_speedHash, 0f);
         SafeSetBool(_isRunningHash, false);
         SafeSetTrigger(_attackHash);
+
+        if (monsterType == MonsterType.Zombie)
+        {
+            SafeCrossFade(_stateZombieNeck, "Zombie Neck", 0.12f);
+        }
 
         if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
         {
@@ -671,6 +1167,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         if (IsServer) return;
         SafeSetTrigger(_attackHash);
+        if (monsterType == MonsterType.Zombie)
+        {
+            SafeCrossFade(_stateZombieNeck, "Zombie Neck", 0.12f);
+        }
     }
 
     private void CheckDirectAttackHit()
@@ -833,6 +1333,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             }
         }
 
+        // Hit reaction animation & stagger
+        if (currentState != AIState.Dead)
+        {
+            PlayHitReaction();
+        }
+
         // Retaliation aggro: If attacked by someone other than current target, switch aggro!
         if (switchTargetOnDamaged)
         {
@@ -841,6 +1347,39 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             {
                 target = attacker;
             }
+        }
+    }
+
+    public void PlayHitReaction()
+    {
+        if (currentState == AIState.Dead) return;
+        if (_hitCooldownTimer > 0f) return;
+
+        _hitCooldownTimer = 0.25f;
+        _hitStaggerTimer = hitReactionDuration;
+
+        if (monsterType == MonsterType.Zombie)
+        {
+            SafeSetTrigger(_hitHash);
+            SafeSetTrigger(_hitReactionHash);
+            SafeCrossFade(_stateHitReaction, "Zombie Reaction Hit", 0.08f, true);
+        }
+
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            PlayHitReactionClientRpc();
+        }
+    }
+
+    [ClientRpc]
+    private void PlayHitReactionClientRpc()
+    {
+        if (IsServer) return;
+        if (monsterType == MonsterType.Zombie)
+        {
+            SafeSetTrigger(_hitHash);
+            SafeSetTrigger(_hitReactionHash);
+            SafeCrossFade(_stateHitReaction, "Zombie Reaction Hit", 0.08f, true);
         }
     }
 
@@ -876,6 +1415,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     private void Die()
     {
         currentState = AIState.Dead;
+
+        if (_standUpCoroutine != null)
+        {
+            StopCoroutine(_standUpCoroutine);
+            _standUpCoroutine = null;
+        }
 
         if (_agent != null && _agent.enabled)
         {
@@ -1017,6 +1562,30 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             else if (_animator != null)
             {
                 _animator.SetTrigger(hash);
+            }
+        }
+    }
+
+    private void SafeCrossFade(int stateHash, string stateName, float transitionDuration = 0.15f, bool force = false)
+    {
+        if (_animator == null) _animator = GetComponentInChildren<Animator>();
+        if (_animator != null && _animator.isActiveAndEnabled)
+        {
+            if (_animator.HasState(0, stateHash))
+            {
+                if (force)
+                {
+                    _animator.CrossFadeInFixedTime(stateHash, transitionDuration, 0, 0f);
+                    return;
+                }
+
+                var stateInfo = _animator.GetCurrentAnimatorStateInfo(0);
+                var nextStateInfo = _animator.GetNextAnimatorStateInfo(0);
+
+                if (stateInfo.shortNameHash != stateHash && nextStateInfo.shortNameHash != stateHash)
+                {
+                    _animator.CrossFadeInFixedTime(stateHash, transitionDuration);
+                }
             }
         }
     }
