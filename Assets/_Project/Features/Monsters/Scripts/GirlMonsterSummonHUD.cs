@@ -358,13 +358,7 @@ namespace NightCrawler.Monsters
 
                 if (binding.selectButtonManager != null)
                 {
-                    if (icon != null)
-                    {
-                        binding.selectButtonManager.buttonIcon = icon;
-                        binding.selectButtonManager.enableIcon = true;
-                        binding.selectButtonManager.UpdateUI();
-                    }
-
+                    // Never assign an icon to the select button — intentionally left icon-free.
                     binding.selectButtonManager.onClick.RemoveAllListeners();
                     binding.selectButtonManager.onClick.AddListener(() => OnCardSelectClicked(index));
                 }
