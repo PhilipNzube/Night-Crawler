@@ -207,7 +207,11 @@ namespace NightCrawler.Monsters
 
             foreach (var ai in ais)
             {
-                if (ai == null || ai.currentState == MonsterAI.AIState.Dead) continue;
+                if (ai == null || ai.gameObject == null) continue;
+                if (ai.currentState == MonsterAI.AIState.Dead) continue;
+                if (ai.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) continue;
+                if (ai.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) continue;
+
                 ai.SetCommand(cmd, girlTransform);
                 commandedCount++;
             }
@@ -222,17 +226,26 @@ namespace NightCrawler.Monsters
         {
             bool isLocalSummoner = (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == summonerClientId);
 
+            if (monsterCount <= 0)
+            {
+                if (isLocalSummoner && NotificationManager.Instance != null)
+                {
+                    NotificationManager.Instance.ShowNotification("No creatures in the mine to command!", 2.5f);
+                }
+                return;
+            }
+
             string message;
             if (commandIndex == 1) // Recall
             {
                 message = isLocalSummoner
-                    ? (monsterCount > 0 ? $"TO MY SIDE! {monsterCount} creature(s) returning to guard you!" : "TO MY SIDE! (No active monsters in the mine)")
+                    ? $"TO MY SIDE! {monsterCount} creature(s) returning to guard you!"
                     : "THE SHADOWS RETREAT: The Vengeful Spirit has recalled her minions!";
             }
             else // Hunt
             {
                 message = isLocalSummoner
-                    ? (monsterCount > 0 ? $"SEEK AND DESTROY! Dispatched {monsterCount} creature(s) to hunt!" : "SEEK AND DESTROY! (No active monsters in the mine)")
+                    ? $"SEEK AND DESTROY! Dispatched {monsterCount} creature(s) to hunt!"
                     : "THE TUNNELS ECHO: The monsters have been unleashed to hunt!";
             }
 

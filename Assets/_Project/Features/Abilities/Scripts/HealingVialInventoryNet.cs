@@ -128,7 +128,7 @@ public class HealingVialInventoryNet : NetworkBehaviour
 
     private void Update()
     {
-        if (!IsOwner || _healthSystem == null || _healthSystem.IsDead || PauseManager.IsGamePaused) return;
+        if (!IsOwner || _healthSystem == null || _healthSystem.IsDead || PauseManager.IsGamePaused || SpectatorController.IsAnySpectating) return;
 
         if (_cameraTransform == null && Camera.main != null)
         {

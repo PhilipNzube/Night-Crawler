@@ -132,7 +132,7 @@ public class GirlMovement : NetworkBehaviour
         }
 
         // CORE NETWORK RULE: Ensure only the owner moves their own character
-        if (!IsOwner || PauseManager.IsGamePaused) return;
+        if (!IsOwner || PauseManager.IsGamePaused || SpectatorController.IsAnySpectating) return;
 
         // Monster Command Triggers (Go Hunt / To My Side)
         HandleMonsterCommands();
@@ -205,7 +205,7 @@ public class GirlMovement : NetworkBehaviour
 
     private void HandleMonsterCommands()
     {
-        if (GirlDealUI.IsAnyPanelOrModalOpen()) return;
+        if (GirlDealUI.IsAnyPanelOrModalOpen() || SpectatorController.IsAnySpectating) return;
 
         bool huntPressed = KeybindingManager.IsActionTriggered("CommandHunt")
             || (Keyboard.current != null && Keyboard.current.digit3Key.wasPressedThisFrame);

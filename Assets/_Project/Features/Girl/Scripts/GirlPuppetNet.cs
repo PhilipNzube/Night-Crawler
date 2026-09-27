@@ -29,7 +29,7 @@ public class GirlPuppetNet : NetworkBehaviour
 
     void Update()
     {
-        if (!IsOwner || PauseManager.IsGamePaused) return;
+        if (!IsOwner || PauseManager.IsGamePaused || GirlDealUI.IsAnyPanelOrModalOpen() || SpectatorController.IsAnySpectating) return;
 
         if (!_isInPuppetMode.Value)
         {

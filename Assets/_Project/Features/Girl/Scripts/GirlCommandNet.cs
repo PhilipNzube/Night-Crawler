@@ -11,7 +11,7 @@ public class GirlCommandNet : NetworkBehaviour
 {
     void Update()
     {
-        if (!IsOwner || PauseManager.IsGamePaused || GirlDealUI.IsAnyPanelOrModalOpen()) return;
+        if (!IsOwner || PauseManager.IsGamePaused || GirlDealUI.IsAnyPanelOrModalOpen() || SpectatorController.IsAnySpectating) return;
 
         // Command: HUNT (Seek and Destroy)
         bool huntPressed = KeybindingManager.IsActionTriggered("CommandHunt")
@@ -20,6 +20,17 @@ public class GirlCommandNet : NetworkBehaviour
         // Command: RECALL (Come to Me)
         bool recallPressed = KeybindingManager.IsActionTriggered("CommandRecall")
             || (Keyboard.current != null && Keyboard.current.digit4Key.wasPressedThisFrame);
+
+        if (!huntPressed && !recallPressed) return;
+
+        if (!SpectatorController.HasActiveMonstersInScene())
+        {
+            if (NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification("No creatures in the mine to command!", 2.5f);
+            }
+            return;
+        }
 
         if (huntPressed)
         {

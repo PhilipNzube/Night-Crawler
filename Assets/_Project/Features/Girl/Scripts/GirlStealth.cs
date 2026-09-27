@@ -58,7 +58,7 @@ public class GirlStealth : NetworkBehaviour
         // --- COOLDOWN TICK (Runs for Everyone/Server) ---
         if (_tauntCooldown > 0) _tauntCooldown -= Time.deltaTime;
 
-        if (!IsOwner || PauseManager.IsGamePaused) return;
+        if (!IsOwner || PauseManager.IsGamePaused || SpectatorController.IsAnySpectating) return;
     }
 
     private void ApplyStealthVisuals(bool isActive)

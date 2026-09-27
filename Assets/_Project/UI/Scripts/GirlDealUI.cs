@@ -181,6 +181,12 @@ public class GirlDealUI : MonoBehaviour
             return;
         }
 
+        if (SpectatorController.IsAnySpectating)
+        {
+            if (_isOpen) CloseUI();
+            return;
+        }
+
         if (IsAnyInputFocused())
         {
             if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame && _isOpen)

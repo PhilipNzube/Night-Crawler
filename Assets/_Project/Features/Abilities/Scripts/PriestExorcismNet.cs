@@ -92,7 +92,7 @@ public class PriestExorcismNet : NetworkBehaviour
 
     private void Update()
     {
-        if (!IsOwner || !isUnlocked || PauseManager.IsGamePaused) return;
+        if (!IsOwner || !isUnlocked || PauseManager.IsGamePaused || SpectatorController.IsAnySpectating) return;
 
         if (_cooldownTimer > 0f)
         {

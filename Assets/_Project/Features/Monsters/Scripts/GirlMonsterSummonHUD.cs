@@ -250,6 +250,12 @@ namespace NightCrawler.Monsters
 
             if (GirlDealUI.IsAnyInputFocused()) return;
 
+            if (SpectatorController.IsAnySpectating)
+            {
+                if (_isOpen) CloseHUD();
+                return;
+            }
+
             bool triggerSummon = KeybindingManager.IsActionTriggered("Summon")
                 || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current[toggleKey].wasPressedThisFrame);
 

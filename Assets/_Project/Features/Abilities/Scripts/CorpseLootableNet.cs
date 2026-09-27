@@ -219,7 +219,7 @@ public class CorpseLootableNet : NetworkBehaviour
 
     private void Update()
     {
-        if (PauseManager.IsGamePaused) return;
+        if (PauseManager.IsGamePaused || SpectatorController.IsAnySpectating) return;
 
         // Only alive, non-owner players can loot this corpse
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsClient) return;

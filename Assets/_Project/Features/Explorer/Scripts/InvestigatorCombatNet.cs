@@ -292,7 +292,7 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
 
     void Update()
     {
-        if (!IsOwner || PauseManager.IsGamePaused) return;
+        if (!IsOwner || PauseManager.IsGamePaused || SpectatorController.IsAnySpectating) return;
 
         if (_attackTimer > 0)
         {
