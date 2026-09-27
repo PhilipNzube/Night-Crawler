@@ -73,6 +73,7 @@ namespace NightCrawler.Monsters
         private int _berserkerSummoned = 0;
         private int _selectedMonsterIndex = 0;
         private bool _isOpen = false;
+        public bool IsOpen => _isOpen;
         private readonly List<Button> _cardButtons = new List<Button>();
         private readonly List<Image> _cardFrames = new List<Image>();
 
@@ -85,11 +86,28 @@ namespace NightCrawler.Monsters
             }
             Instance = this;
 
-            if (canvasGroup == null) canvasGroup = GetComponent<CanvasGroup>();
+            if (canvasGroup == null)
+            {
+                canvasGroup = GetComponent<CanvasGroup>();
+                if (canvasGroup == null)
+                {
+                    canvasGroup = gameObject.AddComponent<CanvasGroup>();
+                }
+            }
 
             if (selectionConfirmationModal == null && confirmationModal != null)
             {
                 selectionConfirmationModal = confirmationModal.GetComponent<SelectionConfirmationModal>();
+            }
+
+            // Close confirmation modals if open by default
+            if (selectionConfirmationModal != null)
+            {
+                selectionConfirmationModal.CloseWindow();
+            }
+            else if (confirmationModal != null)
+            {
+                confirmationModal.CloseWindow();
             }
 
             // Wire Confirmation Modal buttons
@@ -126,6 +144,7 @@ namespace NightCrawler.Monsters
             InitializeSummonCharges();
             InitCardBindings();
             BuildMonsterCards();
+            SetVisible(false);
         }
 
         private void InitializeSummonCharges()
@@ -154,7 +173,16 @@ namespace NightCrawler.Monsters
             {
                 if (Keyboard.current[toggleKey].wasPressedThisFrame && IsLocalPlayerGirl())
                 {
-                    ToggleHUD();
+                    if (!_isOpen)
+                    {
+                        if (GirlDealUI.IsAnyPanelOrModalOpen()) return;
+                        _isOpen = true;
+                        SetVisible(true);
+                    }
+                    else
+                    {
+                        CloseHUD();
+                    }
                 }
                 else if (_isOpen && Keyboard.current.escapeKey.wasPressedThisFrame)
                 {
@@ -195,6 +223,14 @@ namespace NightCrawler.Monsters
                 canvasGroup.alpha = visible ? 1f : 0f;
                 canvasGroup.interactable = visible;
                 canvasGroup.blocksRaycasts = visible;
+            }
+
+            foreach (Transform child in transform)
+            {
+                if (child != null && child.gameObject != gameObject)
+                {
+                    child.gameObject.SetActive(visible);
+                }
             }
 
             if (visible)

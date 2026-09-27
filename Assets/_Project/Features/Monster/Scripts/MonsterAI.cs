@@ -135,6 +135,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         CacheAudioSource();
         CacheAnimatorParameters();
         ConfigureMonsterDefaults();
+        SetRagdollState(false);
 
         if (_agent != null)
         {
@@ -707,6 +708,24 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
     }
 
+    private void SetRagdollState(bool active)
+    {
+        var rbs = GetComponentsInChildren<Rigidbody>(true);
+        foreach (var rb in rbs)
+        {
+            if (rb.gameObject == gameObject) continue;
+            rb.isKinematic = !active;
+            rb.detectCollisions = true;
+        }
+
+        var cols = GetComponentsInChildren<Collider>(true);
+        foreach (var col in cols)
+        {
+            if (col.gameObject == gameObject || col.isTrigger) continue;
+            col.enabled = true;
+        }
+    }
+
     private void TriggerRagdollPhysics()
     {
         // 1. Check for NetworkRagdollController
@@ -716,7 +735,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             return;
         }
 
-        // 2. Check for bone Rigidbodies
+        // 2. Disable animator, agent, and root character controller so ragdoll falls freely
+        if (_animator != null) _animator.enabled = false;
+        if (_agent != null) _agent.enabled = false;
+        if (_characterController != null) _characterController.enabled = false;
+
+        // 3. Activate bone Rigidbodies
         var rbs = GetComponentsInChildren<Rigidbody>(true);
         bool foundBones = false;
         foreach (var rb in rbs)
@@ -729,7 +753,6 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         if (foundBones)
         {
-            if (_animator != null) _animator.enabled = false;
             var cols = GetComponentsInChildren<Collider>(true);
             foreach (var col in cols)
             {

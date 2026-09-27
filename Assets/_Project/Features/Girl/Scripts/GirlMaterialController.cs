@@ -136,14 +136,11 @@ public class GirlMaterialController : NetworkBehaviour
         {
             if (PauseManager.IsGamePaused || _isCurrentlyPossessing) return;
 
-            // Do NOT trigger if Deal UI modal is open or if any text input field is focused!
-            bool isDealOpen = GirlDealUI.Instance != null && GirlDealUI.Instance.IsOpen;
-            bool isInputFocused = GirlDealUI.IsAnyInputFocused();
+            // Do NOT trigger if ANY panel/modal is open or if any text input field is focused!
+            if (GirlDealUI.IsAnyPanelOrModalOpen()) return;
 
-            if (!isDealOpen && !isInputFocused)
-            {
-                bool tPressed = (Keyboard.current != null && Keyboard.current.tKey.wasPressedThisFrame)
-                             || Input.GetKeyDown(KeyCode.T);
+            bool tPressed = (Keyboard.current != null && Keyboard.current.tKey.wasPressedThisFrame)
+                         || Input.GetKeyDown(KeyCode.T);
 
                 if (tPressed)
                 {
@@ -181,7 +178,6 @@ public class GirlMaterialController : NetworkBehaviour
                     }
                 }
             }
-        }
 
         // Periodic safeguard running on all clients (host and remotes) to ensure
         // newly spawned or connected players ignore collision with spirit form

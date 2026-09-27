@@ -20,7 +20,7 @@ public class GirlShadowTeleportNet : NetworkBehaviour
 
     void Update()
     {
-        if (!IsOwner || PauseManager.IsGamePaused) return;
+        if (!IsOwner || PauseManager.IsGamePaused || GirlDealUI.IsAnyPanelOrModalOpen()) return;
 
         bool pressed = (Keyboard.current != null && (Keyboard.current[teleportKey].wasPressedThisFrame || Keyboard.current.fKey.wasPressedThisFrame))
                      || Input.GetKeyDown(KeyCode.F);

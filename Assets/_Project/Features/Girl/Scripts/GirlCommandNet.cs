@@ -14,7 +14,7 @@ public class GirlCommandNet : NetworkBehaviour
 {
     void Update()
     {
-        if (!IsOwner || PauseManager.IsGamePaused) return;
+        if (!IsOwner || PauseManager.IsGamePaused || GirlDealUI.IsAnyPanelOrModalOpen()) return;
 
         // Command: HUNT (Seek and Destroy)
         if (Keyboard.current.digit3Key.wasPressedThisFrame)

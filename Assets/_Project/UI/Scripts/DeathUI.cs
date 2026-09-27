@@ -491,89 +491,94 @@ public class DeathUI : MonoBehaviour
             var questItem = entryObj.GetComponent<Michsky.UI.Heat.QuestItem>() ?? entryObj.GetComponentInChildren<Michsky.UI.Heat.QuestItem>();
             if (questItem != null)
             {
+                questItem.useLocalization = false;
                 questItem.questText = message;
                 questItem.minimizeAfter = alertLifetime;
                 questItem.afterMinimize = Michsky.UI.Heat.QuestItem.AfterMinimize.Destroy;
                 questItem.UpdateUI();
                 questItem.AnimateQuest();
             }
-            else
-            {
-                var txt = entryObj.GetComponentInChildren<TMP_Text>();
-                if (txt != null)
-                {
-                    txt.text = message;
-                }
 
-                if (accentColor.HasValue)
+            var txt = entryObj.GetComponentInChildren<TMP_Text>();
+            if (txt != null)
+            {
+                txt.text = message;
+            }
+
+            if (accentColor.HasValue)
+            {
+                foreach (var img in entryObj.GetComponentsInChildren<UnityEngine.UI.Image>())
                 {
-                    foreach (var img in entryObj.GetComponentsInChildren<UnityEngine.UI.Image>())
+                    if (img.gameObject.name.ToLower().Contains("accent") || img.gameObject.name.ToLower().Contains("bar") || img.gameObject.name.ToLower().Contains("indicator"))
                     {
-                        if (img.gameObject.name.ToLower().Contains("accent") || img.gameObject.name.ToLower().Contains("bar"))
-                        {
-                            img.color = accentColor.Value;
-                            break;
-                        }
+                        img.color = accentColor.Value;
+                        break;
                     }
                 }
-
-                // Animate card in, keep on screen, then animate card out and destroy
-                StartCoroutine(AnimateAlertEntryLifecycle(entryObj, alertLifetime));
             }
+
+            // Animate card in with spring easing, hold, and animate card out
+            StartCoroutine(AnimateAlertEntryLifecycle(entryObj, alertLifetime, hasQuestItem: questItem != null));
         }
 
         StartCoroutine(ScrollToBottomRoutine());
     }
 
-    private IEnumerator AnimateAlertEntryLifecycle(GameObject entry, float lifetime)
+    private IEnumerator AnimateAlertEntryLifecycle(GameObject entry, float lifetime, bool hasQuestItem = false)
     {
         if (entry == null) yield break;
 
         var cg = entry.GetComponent<CanvasGroup>();
         if (cg == null) cg = entry.AddComponent<CanvasGroup>();
 
-        // 1. Animate In (Fade in 0.25s + subtle pop from 0.90 to 1.0 scale)
+        RectTransform rt = entry.GetComponent<RectTransform>();
+        Vector3 initialScale = rt != null ? rt.localScale : Vector3.one;
+        if (initialScale == Vector3.zero) initialScale = Vector3.one;
+
+        // 1. Animate In (Smooth Ease-Out Back Spring curve matching NotificationManager)
         cg.alpha = 0f;
-        entry.transform.localScale = new Vector3(0.9f, 0.9f, 1f);
+        if (rt != null) rt.localScale = initialScale * 0.88f;
 
         float inElapsed = 0f;
-        float inDuration = 0.25f;
+        float inDuration = 0.32f;
         while (inElapsed < inDuration)
         {
             if (entry == null) yield break;
             inElapsed += Time.deltaTime;
             float t = Mathf.Clamp01(inElapsed / inDuration);
-            float ease = Mathf.Sin(t * Mathf.PI * 0.5f); // Smooth ease-out
-            cg.alpha = ease;
-            entry.transform.localScale = Vector3.Lerp(new Vector3(0.9f, 0.9f, 1f), Vector3.one, ease);
+            float ease = 1f + 2.70158f * Mathf.Pow(t - 1f, 3) + 1.70158f * Mathf.Pow(t - 1f, 2);
+
+            cg.alpha = Mathf.Clamp01(t * 1.5f);
+            if (rt != null) rt.localScale = Vector3.LerpUnclamped(initialScale * 0.88f, initialScale, ease);
             yield return null;
         }
 
         if (entry == null) yield break;
         cg.alpha = 1f;
-        entry.transform.localScale = Vector3.one;
+        if (rt != null) rt.localScale = initialScale;
 
         // 2. Visible on-screen duration
         yield return new WaitForSeconds(lifetime);
 
         if (entry == null) yield break;
 
-        // 3. Animate Out (Fade out 0.35s + subtle scale down)
+        // 3. Animate Out (Smooth Ease-In Tuck)
         float outElapsed = 0f;
-        float outDuration = 0.35f;
+        float outDuration = 0.28f;
         while (outElapsed < outDuration)
         {
             if (entry == null) yield break;
             outElapsed += Time.deltaTime;
             float t = Mathf.Clamp01(outElapsed / outDuration);
-            float ease = t * t; // Smooth ease-in fade
+            float ease = t * t;
+
             cg.alpha = 1f - ease;
-            entry.transform.localScale = Vector3.Lerp(Vector3.one, new Vector3(0.9f, 0.9f, 1f), ease);
+            if (rt != null) rt.localScale = Vector3.Lerp(initialScale, initialScale * 0.88f, ease);
             yield return null;
         }
 
         // 4. Clean up / destroy
-        if (entry != null)
+        if (entry != null && !hasQuestItem)
         {
             Destroy(entry);
         }

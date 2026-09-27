@@ -35,7 +35,49 @@ namespace NightCrawler.Monsters
 
         private void Awake()
         {
-            _hitboxCollider = hitboxCollider != null ? hitboxCollider : GetComponent<Collider>();
+            if (hitboxCollider != null)
+            {
+                _hitboxCollider = hitboxCollider;
+            }
+            else
+            {
+                // Check if this GameObject is a physical ragdoll bone (has Rigidbody or CharacterJoint)
+                bool isRagdollBone = GetComponent<CharacterJoint>() != null || (GetComponent<Rigidbody>() != null && transform.parent != null);
+
+                // First, check if a dedicated child trigger already exists
+                Collider[] childCols = GetComponentsInChildren<Collider>(true);
+                foreach (var c in childCols)
+                {
+                    if (c.gameObject != gameObject && c.isTrigger)
+                    {
+                        _hitboxCollider = c;
+                        break;
+                    }
+                }
+
+                if (_hitboxCollider == null)
+                {
+                    if (isRagdollBone)
+                    {
+                        // Pro safeguard: Do NOT convert the physical bone collider to a trigger, as it would cause the ragdoll limb to fall through the ground on death!
+                        // Dynamically create a dedicated child trigger collider instead.
+                        GameObject triggerChild = new GameObject("HitboxTrigger_Auto");
+                        triggerChild.transform.SetParent(transform, false);
+                        triggerChild.transform.localPosition = Vector3.zero;
+                        var sphere = triggerChild.AddComponent<SphereCollider>();
+                        sphere.radius = 0.35f;
+                        sphere.isTrigger = true;
+                        _hitboxCollider = sphere;
+
+                        Debug.LogWarning($"[MonsterAttackHitbox] Auto-created child trigger on '{gameObject.name}' to preserve the ragdoll bone collider!");
+                    }
+                    else
+                    {
+                        _hitboxCollider = GetComponent<Collider>();
+                    }
+                }
+            }
+
             if (_hitboxCollider != null)
             {
                 _hitboxCollider.isTrigger = true;

@@ -62,15 +62,35 @@ public class ContextInteractionHUD : MonoBehaviour
     protected virtual void Awake()
     {
         EnsureUI();
-        SetPromptVisible(false);
-
-
+        ForceHideInstant();
     }
 
     protected virtual void OnEnable()
     {
         EnsureUI();
-        SetPromptVisible(false);
+        ForceHideInstant();
+    }
+
+    public void ForceHideInstant()
+    {
+        _isPromptVisible = false;
+
+        if (_canvasGroup != null)
+        {
+            _canvasGroup.alpha = 0f;
+            _canvasGroup.interactable = false;
+            _canvasGroup.blocksRaycasts = false;
+        }
+
+        if (questItem != null)
+        {
+            questItem.defaultState = QuestItem.DefaultState.Minimized;
+            questItem.gameObject.SetActive(false);
+        }
+        else if (promptPanel != null && promptPanel != gameObject)
+        {
+            promptPanel.SetActive(false);
+        }
     }
 
     private void EnsureUI()
@@ -310,12 +330,21 @@ public class ContextInteractionHUD : MonoBehaviour
 
 
 
-            // 4. Trigger In animation / display
+            // 3. Trigger In animation / display
             if (!_isPromptVisible)
             {
                 _isPromptVisible = true;
+
+                if (_canvasGroup != null)
+                {
+                    _canvasGroup.alpha = 1f;
+                    _canvasGroup.interactable = true;
+                    _canvasGroup.blocksRaycasts = true;
+                }
+
                 if (questItem != null)
                 {
+                    questItem.gameObject.SetActive(true);
                     questItem.minimizeAfter = 0;
                     questItem.afterMinimize = QuestItem.AfterMinimize.Disable;
                     questItem.ExpandQuest();
@@ -323,7 +352,6 @@ public class ContextInteractionHUD : MonoBehaviour
                 else if (promptPanel != null)
                 {
                     if (promptPanel != gameObject) promptPanel.SetActive(true);
-                    if (_canvasGroup != null) _canvasGroup.alpha = 1f;
                 }
             }
         }
@@ -333,14 +361,21 @@ public class ContextInteractionHUD : MonoBehaviour
             if (_isPromptVisible)
             {
                 _isPromptVisible = false;
+
                 if (questItem != null)
                 {
                     questItem.MinimizeQuest();
                 }
                 else if (promptPanel != null)
                 {
-                    if (_canvasGroup != null) _canvasGroup.alpha = 0f;
                     if (promptPanel != gameObject) promptPanel.SetActive(false);
+                }
+
+                if (_canvasGroup != null)
+                {
+                    _canvasGroup.alpha = 0f;
+                    _canvasGroup.interactable = false;
+                    _canvasGroup.blocksRaycasts = false;
                 }
             }
         }

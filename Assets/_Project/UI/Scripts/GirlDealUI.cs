@@ -191,12 +191,45 @@ public class GirlDealUI : MonoBehaviour
         bool triggerDeal = KeybindingManager.IsActionTriggered("Deal") || (Keyboard.current != null && Keyboard.current[toggleKey].wasPressedThisFrame);
         if (triggerDeal && IsLocalPlayerGirl())
         {
-            ToggleUI();
+            if (!_isOpen)
+            {
+                // Cannot open Deal UI if another panel or modal is currently active!
+                if (IsAnyPanelOrModalOpen()) return;
+                OpenUI();
+            }
+            else
+            {
+                CloseUI();
+            }
         }
         else if (_isOpen && (KeybindingManager.IsActionTriggered("SpectateExit") || (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)))
         {
             CloseUI();
         }
+    }
+
+    public static bool IsAnyPanelOrModalOpen()
+    {
+        if (PauseManager.IsGamePaused) return true;
+        if (IsAnyInputFocused()) return true;
+
+        if (Instance != null && Instance._isOpen) return true;
+        if (NightCrawler.Monsters.GirlMonsterSummonHUD.Instance != null && NightCrawler.Monsters.GirlMonsterSummonHUD.Instance.IsOpen) return true;
+
+        if (Instance != null)
+        {
+            if (Instance.dealModal != null && Instance.dealModal.isOn) return true;
+            if (Instance.errorModal != null && Instance.errorModal.isOn) return true;
+        }
+
+        if (NightCrawler.Monsters.GirlMonsterSummonHUD.Instance != null)
+        {
+            var summon = NightCrawler.Monsters.GirlMonsterSummonHUD.Instance;
+            if (summon.selectionConfirmationModal != null && summon.selectionConfirmationModal.modalWindowManager != null && summon.selectionConfirmationModal.modalWindowManager.isOn) return true;
+            if (summon.confirmationModal != null && summon.confirmationModal.isOn) return true;
+        }
+
+        return false;
     }
 
     public static bool IsAnyInputFocused()

@@ -44,6 +44,7 @@ public class MatchResultOverlay : MonoBehaviour
     public TextMeshProUGUI netPayoutText;
 
     private MatchPayoutSummary? _latestPayout;
+    private CanvasGroup _rootCanvasGroup;
 
     private void Awake()
     {
@@ -56,12 +57,46 @@ public class MatchResultOverlay : MonoBehaviour
             endGameHotkey.onHotkeyPress.AddListener(OnEndGameClicked);
         }
 
-        // Force hide immediately on spawn/load
+        // Ensure root GameObject has its own CanvasGroup to suppress the entire hierarchy including background and summary
+        _rootCanvasGroup = GetComponent<CanvasGroup>();
+        if (_rootCanvasGroup == null)
+        {
+            _rootCanvasGroup = gameObject.AddComponent<CanvasGroup>();
+        }
+        _rootCanvasGroup.alpha = 0f;
+        _rootCanvasGroup.interactable = false;
+        _rootCanvasGroup.blocksRaycasts = false;
+
+        // Auto-resolve visual references if unlinked
+        if (allCanvasGroup == null)
+        {
+            allCanvasGroup = GetComponentInChildren<CanvasGroup>(true);
+        }
+        if (allAnimator == null)
+        {
+            allAnimator = GetComponentInChildren<Animator>(true);
+        }
+
+        // Force hide immediately on spawn/load - prevents Animator from driving alpha back to 1 on frame 0
+        if (allAnimator != null)
+        {
+            allAnimator.enabled = false;
+        }
+
         if (allCanvasGroup != null)
         {
             allCanvasGroup.alpha = 0f;
             allCanvasGroup.interactable = false;
             allCanvasGroup.blocksRaycasts = false;
+        }
+
+        // Deactivate all child visual objects (Background, All, Summary, Hotkeys)
+        foreach (Transform child in transform)
+        {
+            if (child != null && child.gameObject != gameObject)
+            {
+                child.gameObject.SetActive(false);
+            }
         }
     }
 
@@ -70,6 +105,21 @@ public class MatchResultOverlay : MonoBehaviour
         // Re-lock cursor whenever a new match/scene begins
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
+
+        // Re-enforce hidden state on Start to prevent any frame 0 animator overrides
+        if (_rootCanvasGroup != null)
+        {
+            _rootCanvasGroup.alpha = 0f;
+            _rootCanvasGroup.interactable = false;
+            _rootCanvasGroup.blocksRaycasts = false;
+        }
+        foreach (Transform child in transform)
+        {
+            if (child != null && child.gameObject != gameObject)
+            {
+                child.gameObject.SetActive(false);
+            }
+        }
         
         // Setup initial UI states
         if (GameManager.Instance != null)
@@ -137,18 +187,37 @@ public class MatchResultOverlay : MonoBehaviour
     {
         Debug.Log($"[UI-OVERLAY] ShowResult called with: {msg}");
         
+        if (_rootCanvasGroup != null)
+        {
+            _rootCanvasGroup.alpha = 1f;
+            _rootCanvasGroup.interactable = true;
+            _rootCanvasGroup.blocksRaycasts = true;
+        }
+
+        foreach (Transform child in transform)
+        {
+            if (child != null && child.gameObject != gameObject)
+            {
+                child.gameObject.SetActive(true);
+            }
+        }
+
+        if (allCanvasGroup != null)
+        {
+            allCanvasGroup.alpha = 1f;
+            allCanvasGroup.interactable = true;
+            allCanvasGroup.blocksRaycasts = true;
+        }
+
         if (allAnimator != null)
         {
             allAnimator.enabled = true;
             allAnimator.Rebind();
             allAnimator.Play("In");
         }
-        else if (allCanvasGroup != null)
-        {
-            allCanvasGroup.alpha = 1f;
-            allCanvasGroup.interactable = true;
-            allCanvasGroup.blocksRaycasts = true;
-        }
+
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
 
         UpdateEconomyText();
     }
