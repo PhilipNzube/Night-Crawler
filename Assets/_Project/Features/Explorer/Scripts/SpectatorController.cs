@@ -19,24 +19,19 @@ using UnityEngine.InputSystem;
 public class SpectatorController : MonoBehaviour
 {
     private static SpectatorController _instance;
+    public static SpectatorController SurvivorInstance { get; private set; }
+    public static SpectatorController MonsterInstance { get; private set; }
+
     public static SpectatorController Instance
     {
         get
         {
-            if (_instance == null)
-            {
-                _instance = FindFirstObjectByType<SpectatorController>(FindObjectsInactive.Include);
-                if (_instance == null)
-                {
-                    var go = new GameObject("SpectatorController");
-                    _instance = go.AddComponent<SpectatorController>();
-                    if (Application.isPlaying)
-                    {
-                        DontDestroyOnLoad(go);
-                    }
-                }
-            }
-            return _instance;
+            if (SurvivorInstance != null && SurvivorInstance.IsSpectating) return SurvivorInstance;
+            if (MonsterInstance != null && MonsterInstance.IsSpectating) return MonsterInstance;
+            if (SurvivorInstance != null) return SurvivorInstance;
+            if (MonsterInstance != null) return MonsterInstance;
+            if (_instance != null) return _instance;
+            return null;
         }
         private set => _instance = value;
     }
@@ -72,8 +67,8 @@ public class SpectatorController : MonoBehaviour
     public TMP_Text totalConnectedPlayersText;
 
     [Header("Exit Hotkey")]
-    [Tooltip("Keyboard key to exit spectator mode (default: Escape).")]
-    public Key exitHotkey = Key.Escape;
+    [Tooltip("Keyboard key to exit spectator mode (default: C).")]
+    public Key exitHotkey = Key.C;
 
     [Tooltip("Optional Michsky Heat HotkeyEvent for exiting spectator mode.")]
     public Michsky.UI.Heat.HotkeyEvent exitHotkeyEvent;
@@ -131,12 +126,15 @@ public class SpectatorController : MonoBehaviour
 
     private void Awake()
     {
-        if (Instance != null && Instance != this)
+        if (modeType == SpectatorModeType.Monsters)
         {
-            Destroy(gameObject);
-            return;
+            MonsterInstance = this;
         }
-        Instance = this;
+        else
+        {
+            SurvivorInstance = this;
+            _instance = this;
+        }
 
         _currentDistance = defaultCameraDistance;
         CreateSpectatorAnchor();
@@ -146,11 +144,13 @@ public class SpectatorController : MonoBehaviour
     private void OnEnable()
     {
         PauseManager.OnPauseStateChanged += HandlePauseStateChanged;
+        KeybindingManager.OnBindingsChanged += UpdateSpectatorHotkeyLabels;
     }
 
     private void OnDisable()
     {
         PauseManager.OnPauseStateChanged -= HandlePauseStateChanged;
+        KeybindingManager.OnBindingsChanged -= UpdateSpectatorHotkeyLabels;
     }
 
     private void HandlePauseStateChanged(bool isPaused)
@@ -174,7 +174,9 @@ public class SpectatorController : MonoBehaviour
 
     private void OnDestroy()
     {
-        if (Instance == this) Instance = null;
+        if (SurvivorInstance == this) SurvivorInstance = null;
+        if (MonsterInstance == this) MonsterInstance = null;
+        if (_instance == this) _instance = null;
         if (_spectatorAnchor != null)
         {
             Destroy(_spectatorAnchor.gameObject);
@@ -318,6 +320,88 @@ public class SpectatorController : MonoBehaviour
             exitHotkeyEvent.onHotkeyPress.RemoveListener(ExitSpectating);
             exitHotkeyEvent.onHotkeyPress.AddListener(ExitSpectating);
         }
+
+        UpdateSpectatorHotkeyLabels();
+    }
+
+    /// <summary>
+    /// Updates all spectator HotkeyEvent button text and prompt displays to reflect current keybindings.
+    /// </summary>
+    public void UpdateSpectatorHotkeyLabels()
+    {
+        string prevKeyStr = KeybindingManager.GetBoundKeyString("SpectatePrev", "A");
+        string nextKeyStr = KeybindingManager.GetBoundKeyString("SpectateNext", "D");
+        string viewModeKeyStr = KeybindingManager.GetBoundKeyString("SpectateViewMode", "SPACE");
+        string cursorKeyStr = KeybindingManager.GetBoundKeyString("SpectateCursor", "L-ALT");
+        string catKeyStr = KeybindingManager.GetBoundKeyString("SpectateCategory", "TAB");
+        string exitKeyStr = KeybindingManager.GetBoundKeyString("SpectateExit", "C");
+
+        if (prevHotkey != null)
+        {
+            if (prevHotkey.textObj != null) prevHotkey.textObj.text = prevKeyStr;
+            prevHotkey.keyID = prevKeyStr;
+            prevHotkey.SetLabel(modeType == SpectatorModeType.Monsters ? "PREV MONSTER" : "PREV SURVIVOR");
+        }
+        if (nextHotkey != null)
+        {
+            if (nextHotkey.textObj != null) nextHotkey.textObj.text = nextKeyStr;
+            nextHotkey.keyID = nextKeyStr;
+            nextHotkey.SetLabel(modeType == SpectatorModeType.Monsters ? "NEXT MONSTER" : "NEXT SURVIVOR");
+        }
+        if (viewModeHotkey != null)
+        {
+            if (viewModeHotkey.textObj != null) viewModeHotkey.textObj.text = viewModeKeyStr;
+            viewModeHotkey.keyID = viewModeKeyStr;
+            viewModeHotkey.SetLabel(_freeOrbitMode ? "FREE ORBIT" : "SHOULDER CAM");
+        }
+        if (cursorHotkey != null)
+        {
+            if (cursorHotkey.textObj != null) cursorHotkey.textObj.text = cursorKeyStr;
+            cursorHotkey.keyID = cursorKeyStr;
+            cursorHotkey.SetLabel(Cursor.lockState == CursorLockMode.Locked ? "UNLOCK CURSOR" : "LOCK CURSOR");
+        }
+        if (exitHotkeyEvent != null)
+        {
+            if (exitHotkeyEvent.textObj != null) exitHotkeyEvent.textObj.text = exitKeyStr;
+            exitHotkeyEvent.keyID = exitKeyStr;
+            exitHotkeyEvent.SetLabel(modeType == SpectatorModeType.Monsters ? "EXIT SPECTATE" : "EXIT TO DEATH");
+        }
+
+        if (_modePromptText != null)
+        {
+            string modeName = _freeOrbitMode ? "FREE ORBIT" : "SHOULDER CAM";
+            _modePromptText.text = $"[{viewModeKeyStr}] View Mode: {modeName}   •   [{prevKeyStr}/{nextKeyStr}] Switch   •   [{catKeyStr}] Switch Category   •   [{cursorKeyStr}] Cursor   •   [{exitKeyStr}] Exit";
+        }
+    }
+
+    /// <summary>
+    /// Seamlessly toggles spectator observation category between living human survivors and summoned monsters.
+    /// </summary>
+    public void ToggleSpectatorCategory()
+    {
+        if (modeType == SpectatorModeType.Survivors)
+        {
+            if (HasActiveMonstersInScene())
+            {
+                modeType = SpectatorModeType.Monsters;
+                ShowToast("SPECTATING: MONSTERS", new Color(1f, 0.4f, 0.4f, 1f));
+            }
+            else
+            {
+                ShowToast("NO ACTIVE MONSTERS IN THE MINE", new Color(1f, 0.6f, 0.2f, 1f));
+                return;
+            }
+        }
+        else
+        {
+            modeType = SpectatorModeType.Survivors;
+            ShowToast("SPECTATING: SURVIVORS", new Color(0.2f, 0.9f, 1f, 1f));
+        }
+
+        RefreshAliveTargets();
+        _currentTargetIndex = 0;
+        SelectTargetByIndex(_currentTargetIndex, true);
+        UpdateSpectatorHotkeyLabels();
     }
 
     /// <summary>
@@ -340,8 +424,8 @@ public class SpectatorController : MonoBehaviour
         {
             if (customCanvasRoot != null) customCanvasRoot.SetActive(false);
             if (_spectatorCanvas != null) _spectatorCanvas.gameObject.SetActive(false);
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
         }
     }
 
@@ -375,9 +459,9 @@ public class SpectatorController : MonoBehaviour
     /// Dedicated entry point for the Monster Spectator modal.
     /// If no active monsters exist, notifies the user and closes modal.
     /// </summary>
-    public void TryOpenMonsterSpectator(Michsky.UI.Heat.ModalWindowManager modal = null)
+    public void TryOpenMonsterSpectator(Michsky.UI.Heat.ModalWindowManager modal = null, TargetHealth initialTarget = null)
     {
-        if (!HasActiveMonstersInScene())
+        if (!HasActiveMonstersInScene() && initialTarget == null)
         {
             if (modal != null) modal.CloseWindow();
             if (NotificationManager.Instance != null)
@@ -390,6 +474,30 @@ public class SpectatorController : MonoBehaviour
         if (modal != null) modal.CloseWindow();
         modeType = SpectatorModeType.Monsters;
         StartSpectating();
+
+        if (initialTarget != null)
+        {
+            SelectTarget(initialTarget, true);
+        }
+    }
+
+    /// <summary>
+    /// Focuses the camera directly onto a specific TargetHealth instance.
+    /// </summary>
+    public void SelectTarget(TargetHealth target, bool snapImmediate = true)
+    {
+        if (target == null) return;
+        RefreshAliveTargets();
+        int idx = _aliveTargets.IndexOf(target);
+        if (idx >= 0)
+        {
+            SelectTargetByIndex(idx, snapImmediate);
+        }
+        else
+        {
+            _aliveTargets.Insert(0, target);
+            SelectTargetByIndex(0, snapImmediate);
+        }
     }
 
     /// <summary>
@@ -442,7 +550,6 @@ public class SpectatorController : MonoBehaviour
         // Restore camera priority & binding so local player's camera resumes normally
         if (_cinemachineCam != null)
         {
-            _cinemachineCam.Priority = 10;
             if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null && NetworkManager.Singleton.LocalClient.PlayerObject != null)
             {
                 var localObj = NetworkManager.Singleton.LocalClient.PlayerObject;
@@ -451,6 +558,11 @@ public class SpectatorController : MonoBehaviour
                     : (localObj.transform.Find("PlayerCameraRoot") ?? localObj.transform);
                 _cinemachineCam.Follow = camTarget;
                 _cinemachineCam.LookAt = camTarget;
+                _cinemachineCam.Priority = 99999;
+            }
+            else
+            {
+                _cinemachineCam.Priority = 10;
             }
         }
 
@@ -459,19 +571,28 @@ public class SpectatorController : MonoBehaviour
             StartCoroutine(FadeCanvasGroup(_canvasGroup, 1f, 0f, 0.4f, () =>
             {
                 _canvasGroup.gameObject.SetActive(false);
+                if (customCanvasRoot != null) customCanvasRoot.SetActive(false);
             }));
         }
 
-        Cursor.lockState = CursorLockMode.None;
-        Cursor.visible = true;
+        if (modeType == SpectatorModeType.Monsters)
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
+        else
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+        }
     }
 
     private void Update()
     {
         if (!_isSpectating) return;
 
-        // Living players MUST NEVER stay in spectator mode!
-        if (!IsLocalPlayerDead())
+        // Living players MUST NEVER stay in survivor spectator mode!
+        if (modeType == SpectatorModeType.Survivors && !IsLocalPlayerDead())
         {
             Debug.Log("[SpectatorController] Local player is alive — Exiting Spectator Mode immediately.");
             StopSpectating();
@@ -505,31 +626,41 @@ public class SpectatorController : MonoBehaviour
         if (PauseManager.IsGamePaused) return;
         if (Keyboard.current == null && Mouse.current == null && Gamepad.current == null) return;
 
-        // Exit Spectating: [ESC] or SpectateExit
-        if (KeybindingManager.IsActionTriggered("SpectateExit") || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current[exitHotkey].wasPressedThisFrame))
+        // Exit Spectating: bound key or Escape fallback
+        if (KeybindingManager.IsActionTriggered("SpectateExit") 
+            || (Keyboard.current != null && (Keyboard.current[exitHotkey].wasPressedThisFrame || Keyboard.current.cKey.wasPressedThisFrame || Keyboard.current.escapeKey.wasPressedThisFrame)))
         {
             ExitSpectating();
             return;
         }
 
-        // Cycle Previous: [A], [Left Arrow], [Mouse Left Button], or Gamepad Left Shoulder
-        bool prevPressed = (KeybindingManager.Instance == null && (KeybindingManager.IsGamepadButtonPressed("leftShoulder") ||
-                           (Keyboard.current != null && (Keyboard.current.aKey.wasPressedThisFrame || Keyboard.current.leftArrowKey.wasPressedThisFrame)))) ||
-                           (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame);
+        // Switch Category (Survivors <-> Monsters): [Tab] or Gamepad Y / Triangle
+        if (KeybindingManager.IsActionTriggered("SpectateCategory") 
+            || (Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame))
+        {
+            ToggleSpectatorCategory();
+            return;
+        }
 
-        // Cycle Next: Rebound SpectateCycle action, or mouse right button
-        bool nextPressed = KeybindingManager.IsActionTriggered("SpectateCycle") ||
-                           (KeybindingManager.Instance == null && ((Keyboard.current != null && (Keyboard.current.dKey.wasPressedThisFrame || Keyboard.current.rightArrowKey.wasPressedThisFrame)) || KeybindingManager.IsGamepadButtonPressed("rightShoulder"))) ||
-                           (Mouse.current != null && Mouse.current.rightButton.wasPressedThisFrame);
+        // Cycle Previous: [A], [Left Arrow], or Gamepad Left Shoulder
+        bool prevPressed = KeybindingManager.IsActionTriggered("SpectatePrev")
+            || (Keyboard.current != null && (Keyboard.current.aKey.wasPressedThisFrame || Keyboard.current.leftArrowKey.wasPressedThisFrame))
+            || KeybindingManager.IsGamepadButtonPressed("leftShoulder");
+
+        // Cycle Next: [D], [Right Arrow], or Gamepad Right Shoulder
+        bool nextPressed = KeybindingManager.IsActionTriggered("SpectateNext")
+            || KeybindingManager.IsActionTriggered("SpectateCycle")
+            || (Keyboard.current != null && (Keyboard.current.dKey.wasPressedThisFrame || Keyboard.current.rightArrowKey.wasPressedThisFrame))
+            || KeybindingManager.IsGamepadButtonPressed("rightShoulder");
 
         // Toggle Free Orbit vs Follow Facing: [Space]
-        if (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame)
+        if (KeybindingManager.IsActionTriggered("SpectateViewMode") || (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame))
         {
             ToggleOrbitMode();
         }
 
         // Toggle Cursor Lock: [Left Alt]
-        if (Keyboard.current != null && Keyboard.current.leftAltKey.wasPressedThisFrame)
+        if (KeybindingManager.IsActionTriggered("SpectateCursor") || (Keyboard.current != null && Keyboard.current.leftAltKey.wasPressedThisFrame))
         {
             ToggleCursorLock();
         }
@@ -561,8 +692,14 @@ public class SpectatorController : MonoBehaviour
         RefreshAliveTargets();
         if (_aliveTargets.Count == 0) return;
 
+        if (_currentTarget != null)
+        {
+            int curIdx = _aliveTargets.IndexOf(_currentTarget);
+            if (curIdx >= 0) _currentTargetIndex = curIdx;
+        }
+
         _currentTargetIndex = (_currentTargetIndex + 1) % _aliveTargets.Count;
-        SelectTargetByIndex(_currentTargetIndex);
+        SelectTargetByIndex(_currentTargetIndex, true);
     }
 
     public void CyclePreviousSurvivor()
@@ -570,8 +707,14 @@ public class SpectatorController : MonoBehaviour
         RefreshAliveTargets();
         if (_aliveTargets.Count == 0) return;
 
+        if (_currentTarget != null)
+        {
+            int curIdx = _aliveTargets.IndexOf(_currentTarget);
+            if (curIdx >= 0) _currentTargetIndex = curIdx;
+        }
+
         _currentTargetIndex = (_currentTargetIndex - 1 + _aliveTargets.Count) % _aliveTargets.Count;
-        SelectTargetByIndex(_currentTargetIndex);
+        SelectTargetByIndex(_currentTargetIndex, true);
     }
 
     private void SelectTargetByIndex(int index, bool snapImmediate = false)
@@ -588,14 +731,13 @@ public class SpectatorController : MonoBehaviour
         if (_currentTarget != null)
         {
             string pName = GetPlayerName(_currentTarget);
-            string pRole = GetPlayerRole(_currentTarget);
             ShowToast($"SPECTATING: {pName}", new Color(0.1f, 0.9f, 0.5f, 1f));
 
-            // Align initial camera angle behind teammate
+            // Align initial camera angle behind target
             _yaw = _currentTarget.transform.eulerAngles.y;
             _pitch = 18f;
 
-            if (snapImmediate && _spectatorAnchor != null)
+            if (_spectatorAnchor != null)
             {
                 _spectatorAnchor.position = GetTargetFocusPoint(_currentTarget);
                 _spectatorAnchor.rotation = Quaternion.Euler(_pitch, _yaw, 0f);
@@ -641,7 +783,7 @@ public class SpectatorController : MonoBehaviour
 
         if (modeType == SpectatorModeType.Monsters)
         {
-            var monsterHealths = new HashSet<TargetHealth>();
+            var monsterHealths = new List<TargetHealth>();
 
             var controllers = FindObjectsByType<MonsterController>(FindObjectsSortMode.None);
             foreach (var mc in controllers)
@@ -650,7 +792,7 @@ public class SpectatorController : MonoBehaviour
                 if (mc.TryGetComponent<TargetHealth>(out var mth))
                 {
                     if (mth.isCorpse.Value || mth.CurrentHealth <= 0) continue;
-                    monsterHealths.Add(mth);
+                    if (!monsterHealths.Contains(mth)) monsterHealths.Add(mth);
                 }
             }
 
@@ -659,18 +801,27 @@ public class SpectatorController : MonoBehaviour
             {
                 if (ai == null || ai.gameObject == null) continue;
                 if (ai.currentState == MonsterAI.AIState.Dead) continue;
-                if (ai.TryGetComponent<TargetHealth>(out var ath))
+                var ath = ai.GetComponent<TargetHealth>() ?? ai.GetComponentInChildren<TargetHealth>();
+                if (ath == null)
+                {
+                    ath = ai.gameObject.AddComponent<TargetHealth>();
+                    ath.baseMaxHealth = (ai.stats != null && ai.stats.maxHealth > 0) ? ai.stats.maxHealth : 100f;
+                }
+                if (ath != null)
                 {
                     if (ath.isCorpse.Value || ath.CurrentHealth <= 0) continue;
-                    monsterHealths.Add(ath);
+                    if (!monsterHealths.Contains(ath)) monsterHealths.Add(ath);
                 }
             }
 
+            // Stable sort by instance ID so target order doesn't change every frame
+            monsterHealths.Sort((a, b) => a.GetInstanceID().CompareTo(b.GetInstanceID()));
             _aliveTargets.AddRange(monsterHealths);
 
-            if (_aliveTargets.Count > 0)
+            if (_currentTarget != null)
             {
-                _currentTargetIndex = Mathf.Clamp(_currentTargetIndex, 0, _aliveTargets.Count - 1);
+                int curIdx = _aliveTargets.IndexOf(_currentTarget);
+                if (curIdx >= 0) _currentTargetIndex = curIdx;
             }
             return;
         }
@@ -888,13 +1039,22 @@ public class SpectatorController : MonoBehaviour
         }
     }
 
+    private static bool IsMonsterTarget(TargetHealth th)
+    {
+        if (th == null) return false;
+        if (th.GetComponentInParent<MonsterAI>() != null || th.GetComponentInChildren<MonsterAI>() != null) return true;
+        if (th.GetComponentInParent<MonsterController>() != null || th.GetComponentInChildren<MonsterController>() != null) return true;
+        string n = th.gameObject.name.ToLower();
+        return n.Contains("monster") || n.Contains("undead") || n.Contains("berserker") || n.Contains("zombie") || (n.Contains("demon") && !n.Contains("girl"));
+    }
+
     private string GetPlayerName(TargetHealth th)
     {
-        if (th == null) return modeType == SpectatorModeType.Monsters ? "Monster" : "Investigator";
+        if (th == null) return modeType == SpectatorModeType.Monsters ? "MONSTER" : "INVESTIGATOR";
 
-        if (th.TryGetComponent<MonsterController>(out var mc))
+        if (modeType == SpectatorModeType.Monsters || IsMonsterTarget(th))
         {
-            return mc.gameObject.name.Replace("(Clone)", "").Trim();
+            return GetMonsterDisplayName(th);
         }
 
         if (th.TryGetComponent<NetworkPlayerName>(out var npn) && !string.IsNullOrEmpty(npn.playerName.Value.ToString()))
@@ -913,15 +1073,68 @@ public class SpectatorController : MonoBehaviour
         return cleanName;
     }
 
+    private string GetMonsterDisplayName(TargetHealth th)
+    {
+        if (th == null) return "MONSTER";
+
+        string baseName = "UNDEAD";
+        if (th.TryGetComponent<MonsterAI>(out var ai))
+        {
+            baseName = ai.monsterType == MonsterAI.MonsterType.Berserker ? "BERSERKER" : "UNDEAD";
+        }
+        else if (th.gameObject.name.ToLower().Contains("berserker"))
+        {
+            baseName = "BERSERKER";
+        }
+
+        // Count index among monsters of the same type in _aliveTargets
+        int typeIndex = 1;
+        int totalOfType = 0;
+        for (int i = 0; i < _aliveTargets.Count; i++)
+        {
+            var target = _aliveTargets[i];
+            if (target == null) continue;
+
+            string otherBase = "UNDEAD";
+            if (target.TryGetComponent<MonsterAI>(out var otherAi))
+            {
+                otherBase = otherAi.monsterType == MonsterAI.MonsterType.Berserker ? "BERSERKER" : "UNDEAD";
+            }
+            else if (target.gameObject.name.ToLower().Contains("berserker"))
+            {
+                otherBase = "BERSERKER";
+            }
+
+            if (otherBase == baseName)
+            {
+                totalOfType++;
+                if (target == th)
+                {
+                    typeIndex = totalOfType;
+                }
+            }
+        }
+
+        return $"{baseName} #{typeIndex}";
+    }
+
     private string GetPlayerRole(TargetHealth th)
     {
-        if (th == null) return "Investigator";
+        if (th == null) return modeType == SpectatorModeType.Monsters ? "Monster" : "Investigator";
 
-        string n = th.gameObject.name.ToLower();
-        if (n.Contains("miner")) return "Miner";
-        if (n.Contains("adventurer")) return "Adventurer";
-        if (n.Contains("doctor") || n.Contains("medic")) return "Medic";
-        if (n.Contains("detective")) return "Detective";
+        if (modeType == SpectatorModeType.Monsters || IsMonsterTarget(th))
+        {
+            string n = th.gameObject.name.ToLower();
+            if (th.TryGetComponent<MonsterAI>(out var ai) && ai.monsterType == MonsterAI.MonsterType.Berserker) return "Berserker";
+            if (n.Contains("berserker") || n.Contains("mutant") || n.Contains("brute")) return "Berserker";
+            return "Undead";
+        }
+
+        string name = th.gameObject.name.ToLower();
+        if (name.Contains("miner")) return "Miner";
+        if (name.Contains("adventurer")) return "Adventurer";
+        if (name.Contains("doctor") || name.Contains("medic")) return "Medic";
+        if (name.Contains("detective")) return "Detective";
         return "Investigator";
     }
 

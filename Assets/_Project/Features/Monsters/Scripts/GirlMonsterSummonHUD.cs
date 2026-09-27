@@ -62,11 +62,17 @@ namespace NightCrawler.Monsters
         [Tooltip("How long the camera focuses on the monster before returning priority (seconds).")]
         public float cameraFocusDuration = 3.5f;
 
-        [Header("Monster Spectate Hotkey (Manual Inspector Wiring)")]
+        [Header("Monster Spectate Hotkey & Button (Manual Inspector Wiring)")]
         [Tooltip("Root GameObject for the MonsterSpectateHotkey.")]
         public GameObject monsterSpectateHotkey;
         [Tooltip("Michsky Heat HotkeyEvent component on MonsterSpectateHotkey.")]
         public Michsky.UI.Heat.HotkeyEvent monsterSpectateHotkeyEvent;
+        [Tooltip("Optional standard Button component to spectate monsters.")]
+        public Button monsterSpectateButton;
+        [Tooltip("Optional Michsky ButtonManager component to spectate monsters.")]
+        public Michsky.UI.Heat.ButtonManager heatMonsterSpectateButton;
+        [Tooltip("Hotkey to trigger spectating monsters while HUD is open (default: Space).")]
+        public Key spectateKey = Key.Space;
 
         [Header("Progression & Inspector Testing")]
         [Tooltip("If checked, immediately unlocks the Berserker regardless of level (for quick testing in the editor).")]
@@ -152,6 +158,31 @@ namespace NightCrawler.Monsters
                 monsterSpectateHotkeyEvent.onHotkeyPress.RemoveListener(OnSpectateMonstersClicked);
                 monsterSpectateHotkeyEvent.onHotkeyPress.AddListener(OnSpectateMonstersClicked);
             }
+            if (monsterSpectateButton != null)
+            {
+                monsterSpectateButton.onClick.RemoveListener(OnSpectateMonstersClicked);
+                monsterSpectateButton.onClick.AddListener(OnSpectateMonstersClicked);
+            }
+            if (heatMonsterSpectateButton != null)
+            {
+                heatMonsterSpectateButton.onClick.RemoveListener(OnSpectateMonstersClicked);
+                heatMonsterSpectateButton.onClick.AddListener(OnSpectateMonstersClicked);
+            }
+            if (monsterSpectateHotkey != null)
+            {
+                var btn = monsterSpectateHotkey.GetComponentInChildren<Button>(true);
+                if (btn != null && btn != monsterSpectateButton)
+                {
+                    btn.onClick.RemoveListener(OnSpectateMonstersClicked);
+                    btn.onClick.AddListener(OnSpectateMonstersClicked);
+                }
+                var heatBtn = monsterSpectateHotkey.GetComponentInChildren<Michsky.UI.Heat.ButtonManager>(true);
+                if (heatBtn != null && heatBtn != heatMonsterSpectateButton)
+                {
+                    heatBtn.onClick.RemoveListener(OnSpectateMonstersClicked);
+                    heatBtn.onClick.AddListener(OnSpectateMonstersClicked);
+                }
+            }
 
             if (monstersAnimator == null)
             {
@@ -233,9 +264,17 @@ namespace NightCrawler.Monsters
                     CloseHUD();
                 }
             }
-            else if (_isOpen && (KeybindingManager.IsActionTriggered("SpectateExit") || (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)))
+            else if (_isOpen)
             {
-                CloseHUD();
+                if (KeybindingManager.IsActionTriggered("SpectateExit") || (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame))
+                {
+                    CloseHUD();
+                }
+                else if ((Keyboard.current != null && (Keyboard.current.spaceKey.wasPressedThisFrame || Keyboard.current[spectateKey].wasPressedThisFrame))
+                         || KeybindingManager.IsActionTriggered("SpectateMonsters"))
+                {
+                    OnSpectateMonstersClicked();
+                }
             }
         }
 
@@ -402,6 +441,14 @@ namespace NightCrawler.Monsters
             {
                 monsterSpectateHotkey.SetActive(hasMonsters);
             }
+            if (monsterSpectateButton != null && monsterSpectateButton.gameObject != monsterSpectateHotkey)
+            {
+                monsterSpectateButton.gameObject.SetActive(hasMonsters);
+            }
+            if (heatMonsterSpectateButton != null && heatMonsterSpectateButton.gameObject != monsterSpectateHotkey)
+            {
+                heatMonsterSpectateButton.gameObject.SetActive(hasMonsters);
+            }
         }
 
         private void InitCardBindings()
@@ -537,7 +584,10 @@ namespace NightCrawler.Monsters
 
             CloseHUD();
 
-            var spec = FindFirstObjectByType<SpectatorController>();
+            var spec = SpectatorController.MonsterInstance != null
+                ? SpectatorController.MonsterInstance
+                : SpectatorController.Instance;
+
             if (spec != null)
             {
                 spec.TryOpenMonsterSpectator();
@@ -683,36 +733,88 @@ namespace NightCrawler.Monsters
             else if (confirmationModal != null) confirmationModal.CloseWindow();
             CloseHUD();
 
-            StartCoroutine(FocusCameraOnSpawnedMonsterRoutine());
+            StartCoroutine(SpectateSpawnedMonsterRoutine());
         }
 
-        private System.Collections.IEnumerator FocusCameraOnSpawnedMonsterRoutine()
+        private System.Collections.IEnumerator SpectateSpawnedMonsterRoutine()
         {
-            if (monsterSpawnVirtualCamera == null) yield break;
+            // Close HUD first so the UI doesn't block the view
+            CloseHUD();
 
-            yield return new WaitForSeconds(0.25f);
+            // Wait briefly for the monster to be spawned and replicated over the network
+            float timeout = 3.0f;
+            float elapsed = 0f;
+            MonsterController targetMonster = null;
+            TargetHealth targetHealth = null;
 
-            var monsters = FindObjectsByType<MonsterController>(FindObjectsSortMode.None);
-            if (monsters == null || monsters.Length == 0) yield break;
-
-            MonsterController newestMonster = monsters[monsters.Length - 1];
-            if (newestMonster == null) yield break;
-
-            Transform camTarget = newestMonster.GetCameraTarget();
-            if (camTarget == null)
+            while (elapsed < timeout)
             {
-                camTarget = newestMonster.transform.Find("CameraFollowAnchor") ?? newestMonster.transform;
+                var monsters = FindObjectsByType<MonsterController>(FindObjectsSortMode.None);
+                if (monsters != null && monsters.Length > 0)
+                {
+                    for (int i = monsters.Length - 1; i >= 0; i--)
+                    {
+                        var m = monsters[i];
+                        if (m != null && m.gameObject != null)
+                        {
+                            if (m.TryGetComponent<TargetHealth>(out var th) && !th.isCorpse.Value && th.CurrentHealth > 0)
+                            {
+                                targetMonster = m;
+                                targetHealth = th;
+                                break;
+                            }
+                            else if (m.TryGetComponent<HealthSystem>(out var hs) && !hs.IsDead)
+                            {
+                                targetMonster = m;
+                                targetHealth = m.GetComponentInChildren<TargetHealth>();
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (targetMonster != null) break;
+
+                var ais = FindObjectsByType<MonsterAI>(FindObjectsSortMode.None);
+                if (ais != null && ais.Length > 0)
+                {
+                    for (int i = ais.Length - 1; i >= 0; i--)
+                    {
+                        var ai = ais[i];
+                        if (ai != null && ai.gameObject != null && ai.currentState != MonsterAI.AIState.Dead)
+                        {
+                            targetHealth = ai.GetComponent<TargetHealth>() ?? ai.GetComponentInChildren<TargetHealth>();
+                            if (targetHealth != null && !targetHealth.isCorpse.Value && targetHealth.CurrentHealth > 0)
+                            {
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                if (targetHealth != null) break;
+
+                yield return new WaitForSeconds(0.15f);
+                elapsed += 0.15f;
             }
 
-            monsterSpawnVirtualCamera.gameObject.SetActive(true);
-            monsterSpawnVirtualCamera.enabled = true;
-            monsterSpawnVirtualCamera.Follow = camTarget;
-            monsterSpawnVirtualCamera.LookAt = camTarget;
-            monsterSpawnVirtualCamera.Priority = 99999;
+            var spec = SpectatorController.MonsterInstance != null 
+                ? SpectatorController.MonsterInstance 
+                : SpectatorController.Instance;
 
-            yield return new WaitForSeconds(cameraFocusDuration);
-
-            monsterSpawnVirtualCamera.Priority = 10;
+            if (spec != null)
+            {
+                spec.TryOpenMonsterSpectator(null, targetHealth);
+            }
+            else if (monsterSpawnVirtualCamera != null && targetMonster != null)
+            {
+                Transform camTarget = targetMonster.GetCameraTarget() ?? targetMonster.transform;
+                monsterSpawnVirtualCamera.gameObject.SetActive(true);
+                monsterSpawnVirtualCamera.enabled = true;
+                monsterSpawnVirtualCamera.Follow = camTarget;
+                monsterSpawnVirtualCamera.LookAt = camTarget;
+                monsterSpawnVirtualCamera.Priority = 99999;
+            }
         }
     }
 }

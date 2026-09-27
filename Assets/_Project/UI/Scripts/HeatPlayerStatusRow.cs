@@ -5,74 +5,77 @@ using TMPro;
 namespace NightCrawler.UI
 {
     /// <summary>
-    /// Binds player lobby data (Name, Ready state, Player Level, Character Portrait)
-    /// to a Heat UI card or list item (such as the adapted Heat Achievement Item).
+    /// Binds player lobby data directly to the HeatPlayerStatusRow prefab.
+    /// Controls player name, role/level subtext, preset icon, and ready/not-ready indicators.
+    /// Matches the serialized inspector fields on HeatPlayerStatusRow.prefab.
     /// </summary>
     public class HeatPlayerStatusRow : MonoBehaviour
     {
-        [Header("Character Portrait")]
-        [Tooltip("The Image component displaying the chosen operative portrait or the Girl's icon.")]
+        [Header("Icon Settings")]
+        [Tooltip("If false (default), keeps the preset icon configured on this prefab and does not overwrite it at runtime.")]
+        public bool updatePortrait = false;
+
+        [Tooltip("The Image component displaying the icon / portrait.")]
         public Image characterPortraitImage;
 
-        [Header("Text Content")]
+        [Header("Text Labels")]
         [Tooltip("TextMeshPro label for player name.")]
         public TextMeshProUGUI playerNameText;
 
-        [Tooltip("TextMeshPro label for player level and rank badge (e.g. 'Lv. 14 • Operative').")]
+        [Tooltip("TextMeshPro label for subtext (e.g. 'Miner' or 'Lv. 1 • Miner').")]
         public TextMeshProUGUI playerLevelText;
 
-        [Tooltip("TextMeshPro label for ready status (e.g. 'READY' / 'NOT READY').")]
-        public TextMeshProUGUI statusText;
-
-        [Header("Indicators / Badges")]
-        [Tooltip("Visual indicator active when player is READY (e.g. Heat Unlocked Indicator / green glow).")]
+        [Header("Ready / Not Ready Indicators (Prefab Icons)")]
+        [Tooltip("Visual indicator / icon active when player is READY (e.g. Unlocked Indicator).")]
         public GameObject readyIndicator;
 
-        [Tooltip("Visual indicator active when player is NOT READY (e.g. Heat Locked Indicator / dim frame).")]
+        [Tooltip("Visual indicator / icon active when player is NOT READY (e.g. Locked Indicator).")]
         public GameObject waitingIndicator;
-
-        [Header("Status Colors")]
-        public Color readyColor = new Color(0.18f, 0.80f, 0.44f);   // Bright Emerald Green
-        public Color waitingColor = new Color(0.91f, 0.30f, 0.24f); // Vibrant Crimson Red
 
         /// <summary>
         /// Populates this status row with the player's info.
+        /// Activates the readyIndicator / waitingIndicator icons set on the prefab.
         /// </summary>
-        public void Setup(string playerName, bool isReady, int playerLevel, string rankTitle, Sprite portrait, bool isGirl)
+        public void Setup(string playerName, bool isReady, string subtext, Sprite portrait = null)
         {
             if (playerNameText != null)
             {
-                playerNameText.text = isGirl ? $"{playerName} (Spirit)" : playerName;
+                playerNameText.text = playerName;
             }
 
             if (playerLevelText != null)
             {
-                string rank = string.IsNullOrEmpty(rankTitle) ? "Recruit" : rankTitle;
-                playerLevelText.text = $"Lv. {playerLevel} • {rank}";
+                playerLevelText.text = subtext;
             }
 
-            if (statusText != null)
-            {
-                statusText.text = isReady ? "READY" : "NOT READY";
-                statusText.color = isReady ? readyColor : waitingColor;
-            }
-
+            // Set Ready / Not Ready using the indicators/icons set on the prefab
             if (readyIndicator != null)
                 readyIndicator.SetActive(isReady);
 
             if (waitingIndicator != null)
                 waitingIndicator.SetActive(!isReady);
 
+            // Icon Handling: Keep preset icon unless explicitly requested to overwrite
             if (characterPortraitImage != null)
             {
-                if (portrait != null)
+                if (updatePortrait)
                 {
-                    characterPortraitImage.sprite = portrait;
-                    characterPortraitImage.enabled = true;
+                    if (portrait != null)
+                    {
+                        characterPortraitImage.sprite = portrait;
+                        characterPortraitImage.enabled = true;
+                    }
+                    else
+                    {
+                        characterPortraitImage.enabled = false;
+                    }
                 }
                 else
                 {
-                    characterPortraitImage.enabled = false;
+                    if (!characterPortraitImage.enabled && characterPortraitImage.sprite != null)
+                    {
+                        characterPortraitImage.enabled = true;
+                    }
                 }
             }
         }

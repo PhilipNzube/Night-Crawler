@@ -24,6 +24,7 @@ using Michsky.UI.Heat;
 /// </summary>
 public class CharacterSelectUI : MonoBehaviour
 {
+    public static CharacterSelectUI Instance { get; private set; }
     // =========================================================================
     //  Inspector — Root Panels
     // =========================================================================
@@ -144,13 +145,12 @@ public class CharacterSelectUI : MonoBehaviour
     [Header("Inline Character Data (Fallback)")]
     public List<InvestigatorCharacterData> characterDataList = new List<InvestigatorCharacterData>();
 
-    [Header("Player Status Panel (Ready / Waiting)")]
-    [Tooltip("Root panel shown after the player confirms selection. Shows every player's name and ready status.")]
+    [Header("Central Player Status Panel")]
+    [Tooltip("Drag the PlayerStatusPanel GameObject (with LobbyPlayerStatusPanel component attached) here.")]
+    public LobbyPlayerStatusPanel lobbyPlayerStatusPanel;
+
+    [Tooltip("Fallback root GameObject for the player status panel.")]
     public GameObject playerStatusPanel;
-    public Transform playerStatusContainer;
-    public GameObject playerStatusRowPrefab;
-    public string statusWaitingText = "NOT READY";
-    public string statusReadyText = "READY";
 
     // =========================================================================
     //  Inspector — Exit Confirmation Modal & Hotkey (Manual Wiring — No Auto-Find)
@@ -181,7 +181,6 @@ public class CharacterSelectUI : MonoBehaviour
     private readonly List<ButtonManager> _heatSlotButtons      = new List<ButtonManager>();
     private Coroutine                 _swapCoroutine;
     private bool                      _localConfirmed         = false;
-    private readonly List<GameObject> _statusRows             = new List<GameObject>();
     private int                       _lastEscapeFrame        = -1;
 
     // =========================================================================
@@ -190,14 +189,7 @@ public class CharacterSelectUI : MonoBehaviour
 
     void Awake()
     {
-        if (playerStatusContainer == null && playerStatusPanel != null)
-        {
-            var list = playerStatusPanel.transform.Find("StatusPanels/List") ??
-                       playerStatusPanel.transform.Find("StatusPanels") ??
-                       playerStatusPanel.transform.Find("List");
-            if (list != null) playerStatusContainer = list;
-        }
-
+        Instance = this;
         InitExitBindings();
     }
 
@@ -363,6 +355,11 @@ public class CharacterSelectUI : MonoBehaviour
 
     void OnDestroy()
     {
+        if (Instance == this)
+        {
+            Instance = null;
+        }
+
         if (CharacterSelectManager.Instance != null)
         {
             CharacterSelectManager.Instance.roleSelectionDone.OnValueChanged -= OnRoleSelectionChanged;
@@ -614,7 +611,9 @@ public class CharacterSelectUI : MonoBehaviour
         }
 
         // Show player status panel
-        if (playerStatusPanel != null)
+        if (lobbyPlayerStatusPanel != null)
+            lobbyPlayerStatusPanel.Show();
+        else if (playerStatusPanel != null)
             playerStatusPanel.SetActive(true);
 
         bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
@@ -1453,66 +1452,29 @@ public class CharacterSelectUI : MonoBehaviour
         return null;
     }
 
+    public CharacterDefinitionSO GetDefinitionAtIndex(int index)
+    {
+        RefreshFilteredRoster();
+        if (_filteredDefinitions != null && index >= 0 && index < _filteredDefinitions.Count)
+        {
+            return _filteredDefinitions[index];
+        }
+        return null;
+    }
+
     private void RefreshLobbyStatusRows(Dictionary<ulong, PlayerLobbyInfo> snapshot)
     {
-        if (playerStatusContainer == null || playerStatusRowPrefab == null) return;
-
-        foreach (var row in _statusRows)
-            if (row != null) Destroy(row);
-        _statusRows.Clear();
-
-        foreach (var kvp in snapshot)
+        if (lobbyPlayerStatusPanel != null)
         {
-            PlayerLobbyInfo info = kvp.Value;
-            GameObject row = Instantiate(playerStatusRowPrefab, playerStatusContainer);
-            _statusRows.Add(row);
-
-            HeatPlayerStatusRow heatRow = row.GetComponent<HeatPlayerStatusRow>();
-            if (heatRow != null)
-            {
-                Sprite portrait = info.isGirl ? null : GetPortraitForCharacter(info.characterIndex);
-                string rank = CloudCharacterSaveManager.Instance != null
-                    ? CloudCharacterSaveManager.Instance.GetPlayerRankTitle(info.playerLevel)
-                    : "Recruit";
-                heatRow.Setup(info.playerName, info.isReady, info.playerLevel, rank, portrait, info.isGirl);
-            }
-            else
-            {
-                var texts = row.GetComponentsInChildren<TextMeshProUGUI>(true);
-                if (texts.Length >= 1) texts[0].text = info.playerName;
-                if (texts.Length >= 2)
-                {
-                    texts[1].text = info.isReady ? statusReadyText : statusWaitingText;
-                    texts[1].color = info.isReady
-                        ? new Color(0.18f, 0.80f, 0.44f)
-                        : new Color(0.91f, 0.30f, 0.24f);
-                }
-            }
+            lobbyPlayerStatusPanel.RefreshLobbyStatusRows(snapshot);
         }
     }
 
     private void RefreshStatusRows(Dictionary<ulong, (string name, bool ready)> snapshot)
     {
-        if (playerStatusContainer == null || playerStatusRowPrefab == null) return;
-
-        foreach (var row in _statusRows)
-            if (row != null) Destroy(row);
-        _statusRows.Clear();
-
-        foreach (var kvp in snapshot)
+        if (lobbyPlayerStatusPanel != null)
         {
-            GameObject row = Instantiate(playerStatusRowPrefab, playerStatusContainer);
-            _statusRows.Add(row);
-
-            var texts = row.GetComponentsInChildren<TextMeshProUGUI>(true);
-            if (texts.Length >= 1) texts[0].text = kvp.Value.name;
-            if (texts.Length >= 2)
-            {
-                texts[1].text = kvp.Value.ready ? statusReadyText : statusWaitingText;
-                texts[1].color = kvp.Value.ready
-                    ? new Color(0.18f, 0.80f, 0.44f)  // Bright Emerald Green
-                    : new Color(0.91f, 0.30f, 0.24f); // Vibrant Crimson Red
-            }
+            lobbyPlayerStatusPanel.RefreshLegacyStatusRows(snapshot);
         }
     }
 

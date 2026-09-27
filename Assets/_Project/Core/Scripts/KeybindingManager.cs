@@ -22,7 +22,14 @@ public enum KeybindingActionType
     SpectateCycle,
     SpectateExit,
     Summon,
-    Possession
+    Possession,
+    SpectatePrev,
+    SpectateNext,
+    SpectateViewMode,
+    SpectateCursor,
+    SpectateCategory,
+    CommandHunt,
+    CommandRecall
 }
 
 /// <summary>
@@ -234,11 +241,67 @@ public class KeybindingManager : MonoBehaviour
             },
             new ActionBinding
             {
+                actionId = "SpectatePrev",
+                displayName = "Spectate Previous Target",
+                tacticalDescription = "Cycle camera to the previous living survivor or summoned monster.",
+                defaultKey = Key.A,
+                defaultGamepadControl = "leftShoulder"
+            },
+            new ActionBinding
+            {
+                actionId = "SpectateNext",
+                displayName = "Spectate Next Target",
+                tacticalDescription = "Cycle camera to the next living survivor or summoned monster.",
+                defaultKey = Key.D,
+                defaultGamepadControl = "rightShoulder"
+            },
+            new ActionBinding
+            {
+                actionId = "SpectateViewMode",
+                displayName = "Spectate View Mode",
+                tacticalDescription = "Toggle between tactical free orbit mouse look and follow over-the-shoulder camera.",
+                defaultKey = Key.Space,
+                defaultGamepadControl = "buttonSouth"
+            },
+            new ActionBinding
+            {
+                actionId = "SpectateCursor",
+                displayName = "Spectate Cursor Lock",
+                tacticalDescription = "Lock or release mouse cursor while spectating.",
+                defaultKey = Key.LeftAlt,
+                defaultGamepadControl = "rightStickPress"
+            },
+            new ActionBinding
+            {
+                actionId = "SpectateCategory",
+                displayName = "Spectate Switch Category",
+                tacticalDescription = "Switch spectator observation between living human survivors and summoned monsters.",
+                defaultKey = Key.Tab,
+                defaultGamepadControl = "buttonNorth" // Y / Triangle
+            },
+            new ActionBinding
+            {
                 actionId = "SpectateExit",
-                displayName = "Enter / Exit Spectator",
-                tacticalDescription = "Exit spectator observation mode or toggle between tactical free-orbit and direct over-shoulder camera.",
-                defaultKey = Key.Escape,
+                displayName = "Exit Spectator Mode",
+                tacticalDescription = "Exit spectator observation mode and return to your player view.",
+                defaultKey = Key.C,
                 defaultGamepadControl = "select" // View / Share
+            },
+            new ActionBinding
+            {
+                actionId = "CommandHunt",
+                displayName = "Command: Go Hunt",
+                tacticalDescription = "Command all summoned monsters to roam and hunt down surviving investigators.",
+                defaultKey = Key.Digit3,
+                defaultGamepadControl = "dpadLeft"
+            },
+            new ActionBinding
+            {
+                actionId = "CommandRecall",
+                displayName = "Command: To My Side",
+                tacticalDescription = "Command all summoned monsters to return and stand guard beside the Vengeful Spirit.",
+                defaultKey = Key.Digit4,
+                defaultGamepadControl = "dpadRight"
             },
             new ActionBinding
             {
@@ -254,7 +317,7 @@ public class KeybindingManager : MonoBehaviour
                 displayName = "Possession Selection Menu",
                 tacticalDescription = "Open the possession target selection modal to choose an investigator host to inhabit.",
                 defaultKey = Key.P,
-                defaultGamepadControl = "dpadRight"
+                defaultGamepadControl = "dpadDown"
             }
         };
 

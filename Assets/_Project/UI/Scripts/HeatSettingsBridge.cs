@@ -593,9 +593,58 @@ public class HeatSettingsBridge : MonoBehaviour
             },
             new SettingDescriptionEntry
             {
-                elementName = "Enter / Exit Spectator",
-                displayTitle = "Enter / Exit Spectator",
-                description = "Exit spectator observation mode or toggle between tactical free-orbit and direct over-shoulder camera.",
+                elementName = "Spectate Previous Target",
+                displayTitle = "Spectate Previous Target",
+                description = "Cycle camera to the previous living survivor or summoned monster.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Spectate Next Target",
+                displayTitle = "Spectate Next Target",
+                description = "Cycle camera to the next living survivor or summoned monster.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Spectate View Mode",
+                displayTitle = "Spectate View Mode",
+                description = "Toggle between tactical free-orbit mouse look and follow over-the-shoulder camera.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Spectate Cursor Lock",
+                displayTitle = "Spectate Cursor Lock",
+                description = "Lock or release mouse cursor while spectating.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Spectate Switch Category",
+                displayTitle = "Spectate Switch Category",
+                description = "Switch spectator observation between living human survivors and summoned monsters.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Exit Spectator Mode",
+                displayTitle = "Exit Spectator Mode",
+                description = "Exit spectator observation mode and return to player view or death screen.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Command: Go Hunt",
+                displayTitle = "Command: Go Hunt",
+                description = "Command all summoned monsters to roam and hunt down surviving investigators.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Command: To My Side",
+                displayTitle = "Command: To My Side",
+                description = "Command all summoned monsters to return and stand guard beside the Vengeful Spirit.",
                 coverImage = null
             },
             new SettingDescriptionEntry

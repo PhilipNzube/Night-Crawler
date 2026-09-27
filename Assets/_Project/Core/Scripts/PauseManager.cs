@@ -128,6 +128,15 @@ public class PauseManager : MonoBehaviour
             if (pauseUI.IsExitDialogOpen) { pauseUI.CloseExitDialog(); return; }
             if (pauseUI.IsSettingsOpen)   { pauseUI.CloseSettings();   return; }
         }
+
+        // 0th priority — If spectator mode is active, exit spectator mode instead of pausing!
+        var spec = SpectatorController.Instance;
+        if (spec != null && spec.IsSpectating)
+        {
+            spec.ExitSpectating();
+            return;
+        }
+
         TogglePause();
     }
 

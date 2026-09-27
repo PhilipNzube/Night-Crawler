@@ -83,14 +83,12 @@ public class GirlPlayerScreen : MonoBehaviour
     [Tooltip("Error / Hint label inside the stake modal (e.g. 'Min 2 credits').")]
     public TextMeshProUGUI stakeErrorText;
 
-    [Header("Player Status Panel (Live Investigator Status)")]
-    [Tooltip("Root panel to show all players' ready status on the girl screen.")]
-    public GameObject playerStatusPanel;
-    public Transform playerStatusContainer;
-    public GameObject playerStatusRowPrefab;
+    [Header("Central Player Status Panel")]
+    [Tooltip("Drag the PlayerStatusPanel GameObject (with LobbyPlayerStatusPanel component attached) here.")]
+    public LobbyPlayerStatusPanel lobbyPlayerStatusPanel;
 
-    [Tooltip("Optional 2D portrait/icon for the Girl shown in status rows.")]
-    public Sprite girlPortrait;
+    [Tooltip("Fallback root GameObject for the player status panel.")]
+    public GameObject playerStatusPanel;
 
     // =========================================================================
     //  Inspector — Exit Confirmation Modal & Hotkey (Manual Wiring — No Auto-Find)
@@ -113,7 +111,6 @@ public class GirlPlayerScreen : MonoBehaviour
     private CharacterAnimationController _animController;
     private Coroutine                    _readyDelayCoroutine;
     private bool                         _readySent = false;
-    private readonly List<GameObject>    _statusRows = new List<GameObject>();
     private int                          _lastEscapeFrame = -1;
 
     // =========================================================================
@@ -493,7 +490,9 @@ public class GirlPlayerScreen : MonoBehaviour
             }
         }
 
-        if (playerStatusPanel != null)
+        if (lobbyPlayerStatusPanel != null)
+            lobbyPlayerStatusPanel.Show();
+        else if (playerStatusPanel != null)
             playerStatusPanel.SetActive(true);
 
         // Primary path: PlayerReadyTracker
@@ -510,106 +509,28 @@ public class GirlPlayerScreen : MonoBehaviour
 
     private void HandlePlayerLobbyStatesUpdated(Dictionary<ulong, PlayerLobbyInfo> snapshot)
     {
-        RefreshLobbyStatusRows(snapshot);
-
-        if (playerStatusPanel != null)
-            playerStatusPanel.SetActive(_readySent && _statusRows.Count > 0);
-    }
-
-    private void RefreshLobbyStatusRows(Dictionary<ulong, PlayerLobbyInfo> snapshot)
-    {
-        if (playerStatusContainer == null || playerStatusRowPrefab == null) return;
-
-        foreach (var row in _statusRows)
-            if (row != null) Destroy(row);
-        _statusRows.Clear();
-
-        foreach (var kvp in snapshot)
+        if (lobbyPlayerStatusPanel != null)
         {
-            PlayerLobbyInfo info = kvp.Value;
-            GameObject row = Instantiate(playerStatusRowPrefab, playerStatusContainer);
-            _statusRows.Add(row);
-
-            HeatPlayerStatusRow heatRow = row.GetComponent<HeatPlayerStatusRow>();
-            if (heatRow != null)
-            {
-                Sprite portrait = info.isGirl ? girlPortrait : GetInvestigatorPortrait(info.characterIndex);
-                string rank = CloudCharacterSaveManager.Instance != null
-                    ? CloudCharacterSaveManager.Instance.GetPlayerRankTitle(info.playerLevel)
-                    : "Recruit";
-                heatRow.Setup(info.playerName, info.isReady, info.playerLevel, rank, portrait, info.isGirl);
-            }
-            else
-            {
-                var texts = row.GetComponentsInChildren<TextMeshProUGUI>(true);
-                if (texts.Length >= 1) texts[0].text = info.playerName;
-                if (texts.Length >= 2)
-                {
-                    texts[1].text = info.isReady ? "READY" : "NOT READY";
-                    texts[1].color = info.isReady
-                        ? new Color(0.18f, 0.80f, 0.44f)
-                        : new Color(0.91f, 0.30f, 0.24f);
-                }
-            }
+            if (_readySent) lobbyPlayerStatusPanel.Show();
+            lobbyPlayerStatusPanel.RefreshLobbyStatusRows(snapshot);
         }
-
-        RebuildStatusLayout();
-    }
-
-    private void RebuildStatusLayout()
-    {
-        if (playerStatusContainer is RectTransform containerRt)
+        else if (playerStatusPanel != null)
         {
-            LayoutRebuilder.ForceRebuildLayoutImmediate(containerRt);
-            if (containerRt.parent is RectTransform parentRt)
-            {
-                LayoutRebuilder.ForceRebuildLayoutImmediate(parentRt);
-                if (parentRt.parent is RectTransform grandParentRt)
-                {
-                    LayoutRebuilder.ForceRebuildLayoutImmediate(grandParentRt);
-                }
-            }
+            playerStatusPanel.SetActive(_readySent);
         }
-    }
-
-    private Sprite GetInvestigatorPortrait(int characterIndex)
-    {
-        CharacterSelectUI selectUI = FindFirstObjectByType<CharacterSelectUI>(FindObjectsInactive.Include);
-        if (selectUI != null)
-        {
-            return selectUI.GetPortraitForCharacter(characterIndex);
-        }
-        return null;
     }
 
     private void HandleReadyStatesUpdated(Dictionary<ulong, (string name, bool ready)> snapshot)
     {
-        if (playerStatusContainer == null || playerStatusRowPrefab == null) return;
-
-        foreach (var row in _statusRows)
-            if (row != null) Destroy(row);
-        _statusRows.Clear();
-
-        foreach (var kvp in snapshot)
+        if (lobbyPlayerStatusPanel != null)
         {
-            GameObject row = Instantiate(playerStatusRowPrefab, playerStatusContainer);
-            _statusRows.Add(row);
-            var texts = row.GetComponentsInChildren<TextMeshProUGUI>(true);
-            if (texts.Length >= 1) texts[0].text = kvp.Value.name;
-            if (texts.Length >= 2)
-            {
-                texts[1].text = kvp.Value.ready ? "READY" : "NOT READY";
-                texts[1].color = kvp.Value.ready
-                    ? new Color(0.18f, 0.80f, 0.44f)  // Bright Emerald Green
-                    : new Color(0.91f, 0.30f, 0.24f); // Vibrant Crimson Red
-            }
+            if (_readySent) lobbyPlayerStatusPanel.Show();
+            lobbyPlayerStatusPanel.RefreshLegacyStatusRows(snapshot);
         }
-
-        RebuildStatusLayout();
-
-        // Only show status panel after the girl has pressed READY
-        if (playerStatusPanel != null)
-            playerStatusPanel.SetActive(_readySent && _statusRows.Count > 0);
+        else if (playerStatusPanel != null)
+        {
+            playerStatusPanel.SetActive(_readySent);
+        }
     }
 
     private void SetScreenVisible(bool visible)

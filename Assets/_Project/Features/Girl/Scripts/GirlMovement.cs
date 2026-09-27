@@ -134,6 +134,9 @@ public class GirlMovement : NetworkBehaviour
         // CORE NETWORK RULE: Ensure only the owner moves their own character
         if (!IsOwner || PauseManager.IsGamePaused) return;
 
+        // Monster Command Triggers (Go Hunt / To My Side)
+        HandleMonsterCommands();
+
         // If controller is missing or disabled (e.g. while possessing an investigator), suspend movement!
         if (controller == null || !controller.enabled) return;
 
@@ -198,5 +201,31 @@ public class GirlMovement : NetworkBehaviour
         
         _velocity.y += -9.81f * Time.deltaTime;
         controller.Move(_velocity * Time.deltaTime);
+    }
+
+    private void HandleMonsterCommands()
+    {
+        if (GirlDealUI.IsAnyPanelOrModalOpen()) return;
+
+        bool huntPressed = KeybindingManager.IsActionTriggered("CommandHunt")
+            || (Keyboard.current != null && Keyboard.current.digit3Key.wasPressedThisFrame);
+
+        bool recallPressed = KeybindingManager.IsActionTriggered("CommandRecall")
+            || (Keyboard.current != null && Keyboard.current.digit4Key.wasPressedThisFrame);
+
+        if (huntPressed)
+        {
+            if (NightCrawler.Monsters.DeadSpawnManager.Instance != null && NetworkManager.Singleton != null)
+            {
+                NightCrawler.Monsters.DeadSpawnManager.Instance.CommandAllMonstersServerRpc(0, NetworkManager.Singleton.LocalClientId);
+            }
+        }
+        else if (recallPressed)
+        {
+            if (NightCrawler.Monsters.DeadSpawnManager.Instance != null && NetworkManager.Singleton != null)
+            {
+                NightCrawler.Monsters.DeadSpawnManager.Instance.CommandAllMonstersServerRpc(1, NetworkManager.Singleton.LocalClientId);
+            }
+        }
     }
 }

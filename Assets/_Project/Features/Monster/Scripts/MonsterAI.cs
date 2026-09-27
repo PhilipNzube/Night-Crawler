@@ -112,6 +112,13 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     private bool _hasScreamed = false;
     private static readonly Collider[] _searchBuffer = new Collider[20];
 
+    // Roam & Guard state
+    private Transform _commandLeader;
+    private float _roamTimer = 0f;
+    private float _roamWaitTimer = 0f;
+    private bool _isRoamWaiting = false;
+    private Vector3 _roamDestination;
+
     private bool HasAuthority => (NetworkObject != null && NetworkObject.IsSpawned) ? IsServer : true;
 
     private void Awake()
@@ -121,6 +128,15 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         _animator = GetComponentInChildren<Animator>();
         _networkAnimator = GetComponent<NetworkAnimator>();
         _targetHealth = GetComponent<TargetHealth>();
+        if (_targetHealth == null)
+        {
+            _targetHealth = GetComponentInChildren<TargetHealth>(true);
+        }
+        if (_targetHealth == null)
+        {
+            _targetHealth = gameObject.AddComponent<TargetHealth>();
+            _targetHealth.baseMaxHealth = stats != null && stats.maxHealth > 0 ? stats.maxHealth : 100f;
+        }
 
         if (healthBar == null)
         {
@@ -379,60 +395,223 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
     }
 
+    /// <summary>
+    /// Updates command directives issued by the Vengeful Spirit (Hunt or Follow/Guard).
+    /// </summary>
+    public void SetCommand(Command cmd, Transform girlTransform)
+    {
+        currentCommand = cmd;
+        if (girlTransform != null)
+        {
+            _commandLeader = girlTransform;
+        }
+        else if (GameManager.Instance != null && GameManager.Instance.GirlTransform != null)
+        {
+            _commandLeader = GameManager.Instance.GirlTransform;
+        }
+
+        _roamWaitTimer = 0f;
+        _isRoamWaiting = false;
+        _roamTimer = 0f;
+
+        if (cmd == Command.Hunt)
+        {
+            target = EvaluateBestTarget(null);
+        }
+    }
+
     private void HandlePursuitAndTargeting()
     {
         if (_agent == null || !_agent.isOnNavMesh || !_agent.isActiveAndEnabled) return;
 
-        // Follow command override
+        // 1. RECALL / GUARD MODE: Stand guard by the Girl
         if (currentCommand == Command.Follow)
         {
-            if (GameManager.Instance != null && GameManager.Instance.GirlTransform != null)
+            HandleGuardingBehavior();
+            return;
+        }
+
+        // 2. HUNT MODE: Seek and destroy human investigators or roam cavern
+        HandleHuntingBehavior();
+    }
+
+    private void HandleGuardingBehavior()
+    {
+        Transform leader = _commandLeader != null ? _commandLeader : (GameManager.Instance != null ? GameManager.Instance.GirlTransform : null);
+        if (leader == null)
+        {
+            ExecuteRoam(2.8f);
+            return;
+        }
+
+        // Bodyguard guard position offset around the Girl
+        float angleOffset = (GetInstanceID() % 6) * 60f * Mathf.Deg2Rad;
+        Vector3 guardOffset = new Vector3(Mathf.Sin(angleOffset), 0f, Mathf.Cos(angleOffset)) * 2.2f;
+        Vector3 targetSpot = leader.position + guardOffset;
+
+        float distToGirl = Vector3.Distance(transform.position, leader.position);
+        float distToSpot = Vector3.Distance(transform.position, targetSpot);
+
+        // Defensive protection: if an investigator gets close (< 4m to Girl or < 3.2m to monster), strike the threat!
+        Transform threat = FindBestTarget();
+        if (threat != null)
+        {
+            float distToThreat = Vector3.Distance(transform.position, threat.position);
+            float girlToThreat = Vector3.Distance(leader.position, threat.position);
+
+            if (distToThreat <= attackRange)
             {
-                target = GameManager.Instance.GirlTransform;
+                _agent.isStopped = true;
+                SafeSetFloat(_speedHash, 0f);
+                SafeSetBool(_isRunningHash, false);
+                RotateTowardsTarget(threat);
+                if (_attackTimer <= 0f)
+                {
+                    StartCoroutine(PerformAttackRoutine());
+                }
+                return;
+            }
+            else if (girlToThreat <= 4.5f || distToThreat <= 3.5f)
+            {
+                _agent.isStopped = false;
+                _agent.speed = runSpeed;
+                _agent.SetDestination(threat.position);
+                SafeSetFloat(_speedHash, runSpeed);
+                SafeSetBool(_isRunningHash, true);
+                return;
+            }
+        }
+
+        // Move to guard position beside the Girl
+        if (distToSpot <= 1.2f || (distToGirl <= 2.2f && _agent.velocity.magnitude < 0.2f))
+        {
+            // Reached guard position — stand vigilant beside the Girl
+            _agent.isStopped = true;
+            SafeSetFloat(_speedHash, 0f);
+            SafeSetBool(_isRunningHash, false);
+
+            // Turn outward matching Girl's forward view
+            Vector3 lookDir = leader.forward;
+            lookDir.y = 0f;
+            if (lookDir != Vector3.zero)
+            {
+                Quaternion targetRot = Quaternion.LookRotation(lookDir);
+                transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * turnSpeed);
             }
         }
         else
         {
-            // Periodic smart retargeting tick (every 0.4s)
-            _retargetTimer -= Time.deltaTime;
-            if (_retargetTimer <= 0f)
+            _agent.isStopped = false;
+            if (distToGirl > 5.5f)
             {
-                _retargetTimer = 0.4f;
-                target = EvaluateBestTarget(target);
+                _agent.speed = runSpeed;
+                SafeSetFloat(_speedHash, runSpeed);
+                SafeSetBool(_isRunningHash, true);
             }
+            else
+            {
+                float trotSpeed = 3.2f;
+                _agent.speed = trotSpeed;
+                SafeSetFloat(_speedHash, trotSpeed);
+                SafeSetBool(_isRunningHash, false);
+            }
+
+            _agent.SetDestination(targetSpot);
+        }
+    }
+
+    private void HandleHuntingBehavior()
+    {
+        // Periodic smart retargeting tick (every 0.4s)
+        _retargetTimer -= Time.deltaTime;
+        if (_retargetTimer <= 0f)
+        {
+            _retargetTimer = 0.4f;
+            target = EvaluateBestTarget(target);
         }
 
-        if (target == null)
+        if (target != null && !IsTargetInvalidOrDead(target))
         {
+            float distance = Vector3.Distance(transform.position, target.position);
+
+            if (distance <= attackRange)
+            {
+                // Within strike range
+                _agent.isStopped = true;
+                SafeSetFloat(_speedHash, 0f);
+                SafeSetBool(_isRunningHash, false);
+                RotateTowardsTarget(target);
+
+                if (_attackTimer <= 0f)
+                {
+                    StartCoroutine(PerformAttackRoutine());
+                }
+            }
+            else
+            {
+                // Relentless sprint towards target
+                _agent.isStopped = false;
+                _agent.speed = runSpeed;
+                _agent.SetDestination(target.position);
+
+                SafeSetFloat(_speedHash, runSpeed);
+                SafeSetBool(_isRunningHash, true);
+            }
+            return;
+        }
+
+        // When no human targets exist or are in range, execute NavMesh roaming!
+        target = null;
+        ExecuteRoam(2.8f);
+    }
+
+    private void ExecuteRoam(float patrolSpeed)
+    {
+        if (_isRoamWaiting)
+        {
+            _agent.isStopped = true;
+            SafeSetFloat(_speedHash, 0f);
+            SafeSetBool(_isRunningHash, false);
+
+            _roamWaitTimer -= Time.deltaTime;
+            if (_roamWaitTimer <= 0f)
+            {
+                _isRoamWaiting = false;
+                PickNewRoamDestination();
+            }
+            return;
+        }
+
+        _roamTimer -= Time.deltaTime;
+        bool arrived = !_agent.pathPending && (_agent.remainingDistance <= 1.2f || (_agent.remainingDistance == 0f && !_agent.hasPath));
+        if (arrived || _roamTimer <= 0f)
+        {
+            _isRoamWaiting = true;
+            _roamWaitTimer = Random.Range(2.0f, 4.0f);
             _agent.isStopped = true;
             SafeSetFloat(_speedHash, 0f);
             SafeSetBool(_isRunningHash, false);
             return;
         }
 
-        float distance = Vector3.Distance(transform.position, target.position);
+        _agent.isStopped = false;
+        _agent.speed = patrolSpeed;
+        SafeSetFloat(_speedHash, patrolSpeed);
+        SafeSetBool(_isRunningHash, false);
+    }
 
-        if (distance <= attackRange)
+    private void PickNewRoamDestination()
+    {
+        _roamTimer = Random.Range(10f, 16f);
+        Vector3 randomDirection = Random.insideUnitSphere * 22f + transform.position;
+        if (NavMesh.SamplePosition(randomDirection, out NavMeshHit navHit, 15f, NavMesh.AllAreas))
         {
-            // Within strike range
-            _agent.isStopped = true;
-            SafeSetFloat(_speedHash, 0f);
-            SafeSetBool(_isRunningHash, false);
-
-            if (_attackTimer <= 0f)
+            _roamDestination = navHit.position;
+            if (_agent != null && _agent.isOnNavMesh)
             {
-                StartCoroutine(PerformAttackRoutine());
+                _agent.isStopped = false;
+                _agent.SetDestination(_roamDestination);
             }
-        }
-        else
-        {
-            // Relentless sprint towards target
-            _agent.isStopped = false;
-            _agent.speed = runSpeed;
-            _agent.SetDestination(target.position);
-
-            SafeSetFloat(_speedHash, runSpeed);
-            SafeSetBool(_isRunningHash, true);
         }
     }
 
@@ -503,6 +682,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         {
             if (hit == null || hit.gameObject == gameObject) continue;
             if (IsMonster(hit.gameObject)) continue;
+            if (IsGirl(hit.transform.root != null ? hit.transform.root : hit.transform)) continue;
 
             if (hit.TryGetComponent<IDamageReceiver>(out var receiver) || hit.GetComponentInParent<IDamageReceiver>() is { } pReceiver)
             {
@@ -517,6 +697,16 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 break;
             }
         }
+    }
+
+    private static bool IsGirl(Transform t)
+    {
+        if (t == null) return false;
+        if (GameManager.Instance != null && GameManager.Instance.GirlTransform == t) return true;
+        if (t.GetComponentInChildren<GirlStealth>() != null || t.GetComponentInParent<GirlStealth>() != null) return true;
+        if (t.GetComponentInChildren<NightCrawler.Characters.Girl.GirlPossession>() != null || t.GetComponentInParent<NightCrawler.Characters.Girl.GirlPossession>() != null) return true;
+        string n = t.name.ToLower();
+        return n.Contains("girl") || (n.Contains("demon") && !n.Contains("monster") && !n.Contains("creep"));
     }
 
     private static bool IsMonster(GameObject go)
@@ -612,8 +802,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             return true;
         }
 
-        // Ignore the Girl while in stealth
-        if (t.GetComponent<GirlStealth>() != null)
+        // Monsters must NEVER target their master / summoner (the Girl)
+        if (IsGirl(t))
         {
             return true;
         }

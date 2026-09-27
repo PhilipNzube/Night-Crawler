@@ -176,5 +176,66 @@ namespace NightCrawler.Monsters
                 NotificationManager.Instance.ShowNotification($"THE SHADOWS WRITHE: A {monsterName} has risen from the dead!", 4.5f);
             }
         }
+
+        /// <summary>
+        /// Server-authoritative command dispatcher for all active monsters in the subterranean mine.
+        /// commandIndex: 0 = Hunt (Seek and Destroy), 1 = Recall (To My Side).
+        /// </summary>
+        [Rpc(SendTo.Server)]
+        public void CommandAllMonstersServerRpc(int commandIndex, ulong summonerClientId)
+        {
+            if (!IsServer) return;
+
+            // Resolve summoning Girl's transform
+            Transform girlTransform = null;
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.ConnectedClients.TryGetValue(summonerClientId, out var client) && client.PlayerObject != null)
+            {
+                girlTransform = client.PlayerObject.transform;
+            }
+            else if (GameManager.Instance != null && GameManager.Instance.GirlTransform != null)
+            {
+                girlTransform = GameManager.Instance.GirlTransform;
+            }
+
+            var ais = FindObjectsByType<MonsterAI>(FindObjectsSortMode.None);
+            int commandedCount = 0;
+            var cmd = (commandIndex == 1) ? MonsterAI.Command.Follow : MonsterAI.Command.Hunt;
+
+            foreach (var ai in ais)
+            {
+                if (ai == null || ai.currentState == MonsterAI.AIState.Dead) continue;
+                ai.SetCommand(cmd, girlTransform);
+                commandedCount++;
+            }
+
+            Debug.Log($"[DeadSpawnManager] Dispatched command {(commandIndex == 1 ? "RECALL" : "HUNT")} to {commandedCount} monsters from client {summonerClientId}.");
+
+            BroadcastMonsterCommandClientRpc(commandIndex, commandedCount, summonerClientId);
+        }
+
+        [ClientRpc]
+        private void BroadcastMonsterCommandClientRpc(int commandIndex, int monsterCount, ulong summonerClientId)
+        {
+            bool isLocalSummoner = (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == summonerClientId);
+
+            string message;
+            if (commandIndex == 1) // Recall
+            {
+                message = isLocalSummoner
+                    ? (monsterCount > 0 ? $"TO MY SIDE! {monsterCount} creature(s) returning to guard you!" : "TO MY SIDE! (No active monsters in the mine)")
+                    : "THE SHADOWS RETREAT: The Vengeful Spirit has recalled her minions!";
+            }
+            else // Hunt
+            {
+                message = isLocalSummoner
+                    ? (monsterCount > 0 ? $"SEEK AND DESTROY! Dispatched {monsterCount} creature(s) to hunt!" : "SEEK AND DESTROY! (No active monsters in the mine)")
+                    : "THE TUNNELS ECHO: The monsters have been unleashed to hunt!";
+            }
+
+            if (NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification(message, 3.5f);
+            }
+        }
     }
 }
