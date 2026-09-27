@@ -1,4 +1,5 @@
 using System.Collections;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -76,7 +77,7 @@ public class NotificationManager : MonoBehaviour
         public bool isPulsing;
     }
 
-    private readonly Queue<NotificationData> _queue = new Queue<NotificationData>();
+    private readonly System.Collections.Generic.Queue<NotificationData> _queue = new System.Collections.Generic.Queue<NotificationData>();
     private bool _isDisplaying = false;
     private bool _interruptCurrent = false;
     private Vector2 _initialAnchoredPos = new Vector2(0, 30);

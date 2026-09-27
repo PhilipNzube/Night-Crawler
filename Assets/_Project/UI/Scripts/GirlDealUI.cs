@@ -225,7 +225,7 @@ public class GirlDealUI : MonoBehaviour
         if (NightCrawler.Monsters.GirlMonsterSummonHUD.Instance != null)
         {
             var summon = NightCrawler.Monsters.GirlMonsterSummonHUD.Instance;
-            if (summon.selectionConfirmationModal != null && summon.selectionConfirmationModal.modalWindowManager != null && summon.selectionConfirmationModal.modalWindowManager.isOn) return true;
+            if (summon.selectionConfirmationModal != null && summon.selectionConfirmationModal.IsOpen) return true;
             if (summon.confirmationModal != null && summon.confirmationModal.isOn) return true;
         }
 

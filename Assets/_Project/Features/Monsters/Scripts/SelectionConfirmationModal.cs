@@ -13,6 +13,8 @@ namespace NightCrawler.Monsters
         [Header("Heat UI Modal Window")]
         [Tooltip("The ModalWindowManager component on this GameObject.")]
         public ModalWindowManager modalWindow;
+        public ModalWindowManager modalWindowManager => modalWindow;
+        public bool IsOpen => modalWindow != null && modalWindow.isOn;
 
         [Header("Slot Capsules (Local Children)")]
         [Tooltip("UndeadSlotsLeft capsule under Content/Main Content.")]
