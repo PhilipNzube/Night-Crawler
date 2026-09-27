@@ -102,7 +102,15 @@ public class PossessionBlackoutOverlay : MonoBehaviour
 
     public void UpdateKeyIndicatorDisplay()
     {
-        string displayStr = FormatKeyDisplayName(assignedResistKey);
+        if (KeybindingManager.Instance != null)
+        {
+            assignedResistKey = KeybindingManager.GetBoundKey("Resist", assignedResistKey);
+        }
+
+        string displayStr = KeybindingManager.IsGamepadActive()
+            ? KeybindingManager.GetBoundGamepadString("Resist", "A")
+            : FormatKeyDisplayName(assignedResistKey);
+
         if (keyIndicatorText != null)
         {
             keyIndicatorText.text = displayStr;
@@ -138,6 +146,24 @@ public class PossessionBlackoutOverlay : MonoBehaviour
         UpdateKeyIndicatorDisplay();
     }
 #endif
+
+    private void OnEnable()
+    {
+        KeybindingManager.OnBindingsChanged += UpdateKeyIndicatorDisplay;
+        KeybindingManager.OnDeviceTypeChanged += OnDeviceTypeChanged;
+        UpdateKeyIndicatorDisplay();
+    }
+
+    private void OnDisable()
+    {
+        KeybindingManager.OnBindingsChanged -= UpdateKeyIndicatorDisplay;
+        KeybindingManager.OnDeviceTypeChanged -= OnDeviceTypeChanged;
+    }
+
+    private void OnDeviceTypeChanged(bool isGamepad)
+    {
+        UpdateKeyIndicatorDisplay();
+    }
 
     private void Awake()
     {
@@ -237,8 +263,8 @@ public class PossessionBlackoutOverlay : MonoBehaviour
             // 2. Resistance detection (Rapid Mash vs Sustained Hold)
             if (holdMode)
             {
-                bool isHolding = false;
-                if (Keyboard.current != null)
+                bool isHolding = KeybindingManager.IsActionHeld("Resist");
+                if (!isHolding && Keyboard.current != null)
                 {
                     var keyControl = Keyboard.current[assignedResistKey];
                     if ((keyControl != null && keyControl.isPressed) || Keyboard.current.spaceKey.isPressed)
@@ -246,20 +272,9 @@ public class PossessionBlackoutOverlay : MonoBehaviour
                         isHolding = true;
                     }
                 }
-                else
+                else if (!isHolding && (Input.GetKey(fallbackKeyCode) || Input.GetKey(KeyCode.Space)))
                 {
-                    if (Input.GetKey(fallbackKeyCode) || Input.GetKey(KeyCode.Space))
-                    {
-                        isHolding = true;
-                    }
-                }
-
-                if (Gamepad.current != null)
-                {
-                    if (Gamepad.current.buttonWest.isPressed || Gamepad.current.buttonSouth.isPressed)
-                    {
-                        isHolding = true;
-                    }
+                    isHolding = true;
                 }
 
                 if (isHolding)
@@ -275,34 +290,18 @@ public class PossessionBlackoutOverlay : MonoBehaviour
             }
             else
             {
-                bool mashed = false;
-                if (Keyboard.current != null)
+                bool mashed = KeybindingManager.IsActionTriggered("Resist");
+                if (!mashed && Keyboard.current != null)
                 {
                     var keyControl = Keyboard.current[assignedResistKey];
-                    if (keyControl != null && keyControl.wasPressedThisFrame)
-                    {
-                        mashed = true;
-                    }
-                    else if (Keyboard.current.spaceKey.wasPressedThisFrame)
+                    if ((keyControl != null && keyControl.wasPressedThisFrame) || Keyboard.current.spaceKey.wasPressedThisFrame)
                     {
                         mashed = true;
                     }
                 }
-                else
+                else if (!mashed && (Input.GetKeyDown(fallbackKeyCode) || Input.GetKeyDown(KeyCode.Space)))
                 {
-                    if (Input.GetKeyDown(fallbackKeyCode) || Input.GetKeyDown(KeyCode.Space))
-                    {
-                        mashed = true;
-                    }
-                }
-
-                if (Gamepad.current != null)
-                {
-                    if (Gamepad.current.buttonWest.wasPressedThisFrame ||
-                        Gamepad.current.buttonSouth.wasPressedThisFrame)
-                    {
-                        mashed = true;
-                    }
+                    mashed = true;
                 }
 
                 if (mashed)

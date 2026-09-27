@@ -503,21 +503,24 @@ public class SpectatorController : MonoBehaviour
     private void HandleInput()
     {
         if (PauseManager.IsGamePaused) return;
-        if (Keyboard.current == null && Mouse.current == null) return;
+        if (Keyboard.current == null && Mouse.current == null && Gamepad.current == null) return;
 
-        // Exit Spectating: [ESC]
-        if (Keyboard.current != null && Keyboard.current[exitHotkey].wasPressedThisFrame)
+        // Exit Spectating: [ESC] or SpectateExit
+        if (KeybindingManager.IsActionTriggered("SpectateExit") || (Keyboard.current != null && Keyboard.current[exitHotkey].wasPressedThisFrame))
         {
             ExitSpectating();
             return;
         }
 
-        // Cycle Previous: [A], [Left Arrow], [Mouse Left Button]
-        bool prevPressed = (Keyboard.current != null && (Keyboard.current.aKey.wasPressedThisFrame || Keyboard.current.leftArrowKey.wasPressedThisFrame)) ||
+        // Cycle Previous: [A], [Left Arrow], [Mouse Left Button], or Gamepad Left Shoulder
+        bool prevPressed = KeybindingManager.IsGamepadButtonPressed("leftShoulder") ||
+                           (Keyboard.current != null && (Keyboard.current.aKey.wasPressedThisFrame || Keyboard.current.leftArrowKey.wasPressedThisFrame)) ||
                            (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame);
 
-        // Cycle Next: [D], [Right Arrow], [Mouse Right Button]
-        bool nextPressed = (Keyboard.current != null && (Keyboard.current.dKey.wasPressedThisFrame || Keyboard.current.rightArrowKey.wasPressedThisFrame)) ||
+        // Cycle Next: [D], [Right Arrow], [Mouse Right Button], or Gamepad Right Shoulder / SpectateCycle
+        bool nextPressed = KeybindingManager.IsActionTriggered("SpectateCycle") ||
+                           KeybindingManager.IsGamepadButtonPressed("rightShoulder") ||
+                           (Keyboard.current != null && (Keyboard.current.dKey.wasPressedThisFrame || Keyboard.current.rightArrowKey.wasPressedThisFrame)) ||
                            (Mouse.current != null && Mouse.current.rightButton.wasPressedThisFrame);
 
         // Toggle Free Orbit vs Follow Facing: [Space]

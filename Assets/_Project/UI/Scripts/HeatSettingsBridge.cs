@@ -2,6 +2,7 @@ using System;
 using System.Collections;
 using System.Collections.Generic;
 using System.Linq;
+using System.Reflection;
 using UnityEngine;
 using UnityEngine.UI;
 using TMPro;
@@ -13,14 +14,16 @@ using Michsky.UI.Heat;
 /// with GameSettingsManager, KeybindingManager, and SettingsDescriptionManager.
 /// 
 /// ZERO MODIFICATIONS TO THIRD-PARTY HEAT UI CODE:
-/// Interacts with Heat UI solely through its public components and events.
+/// Interacts with Heat UI solely through its public components and reflection for private serialized fields.
 /// 
 /// Manual & Auto-Wiring:
-/// - All UI controls and preview fields are exposed directly in the Inspector for manual drag-and-drop.
-/// - Right-click the component and select "Auto-Wire All Fields" to automatically populate all references!
+/// - All UI controls, resolution selectors, controller icons, and preview fields are exposed directly in the Inspector.
+/// - Right-click the component and select "Auto-Wire All Fields" or "Auto-Populate Controller Icons" anytime!
 /// </summary>
 public class HeatSettingsBridge : MonoBehaviour
 {
+    public static HeatSettingsBridge Instance { get; private set; }
+
     [System.Serializable]
     public class SettingDescriptionEntry
     {
@@ -38,6 +41,114 @@ public class HeatSettingsBridge : MonoBehaviour
         public Sprite coverImage;
     }
 
+    [System.Serializable]
+    public class XboxIconSet
+    {
+        [Header("Face Buttons")]
+        [Tooltip("Xbox A button icon.")]
+        public Sprite buttonA;
+        [Tooltip("Xbox B button icon.")]
+        public Sprite buttonB;
+        [Tooltip("Xbox X button icon.")]
+        public Sprite buttonX;
+        [Tooltip("Xbox Y button icon.")]
+        public Sprite buttonY;
+
+        [Header("Bumpers & Triggers")]
+        [Tooltip("Xbox Left Bumper (LB) icon.")]
+        public Sprite lb;
+        [Tooltip("Xbox Right Bumper (RB) icon.")]
+        public Sprite rb;
+        [Tooltip("Xbox Left Trigger (LT) icon.")]
+        public Sprite lt;
+        [Tooltip("Xbox Right Trigger (RT) icon.")]
+        public Sprite rt;
+
+        [Header("Thumbsticks & Stick Press")]
+        [Tooltip("Xbox Left Stick Click (L3 / Left Stick Press) icon.")]
+        public Sprite leftStickPress;
+        [Tooltip("Xbox Right Stick Click (R3 / Right Stick Press) icon.")]
+        public Sprite rightStickPress;
+        [Tooltip("Xbox Left Stick icon.")]
+        public Sprite leftStick;
+        [Tooltip("Xbox Right Stick icon.")]
+        public Sprite rightStick;
+
+        [Header("Directional Pad (D-Pad)")]
+        [Tooltip("Xbox D-Pad Up icon.")]
+        public Sprite dpadUp;
+        [Tooltip("Xbox D-Pad Down icon.")]
+        public Sprite dpadDown;
+        [Tooltip("Xbox D-Pad Left icon.")]
+        public Sprite dpadLeft;
+        [Tooltip("Xbox D-Pad Right icon.")]
+        public Sprite dpadRight;
+        [Tooltip("Xbox D-Pad (Full) icon.")]
+        public Sprite dpad;
+
+        [Header("Menu & System Buttons")]
+        [Tooltip("Xbox Menu button (Start / Hamburger) icon.")]
+        public Sprite menu;
+        [Tooltip("Xbox View button (Back / Select / Two Squares) icon.")]
+        public Sprite view;
+        [Tooltip("Xbox Share button icon.")]
+        public Sprite share;
+    }
+
+    [System.Serializable]
+    public class DualSenseIconSet
+    {
+        [Header("Face Buttons")]
+        [Tooltip("DualSense Cross (✕) button icon.")]
+        public Sprite cross;
+        [Tooltip("DualSense Circle (◯) button icon.")]
+        public Sprite circle;
+        [Tooltip("DualSense Square (▢) button icon.")]
+        public Sprite square;
+        [Tooltip("DualSense Triangle (△) button icon.")]
+        public Sprite triangle;
+
+        [Header("Bumpers & Triggers")]
+        [Tooltip("DualSense L1 Bumper icon.")]
+        public Sprite l1;
+        [Tooltip("DualSense R1 Bumper icon.")]
+        public Sprite r1;
+        [Tooltip("DualSense L2 Trigger icon.")]
+        public Sprite l2;
+        [Tooltip("DualSense R2 Trigger icon.")]
+        public Sprite r2;
+
+        [Header("Thumbsticks & Stick Press")]
+        [Tooltip("DualSense Left Stick Click (L3 / Left Stick Press) icon.")]
+        public Sprite leftStickPress;
+        [Tooltip("DualSense Right Stick Click (R3 / Right Stick Press) icon.")]
+        public Sprite rightStickPress;
+        [Tooltip("DualSense Left Stick icon.")]
+        public Sprite leftStick;
+        [Tooltip("DualSense Right Stick icon.")]
+        public Sprite rightStick;
+
+        [Header("Directional Pad (D-Pad)")]
+        [Tooltip("DualSense D-Pad Up icon.")]
+        public Sprite dpadUp;
+        [Tooltip("DualSense D-Pad Down icon.")]
+        public Sprite dpadDown;
+        [Tooltip("DualSense D-Pad Left icon.")]
+        public Sprite dpadLeft;
+        [Tooltip("DualSense D-Pad Right icon.")]
+        public Sprite dpadRight;
+        [Tooltip("DualSense D-Pad (Full) icon.")]
+        public Sprite dpad;
+
+        [Header("Menu & Special")]
+        [Tooltip("DualSense Options button (Start / Menu) icon.")]
+        public Sprite options;
+        [Tooltip("DualSense Create button (Select / Share) icon.")]
+        public Sprite create;
+        [Tooltip("DualSense Touchpad Press icon.")]
+        public Sprite touchpadPress;
+    }
+
     // =========================================================================
     //  Inspector Fields (Manual Drag & Drop)
     // =========================================================================
@@ -46,13 +157,13 @@ public class HeatSettingsBridge : MonoBehaviour
     public SettingsDescriptionManager descriptionManager;
 
     [Header("General Tab Controls")]
-    [Tooltip("Switch for Performance & Ping Overlay (previously Enable Hints).")]
+    [Tooltip("Switch for Performance & Ping Overlay.")]
     public SwitchManager perfOverlaySwitch;
 
-    [Tooltip("Switch for Camera Shockwave & Shake (previously Enable Subtitles).")]
+    [Tooltip("Switch for Camera Shockwave & Shake.")]
     public SwitchManager cameraShakeSwitch;
 
-    [Tooltip("Horizontal Selector for Struggle Resist Mode (previously Subtitle Scale).")]
+    [Tooltip("Horizontal Selector for Struggle Resist Mode.")]
     public HorizontalSelector struggleModeSelector;
 
     [Tooltip("Horizontal Selector for UI Interface Scaling.")]
@@ -68,8 +179,30 @@ public class HeatSettingsBridge : MonoBehaviour
     [Tooltip("Horizontal Selector for Sprint Mode (Hold vs Toggle).")]
     public HorizontalSelector sprintModeSelector;
 
-    [Tooltip("The 8 keybinding row transforms under Key Bindings in the Controls panel.")]
-    public List<Transform> keybindingRows = new List<Transform>();
+    [System.Serializable]
+    public class KeybindingRowItem
+    {
+        [Tooltip("The game action this UI row represents.")]
+        public KeybindingActionType action;
+
+        [Tooltip("The UI row Transform under Key Bindings (e.g. Settings Item (Binding)).")]
+        public Transform row;
+    }
+
+    [Header("Keybinding Rows (Named Action Dropdowns)")]
+    [Tooltip("Explicitly configured keybinding rows with named action dropdowns. Add or remove items to customize or exclude specific bindings.")]
+    public List<KeybindingRowItem> configuredBindings = new List<KeybindingRowItem>();
+
+    [Header("Controller Icon Packs (Xbox & DualSense)")]
+    [Tooltip("Official Heat UI sprite icons for Xbox controllers with exact button names.")]
+    public XboxIconSet xboxIcons = new XboxIconSet();
+
+    [Tooltip("Official Heat UI sprite icons for Sony DualSense controllers with exact button names.")]
+    public DualSenseIconSet dualSenseIcons = new DualSenseIconSet();
+
+    [Header("Heat UI Preset Manager (Optional)")]
+    [Tooltip("Reference to Heat UI's _Preset Manager asset for direct preset lookups.")]
+    public ControllerPresetManager presetManager;
 
     [Header("Audio Tab Controls")]
     [Tooltip("Slider for Master Audio Volume.")]
@@ -131,183 +264,196 @@ public class HeatSettingsBridge : MonoBehaviour
         }
     }
 
-    private void Reset()
-    {
-        AutoWireAllFields();
-        PopulateDefaultDescriptions();
-    }
-
     private void Awake()
     {
-        AutoWireAllFields();
+        Instance = this;
+        KeybindingManager.CustomGamepadSpriteResolver = GetGamepadSprite;
+        CleanupOldDescriptions();
+    }
 
-        if (settingDescriptions == null || settingDescriptions.Count == 0)
-        {
-            PopulateDefaultDescriptions();
-        }
-
+    private void Start()
+    {
+        CleanupOldDescriptions();
         InitializeBridge();
+        StartCoroutine(DelayedDescriptionSync());
     }
 
     private void OnEnable()
     {
-        SyncUIToCurrentSettings();
+        KeybindingManager.OnBindingsChanged += SyncKeybindingButtons;
+        KeybindingManager.OnDeviceTypeChanged += OnDeviceTypeChanged;
+    }
+
+    private void OnDisable()
+    {
+        KeybindingManager.OnBindingsChanged -= SyncKeybindingButtons;
+        KeybindingManager.OnDeviceTypeChanged -= OnDeviceTypeChanged;
+    }
+
+    private void OnDeviceTypeChanged(bool isGamepad)
+    {
+        SyncKeybindingButtons();
+    }
+
+    private IEnumerator DelayedDescriptionSync()
+    {
+        // Wait 1 frame so Michsky Heat UI's SettingsDescription.Start() finishes registering
+        yield return null;
         ApplyAllDescriptions();
         SyncKeybindingButtons();
     }
 
-    // =========================================================================
-    //  Context Menu: Auto-Wire All Inspector Fields
-    // =========================================================================
-    [ContextMenu("Auto-Wire All Fields")]
-    public void AutoWireAllFields()
+    private void Reset()
     {
-        if (descriptionManager == null)
+        PopulateDefaultDescriptions();
+#if UNITY_EDITOR
+        AutoPopulateControllerIcons();
+#endif
+    }
+
+#if UNITY_EDITOR
+    private void OnValidate()
+    {
+        CleanupOldDescriptions();
+
+        if (xboxIcons.buttonA == null || dualSenseIcons.cross == null)
         {
-            descriptionManager = GetComponentInChildren<SettingsDescriptionManager>(true) ?? FindFirstObjectByType<SettingsDescriptionManager>();
-        }
-
-        // General
-        Transform genPanel = FindPanelRecursive(transform, "General");
-        if (genPanel != null)
-        {
-            if (perfOverlaySwitch == null)
-            {
-                var t = FindChildRecursive(genPanel, "Show FPS & Ping") ?? FindChildRecursive(genPanel, "Enable Hints");
-                if (t != null) perfOverlaySwitch = t.GetComponentInChildren<SwitchManager>(true);
-            }
-
-            if (cameraShakeSwitch == null)
-            {
-                var t = FindChildRecursive(genPanel, "Enable Subtitles") ?? FindChildRecursive(genPanel, "Camera Strain & Shake");
-                if (t != null) cameraShakeSwitch = t.GetComponentInChildren<SwitchManager>(true);
-            }
-
-            if (struggleModeSelector == null)
-            {
-                var t = FindChildRecursive(genPanel, "Subtitle Scale") ?? FindChildRecursive(genPanel, "Struggle QTE Mode");
-                if (t != null) struggleModeSelector = t.GetComponentInChildren<HorizontalSelector>(true);
-            }
-
-            if (uiScaleSelector == null)
-            {
-                var t = FindChildRecursive(genPanel, "UI Scale");
-                if (t != null) uiScaleSelector = t.GetComponentInChildren<HorizontalSelector>(true);
-            }
-        }
-
-        // Controls
-        Transform ctrlPanel = FindPanelRecursive(transform, "Controls");
-        if (ctrlPanel != null)
-        {
-            if (lookSensitivitySlider == null)
-            {
-                var t = FindChildRecursive(ctrlPanel, "Camera Sensitivity");
-                if (t != null) lookSensitivitySlider = t.GetComponentInChildren<Slider>(true);
-            }
-
-            if (invertYSwitch == null)
-            {
-                var t = FindChildRecursive(ctrlPanel, "Reverse Look");
-                if (t != null) invertYSwitch = t.GetComponentInChildren<SwitchManager>(true);
-            }
-
-            if (sprintModeSelector == null)
-            {
-                var t = FindChildRecursive(ctrlPanel, "Sprint Mode");
-                if (t != null) sprintModeSelector = t.GetComponentInChildren<HorizontalSelector>(true);
-            }
-
-            if (keybindingRows == null || keybindingRows.Count == 0)
-            {
-                keybindingRows = new List<Transform>();
-                foreach (Transform child in ctrlPanel.GetComponentsInChildren<Transform>(true))
-                {
-                    if (child.name.StartsWith("Settings Item (Binding)"))
-                    {
-                        keybindingRows.Add(child);
-                    }
-                }
-            }
-        }
-
-        // Audio
-        Transform audPanel = FindPanelRecursive(transform, "Audio");
-        if (audPanel != null)
-        {
-            if (masterVolumeSlider == null)
-            {
-                var t = FindChildRecursive(audPanel, "Master Volume");
-                if (t != null) masterVolumeSlider = t.GetComponentInChildren<Slider>(true);
-            }
-
-            if (musicVolumeSlider == null)
-            {
-                var t = FindChildRecursive(audPanel, "Music Volume");
-                if (t != null) musicVolumeSlider = t.GetComponentInChildren<Slider>(true);
-            }
-
-            if (sfxVolumeSlider == null)
-            {
-                var t = FindChildRecursive(audPanel, "SFX Volume");
-                if (t != null) sfxVolumeSlider = t.GetComponentInChildren<Slider>(true);
-            }
-
-            if (uiVolumeSlider == null)
-            {
-                var t = FindChildRecursive(audPanel, "UI Volume");
-                if (t != null) uiVolumeSlider = t.GetComponentInChildren<Slider>(true);
-            }
-        }
-
-        // Visuals
-        Transform visPanel = FindPanelRecursive(transform, "Visuals");
-        if (visPanel != null)
-        {
-            if (resolutionDropdown == null && resolutionSelector == null)
-            {
-                var t = FindChildRecursive(visPanel, "Resolution");
-                if (t != null)
-                {
-                    resolutionDropdown = t.GetComponentInChildren<Michsky.UI.Heat.Dropdown>(true);
-                    if (resolutionDropdown == null)
-                    {
-                        resolutionSelector = t.GetComponentInChildren<HorizontalSelector>(true);
-                    }
-                }
-            }
-
-            if (windowModeSelector == null)
-            {
-                var t = FindChildRecursive(visPanel, "Window Mode");
-                if (t != null) windowModeSelector = t.GetComponentInChildren<HorizontalSelector>(true);
-            }
-
-            if (frameRateSelector == null)
-            {
-                var t = FindChildRecursive(visPanel, "Frame Rate");
-                if (t != null) frameRateSelector = t.GetComponentInChildren<HorizontalSelector>(true);
-            }
-
-            if (vSyncSwitch == null)
-            {
-                var t = FindChildRecursive(visPanel, "VSync");
-                if (t != null) vSyncSwitch = t.GetComponentInChildren<SwitchManager>(true);
-            }
-
-            if (textureQualitySelector == null)
-            {
-                var t = FindChildRecursive(visPanel, "Texture Quality");
-                if (t != null) textureQualitySelector = t.GetComponentInChildren<HorizontalSelector>(true);
-            }
-
-            if (anisotropicSelector == null)
-            {
-                var t = FindChildRecursive(visPanel, "Anisotropic Filtering");
-                if (t != null) anisotropicSelector = t.GetComponentInChildren<HorizontalSelector>(true);
-            }
+            AutoPopulateControllerIcons();
         }
     }
+#endif
+
+    public void CleanupOldDescriptions()
+    {
+        if (settingDescriptions == null) return;
+
+        bool changed = false;
+
+        // 1. Migrate legacy elements to their active canonical names if not already present
+        for (int i = 0; i < settingDescriptions.Count; i++)
+        {
+            var e = settingDescriptions[i];
+            if (e == null) continue;
+
+            if (e.elementName.Equals("Enable Subtitles", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!settingDescriptions.Exists(x => x != null && x.elementName.Equals("Camera Shake", StringComparison.OrdinalIgnoreCase)))
+                {
+                    e.elementName = "Camera Shake";
+                    e.displayTitle = "Camera Shockwave & Shake";
+                    e.description = "Simulates visceral head trauma, demonic screams, seismic tremors, and proximity blast waves. Disable to lock camera shudder for motion sensitivity.";
+                }
+                else
+                {
+                    e.elementName = string.Empty; // mark for removal
+                }
+                changed = true;
+            }
+            else if (e.elementName.Equals("Subtitle Scale", StringComparison.OrdinalIgnoreCase))
+            {
+                if (!settingDescriptions.Exists(x => x != null && x.elementName.Equals("Struggle Mode", StringComparison.OrdinalIgnoreCase)))
+                {
+                    e.elementName = "Struggle Mode";
+                    e.displayTitle = "Possession Resist Mode";
+                    e.description = "Defines how you fight demonic host intrusions. Select 'Rapid Mash' for raw survival intensity, or 'Hold Key' for steady resistance without repetitive strain.";
+                }
+                else
+                {
+                    e.elementName = string.Empty; // mark for removal
+                }
+                changed = true;
+            }
+        }
+
+        // 2. Remove all legacy / obsolete entries
+        int removedCount = settingDescriptions.RemoveAll(e =>
+            e == null ||
+            string.IsNullOrEmpty(e.elementName) ||
+            e.elementName.Equals("Enable Subtitles", StringComparison.OrdinalIgnoreCase) ||
+            e.elementName.Equals("Subtitle Scale", StringComparison.OrdinalIgnoreCase) ||
+            e.elementName.Equals("Language", StringComparison.OrdinalIgnoreCase) ||
+            e.elementName.Equals("Enable Hints", StringComparison.OrdinalIgnoreCase) ||
+            e.elementName.Equals("Show Network & FPS", StringComparison.OrdinalIgnoreCase) ||
+            e.elementName.Equals("Interact", StringComparison.OrdinalIgnoreCase) ||
+            e.elementName.Equals("Interaction", StringComparison.OrdinalIgnoreCase) ||
+            e.elementName.Equals("Interact / Possess", StringComparison.OrdinalIgnoreCase) ||
+            e.elementName.Equals("Pause", StringComparison.OrdinalIgnoreCase) ||
+            e.elementName.Equals("Tactical Menu / Pause", StringComparison.OrdinalIgnoreCase));
+
+        if (removedCount > 0)
+        {
+            changed = true;
+        }
+
+#if UNITY_EDITOR
+        if (changed && !Application.isPlaying)
+        {
+            UnityEditor.EditorUtility.SetDirty(this);
+        }
+#endif
+    }
+
+
+#if UNITY_EDITOR
+    [ContextMenu("Auto-Populate Controller Icons")]
+    public void AutoPopulateControllerIcons()
+    {
+        string xboxPath = "Assets/ThirdParty/Heat - Complete Modern UI/Textures/Controllers/Xbox/";
+        string dsPath = "Assets/ThirdParty/Heat - Complete Modern UI/Textures/Controllers/DualSense/";
+
+        // 1. Xbox Icons (Exact Button Names)
+        xboxIcons.buttonA = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox A.png");
+        xboxIcons.buttonB = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox B.png");
+        xboxIcons.buttonX = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox X.png");
+        xboxIcons.buttonY = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox Y.png");
+        xboxIcons.lb = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox LB.png");
+        xboxIcons.rb = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox RB.png");
+        xboxIcons.lt = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox LT.png");
+        xboxIcons.rt = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox RT.png");
+        xboxIcons.leftStickPress = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox Left Stick Press.png");
+        xboxIcons.rightStickPress = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox Right Stick Press.png");
+        xboxIcons.leftStick = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox Left Stick.png");
+        xboxIcons.rightStick = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox Right Stick.png");
+        xboxIcons.dpadUp = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox Dpad Up.png");
+        xboxIcons.dpadDown = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox Dpad Down.png");
+        xboxIcons.dpadLeft = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox Dpad Left.png");
+        xboxIcons.dpadRight = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox Dpad Right.png");
+        xboxIcons.dpad = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox Dpad.png");
+        xboxIcons.menu = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox Menu.png");
+        xboxIcons.view = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox View.png");
+        xboxIcons.share = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(xboxPath + "Xbox Share.png");
+
+        // 2. DualSense Icons (Exact Button Names)
+        dualSenseIcons.cross = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense Cross.png");
+        dualSenseIcons.circle = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense Circle.png");
+        dualSenseIcons.square = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense Square.png");
+        dualSenseIcons.triangle = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense Triangle.png");
+        dualSenseIcons.l1 = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense L1.png");
+        dualSenseIcons.r1 = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense R1.png");
+        dualSenseIcons.l2 = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense L2.png");
+        dualSenseIcons.r2 = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense R2.png");
+        dualSenseIcons.leftStickPress = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense Left Stick Press.png");
+        dualSenseIcons.rightStickPress = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense Right Stick Press.png");
+        dualSenseIcons.leftStick = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense Left Stick.png");
+        dualSenseIcons.rightStick = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense Right Stick.png");
+        dualSenseIcons.dpadUp = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense Dpad Up.png");
+        dualSenseIcons.dpadDown = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense Dpad Down.png");
+        dualSenseIcons.dpadLeft = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense Dpad Left.png");
+        dualSenseIcons.dpadRight = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense Dpad Right.png");
+        dualSenseIcons.dpad = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSesne Dpad.png");
+        dualSenseIcons.options = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense Options.png");
+        dualSenseIcons.create = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense Create.png");
+        dualSenseIcons.touchpadPress = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(dsPath + "DualSense Touchpad Press.png");
+
+        // 3. Preset Manager (optional Heat UI preset reference)
+        if (presetManager == null)
+        {
+            presetManager = UnityEditor.AssetDatabase.LoadAssetAtPath<ControllerPresetManager>("Assets/ThirdParty/Heat - Complete Modern UI/Presets/Controllers/_Preset Manager.asset");
+        }
+
+        UnityEditor.EditorUtility.SetDirty(this);
+    }
+#endif
 
     // =========================================================================
     //  Default Subterranean-Horror Description Presets
@@ -326,23 +472,16 @@ public class HeatSettingsBridge : MonoBehaviour
             },
             new SettingDescriptionEntry
             {
-                elementName = "Enable Subtitles",
+                elementName = "Camera Shake",
                 displayTitle = "Camera Shockwave & Shake",
                 description = "Simulates visceral head trauma, demonic screams, seismic tremors, and proximity blast waves. Disable to lock camera shudder for motion sensitivity.",
                 coverImage = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Subtitle Scale",
+                elementName = "Struggle Mode",
                 displayTitle = "Possession Resist Mode",
-                description = "Defines how you fight demonic exorcism attempts. Select 'Rapid Mash' for raw survival intensity, or 'Hold Key' for steady resistance without repetitive strain.",
-                coverImage = null
-            },
-            new SettingDescriptionEntry
-            {
-                elementName = "Language",
-                displayTitle = "Audio & Text Language",
-                description = "Select the operational language for tactical communications, extraction terminal interfaces, and subtitles.",
+                description = "Defines how you fight demonic host intrusions. Select 'Rapid Mash' for raw survival intensity, or 'Hold Key' for steady resistance without repetitive strain.",
                 coverImage = null
             },
             new SettingDescriptionEntry
@@ -353,7 +492,7 @@ public class HeatSettingsBridge : MonoBehaviour
                 coverImage = null
             },
 
-            // --- CONTROLS TAB ---
+            // --- CONTROLS TAB (8 Canonical Game Actions) ---
             new SettingDescriptionEntry
             {
                 elementName = "Camera Sensitivity",
@@ -384,22 +523,15 @@ public class HeatSettingsBridge : MonoBehaviour
             },
             new SettingDescriptionEntry
             {
-                elementName = "Interact / Possess",
-                displayTitle = "Interact / Possess",
-                description = "Open bulkheads, collect extraction batteries, access maintenance terminals, or initiate host possession.",
+                elementName = "Sprint / Tactical Rush",
+                displayTitle = "Sprint / Tactical Rush",
+                description = "Accelerate traversal across open mining caverns. Depletes stamina; increases acoustic profile.",
                 coverImage = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Sprint / Rush",
-                displayTitle = "Sprint / Rush",
-                description = "Accelerate traversal across open mining caverns. Depletes stamina; increases footstep acoustic profile.",
-                coverImage = null
-            },
-            new SettingDescriptionEntry
-            {
-                elementName = "Jump / Vault",
-                displayTitle = "Jump / Vault",
+                elementName = "Jump / Vault Obstacles",
+                displayTitle = "Jump / Vault Obstacles",
                 description = "Leap over collapsed mine rails, low pipes, and treacherous rock fissures.",
                 coverImage = null
             },
@@ -426,16 +558,44 @@ public class HeatSettingsBridge : MonoBehaviour
             },
             new SettingDescriptionEntry
             {
-                elementName = "Resist Exorcism (QTE)",
-                displayTitle = "Resist Exorcism (QTE)",
-                description = "Fight back against demonic host intrusion and reclaim somatic motor control during holy possession struggles.",
+                elementName = "Resist Possession",
+                displayTitle = "Resist Possession",
+                description = "Fight back against demonic host intrusion and reclaim somatic motor control during struggle.",
                 coverImage = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Tactical Menu / Pause",
-                displayTitle = "Tactical Menu / Pause",
-                description = "Access environmental diagnostics, audio acoustic mixers, and system configuration.",
+                elementName = "Deal Activations",
+                displayTitle = "Deal Activations",
+                description = "Initiate and negotiate forbidden subterranean deals and demonic blood pacts with the Vengeful Spirit.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Exit Possession",
+                displayTitle = "Exit Possession",
+                description = "Voluntarily terminate host possession to preserve ethereal essence and revert to incorporeal ghost form.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Loot Bodies & Containers",
+                displayTitle = "Loot Bodies & Containers",
+                description = "Scavenge fallen explorer corpses, extraction batteries, supply crates, and medical vials.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Spectate Cycle Target",
+                displayTitle = "Spectate Cycle Target",
+                description = "Cycle camera view between surviving explorers or stalking demonic entities during spectator observation.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Enter / Exit Spectator",
+                displayTitle = "Enter / Exit Spectator",
+                description = "Exit spectator observation mode or toggle between tactical free-orbit and direct over-shoulder camera.",
                 coverImage = null
             },
 
@@ -554,7 +714,7 @@ public class HeatSettingsBridge : MonoBehaviour
         // 2. Camera Shake
         if (cameraShakeSwitch != null)
         {
-            var entry = GetDescriptionEntry("Enable Subtitles", "Camera Shockwave & Shake");
+            var entry = GetDescriptionEntry("Camera Shake", "Camera Shockwave & Shake");
             ConfigureSwitchComponent(cameraShakeSwitch, entry, GameSettingsManager.CameraShakeActive, val =>
             {
                 if (_isInitializing || GameSettingsManager.Instance == null) return;
@@ -567,7 +727,7 @@ public class HeatSettingsBridge : MonoBehaviour
         // 3. Struggle QTE Mode
         if (struggleModeSelector != null)
         {
-            var entry = GetDescriptionEntry("Subtitle Scale", "Possession Resist Mode");
+            var entry = GetDescriptionEntry("Struggle Mode", "Possession Resist Mode");
             ConfigureSelectorComponent(struggleModeSelector, entry,
                 options: new string[] { "Rapid Mash", "Hold Key" },
                 initialIndex: GameSettingsManager.StruggleHoldActive ? 1 : 0,
@@ -585,13 +745,14 @@ public class HeatSettingsBridge : MonoBehaviour
         {
             var entry = GetDescriptionEntry("UI Scale", "Interface Scaling");
             ConfigureSelectorComponent(uiScaleSelector, entry,
-                options: new string[] { "0.25x", "0.5x", "1.0x", "1.5x", "2.0x" },
-                initialIndex: GameSettingsManager.Instance != null ? GameSettingsManager.Instance.uiScaleIndex : 2,
+                options: new string[] { "Compact (90%)", "Standard (100%)", "Expanded (110%)", "Large (120%)" },
+                initialIndex: GameSettingsManager.Instance != null ? GameSettingsManager.Instance.uiScaleIndex : 1,
                 onChanged: index =>
                 {
                     if (_isInitializing || GameSettingsManager.Instance == null) return;
                     GameSettingsManager.Instance.uiScaleIndex = index;
                     GameSettingsManager.Instance.SaveSettings();
+                    GameSettingsManager.Instance.ApplySettings();
                 });
         }
     }
@@ -601,11 +762,10 @@ public class HeatSettingsBridge : MonoBehaviour
     // =========================================================================
     private void SetupControlsTab()
     {
-        // 1. Look Sensitivity
         if (lookSensitivitySlider != null)
         {
             var entry = GetDescriptionEntry("Camera Sensitivity", "Look Sensitivity");
-            ConfigureSliderComponent(lookSensitivitySlider, entry, GameSettingsManager.MouseSens, 0.1f, 3.0f, val =>
+            ConfigureSliderComponent(lookSensitivitySlider, entry, GameSettingsManager.MouseSens, 0.2f, 5.0f, val =>
             {
                 if (_isInitializing || GameSettingsManager.Instance == null) return;
                 GameSettingsManager.Instance.mouseSensitivity = val;
@@ -613,7 +773,6 @@ public class HeatSettingsBridge : MonoBehaviour
             });
         }
 
-        // 2. Invert Pitch Axis
         if (invertYSwitch != null)
         {
             var entry = GetDescriptionEntry("Reverse Look", "Invert Pitch Axis");
@@ -625,7 +784,6 @@ public class HeatSettingsBridge : MonoBehaviour
             });
         }
 
-        // 3. Sprint Mode
         if (sprintModeSelector != null)
         {
             var entry = GetDescriptionEntry("Sprint Mode", "Sprint Activation");
@@ -649,18 +807,27 @@ public class HeatSettingsBridge : MonoBehaviour
     // =========================================================================
     private void SetupKeybindingRows()
     {
-        if (KeybindingManager.Instance == null) return;
+        if (KeybindingManager.Instance == null || configuredBindings == null) return;
 
         var actions = KeybindingManager.Instance.actions;
-        for (int i = 0; i < keybindingRows.Count && i < actions.Count; i++)
-        {
-            Transform row = keybindingRows[i];
-            if (row == null) continue;
+        configuredBindings.RemoveAll(item => item == null || item.row == null);
 
-            var actionData = actions[i];
+        foreach (var item in configuredBindings)
+        {
+            string actId = item.action.ToString();
+            var actionData = actions.Find(a => a.actionId.Equals(actId, StringComparison.OrdinalIgnoreCase));
+
+            // If action was excluded in code, hide the row
+            if (actionData == null)
+            {
+                item.row.gameObject.SetActive(false);
+                continue;
+            }
+
+            item.row.gameObject.SetActive(true);
 
             // 1. Action Label Text
-            SetRowTitleText(row, actionData.displayName);
+            SetRowTitleText(item.row, actionData.displayName);
 
             // 2. Description for Preview Area
             var entry = GetDescriptionEntry(actionData.displayName, actionData.displayName);
@@ -668,10 +835,10 @@ public class HeatSettingsBridge : MonoBehaviour
             {
                 entry.description = actionData.tacticalDescription;
             }
-            AttachHoverPreview(row, entry);
+            AttachHoverPreview(item.row, entry);
 
             // 3. Binding 1 (Keyboard / Mouse Button)
-            Transform b1 = row.Find("Binding 1");
+            Transform b1 = item.row.Find("Binding 1");
             if (b1 != null)
             {
                 var bm1 = b1.GetComponent<ButtonManager>();
@@ -679,61 +846,365 @@ public class HeatSettingsBridge : MonoBehaviour
                 {
                     bm1.SetText(KeybindingManager.FormatKeyName(actionData.currentKey));
                     bm1.onClick.RemoveAllListeners();
-                    string actId = actionData.actionId;
+                    string targetActId = actionData.actionId;
                     bm1.onClick.AddListener(() =>
                     {
-                        KeybindingManager.Instance.StartRebindKeyboard(actId,
+                        KeybindingManager.Instance.StartRebindKeyboard(targetActId,
                             waitingStr => bm1.SetText(waitingStr),
                             finishedStr => bm1.SetText(finishedStr));
                     });
                 }
             }
 
-            // 4. Binding 2 (Gamepad Button)
-            Transform b2 = row.Find("Binding 2");
+            // 4. Binding 2 (Gamepad Button with Official Heat UI Icon)
+            Transform b2 = item.row.Find("Binding 2");
             if (b2 != null)
             {
                 var bm2 = b2.GetComponent<ButtonManager>();
                 if (bm2 != null)
                 {
-                    bm2.SetText(KeybindingManager.FormatGamepadName(actionData.currentGamepadControl));
-                    bm2.onClick.RemoveAllListeners();
-                    string actId = actionData.actionId;
-                    bm2.onClick.AddListener(() =>
-                    {
-                        KeybindingManager.Instance.StartRebindGamepad(actId,
-                            waitingStr => bm2.SetText(waitingStr),
-                            finishedStr => bm2.SetText(finishedStr));
-                    });
+                    SetupGamepadBindingButton(b2, bm2, actionData);
                 }
+            }
+        }
+    }
+
+    private void SetupGamepadBindingButton(Transform b2, ButtonManager bm2, KeybindingManager.ActionBinding actionData)
+    {
+        UpdateGamepadButtonVisual(bm2, actionData.currentGamepadControl);
+
+        bm2.onClick.RemoveAllListeners();
+        string actId = actionData.actionId;
+        bm2.onClick.AddListener(() =>
+        {
+            var iconImg = EnsureGamepadIcon(bm2.transform);
+            if (iconImg != null) iconImg.gameObject.SetActive(false);
+
+            KeybindingManager.Instance.StartRebindGamepad(actId,
+                waitingStr => bm2.SetText(waitingStr),
+                finishedStr =>
+                {
+                    var updatedAct = KeybindingManager.Instance.actions.Find(a => a.actionId.Equals(actId, StringComparison.OrdinalIgnoreCase));
+                    if (updatedAct != null)
+                    {
+                        UpdateGamepadButtonVisual(bm2, updatedAct.currentGamepadControl);
+                    }
+                    else
+                    {
+                        bm2.SetText(finishedStr);
+                    }
+                });
+        });
+    }
+
+    private void UpdateGamepadButtonVisual(ButtonManager bm, string controlName)
+    {
+        if (bm == null) return;
+
+        Image iconImg = EnsureGamepadIcon(bm.transform);
+        Sprite iconSprite = GetGamepadSprite(controlName);
+
+        if (iconSprite != null && iconImg != null)
+        {
+            iconImg.sprite = iconSprite;
+            iconImg.gameObject.SetActive(true);
+            bm.SetText(""); // Clear text so only the sharp controller icon is shown
+        }
+        else
+        {
+            if (iconImg != null) iconImg.gameObject.SetActive(false);
+            bm.SetText(KeybindingManager.FormatGamepadName(controlName, KeybindingManager.IsPlayStationActive()));
+        }
+    }
+
+    private Image EnsureGamepadIcon(Transform buttonRoot)
+    {
+        Transform existing = buttonRoot.Find("GamepadIcon");
+        if (existing != null)
+        {
+            return existing.GetComponent<Image>();
+        }
+
+        GameObject go = new GameObject("GamepadIcon", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        go.transform.SetParent(buttonRoot, false);
+
+        RectTransform rt = go.GetComponent<RectTransform>();
+        rt.anchorMin = new Vector2(0.5f, 0.5f);
+        rt.anchorMax = new Vector2(0.5f, 0.5f);
+        rt.pivot = new Vector2(0.5f, 0.5f);
+        rt.sizeDelta = new Vector2(28f, 28f);
+        rt.anchoredPosition = Vector2.zero;
+
+        Image img = go.GetComponent<Image>();
+        img.preserveAspect = true;
+        img.raycastTarget = false;
+
+        return img;
+    }
+
+    public Sprite GetGamepadSprite(string controlName)
+    {
+        if (string.IsNullOrEmpty(controlName)) return null;
+
+        bool isDualSense = KeybindingManager.IsPlayStationActive();
+        string key = controlName.Trim().ToLower().Replace(" ", "").Replace("_", "").Replace("-", "").Replace("/", "");
+
+        if (isDualSense)
+        {
+            if (dualSenseIcons == null) return null;
+            switch (key)
+            {
+                // Face buttons
+                case "cross":
+                case "buttonsouth":
+                case "select":
+                case "a":
+                    return dualSenseIcons.cross;
+
+                case "circle":
+                case "buttoneast":
+                case "exit":
+                case "goback":
+                case "b":
+                    return dualSenseIcons.circle;
+
+                case "square":
+                case "buttonwest":
+                case "getready":
+                case "x":
+                    return dualSenseIcons.square;
+
+                case "triangle":
+                case "buttonnorth":
+                case "y":
+                    return dualSenseIcons.triangle;
+
+                // Bumpers & Triggers
+                case "l1":
+                case "leftshoulder":
+                case "previous":
+                case "lb":
+                    return dualSenseIcons.l1;
+
+                case "r1":
+                case "rightshoulder":
+                case "next":
+                case "fastercredits":
+                case "rb":
+                    return dualSenseIcons.r1;
+
+                case "l2":
+                case "lefttrigger":
+                case "previousalt":
+                case "lt":
+                    return dualSenseIcons.l2;
+
+                case "r2":
+                case "righttrigger":
+                case "nextalt":
+                case "rt":
+                    return dualSenseIcons.r2;
+
+                // Sticks & Press
+                case "leftstickpress":
+                case "l3":
+                case "ls":
+                    return dualSenseIcons.leftStickPress;
+
+                case "rightstickpress":
+                case "r3":
+                case "rs":
+                    return dualSenseIcons.rightStickPress;
+
+                case "leftstick":
+                case "navigate":
+                    return dualSenseIcons.leftStick;
+
+                case "rightstick":
+                case "scroll":
+                case "scrollhorizontal":
+                case "scrollvertical":
+                    return dualSenseIcons.rightStick;
+
+                // D-Pad
+                case "dpadup":
+                    return dualSenseIcons.dpadUp;
+
+                case "dpaddown":
+                    return dualSenseIcons.dpadDown;
+
+                case "dpadleft":
+                    return dualSenseIcons.dpadLeft;
+
+                case "dpadright":
+                    return dualSenseIcons.dpadRight;
+
+                case "dpad":
+                    return dualSenseIcons.dpad;
+
+                // Menu & Special
+                case "options":
+                case "start":
+                case "menu":
+                    return dualSenseIcons.options;
+
+                case "create":
+                case "share":
+                case "view":
+                    return dualSenseIcons.create;
+
+                case "touchpadpress":
+                case "touchpad":
+                    return dualSenseIcons.touchpadPress;
+
+                default:
+                    return null;
+            }
+        }
+        else
+        {
+            if (xboxIcons == null) return null;
+            switch (key)
+            {
+                // Face buttons
+                case "a":
+                case "buttona":
+                case "buttonsouth":
+                case "select":
+                case "cross":
+                    return xboxIcons.buttonA;
+
+                case "b":
+                case "buttonb":
+                case "buttoneast":
+                case "exit":
+                case "goback":
+                case "circle":
+                    return xboxIcons.buttonB;
+
+                case "x":
+                case "buttonx":
+                case "buttonwest":
+                case "getready":
+                case "square":
+                    return xboxIcons.buttonX;
+
+                case "y":
+                case "buttony":
+                case "buttonnorth":
+                case "triangle":
+                    return xboxIcons.buttonY;
+
+                // Bumpers & Triggers
+                case "lb":
+                case "leftshoulder":
+                case "previous":
+                case "l1":
+                    return xboxIcons.lb;
+
+                case "rb":
+                case "rightshoulder":
+                case "next":
+                case "fastercredits":
+                case "r1":
+                    return xboxIcons.rb;
+
+                case "lt":
+                case "lefttrigger":
+                case "previousalt":
+                case "l2":
+                    return xboxIcons.lt;
+
+                case "rt":
+                case "righttrigger":
+                case "nextalt":
+                case "r2":
+                    return xboxIcons.rt;
+
+                // Sticks & Press
+                case "leftstickpress":
+                case "l3":
+                case "ls":
+                    return xboxIcons.leftStickPress;
+
+                case "rightstickpress":
+                case "r3":
+                case "rs":
+                    return xboxIcons.rightStickPress;
+
+                case "leftstick":
+                case "navigate":
+                    return xboxIcons.leftStick;
+
+                case "rightstick":
+                case "scroll":
+                case "scrollhorizontal":
+                case "scrollvertical":
+                    return xboxIcons.rightStick;
+
+                // D-Pad
+                case "dpadup":
+                    return xboxIcons.dpadUp;
+
+                case "dpaddown":
+                    return xboxIcons.dpadDown;
+
+                case "dpadleft":
+                    return xboxIcons.dpadLeft;
+
+                case "dpadright":
+                    return xboxIcons.dpadRight;
+
+                case "dpad":
+                    return xboxIcons.dpad;
+
+                // Menu & Special
+                case "menu":
+                case "start":
+                case "options":
+                    return xboxIcons.menu;
+
+                case "view":
+                case "select_alt":
+                case "back":
+                case "share":
+                case "create":
+                    return xboxIcons.view;
+
+                case "share_button":
+                    return xboxIcons.share;
+
+                default:
+                    return null;
             }
         }
     }
 
     public void SyncKeybindingButtons()
     {
-        if (KeybindingManager.Instance == null) return;
+        if (KeybindingManager.Instance == null || configuredBindings == null) return;
 
         var actions = KeybindingManager.Instance.actions;
-        for (int i = 0; i < keybindingRows.Count && i < actions.Count; i++)
+        foreach (var item in configuredBindings)
         {
-            Transform row = keybindingRows[i];
-            if (row == null) continue;
+            if (item == null || item.row == null) continue;
 
-            var actionData = actions[i];
+            string actId = item.action.ToString();
+            var actionData = actions.Find(a => a.actionId.Equals(actId, StringComparison.OrdinalIgnoreCase));
+            if (actionData == null) continue;
 
-            Transform b1 = row.Find("Binding 1");
+            Transform b1 = item.row.Find("Binding 1");
             if (b1 != null)
             {
                 var bm1 = b1.GetComponent<ButtonManager>();
                 if (bm1 != null) bm1.SetText(KeybindingManager.FormatKeyName(actionData.currentKey));
             }
 
-            Transform b2 = row.Find("Binding 2");
+            Transform b2 = item.row.Find("Binding 2");
             if (b2 != null)
             {
                 var bm2 = b2.GetComponent<ButtonManager>();
-                if (bm2 != null) bm2.SetText(KeybindingManager.FormatGamepadName(actionData.currentGamepadControl));
+                if (bm2 != null) UpdateGamepadButtonVisual(bm2, actionData.currentGamepadControl);
             }
         }
     }
@@ -831,22 +1302,18 @@ public class HeatSettingsBridge : MonoBehaviour
             string[] fpsOptions = new string[] { "30 FPS", "60 FPS", "120 FPS", "144 FPS", "240 FPS", "Unlimited" };
             int[] fpsValues = new int[] { 30, 60, 120, 144, 240, -1 };
 
-            int curFps = GameSettingsManager.Instance != null ? GameSettingsManager.Instance.targetFPS : -1;
-            int initialIdx = System.Array.IndexOf(fpsValues, curFps);
-            if (initialIdx < 0) initialIdx = 5;
+            int curFps = GameSettingsManager.Instance != null ? GameSettingsManager.Instance.targetFPS : 60;
+            int curIdx = Array.IndexOf(fpsValues, curFps);
+            if (curIdx < 0) curIdx = 1; // default 60 FPS
 
             var entry = GetDescriptionEntry("Frame Rate", "Frame Rate Ceiling");
-            ConfigureSelectorComponent(frameRateSelector, entry,
-                options: fpsOptions,
-                initialIndex: initialIdx,
-                onChanged: index =>
-                {
-                    if (_isInitializing || GameSettingsManager.Instance == null) return;
-                    int chosenFps = (index >= 0 && index < fpsValues.Length) ? fpsValues[index] : -1;
-                    GameSettingsManager.Instance.targetFPS = chosenFps;
-                    GameSettingsManager.Instance.SaveSettings();
-                    GameSettingsManager.Instance.ApplySettings();
-                });
+            ConfigureSelectorComponent(frameRateSelector, entry, fpsOptions, curIdx, index =>
+            {
+                if (_isInitializing || GameSettingsManager.Instance == null) return;
+                GameSettingsManager.Instance.targetFPS = fpsValues[index];
+                GameSettingsManager.Instance.SaveSettings();
+                GameSettingsManager.Instance.ApplySettings();
+            });
         }
 
         if (textureQualitySelector != null)
@@ -869,7 +1336,7 @@ public class HeatSettingsBridge : MonoBehaviour
             var entry = GetDescriptionEntry("Anisotropic Filtering", "Surface Angle Filtering");
             ConfigureSelectorComponent(anisotropicSelector, entry,
                 options: new string[] { "Disabled", "Per Texture", "Forced On" },
-                initialIndex: GameSettingsManager.Instance != null ? GameSettingsManager.Instance.anisotropicFiltering : 2,
+                initialIndex: GameSettingsManager.Instance != null ? GameSettingsManager.Instance.anisotropicFiltering : 1,
                 onChanged: index =>
                 {
                     if (_isInitializing || GameSettingsManager.Instance == null) return;
@@ -993,9 +1460,11 @@ public class HeatSettingsBridge : MonoBehaviour
 
     private SettingDescriptionEntry GetDescriptionEntry(string key, string fallbackTitle)
     {
-        var found = settingDescriptions.Find(e => e.elementName.Equals(key, StringComparison.OrdinalIgnoreCase) ||
-                                                 e.displayTitle.Equals(key, StringComparison.OrdinalIgnoreCase) ||
-                                                 e.displayTitle.Equals(fallbackTitle, StringComparison.OrdinalIgnoreCase));
+        var found = settingDescriptions.Find(e => 
+            e.elementName.Equals(key, StringComparison.OrdinalIgnoreCase) ||
+            e.displayTitle.Equals(key, StringComparison.OrdinalIgnoreCase) ||
+            e.displayTitle.Equals(fallbackTitle, StringComparison.OrdinalIgnoreCase));
+
         if (found != null) return found;
 
         return new SettingDescriptionEntry
@@ -1133,7 +1602,31 @@ public class HeatSettingsBridge : MonoBehaviour
 
     private void AttachHoverPreview(Transform root, SettingDescriptionEntry entry)
     {
-        var element = root.GetComponentInChildren<SettingsElement>(true);
+        if (root == null || entry == null) return;
+
+        // 1. Configure Michsky's SettingsDescription component on root, child, or parent
+        var descComp = root.GetComponentInChildren<SettingsDescription>(true) ?? root.GetComponentInParent<SettingsDescription>();
+        if (descComp != null)
+        {
+            var type = typeof(SettingsDescription);
+            var tField = type.GetField("title", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (tField != null) tField.SetValue(descComp, entry.displayTitle);
+
+            var dField = type.GetField("description", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (dField != null) dField.SetValue(descComp, entry.description);
+
+            var cField = type.GetField("cover", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (cField != null && entry.coverImage != null) cField.SetValue(descComp, entry.coverImage);
+
+            var tkField = type.GetField("titleKey", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (tkField != null) tkField.SetValue(descComp, string.Empty);
+
+            var dkField = type.GetField("descriptionKey", BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public);
+            if (dkField != null) dkField.SetValue(descComp, string.Empty);
+        }
+
+        // 2. Direct SettingsElement event binding on root, child, or parent
+        var element = root.GetComponentInChildren<SettingsElement>(true) ?? root.GetComponentInParent<SettingsElement>();
         if (element != null)
         {
             element.onHover.RemoveAllListeners();
@@ -1142,6 +1635,14 @@ public class HeatSettingsBridge : MonoBehaviour
                 if (descriptionManager != null)
                 {
                     descriptionManager.UpdateUI(entry.displayTitle, entry.description, entry.coverImage);
+                }
+            });
+            element.onLeave.RemoveAllListeners();
+            element.onLeave.AddListener(() =>
+            {
+                if (descriptionManager != null)
+                {
+                    descriptionManager.SetDefault();
                 }
             });
         }
@@ -1154,16 +1655,6 @@ public class HeatSettingsBridge : MonoBehaviour
         hs.index = safeIdx;
         hs.defaultIndex = safeIdx;
         hs.UpdateUI();
-    }
-
-    private Transform FindPanelRecursive(Transform root, string panelName)
-    {
-        foreach (Transform child in root.GetComponentsInChildren<Transform>(true))
-        {
-            if (child.name.Equals(panelName, StringComparison.OrdinalIgnoreCase))
-                return child;
-        }
-        return null;
     }
 
     private Transform FindChildRecursive(Transform parent, string childName)

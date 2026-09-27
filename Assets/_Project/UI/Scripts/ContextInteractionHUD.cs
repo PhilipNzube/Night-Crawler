@@ -240,7 +240,10 @@ public class ContextInteractionHUD : MonoBehaviour
             _targetCorpseToLoot = nearestLootable;
             _targetTeammateToHeal = null;
 
-            string keyName = nearestLootable.lootKey.ToString().Replace("[", "").Replace("]", "").Trim();
+            string keyName = KeybindingManager.IsGamepadActive() 
+                ? KeybindingManager.GetBoundGamepadString("Loot", "X")
+                : KeybindingManager.GetBoundKeyString("Loot", "E");
+
             string lootDesc = nearestLootable.GetLootDescription();
 
             string bodyMsg = showLootSummaryInPrompt && !string.IsNullOrEmpty(lootDesc) && lootDesc != "Empty"
@@ -249,8 +252,8 @@ public class ContextInteractionHUD : MonoBehaviour
 
             SetPromptVisible(true, keyName, bodyMsg);
 
-            // Handle Key press
-            if (Keyboard.current != null && Keyboard.current[nearestLootable.lootKey].wasPressedThisFrame)
+            // Handle Key / Gamepad press
+            if (KeybindingManager.IsActionTriggered("Loot") || (Keyboard.current != null && Keyboard.current[nearestLootable.lootKey].wasPressedThisFrame))
             {
                 ExecuteCurrentAction();
             }

@@ -188,12 +188,14 @@ public class GirlDealUI : MonoBehaviour
             return;
         }
 
-        if (Keyboard.current != null)
+        bool triggerDeal = KeybindingManager.IsActionTriggered("Deal") || (Keyboard.current != null && Keyboard.current[toggleKey].wasPressedThisFrame);
+        if (triggerDeal && IsLocalPlayerGirl())
         {
-            if (Keyboard.current[toggleKey].wasPressedThisFrame && IsLocalPlayerGirl())
-                ToggleUI();
-            else if (_isOpen && Keyboard.current.escapeKey.wasPressedThisFrame)
-                CloseUI();
+            ToggleUI();
+        }
+        else if (_isOpen && (KeybindingManager.IsActionTriggered("SpectateExit") || (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)))
+        {
+            CloseUI();
         }
     }
 
