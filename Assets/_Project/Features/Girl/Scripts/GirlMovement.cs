@@ -213,6 +213,18 @@ public class GirlMovement : NetworkBehaviour
         bool recallPressed = KeybindingManager.IsActionTriggered("CommandRecall")
             || (Keyboard.current != null && Keyboard.current.digit4Key.wasPressedThisFrame);
 
+        if (!huntPressed && !recallPressed) return;
+
+        // If no active monsters exist, notify the Girl immediately
+        if (!SpectatorController.HasActiveMonstersInScene())
+        {
+            if (NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification("No creatures in the mine to command!", 2.5f);
+            }
+            return;
+        }
+
         if (huntPressed)
         {
             if (NightCrawler.Monsters.DeadSpawnManager.Instance != null && NetworkManager.Singleton != null)

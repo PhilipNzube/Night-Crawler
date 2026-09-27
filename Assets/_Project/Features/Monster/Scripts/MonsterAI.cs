@@ -128,63 +128,77 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     );
 
     // Component references
-    private NavMeshAgent _agent;
-    private CharacterController _characterController;
-    private Animator _animator;
-    private NetworkAnimator _networkAnimator;
-    private TargetHealth _targetHealth;
+    protected NavMeshAgent _agent;
+    protected CharacterController _characterController;
+    protected Animator _animator;
+    protected NetworkAnimator _networkAnimator;
+    protected TargetHealth _targetHealth;
 
     // Animation parameter hashes
-    private readonly int _speedHash       = Animator.StringToHash("Speed");
-    private readonly int _isRunningHash   = Animator.StringToHash("IsRunning");
-    private readonly int _attackHash      = Animator.StringToHash("Attack");
-    private readonly int _screamHash      = Animator.StringToHash("Scream");
-    private readonly int _roarHash        = Animator.StringToHash("Roar");
-    private readonly int _dieHash         = Animator.StringToHash("Die");
-    private readonly int _hitHash         = Animator.StringToHash("Hit");
-    private readonly int _hitReactionHash = Animator.StringToHash("HitReaction");
-    private readonly int _standUpHash     = Animator.StringToHash("StandUp");
-    private readonly int _isStandingHash  = Animator.StringToHash("IsStanding");
-    private readonly int _isCrawlingHash  = Animator.StringToHash("IsCrawling");
-    private readonly int _isWalkingHash   = Animator.StringToHash("IsWalking");
-    private readonly HashSet<int> _animParams = new HashSet<int>();
+    protected readonly int _speedHash       = Animator.StringToHash("Speed");
+    protected readonly int _isRunningHash   = Animator.StringToHash("IsRunning");
+    protected readonly int _attackHash      = Animator.StringToHash("Attack");
+    protected readonly int _screamHash      = Animator.StringToHash("Scream");
+    protected readonly int _roarHash        = Animator.StringToHash("Roar");
+    protected readonly int _dieHash         = Animator.StringToHash("Die");
+    protected readonly int _hitHash         = Animator.StringToHash("Hit");
+    protected readonly int _hitReactionHash = Animator.StringToHash("HitReaction");
+    protected readonly int _standUpHash     = Animator.StringToHash("StandUp");
+    protected readonly int _isStandingHash  = Animator.StringToHash("IsStanding");
+    protected readonly int _isCrawlingHash  = Animator.StringToHash("IsCrawling");
+    protected readonly int _isWalkingHash   = Animator.StringToHash("IsWalking");
+    protected readonly HashSet<int> _animParams = new HashSet<int>();
+
+    // Turning animation hashes
+    [Header("Turning Animations")]
+    public float turnAngleThreshold = 25f;
+    protected bool _isTurningRight = false;
+    protected bool _isTurningLeft = false;
+    protected readonly int _turnRightHash = Animator.StringToHash("TurnRight");
+    protected readonly int _turnLeftHash = Animator.StringToHash("TurnLeft");
+    protected readonly int _isTurningRightHash = Animator.StringToHash("IsTurningRight");
+    protected readonly int _isTurningLeftHash = Animator.StringToHash("IsTurningLeft");
+    protected readonly int _turnAngleHash = Animator.StringToHash("TurnAngle");
 
     // Direct Animator state hashes
-    private readonly int _stateHitReaction  = Animator.StringToHash("Zombie Reaction Hit");
-    private readonly int _stateStandUp      = Animator.StringToHash("Zombie Stand Up");
-    private readonly int _stateRun          = Animator.StringToHash("Zombie Run");
-    private readonly int _stateWalk         = Animator.StringToHash("Zombie Walk");
-    private readonly int _stateIdle         = Animator.StringToHash("Zombie Idle");
-    private readonly int _stateRunningCrawl = Animator.StringToHash("Running Crawl");
-    private readonly int _stateZombieNeck   = Animator.StringToHash("Zombie Neck");
-    private readonly int _stateZombieAttack = Animator.StringToHash("Zombie Attack");
+    protected readonly int _stateHitReaction  = Animator.StringToHash("Zombie Reaction Hit");
+    protected readonly int _stateStandUp      = Animator.StringToHash("Zombie Stand Up");
+    protected readonly int _stateRun          = Animator.StringToHash("Zombie Run");
+    protected readonly int _stateWalk         = Animator.StringToHash("Zombie Walk");
+    protected readonly int _stateIdle         = Animator.StringToHash("Zombie Idle");
+    protected readonly int _stateRunningCrawl = Animator.StringToHash("Running Crawl");
+    protected readonly int _stateZombieNeck   = Animator.StringToHash("Zombie Neck");
+    protected readonly int _stateZombieAttack = Animator.StringToHash("Zombie Attack");
+    protected readonly int _stateTurnRight    = Animator.StringToHash("Turn Right");
+    protected readonly int _stateTurnLeft     = Animator.StringToHash("Turn Left");
 
     // Internal state timers & caches
-    private float _attackTimer;
-    private float _retargetTimer;
-    private float _hitStaggerTimer;
-    private float _hitCooldownTimer;
-    private Coroutine _standUpCoroutine;
-    private bool _hasLanded = false;
-    private bool _hasScreamed = false;
-    private static readonly Collider[] _searchBuffer = new Collider[20];
+    protected float _attackTimer;
+    protected float _retargetTimer;
+    protected float _hitStaggerTimer;
+    protected float _hitCooldownTimer;
+    protected Coroutine _standUpCoroutine;
+    protected bool _hasLanded = false;
+    protected bool _hasScreamed = false;
+    protected static readonly Collider[] _searchBuffer = new Collider[20];
 
     // Roam & Guard state
-    private Transform _commandLeader;
-    private float _roamTimer = 0f;
-    private float _roamWaitTimer = 0f;
-    private bool _isRoamWaiting = false;
-    private Vector3 _roamDestination;
+    protected Transform _commandLeader;
+    protected float _roamTimer = 0f;
+    protected float _roamWaitTimer = 0f;
+    protected bool _isRoamWaiting = false;
+    protected Vector3 _roamDestination;
 
     // Close-guard wandering state near the Girl
-    private bool _isGuardIdling = true;
-    private float _guardIdleTimer = 2.0f;
-    private float _guardWalkTimer = 0f;
-    private Vector3 _guardWanderDestination;
+    protected bool _isGuardIdling = true;
+    protected float _guardIdleTimer = 2.0f;
+    protected float _guardWalkTimer = 0f;
+    protected Vector3 _guardWanderDestination;
 
-    private bool HasAuthority => (NetworkObject != null && NetworkObject.IsSpawned) ? IsServer : true;
+    protected bool HasAuthority => (NetworkObject != null && NetworkObject.IsSpawned) ? IsServer : true;
+    protected Coroutine _spawnScreamCoroutine;
 
-    private void Awake()
+    protected virtual void Awake()
     {
         _agent = GetComponent<NavMeshAgent>();
         _characterController = GetComponent<CharacterController>();
@@ -216,13 +230,30 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         ConfigureMonsterDefaults();
         SetRagdollState(false);
 
+        // Immediate responsive initialization:
+        // Monsters spawned on the subterranean NavMesh shouldn't be blocked by CharacterController falling logic
+        _hasLanded = true;
         if (_agent != null)
         {
-            _agent.enabled = false;
+            _agent.enabled = true;
             _agent.speed = runSpeed;
             _agent.acceleration = runAcceleration;
             _agent.stoppingDistance = Mathf.Max(0.5f, attackRange * 0.8f);
             _agent.autoBraking = true;
+        }
+
+        currentState = playScreamOnSpawn ? AIState.SpawningScream : AIState.Running;
+    }
+
+    protected virtual void Start()
+    {
+        if (playScreamOnSpawn && !_hasScreamed)
+        {
+            _spawnScreamCoroutine = StartCoroutine(SpawnScreamRoutine());
+        }
+        else
+        {
+            currentState = AIState.Running;
         }
     }
 
@@ -247,7 +278,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         audioSource.playOnAwake = false;
     }
 
-    private void ConfigureMonsterDefaults()
+    protected virtual void ConfigureMonsterDefaults()
     {
         if (monsterType == MonsterType.Berserker)
         {
@@ -392,6 +423,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
             case AIState.Running:
                 HandlePursuitAndTargeting();
+                UpdateNavMeshTurningAnimation();
                 break;
 
             case AIState.Attacking:
@@ -423,7 +455,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         if (playScreamOnSpawn && !_hasScreamed)
         {
-            StartCoroutine(SpawnScreamRoutine());
+            if (_spawnScreamCoroutine != null) StopCoroutine(_spawnScreamCoroutine);
+            _spawnScreamCoroutine = StartCoroutine(SpawnScreamRoutine());
         }
         else
         {
@@ -496,7 +529,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         TriggerScreamAnimation();
     }
 
-    private void TriggerScreamAnimation()
+    protected virtual void TriggerScreamAnimation()
     {
         if (monsterType == MonsterType.Berserker)
         {
@@ -511,7 +544,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     /// <summary>
     /// Updates command directives issued by the Vengeful Spirit (Hunt or Follow/Guard).
     /// </summary>
-    public void SetCommand(Command cmd, Transform girlTransform)
+    public virtual void SetCommand(Command cmd, Transform girlTransform)
     {
         currentCommand = cmd;
         if (girlTransform != null)
@@ -527,13 +560,32 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         _isRoamWaiting = false;
         _roamTimer = 0f;
 
+        // If the monster just spawned / loaded and is currently falling or screaming,
+        // immediately cancel the stationary pause so it responds instantly to the command!
+        if (currentState == AIState.SpawningScream || !_hasLanded)
+        {
+            if (_spawnScreamCoroutine != null)
+            {
+                StopCoroutine(_spawnScreamCoroutine);
+                _spawnScreamCoroutine = null;
+            }
+            _hasLanded = true;
+            _hasScreamed = true;
+            if (_agent != null)
+            {
+                if (!_agent.enabled) _agent.enabled = true;
+                _agent.isStopped = false;
+            }
+            currentState = AIState.Running;
+        }
+
         if (cmd == Command.Hunt)
         {
             target = EvaluateBestTarget(null);
         }
     }
 
-    private void HandlePursuitAndTargeting()
+    protected virtual void HandlePursuitAndTargeting()
     {
         if (_agent == null || !_agent.isOnNavMesh || !_agent.isActiveAndEnabled) return;
 
@@ -548,7 +600,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         HandleHuntingBehavior();
     }
 
-    private void HandleGuardingBehavior()
+    protected virtual void HandleGuardingBehavior()
     {
         Transform leader = _commandLeader != null ? _commandLeader : (GameManager.Instance != null ? GameManager.Instance.GirlTransform : null);
         if (leader == null)
@@ -861,7 +913,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
     }
 
-    private void HandleHuntingBehavior()
+    protected virtual void HandleHuntingBehavior()
     {
         // Periodic smart retargeting tick (every 0.4s)
         _retargetTimer -= Time.deltaTime;
@@ -911,7 +963,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         ExecuteRoam(walkSpeed);
     }
 
-    private void ExecuteRoam(float patrolSpeed)
+    protected virtual void ExecuteRoam(float patrolSpeed)
     {
         if (monsterType == MonsterType.Zombie && currentPosture == ZombiePosture.StandingUp)
         {
@@ -972,7 +1024,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
     }
 
-    private void PickNewRoamDestination()
+    protected void PickNewRoamDestination()
     {
         _roamTimer = Random.Range(10f, 16f);
         Vector3 randomDirection = Random.insideUnitSphere * 22f + transform.position;
@@ -1106,7 +1158,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         SafeCrossFade(_stateIdle, "Zombie Idle", 0.25f);
     }
 
-    private IEnumerator PerformAttackRoutine()
+    protected virtual IEnumerator PerformAttackRoutine()
     {
         currentState = AIState.Attacking;
         _attackTimer = attackCooldown;
@@ -1123,6 +1175,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (monsterType == MonsterType.Zombie)
         {
             SafeCrossFade(_stateZombieNeck, "Zombie Neck", 0.12f);
+        }
+        else if (monsterType == MonsterType.Berserker)
+        {
+            SafeCrossFade(Animator.StringToHash("Mutant Swiping"), "Mutant Swiping", 0.12f);
         }
 
         if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
@@ -1171,6 +1227,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         {
             SafeCrossFade(_stateZombieNeck, "Zombie Neck", 0.12f);
         }
+        else if (monsterType == MonsterType.Berserker)
+        {
+            SafeCrossFade(Animator.StringToHash("Mutant Swiping"), "Mutant Swiping", 0.12f);
+        }
     }
 
     private void CheckDirectAttackHit()
@@ -1204,7 +1264,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (t == null) return false;
         if (GameManager.Instance != null && GameManager.Instance.GirlTransform == t) return true;
         if (t.GetComponentInChildren<GirlStealth>() != null || t.GetComponentInParent<GirlStealth>() != null) return true;
-        if (t.GetComponentInChildren<NightCrawler.Characters.Girl.GirlPossession>() != null || t.GetComponentInParent<NightCrawler.Characters.Girl.GirlPossession>() != null) return true;
+        if (t.GetComponentInChildren<GirlPossession>() != null || t.GetComponentInParent<GirlPossession>() != null) return true;
         string n = t.name.ToLower();
         return n.Contains("girl") || (n.Contains("demon") && !n.Contains("monster") && !n.Contains("creep"));
     }
@@ -1217,15 +1277,92 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         return n.Contains("monster") || n.Contains("creep") || (n.Contains("demon") && !n.Contains("girl"));
     }
 
-    private void RotateTowardsTarget(Transform t)
+    public virtual void UpdateTurningAnimation(Vector3 desiredFacingDir)
     {
-        if (t == null) return;
+        desiredFacingDir.y = 0f;
+        if (desiredFacingDir.sqrMagnitude < 0.01f)
+        {
+            StopTurningAnimation();
+            return;
+        }
+
+        float signedAngle = Vector3.SignedAngle(transform.forward, desiredFacingDir.normalized, Vector3.up);
+        SafeSetFloat(_turnAngleHash, signedAngle);
+
+        if (signedAngle > turnAngleThreshold)
+        {
+            // Turning Right
+            _isTurningRight = true;
+            _isTurningLeft = false;
+            SafeSetBool(_isTurningRightHash, true);
+            SafeSetBool(_isTurningLeftHash, false);
+            SafeSetTrigger(_turnRightHash);
+        }
+        else if (signedAngle < -turnAngleThreshold)
+        {
+            // Turning Left (mirrored in Animator for Zombie, dedicated clip for Berserker)
+            _isTurningLeft = true;
+            _isTurningRight = false;
+            SafeSetBool(_isTurningLeftHash, true);
+            SafeSetBool(_isTurningRightHash, false);
+            SafeSetTrigger(_turnLeftHash);
+        }
+        else if (Mathf.Abs(signedAngle) <= 12f)
+        {
+            StopTurningAnimation();
+        }
+    }
+
+    public virtual void StopTurningAnimation()
+    {
+        if (_isTurningRight || _isTurningLeft)
+        {
+            _isTurningRight = false;
+            _isTurningLeft = false;
+            SafeSetBool(_isTurningRightHash, false);
+            SafeSetBool(_isTurningLeftHash, false);
+            SafeSetFloat(_turnAngleHash, 0f);
+        }
+    }
+
+    protected virtual void UpdateNavMeshTurningAnimation()
+    {
+        if (_agent != null && _agent.enabled && _agent.isOnNavMesh && _agent.hasPath)
+        {
+            Vector3 desiredDir = _agent.desiredVelocity;
+            if (desiredDir.sqrMagnitude > 0.05f)
+            {
+                UpdateTurningAnimation(desiredDir);
+            }
+            else
+            {
+                StopTurningAnimation();
+            }
+        }
+        else if (currentState != AIState.SpawningScream && currentState != AIState.Attacking)
+        {
+            StopTurningAnimation();
+        }
+    }
+
+    protected virtual void RotateTowardsTarget(Transform t)
+    {
+        if (t == null)
+        {
+            StopTurningAnimation();
+            return;
+        }
         Vector3 dir = (t.position - transform.position).normalized;
         dir.y = 0;
         if (dir != Vector3.zero)
         {
+            UpdateTurningAnimation(dir);
             Quaternion look = Quaternion.LookRotation(dir);
             transform.rotation = Quaternion.Slerp(transform.rotation, look, Time.deltaTime * turnSpeed);
+        }
+        else
+        {
+            StopTurningAnimation();
         }
     }
 
@@ -1233,7 +1370,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     /// Evaluates if the monster should switch targets.
     /// If an alternative player is significantly closer, aggro switches seamlessly!
     /// </summary>
-    private Transform EvaluateBestTarget(Transform current)
+    protected Transform EvaluateBestTarget(Transform current)
     {
         Transform best = FindBestTarget();
         if (best == null) return null;
@@ -1257,7 +1394,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         return current;
     }
 
-    private Transform FindBestTarget()
+    protected Transform FindBestTarget()
     {
         int hitCount = Physics.OverlapSphereNonAlloc(transform.position, searchRadius, _searchBuffer);
         Transform closest = null;
@@ -1288,7 +1425,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         return closest;
     }
 
-    private bool IsTargetInvalidOrDead(Transform t)
+    protected bool IsTargetInvalidOrDead(Transform t)
     {
         if (t == null || !t.gameObject.activeInHierarchy) return true;
 
@@ -1350,7 +1487,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
     }
 
-    public void PlayHitReaction()
+    public virtual void PlayHitReaction()
     {
         if (currentState == AIState.Dead) return;
         if (_hitCooldownTimer > 0f) return;
@@ -1358,12 +1495,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         _hitCooldownTimer = 0.25f;
         _hitStaggerTimer = hitReactionDuration;
 
-        if (monsterType == MonsterType.Zombie)
-        {
-            SafeSetTrigger(_hitHash);
-            SafeSetTrigger(_hitReactionHash);
-            SafeCrossFade(_stateHitReaction, "Zombie Reaction Hit", 0.08f, true);
-        }
+        SafeSetTrigger(_hitHash);
+        SafeSetTrigger(_hitReactionHash);
+        SafeCrossFade(_stateHitReaction, "Zombie Reaction Hit", 0.08f, true);
 
         if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
         {
@@ -1375,12 +1509,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     private void PlayHitReactionClientRpc()
     {
         if (IsServer) return;
-        if (monsterType == MonsterType.Zombie)
-        {
-            SafeSetTrigger(_hitHash);
-            SafeSetTrigger(_hitReactionHash);
-            SafeCrossFade(_stateHitReaction, "Zombie Reaction Hit", 0.08f, true);
-        }
+        SafeSetTrigger(_hitHash);
+        SafeSetTrigger(_hitReactionHash);
+        SafeCrossFade(_stateHitReaction, "Zombie Reaction Hit", 0.08f, true);
     }
 
     private Transform FindClosestAttacker()
@@ -1534,7 +1665,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
     }
 
-    private void SafeSetFloat(int hash, float value)
+    protected void SafeSetFloat(int hash, float value)
     {
         if (_animator != null && _animParams.Contains(hash))
         {
@@ -1542,7 +1673,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
     }
 
-    private void SafeSetBool(int hash, bool value)
+    protected void SafeSetBool(int hash, bool value)
     {
         if (_animator != null && _animParams.Contains(hash))
         {
@@ -1550,7 +1681,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
     }
 
-    private void SafeSetTrigger(int hash)
+    protected void SafeSetTrigger(int hash)
     {
         if (_animator == null) _animator = GetComponentInChildren<Animator>();
         if (_animParams.Contains(hash))
@@ -1566,7 +1697,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
     }
 
-    private void SafeCrossFade(int stateHash, string stateName, float transitionDuration = 0.15f, bool force = false)
+    protected void SafeCrossFade(int stateHash, string stateName, float transitionDuration = 0.15f, bool force = false)
     {
         if (_animator == null) _animator = GetComponentInChildren<Animator>();
         if (_animator != null && _animator.isActiveAndEnabled)

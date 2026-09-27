@@ -19,6 +19,9 @@ namespace NightCrawler.Monsters
         [Tooltip("Fallback 2D broadcast sound played if the summoned monster has no specific spawnSound assigned.")]
         public AudioClip globalSummonSound;
 
+        [Header("Network State")]
+        public NetworkVariable<int> totalMonstersSummoned = new NetworkVariable<int>(0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
         private readonly List<DeadSpawnPoint> _registeredSpawnPoints = new List<DeadSpawnPoint>();
         private AudioSource _audioSource;
 
@@ -142,7 +145,8 @@ namespace NightCrawler.Monsters
                 Debug.LogWarning($"[DeadSpawnManager] Spawned monster {monsterName} lacks NetworkObject component!");
             }
 
-            Debug.Log($"[DeadSpawnManager] Client {summonerClientId} successfully rose '{monsterName}' at {spawnPos}!");
+            totalMonstersSummoned.Value++;
+            Debug.Log($"[DeadSpawnManager] Client {summonerClientId} successfully rose '{monsterName}' at {spawnPos}! Total summoned: {totalMonstersSummoned.Value}");
 
             // Broadcast sound and notification to all clients
             BroadcastMonsterSummonedClientRpc(monsterIndex, monsterName);

@@ -99,6 +99,7 @@ namespace NightCrawler.Monsters
         private int _selectedMonsterIndex = 0;
         private bool _isOpen = false;
         public bool IsOpen => _isOpen;
+        public int TotalSummoned => _undeadSummoned + _berserkerSummoned;
 
         private void Awake()
         {

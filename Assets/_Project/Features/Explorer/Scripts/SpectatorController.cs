@@ -104,6 +104,7 @@ public class SpectatorController : MonoBehaviour
 
     // Camera targets & Cinemachine binding
     private Transform _spectatorAnchor;
+    private Transform _spectatorCamTransform;
     private CinemachineVirtualCameraBase _cinemachineCam;
     private float _yaw = 0f;
     private float _pitch = 18f;
@@ -123,9 +124,11 @@ public class SpectatorController : MonoBehaviour
     private TMP_Text _toastText;
     private CanvasGroup _toastCanvasGroup;
     private Coroutine _toastCoroutine;
+    private int _maxMonstersSummoned = 0;
 
     private void Awake()
     {
+        _maxMonstersSummoned = 0;
         if (modeType == SpectatorModeType.Monsters)
         {
             MonsterInstance = this;
@@ -181,6 +184,10 @@ public class SpectatorController : MonoBehaviour
         {
             Destroy(_spectatorAnchor.gameObject);
         }
+        if (_spectatorCamTransform != null)
+        {
+            Destroy(_spectatorCamTransform.gameObject);
+        }
     }
 
     private void CreateSpectatorAnchor()
@@ -193,6 +200,21 @@ public class SpectatorController : MonoBehaviour
             {
                 DontDestroyOnLoad(anchorObj);
             }
+        }
+
+        if (_spectatorCamTransform == null)
+        {
+            var camObj = new GameObject("SpectatorVirtualCameraRig");
+            _spectatorCamTransform = camObj.transform;
+            if (Application.isPlaying)
+            {
+                DontDestroyOnLoad(camObj);
+            }
+
+            _cinemachineCam = camObj.AddComponent<CinemachineCamera>();
+            _cinemachineCam.Priority = -100;
+            _cinemachineCam.enabled = false;
+            camObj.SetActive(false);
         }
     }
 
@@ -270,6 +292,18 @@ public class SpectatorController : MonoBehaviour
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
 
+        // Suspend local character movement and mouse look while spectating so body doesn't spin
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null && NetworkManager.Singleton.LocalClient.PlayerObject != null)
+        {
+            var localObj = NetworkManager.Singleton.LocalClient.PlayerObject;
+            if (localObj.TryGetComponent<StarterAssets.StarterAssetsInputs>(out var sai))
+            {
+                sai.move = Vector2.zero;
+                sai.look = Vector2.zero;
+                sai.cursorInputForLook = false;
+            }
+        }
+
         // Refresh targets and snap to the first alive teammate
         RefreshAliveTargets();
         _currentTargetIndex = 0;
@@ -336,41 +370,40 @@ public class SpectatorController : MonoBehaviour
         string catKeyStr = KeybindingManager.GetBoundKeyString("SpectateCategory", "TAB");
         string exitKeyStr = KeybindingManager.GetBoundKeyString("SpectateExit", "C");
 
-        if (prevHotkey != null)
-        {
-            if (prevHotkey.textObj != null) prevHotkey.textObj.text = prevKeyStr;
-            prevHotkey.keyID = prevKeyStr;
-            prevHotkey.SetLabel(modeType == SpectatorModeType.Monsters ? "PREV MONSTER" : "PREV SURVIVOR");
-        }
-        if (nextHotkey != null)
-        {
-            if (nextHotkey.textObj != null) nextHotkey.textObj.text = nextKeyStr;
-            nextHotkey.keyID = nextKeyStr;
-            nextHotkey.SetLabel(modeType == SpectatorModeType.Monsters ? "NEXT MONSTER" : "NEXT SURVIVOR");
-        }
-        if (viewModeHotkey != null)
-        {
-            if (viewModeHotkey.textObj != null) viewModeHotkey.textObj.text = viewModeKeyStr;
-            viewModeHotkey.keyID = viewModeKeyStr;
-            viewModeHotkey.SetLabel(_freeOrbitMode ? "FREE ORBIT" : "SHOULDER CAM");
-        }
-        if (cursorHotkey != null)
-        {
-            if (cursorHotkey.textObj != null) cursorHotkey.textObj.text = cursorKeyStr;
-            cursorHotkey.keyID = cursorKeyStr;
-            cursorHotkey.SetLabel(Cursor.lockState == CursorLockMode.Locked ? "UNLOCK CURSOR" : "LOCK CURSOR");
-        }
-        if (exitHotkeyEvent != null)
-        {
-            if (exitHotkeyEvent.textObj != null) exitHotkeyEvent.textObj.text = exitKeyStr;
-            exitHotkeyEvent.keyID = exitKeyStr;
-            exitHotkeyEvent.SetLabel(modeType == SpectatorModeType.Monsters ? "EXIT SPECTATE" : "EXIT TO DEATH");
-        }
+        SetHotkeyVisual(prevHotkey, prevKeyStr, modeType == SpectatorModeType.Monsters ? "PREV MONSTER" : "PREV SURVIVOR");
+        SetHotkeyVisual(nextHotkey, nextKeyStr, modeType == SpectatorModeType.Monsters ? "NEXT MONSTER" : "NEXT SURVIVOR");
+        SetHotkeyVisual(viewModeHotkey, viewModeKeyStr, _freeOrbitMode ? "FREE ORBIT" : "SHOULDER CAM");
+        SetHotkeyVisual(cursorHotkey, cursorKeyStr, Cursor.lockState == CursorLockMode.Locked ? "UNLOCK CURSOR" : "LOCK CURSOR");
+        SetHotkeyVisual(exitHotkeyEvent, exitKeyStr, modeType == SpectatorModeType.Monsters ? "EXIT SPECTATE" : "EXIT TO DEATH");
 
         if (_modePromptText != null)
         {
             string modeName = _freeOrbitMode ? "FREE ORBIT" : "SHOULDER CAM";
             _modePromptText.text = $"[{viewModeKeyStr}] View Mode: {modeName}   •   [{prevKeyStr}/{nextKeyStr}] Switch   •   [{catKeyStr}] Switch Category   •   [{cursorKeyStr}] Cursor   •   [{exitKeyStr}] Exit";
+        }
+    }
+
+    private void SetHotkeyVisual(Michsky.UI.Heat.HotkeyEvent hotkey, string keyStr, string labelStr)
+    {
+        if (hotkey == null) return;
+        hotkey.keyID = keyStr;
+        hotkey.hotkeyLabel = labelStr;
+        hotkey.SetLabel(labelStr);
+        hotkey.UpdateUI();
+
+        var tmps = hotkey.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+        foreach (var t in tmps)
+        {
+            if (t == null) continue;
+            string n = t.gameObject.name.ToLower();
+            if (n.Contains("label"))
+            {
+                t.text = labelStr;
+            }
+            else
+            {
+                t.text = keyStr;
+            }
         }
     }
 
@@ -547,22 +580,99 @@ public class SpectatorController : MonoBehaviour
         _isSpectating = false;
         _currentTarget = null;
 
-        // Restore camera priority & binding so local player's camera resumes normally
+        // 1. Immediately drop and disable dedicated spectator camera
         if (_cinemachineCam != null)
         {
-            if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null && NetworkManager.Singleton.LocalClient.PlayerObject != null)
+            _cinemachineCam.Priority = -100;
+            _cinemachineCam.enabled = false;
+            _cinemachineCam.gameObject.SetActive(false);
+        }
+        if (_spectatorCamTransform != null)
+        {
+            _spectatorCamTransform.gameObject.SetActive(false);
+        }
+
+        // 2. Disable monster spawn virtual camera if active
+        if (NightCrawler.Monsters.GirlMonsterSummonHUD.Instance != null && NightCrawler.Monsters.GirlMonsterSummonHUD.Instance.monsterSpawnVirtualCamera != null)
+        {
+            NightCrawler.Monsters.GirlMonsterSummonHUD.Instance.monsterSpawnVirtualCamera.Priority = -100;
+            NightCrawler.Monsters.GirlMonsterSummonHUD.Instance.monsterSpawnVirtualCamera.enabled = false;
+            NightCrawler.Monsters.GirlMonsterSummonHUD.Instance.monsterSpawnVirtualCamera.gameObject.SetActive(false);
+        }
+
+        // 3. Restore local player's own gameplay camera and controls
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null && NetworkManager.Singleton.LocalClient.PlayerObject != null)
+        {
+            var localObj = NetworkManager.Singleton.LocalClient.PlayerObject;
+            Transform camTarget = (localObj.TryGetComponent<StarterAssets.ThirdPersonController>(out var tpc) && tpc.CinemachineCameraTarget != null)
+                ? tpc.CinemachineCameraTarget.transform
+                : (localObj.transform.Find("PlayerCameraRoot") ?? localObj.transform);
+
+            // Find local player's real gameplay camera
+            CinemachineVirtualCameraBase playerCam = null;
+            if (localObj.TryGetComponent<NetworkPlayer>(out var np) && np.virtualCamera != null)
             {
-                var localObj = NetworkManager.Singleton.LocalClient.PlayerObject;
-                Transform camTarget = (localObj.TryGetComponent<StarterAssets.ThirdPersonController>(out var tpc) && tpc.CinemachineCameraTarget != null)
-                    ? tpc.CinemachineCameraTarget.transform
-                    : (localObj.transform.Find("PlayerCameraRoot") ?? localObj.transform);
-                _cinemachineCam.Follow = camTarget;
-                _cinemachineCam.LookAt = camTarget;
-                _cinemachineCam.Priority = 99999;
+                playerCam = np.virtualCamera;
             }
-            else
+            if (playerCam == null && localObj.TryGetComponent<GirlPossession>(out var gp) && gp.vcam != null)
             {
-                _cinemachineCam.Priority = 10;
+                playerCam = gp.vcam;
+            }
+            if (playerCam == null)
+            {
+                var allCams = FindObjectsByType<CinemachineVirtualCameraBase>(FindObjectsSortMode.None);
+                foreach (var c in allCams)
+                {
+                    if (c != _cinemachineCam && (c.gameObject.name.Contains("PlayerFollowCamera") || c.gameObject.name.Contains(localObj.name)))
+                    {
+                        playerCam = c;
+                        break;
+                    }
+                }
+            }
+
+            if (playerCam != null)
+            {
+                playerCam.gameObject.SetActive(true);
+                playerCam.enabled = true;
+                playerCam.Priority = 99999;
+                playerCam.Follow = camTarget;
+                playerCam.LookAt = camTarget;
+                // Instantly snap camera position back to the Girl's body without damping or map-crossing lag!
+                playerCam.OnTargetObjectWarped(camTarget, Vector3.zero);
+                playerCam.PreviousStateIsValid = false;
+            }
+
+            CinemachineBrain brain = Camera.main != null ? Camera.main.GetComponent<CinemachineBrain>() : FindFirstObjectByType<CinemachineBrain>();
+            if (brain != null)
+            {
+                brain.ActiveBlend = null;
+            }
+
+            // Restore inputs and ThirdPersonController
+            if (localObj.TryGetComponent<StarterAssets.StarterAssetsInputs>(out var inputs))
+            {
+                inputs.enabled = true;
+                inputs.cursorLocked = true;
+                inputs.cursorInputForLook = true;
+                inputs.move = Vector2.zero;
+                inputs.look = Vector2.zero;
+            }
+            if (localObj.TryGetComponent<StarterAssets.ThirdPersonController>(out var tpcComp))
+            {
+                tpcComp.enabled = true;
+                if (tpcComp.CinemachineCameraTarget != null)
+                {
+                    tpcComp.CinemachineCameraTarget.transform.rotation = localObj.transform.rotation;
+                }
+                var yawField = typeof(StarterAssets.ThirdPersonController).GetField("_cinemachineTargetYaw", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                if (yawField != null) yawField.SetValue(tpcComp, localObj.transform.eulerAngles.y);
+                var pitchField = typeof(StarterAssets.ThirdPersonController).GetField("_cinemachineTargetPitch", System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Instance);
+                if (pitchField != null) pitchField.SetValue(tpcComp, 0f);
+            }
+            if (localObj.TryGetComponent<GirlMovement>(out var gm))
+            {
+                gm.enabled = true;
             }
         }
 
@@ -669,10 +779,17 @@ public class SpectatorController : MonoBehaviour
         else if (nextPressed) CycleNextSurvivor();
 
         // Mouse Orbit Input
-        if (Mouse.current != null && Cursor.lockState == CursorLockMode.Locked)
+        if (Mouse.current != null)
         {
+            // Auto re-lock cursor on left click if it became unlocked
+            if (Mouse.current.leftButton.wasPressedThisFrame && Cursor.lockState != CursorLockMode.Locked)
+            {
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
+
             Vector2 delta = Mouse.current.delta.ReadValue();
-            if (_freeOrbitMode)
+            if (_freeOrbitMode && delta.sqrMagnitude > 0.0001f)
             {
                 _yaw += delta.x * mouseSensitivity;
                 _pitch = Mathf.Clamp(_pitch - delta.y * mouseSensitivity, -35f, 75f);
@@ -885,18 +1002,35 @@ public class SpectatorController : MonoBehaviour
 
         // Camera positioning
         ResolveCamera();
-        if (_cinemachineCam != null)
+        if (_cinemachineCam != null && _spectatorCamTransform != null && _spectatorAnchor != null)
         {
-            if (_cinemachineCam.Follow != _spectatorAnchor)
+            if (!_spectatorCamTransform.gameObject.activeSelf) _spectatorCamTransform.gameObject.SetActive(true);
+            if (!_cinemachineCam.gameObject.activeSelf) _cinemachineCam.gameObject.SetActive(true);
+            if (!_cinemachineCam.enabled) _cinemachineCam.enabled = true;
+            if (_cinemachineCam.Priority < 999999) _cinemachineCam.Priority = 999999;
+
+            _cinemachineCam.Follow = null;
+            _cinemachineCam.LookAt = null;
+
+            Vector3 backwardOffset = _spectatorAnchor.rotation * new Vector3(0f, 0.35f, -_currentDistance);
+            _spectatorCamTransform.position = _spectatorAnchor.position + backwardOffset;
+            Vector3 lookTarget = _spectatorAnchor.position + Vector3.up * 0.25f;
+            Vector3 lookDir = lookTarget - _spectatorCamTransform.position;
+            if (lookDir.sqrMagnitude > 0.001f)
             {
-                _cinemachineCam.Follow = _spectatorAnchor;
-                _cinemachineCam.LookAt = _spectatorAnchor;
+                _spectatorCamTransform.rotation = Quaternion.LookRotation(lookDir);
+            }
+
+            if (Camera.main != null)
+            {
+                Camera.main.transform.position = _spectatorCamTransform.position;
+                Camera.main.transform.rotation = _spectatorCamTransform.rotation;
             }
         }
-        else if (Camera.main != null)
+        else if (Camera.main != null && _spectatorAnchor != null)
         {
             // Direct camera positioning fallback if Cinemachine is not bound
-            Vector3 backwardOffset = _spectatorAnchor.rotation * new Vector3(0f, 0.4f, -_currentDistance);
+            Vector3 backwardOffset = _spectatorAnchor.rotation * new Vector3(0f, 0.35f, -_currentDistance);
             Camera.main.transform.position = _spectatorAnchor.position + backwardOffset;
             Camera.main.transform.LookAt(_spectatorAnchor.position + Vector3.up * 0.25f);
         }
@@ -920,45 +1054,49 @@ public class SpectatorController : MonoBehaviour
         Transform root = target.transform.Find("PlayerCameraRoot") ?? target.transform.Find("CameraFollowAnchor");
         if (root != null) return root.position;
 
+        if (target.TryGetComponent<MonsterAI>(out var mai))
+        {
+            if (mai.currentPosture == MonsterAI.ZombiePosture.Crawling)
+            {
+                return target.transform.position + Vector3.up * 0.7f;
+            }
+            return target.transform.position + Vector3.up * 1.3f;
+        }
+
         return target.transform.position + Vector3.up * 1.4f;
     }
 
     private void ResolveCamera()
     {
-        if (_cinemachineCam == null)
-        {
-            // 1. Check local player's OWN NetworkPlayer camera strictly
-            if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null && NetworkManager.Singleton.LocalClient.PlayerObject != null)
-            {
-                var netPlayer = NetworkManager.Singleton.LocalClient.PlayerObject.GetComponent<NetworkPlayer>();
-                if (netPlayer != null && netPlayer.virtualCamera != null)
-                {
-                    _cinemachineCam = netPlayer.virtualCamera;
-                }
-            }
-
-            // 2. If null, create/bind a dedicated spectator camera on the spectator anchor (never hijack teammate cameras!)
-            if (_cinemachineCam == null && _spectatorAnchor != null)
-            {
-                _cinemachineCam = _spectatorAnchor.GetComponent<CinemachineVirtualCameraBase>();
-                if (_cinemachineCam == null)
-                {
-                    _cinemachineCam = _spectatorAnchor.gameObject.AddComponent<CinemachineCamera>();
-                }
-            }
-        }
+        CreateSpectatorAnchor();
     }
 
     private void BindCinemachineToAnchor()
     {
         ResolveCamera();
-        if (_cinemachineCam != null && _spectatorAnchor != null)
+        if (_cinemachineCam != null && _spectatorCamTransform != null && _spectatorAnchor != null)
         {
+            _spectatorCamTransform.gameObject.SetActive(true);
             _cinemachineCam.gameObject.SetActive(true);
             _cinemachineCam.enabled = true;
-            _cinemachineCam.Priority = 99999;
-            _cinemachineCam.Follow = _spectatorAnchor;
-            _cinemachineCam.LookAt = _spectatorAnchor;
+            _cinemachineCam.Priority = 999999;
+            _cinemachineCam.Follow = null;
+            _cinemachineCam.LookAt = null;
+
+            CinemachineBrain brain = Camera.main != null ? Camera.main.GetComponent<CinemachineBrain>() : FindFirstObjectByType<CinemachineBrain>();
+            if (brain != null)
+            {
+                brain.ActiveBlend = null;
+            }
+
+            Vector3 backwardOffset = _spectatorAnchor.rotation * new Vector3(0f, 0.35f, -_currentDistance);
+            _spectatorCamTransform.position = _spectatorAnchor.position + backwardOffset;
+            Vector3 lookTarget = _spectatorAnchor.position + Vector3.up * 0.25f;
+            Vector3 lookDir = lookTarget - _spectatorCamTransform.position;
+            if (lookDir.sqrMagnitude > 0.001f)
+            {
+                _spectatorCamTransform.rotation = Quaternion.LookRotation(lookDir);
+            }
         }
     }
 
@@ -975,20 +1113,54 @@ public class SpectatorController : MonoBehaviour
 
         int aliveCount = _aliveTargets.Count;
 
-        if (cleanCountText != null)
+        if (modeType == SpectatorModeType.Monsters)
         {
-            cleanCountText.text = aliveCount.ToString();
-        }
+            int summoned = 0;
+            if (NightCrawler.Monsters.DeadSpawnManager.Instance != null)
+            {
+                summoned = NightCrawler.Monsters.DeadSpawnManager.Instance.totalMonstersSummoned.Value;
+            }
+            if (NightCrawler.Monsters.GirlMonsterSummonHUD.Instance != null)
+            {
+                summoned = Mathf.Max(summoned, NightCrawler.Monsters.GirlMonsterSummonHUD.Instance.TotalSummoned);
+            }
 
-        if (totalConnectedPlayersText != null)
-        {
-            totalConnectedPlayersText.text = totalConnected.ToString();
-        }
+            // Strictly monotonic: only increases, never decreases when monsters die
+            _maxMonstersSummoned = Mathf.Max(_maxMonstersSummoned, Mathf.Max(summoned, aliveCount));
 
-        if (_survivorsCountText != null)
+            if (cleanCountText != null)
+            {
+                cleanCountText.text = aliveCount.ToString();
+            }
+
+            if (totalConnectedPlayersText != null)
+            {
+                totalConnectedPlayersText.text = _maxMonstersSummoned.ToString();
+            }
+
+            if (_survivorsCountText != null)
+            {
+                _survivorsCountText.text = $"MONSTERS: <b>{aliveCount}</b> / {_maxMonstersSummoned}";
+            }
+        }
+        else
         {
             int totalSurvivors = Mathf.Max(1, totalConnected - 1);
-            _survivorsCountText.text = $"SURVIVORS: <b>{aliveCount}</b> / {Mathf.Max(aliveCount, totalSurvivors)}";
+
+            if (cleanCountText != null)
+            {
+                cleanCountText.text = aliveCount.ToString();
+            }
+
+            if (totalConnectedPlayersText != null)
+            {
+                totalConnectedPlayersText.text = totalSurvivors.ToString();
+            }
+
+            if (_survivorsCountText != null)
+            {
+                _survivorsCountText.text = $"SURVIVORS: <b>{aliveCount}</b> / {Mathf.Max(aliveCount, totalSurvivors)}";
+            }
         }
 
         // 2. Target info or All Fallen state

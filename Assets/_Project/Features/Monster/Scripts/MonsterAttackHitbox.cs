@@ -147,7 +147,7 @@ namespace NightCrawler.Monsters
             }
 
             // Never damage the Girl (their summoner)
-            if (other.GetComponentInParent<GirlStealth>() != null || other.GetComponentInParent<NightCrawler.Characters.Girl.GirlPossession>() != null
+            if (other.GetComponentInParent<GirlStealth>() != null || other.GetComponentInParent<GirlPossession>() != null
                 || (GameManager.Instance != null && GameManager.Instance.GirlTransform == other.transform.root))
             {
                 return;
