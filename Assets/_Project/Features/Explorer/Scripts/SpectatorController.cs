@@ -116,6 +116,7 @@ public class SpectatorController : MonoBehaviour
     private float _yaw = 0f;
     private float _pitch = 18f;
     private float _currentDistance = 3.8f;
+    private float _collisionDistance = 3.8f;
     private bool _freeOrbitMode = true; // true = mouse orbits, false = over-shoulder follows player facing
 
     // Procedural UI references
@@ -139,6 +140,8 @@ public class SpectatorController : MonoBehaviour
         if (modeType == SpectatorModeType.Monsters)
         {
             MonsterInstance = this;
+            defaultCameraDistance = 2.1f;
+            zoomRange = new Vector2(1.2f, 3.2f);
         }
         else
         {
@@ -147,6 +150,7 @@ public class SpectatorController : MonoBehaviour
         }
 
         _currentDistance = defaultCameraDistance;
+        _collisionDistance = defaultCameraDistance;
         CreateSpectatorAnchor();
         BuildProceduralHUD();
     }
@@ -176,10 +180,17 @@ public class SpectatorController : MonoBehaviour
 
     private void SetHotkeysActive(bool active)
     {
-        if (prevHotkey != null) prevHotkey.enabled = active;
-        if (nextHotkey != null) nextHotkey.enabled = active;
-        if (viewModeHotkey != null) viewModeHotkey.enabled = active;
-        if (cursorHotkey != null) cursorHotkey.enabled = active;
+        // Spectator hotkeys are ONLY active while genuinely spectating.
+        // Gate on _isSpectating so unpausing never re-enables them when idle.
+        bool effectiveActive = active && _isSpectating;
+        if (prevHotkey != null)      prevHotkey.enabled      = effectiveActive;
+        if (nextHotkey != null)      nextHotkey.enabled      = effectiveActive;
+        if (viewModeHotkey != null)  viewModeHotkey.enabled  = effectiveActive;
+        if (cursorHotkey != null)    cursorHotkey.enabled    = effectiveActive;
+        // Also gate exitHotkeyEvent — it is mapped to Escape (key 60), so it MUST
+        // be disabled outside spectator mode or it will fire ExitSpectating() on
+        // every Escape press and fight with PauseManager.
+        if (exitHotkeyEvent != null) exitHotkeyEvent.enabled = effectiveActive;
     }
 
     private void OnDestroy()
@@ -310,14 +321,16 @@ public class SpectatorController : MonoBehaviour
         _currentTargetIndex = 0;
         SelectTargetByIndex(_currentTargetIndex, true);
 
-        // Initialize and sync Hotkey labels
+        // Initialize and sync Hotkey labels, then enable them
         InitHotkeys();
+        SetHotkeysActive(true); // _isSpectating is true here, so effectiveActive = true
         if (viewModeHotkey != null) viewModeHotkey.SetLabel(_freeOrbitMode ? "FREE ORBIT" : "SHOULDER CAM");
         if (cursorHotkey != null) cursorHotkey.SetLabel(Cursor.lockState == CursorLockMode.Locked ? "UNLOCK CURSOR" : "LOCK CURSOR");
 
-        // Fade in HUD
+        // Fade in HUD — stop any previous fade before starting a new one
         if (_canvasGroup != null)
         {
+            StopAllCoroutines();
             _canvasGroup.gameObject.SetActive(true);
             StartCoroutine(FadeCanvasGroup(_canvasGroup, 0f, 1f, 0.5f));
         }
@@ -456,7 +469,21 @@ public class SpectatorController : MonoBehaviour
         }
         else
         {
-            if (customCanvasRoot != null) customCanvasRoot.SetActive(false);
+            // CRITICAL: Do NOT call customCanvasRoot.SetActive(false) here!
+            // For the Monster spectator, customCanvasRoot IS this GameObject.
+            // Calling SetActive(false) on ourselves mid-frame instantly kills all
+            // running coroutines (including the camera-restore and HUD-fade ones
+            // started by StopSpectating) and can leave the camera frozen at the
+            // monster's position forever.
+            //
+            // StopSpectating() already started a FadeCanvasGroup coroutine that
+            // will call SetActive(false) after 0.4 s. Just make it invisible NOW
+            // via alpha so the user never sees the half-faded HUD.
+            if (_canvasGroup != null)
+            {
+                _canvasGroup.alpha = 0f;
+                _canvasGroup.blocksRaycasts = false;
+            }
             if (_spectatorCanvas != null) _spectatorCanvas.gameObject.SetActive(false);
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
@@ -665,6 +692,10 @@ public class SpectatorController : MonoBehaviour
         _isSpectating = false;
         _currentTarget = null;
 
+        // Immediately disable all spectator hotkeys so they can no longer
+        // intercept Escape or other keys now that we are no longer spectating.
+        SetHotkeysActive(false);
+
         // 1. Immediately drop and disable dedicated spectator camera
         if (_cinemachineCam != null)
         {
@@ -685,99 +716,46 @@ public class SpectatorController : MonoBehaviour
             NightCrawler.Monsters.GirlMonsterSummonHUD.Instance.monsterSpawnVirtualCamera.gameObject.SetActive(false);
         }
 
-        // 3. Restore local player's own gameplay camera and controls
-        GameObject localObj = ResolveLocalPlayerObject();
-
-        Transform camTarget = null;
-        if (localObj != null)
+        // 3. Find the real PlayerFollowCamera that is already following the Girl in the scene
+        CinemachineVirtualCameraBase playerCam = null;
+        var allCams = FindObjectsByType<CinemachineVirtualCameraBase>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        foreach (var c in allCams)
         {
-            if (localObj.TryGetComponent<StarterAssets.ThirdPersonController>(out var tpc) && tpc.CinemachineCameraTarget != null)
+            if (c == null || c == _cinemachineCam) continue;
+            if (c.gameObject.name.Contains("Spectator") || c.gameObject.name.Contains("MonsterSpawn")) continue;
+            if (c.gameObject.name.Contains("PlayerFollowCamera"))
             {
-                camTarget = tpc.CinemachineCameraTarget.transform;
-            }
-            if (camTarget == null)
-            {
-                camTarget = localObj.transform.Find("PlayerCameraRoot") ?? localObj.transform;
+                playerCam = c;
+                break;
             }
         }
-        if (camTarget == null && _cachedGameplayCamTarget != null)
+        if (playerCam == null && _cachedGameplayCam != null && _cachedGameplayCam != _cinemachineCam)
         {
-            camTarget = _cachedGameplayCamTarget;
+            playerCam = _cachedGameplayCam;
         }
-
-        // Find local player's real gameplay camera
-        CinemachineVirtualCameraBase playerCam = _cachedGameplayCam;
-        if (playerCam == null && localObj != null)
-        {
-            if (localObj.TryGetComponent<NetworkPlayer>(out var np) && np.virtualCamera != null)
-            {
-                playerCam = np.virtualCamera;
-            }
-            if (playerCam == null && localObj.TryGetComponent<GirlPossession>(out var gp) && gp.vcam != null)
-            {
-                playerCam = gp.vcam;
-            }
-            if (playerCam == null)
-            {
-                playerCam = localObj.GetComponentInChildren<CinemachineVirtualCameraBase>(true);
-            }
-        }
-
         if (playerCam == null)
         {
-            var allCams = FindObjectsByType<CinemachineVirtualCameraBase>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             foreach (var c in allCams)
             {
                 if (c == null || c == _cinemachineCam) continue;
-                if (c.gameObject.name.Contains("Spectator")) continue;
-                if (c.gameObject.name.Contains("MonsterSpawn")) continue;
-                if (localObj != null && (c.gameObject.name.Contains("PlayerFollowCamera") || c.gameObject.name.Contains(localObj.name)))
-                {
-                    playerCam = c;
-                    break;
-                }
-            }
-            if (playerCam == null)
-            {
-                foreach (var c in allCams)
-                {
-                    if (c == null || c == _cinemachineCam) continue;
-                    if (c.gameObject.name.Contains("Spectator")) continue;
-                    if (c.gameObject.name.Contains("MonsterSpawn")) continue;
-                    playerCam = c;
-                    break;
-                }
+                if (c.gameObject.name.Contains("Spectator") || c.gameObject.name.Contains("MonsterSpawn")) continue;
+                playerCam = c;
+                break;
             }
         }
 
-        if (camTarget != null)
+        // 4. Restore PlayerFollowCamera and snap Camera.main directly to it!
+        if (playerCam != null)
         {
-            Vector3 behindPos = camTarget.position - (camTarget.forward * 2.2f) + Vector3.up * 1.4f;
+            playerCam.gameObject.SetActive(true);
+            playerCam.enabled = true;
+            playerCam.Priority = 99999;
+            playerCam.PreviousStateIsValid = false;
 
-            if (playerCam != null)
-            {
-                playerCam.gameObject.SetActive(true);
-                playerCam.enabled = true;
-                playerCam.Priority = 999999;
-                playerCam.Follow = camTarget;
-                playerCam.LookAt = camTarget;
-                playerCam.transform.position = behindPos;
-                playerCam.transform.rotation = camTarget.rotation;
-                // Instantly snap camera position back to the Girl's body without damping or map-crossing lag!
-                playerCam.OnTargetObjectWarped(camTarget, Vector3.zero);
-                playerCam.PreviousStateIsValid = false;
-
-                if (localObj != null && localObj.TryGetComponent<GirlPossession>(out var gp))
-                {
-                    gp.vcam = playerCam as CinemachineCamera;
-                }
-            }
-
-            // Instantly snap Camera.main directly to the player so it NEVER sits at the monster's spot!
             if (Camera.main != null)
             {
-                Camera.main.transform.position = behindPos;
-                Camera.main.transform.rotation = camTarget.rotation;
+                Camera.main.transform.position = playerCam.transform.position;
+                Camera.main.transform.rotation = playerCam.transform.rotation;
             }
         }
 
@@ -788,7 +766,14 @@ public class SpectatorController : MonoBehaviour
             brain.ActiveBlend = null;
         }
 
-        // Restore player controls and inputs
+        // 5. Restore local player controls and inputs
+        GameObject localObj = ResolveLocalPlayerObject();
+        if (localObj == null && playerCam != null)
+        {
+            if (playerCam.Follow != null) localObj = playerCam.Follow.root.gameObject;
+            else if (playerCam.transform.parent != null) localObj = playerCam.transform.parent.root.gameObject;
+        }
+
         SuspendLocalPlayerMovement(false);
 
         if (localObj != null)
@@ -817,6 +802,7 @@ public class SpectatorController : MonoBehaviour
             if (localObj.TryGetComponent<GirlPossession>(out var gpComp))
             {
                 gpComp.enabled = true;
+                if (playerCam != null) gpComp.vcam = playerCam as CinemachineCamera;
             }
             if (localObj.TryGetComponent<UnityEngine.InputSystem.PlayerInput>(out var pi))
             {
@@ -831,9 +817,21 @@ public class SpectatorController : MonoBehaviour
         {
             StartCoroutine(FadeCanvasGroup(_canvasGroup, 1f, 0f, 0.4f, () =>
             {
-                _canvasGroup.gameObject.SetActive(false);
-                if (customCanvasRoot != null) customCanvasRoot.SetActive(false);
+                if (_canvasGroup != null && _canvasGroup.gameObject != gameObject)
+                {
+                    _canvasGroup.gameObject.SetActive(false);
+                }
+                if (customCanvasRoot != null && customCanvasRoot != gameObject)
+                {
+                    customCanvasRoot.SetActive(false);
+                }
             }));
+        }
+
+        // Snap camera to PlayerFollowCamera at end of frames to guarantee smooth transition
+        if (modeType == SpectatorModeType.Monsters && playerCam != null)
+        {
+            StartCoroutine(SnapCameraToFollowCam(playerCam));
         }
 
         if (modeType == SpectatorModeType.Monsters)
@@ -890,9 +888,14 @@ public class SpectatorController : MonoBehaviour
         if (PauseManager.IsGamePaused) return;
         if (Keyboard.current == null && Mouse.current == null && Gamepad.current == null) return;
 
-        // Exit Spectating: bound key or Escape fallback
+        // Exit Spectating: bound key or the configured exitHotkey (default C).
+        // NOTE: Do NOT include escapeKey here. PauseManager owns Escape globally and
+        // already routes it to ExitSpectating() when IsSpectating is true. If we also
+        // handle Escape here, the two handlers fire in an indeterminate script-order:
+        // whichever runs first sets _isSpectating=false, then the other sees
+        // IsSpectating=false and opens the pause menu on the very same frame.
         if (KeybindingManager.IsActionTriggered("SpectateExit") 
-            || (Keyboard.current != null && (Keyboard.current[exitHotkey].wasPressedThisFrame || Keyboard.current.cKey.wasPressedThisFrame || Keyboard.current.escapeKey.wasPressedThisFrame)))
+            || (Keyboard.current != null && (Keyboard.current[exitHotkey].wasPressedThisFrame || Keyboard.current.cKey.wasPressedThisFrame)))
         {
             ExitSpectating();
             return;
@@ -946,7 +949,9 @@ public class SpectatorController : MonoBehaviour
             if (_freeOrbitMode && delta.sqrMagnitude > 0.0001f)
             {
                 _yaw += delta.x * mouseSensitivity;
-                _pitch = Mathf.Clamp(_pitch - delta.y * mouseSensitivity, -35f, 75f);
+                float minPitch = (modeType == SpectatorModeType.Monsters) ? -15f : -35f;
+                float maxPitch = (modeType == SpectatorModeType.Monsters) ? 55f : 75f;
+                _pitch = Mathf.Clamp(_pitch - delta.y * mouseSensitivity, minPitch, maxPitch);
             }
 
             // Zoom Input
@@ -1004,9 +1009,22 @@ public class SpectatorController : MonoBehaviour
             string pName = GetPlayerName(_currentTarget);
             ShowToast($"SPECTATING: {pName}", new Color(0.1f, 0.9f, 0.5f, 1f));
 
-            // Align initial camera angle behind target
-            _yaw = _currentTarget.transform.eulerAngles.y;
-            _pitch = 18f;
+            if (modeType == SpectatorModeType.Monsters)
+            {
+                // Align camera directly in front of the monster facing its snarling face when it spawns/roars!
+                _yaw = _currentTarget.transform.eulerAngles.y + 180f;
+                _pitch = 10f; // Eye/chest level, looking directly into its face
+                _currentDistance = 2.1f;
+                _collisionDistance = 2.1f;
+            }
+            else
+            {
+                // Align initial camera angle behind target
+                _yaw = _currentTarget.transform.eulerAngles.y;
+                _pitch = 18f;
+                _currentDistance = defaultCameraDistance;
+                _collisionDistance = defaultCameraDistance;
+            }
 
             if (_spectatorAnchor != null)
             {
@@ -1149,6 +1167,16 @@ public class SpectatorController : MonoBehaviour
             // Smooth position tracking
             _spectatorAnchor.position = Vector3.Lerp(_spectatorAnchor.position, targetFocus, Time.deltaTime * followSmoothness);
 
+            // If the monster is crawling, smoothly bias pitch to an elevated top-down angle
+            if (modeType == SpectatorModeType.Monsters && _currentTarget.TryGetComponent<MonsterAI>(out var crawlerAI))
+            {
+                if (crawlerAI.currentPosture == MonsterAI.ZombiePosture.Crawling)
+                {
+                    // High angle top-down view looking down from above at the crawling monster
+                    _pitch = Mathf.Lerp(_pitch, Mathf.Clamp(_pitch, 35f, 52f), Time.deltaTime * 3.5f);
+                }
+            }
+
             if (_freeOrbitMode)
             {
                 // Free orbit: driven by mouse
@@ -1175,8 +1203,8 @@ public class SpectatorController : MonoBehaviour
             _cinemachineCam.Follow = null;
             _cinemachineCam.LookAt = null;
 
-            Vector3 focusPoint = _spectatorAnchor.position + Vector3.up * 0.25f;
-            Vector3 backwardOffset = _spectatorAnchor.rotation * new Vector3(0f, 0.35f, -_currentDistance);
+            Vector3 focusPoint = _spectatorAnchor.position + Vector3.up * 0.15f;
+            Vector3 backwardOffset = _spectatorAnchor.rotation * new Vector3(0f, 0.2f, -_currentDistance);
             Vector3 desiredCamPos = _spectatorAnchor.position + backwardOffset;
             Vector3 toCam = desiredCamPos - focusPoint;
             float targetDist = toCam.magnitude;
@@ -1184,7 +1212,7 @@ public class SpectatorController : MonoBehaviour
             if (targetDist > 0.05f)
             {
                 Vector3 rayDir = toCam.normalized;
-                float sphereRadius = 0.28f;
+                float sphereRadius = 0.12f; // Compact radius so it doesn't snag on roof beams/thin ledges
                 // Exclude characters, ragdolls, and non-physical UI/minimap layers
                 int obstacleMask = ~LayerMask.GetMask("Ignore Raycast", "UI", "Monster", "Player", "Explorer", "Minimap", "Fog");
 
@@ -1205,7 +1233,7 @@ public class SpectatorController : MonoBehaviour
                     }
                 }
 
-                // 2. RaycastAll as a precision laser check for thin geometry, crevices, and cave edges
+                // 2. RaycastAll as a precision check
                 RaycastHit[] rayHits = Physics.RaycastAll(focusPoint, rayDir, targetDist, obstacleMask, QueryTriggerInteraction.Ignore);
                 foreach (var rh in rayHits)
                 {
@@ -1219,11 +1247,21 @@ public class SpectatorController : MonoBehaviour
                     }
                 }
 
-                if (obstacleHit)
+                float targetCollisionDist = obstacleHit ? Mathf.Max(0.35f, nearestDist - 0.08f) : targetDist;
+
+                // Smooth collision response:
+                // Instantly pull in to prevent clipping inside walls/ceiling
+                if (targetCollisionDist < _collisionDistance)
                 {
-                    float safeDist = Mathf.Max(0.25f, nearestDist - 0.12f);
-                    desiredCamPos = focusPoint + (rayDir * safeDist);
+                    _collisionDistance = targetCollisionDist;
                 }
+                else
+                {
+                    // Smoothly glide back out when obstacle clears, preventing glitching / bouncing
+                    _collisionDistance = Mathf.MoveTowards(_collisionDistance, targetCollisionDist, Time.deltaTime * 5f);
+                }
+
+                desiredCamPos = focusPoint + (rayDir * _collisionDistance);
             }
 
             _spectatorCamTransform.position = desiredCamPos;
@@ -1242,8 +1280,8 @@ public class SpectatorController : MonoBehaviour
         else if (Camera.main != null && _spectatorAnchor != null)
         {
             // Direct camera positioning fallback if Cinemachine is not bound
-            Vector3 focusPoint = _spectatorAnchor.position + Vector3.up * 0.25f;
-            Vector3 backwardOffset = _spectatorAnchor.rotation * new Vector3(0f, 0.35f, -_currentDistance);
+            Vector3 focusPoint = _spectatorAnchor.position + Vector3.up * 0.15f;
+            Vector3 backwardOffset = _spectatorAnchor.rotation * new Vector3(0f, 0.2f, -_currentDistance);
             Vector3 desiredCamPos = _spectatorAnchor.position + backwardOffset;
             Vector3 toCam = desiredCamPos - focusPoint;
             float targetDist = toCam.magnitude;
@@ -1251,7 +1289,7 @@ public class SpectatorController : MonoBehaviour
             if (targetDist > 0.05f)
             {
                 Vector3 rayDir = toCam.normalized;
-                float sphereRadius = 0.28f;
+                float sphereRadius = 0.12f;
                 int obstacleMask = ~LayerMask.GetMask("Ignore Raycast", "UI", "Monster", "Player", "Explorer", "Minimap", "Fog");
 
                 float nearestDist = targetDist;
@@ -1283,11 +1321,18 @@ public class SpectatorController : MonoBehaviour
                     }
                 }
 
-                if (obstacleHit)
+                float targetCollisionDist = obstacleHit ? Mathf.Max(0.35f, nearestDist - 0.08f) : targetDist;
+
+                if (targetCollisionDist < _collisionDistance)
                 {
-                    float safeDist = Mathf.Max(0.25f, nearestDist - 0.12f);
-                    desiredCamPos = focusPoint + (rayDir * safeDist);
+                    _collisionDistance = targetCollisionDist;
                 }
+                else
+                {
+                    _collisionDistance = Mathf.MoveTowards(_collisionDistance, targetCollisionDist, Time.deltaTime * 5f);
+                }
+
+                desiredCamPos = focusPoint + (rayDir * _collisionDistance);
             }
 
             Camera.main.transform.position = desiredCamPos;
@@ -1317,12 +1362,13 @@ public class SpectatorController : MonoBehaviour
         {
             if (mai.currentPosture == MonsterAI.ZombiePosture.Crawling)
             {
-                return target.transform.position + Vector3.up * 0.7f;
+                // Lower focus point directly over crawling monster
+                return target.transform.position + Vector3.up * 0.45f;
             }
-            return target.transform.position + Vector3.up * 1.3f;
+            return target.transform.position + Vector3.up * 1.25f;
         }
 
-        return target.transform.position + Vector3.up * 1.4f;
+        return target.transform.position + Vector3.up * 1.35f;
     }
 
     private void ResolveCamera()
@@ -1619,6 +1665,26 @@ public class SpectatorController : MonoBehaviour
         }
         cg.alpha = to;
         onComplete?.Invoke();
+    }
+
+    /// <summary>
+    /// Locks Camera.main directly to PlayerFollowCamera for N end-of-frames.
+    /// PlayerFollowCamera is already tracking the Girl, so this guarantees Camera.main
+    /// seamlessly takes over its exact position and rotation.
+    /// </summary>
+    private IEnumerator SnapCameraToFollowCam(CinemachineVirtualCameraBase followCam, int frames = 8)
+    {
+        for (int i = 0; i < frames; i++)
+        {
+            yield return new WaitForEndOfFrame();
+
+            if (Camera.main == null || followCam == null) yield break;
+
+            followCam.Priority = 99999;
+            followCam.PreviousStateIsValid = false;
+            Camera.main.transform.position = followCam.transform.position;
+            Camera.main.transform.rotation = followCam.transform.rotation;
+        }
     }
 
     // =========================================================================

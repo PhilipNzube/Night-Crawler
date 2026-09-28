@@ -474,7 +474,6 @@ public class LobbyUI : MonoBehaviour
         // 4. Host Lobby Panel
         MichskyUIBridge.BindButton(null, heatHostStartMatchButton, OnStartMatch);
         MichskyUIBridge.BindButton(null, heatHostDisconnectButton, RequestDisconnect);
-        MichskyUIBridge.BindButton(null, heatHostCopyCodeButton, OnCopyJoinCode);
 
         if (hostLobbyPanel != null)
         {
@@ -495,6 +494,10 @@ public class LobbyUI : MonoBehaviour
                 he.enabled = false;
             }
         }
+
+        // Bind copy AFTER modal setup — the host lobby modal's cancelButton IS the copy
+        // button in the scene, so the modal wiring above would overwrite it if bound first.
+        MichskyUIBridge.BindButton(null, heatHostCopyCodeButton, OnCopyJoinCode);
 
         // 5. Client Lobby Panel
         MichskyUIBridge.BindButton(null, heatClientDisconnectButton, RequestDisconnect);
@@ -1107,7 +1110,7 @@ public class LobbyUI : MonoBehaviour
 
     private IEnumerator ShowCopyFeedbackRoutine()
     {
-        MichskyUIBridge.SetButtonText(heatHostCopyCodeButton, "COPIED! \u2713");
+        MichskyUIBridge.SetButtonText(heatHostCopyCodeButton, "COPIED!");
 
         yield return new WaitForSeconds(1.5f);
 
