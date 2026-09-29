@@ -275,8 +275,7 @@ public class PauseUI : MonoBehaviour
         }
         else
         {
-            LoadingScreen.TargetSceneToLoad = "LobbyScene";
-            UnityEngine.SceneManagement.SceneManager.LoadScene("LoadingScene");
+            UnityEngine.SceneManagement.SceneManager.LoadScene("LobbyScene");
         }
     }
 }

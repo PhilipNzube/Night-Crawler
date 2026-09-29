@@ -793,8 +793,7 @@ public class GameManager : NetworkBehaviour
         }
         else
         {
-            LoadingScreen.TargetSceneToLoad = "LobbyScene";
-            UnityEngine.SceneManagement.SceneManager.LoadScene("LoadingScene");
+            UnityEngine.SceneManagement.SceneManager.LoadScene("LobbyScene");
         }
     }
 

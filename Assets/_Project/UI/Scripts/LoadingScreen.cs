@@ -1,13 +1,19 @@
 using UnityEngine;
-using UnityEngine.UI;
 using UnityEngine.SceneManagement;
 using Unity.Netcode;
-using TMPro;
-using System.Collections;
 
 /// <summary>
-/// SOLID — SRP: Manages loading screen display, tips, progress bar, and scene transitions.
-/// Intercepts both local scene loads and Netcode network scene transitions.
+/// SOLID — SRP: Thin bridge that routes all loading-screen calls through the Evo Loader system.
+///
+/// How it works:
+///   - Every LoadScene / ShowImmediate / ShowLoadingScreen call forwards to Evo.Loader.LoadingScreen.
+///   - Evo instantiates the prefab, runs its own fade + load coroutine, then destroys itself.
+///   - Netcode SceneEvents are intercepted here so clients see a loading screen during any
+///     network-driven scene switch (server calls Netcode.SceneManager, not Evo directly).
+///
+/// Setup (Inspector):
+///   1. Assign your LoadingScreen prefab (with Evo.Loader.LoadingScreen on it) to [loaderPrefab].
+///   2. Keep this component on a persistent GameObject in your first scene — that is all.
 /// </summary>
 public class LoadingScreen : MonoBehaviour
 {
@@ -17,65 +23,24 @@ public class LoadingScreen : MonoBehaviour
     public static LoadingScreen Instance { get; private set; }
 
     // =========================================================================
-    //  Inspector — Panels & Visuals
+    //  Inspector
     // =========================================================================
-    [Header("Panels & Canvas")]
-    [Tooltip("The root GameObject of the loading screen UI panel.")]
-    public GameObject loadingRoot;
+    [Header("Evo Loader Prefab")]
+    [Tooltip("Your LoadingScreen prefab (with Evo.Loader.LoadingScreen component). " +
+             "Lives in Assets/_Project/Prefabs/LoadingScreen/.")]
+    public Evo.Loader.LoadingScreen loaderPrefab;
 
-    [Tooltip("CanvasGroup on the loading overlay for smooth fade in/out transitions.")]
-    public CanvasGroup fadeCanvasGroup;
-
-    [Header("Visuals")]
-    public Image logoImage;
-    public Image progressFill;
-    public TextMeshProUGUI progressText;
-    public TextMeshProUGUI tipText;
-
-    [Header("Michsky Heat / Dark UI")]
-    [Tooltip("Optional: Heat/Dark UI ProgressBar to visualize scene loading.")]
-    public Michsky.UI.Heat.ProgressBar heatProgressBar;
-
-    // =========================================================================
-    //  Inspector — Timing Settings
-    // =========================================================================
-    [Header("Boot & Timing Settings")]
+    [Header("Boot / Initial Load")]
+    [Tooltip("When true and this is the boot/loading scene (index 0), Evo automatically loads the target scene on Start.")]
     public bool autoLoadOnStart = true;
+
+    [Tooltip("The scene to transition into on boot (e.g. LobbyScene). " +
+             "Evo spawns the loading prefab here, covering the heavy scene load before the player sees anything.")]
     public string targetSceneName = "LobbyScene";
-    public int targetSceneIndex = 1;
-
-    [Range(1f, 10f)]
-    public float initialBootMinDuration = 3.5f;
-
-    [Range(0.2f, 5f)]
-    public float sceneTransitionMinDuration = 1.2f;
-
-    [Range(0.1f, 2f)]
-    public float holdAfterComplete = 0.4f;
-
-    [Range(0.1f, 1.5f)]
-    public float fadeDuration = 0.35f;
 
     // =========================================================================
-    //  Inspector — Loading Tips
+    //  Private State
     // =========================================================================
-    [Header("Loading Tips")]
-    [TextArea(2, 4)]
-    public string[] tips = new string[]
-    {
-        "When footsteps sound upon the stone, beware the dark, you're not alone.",
-        "Trust is fragile down below, who is friend and who is foe?",
-        "Save your bullets, count your gear, the Vengeful Spirit draws so near.",
-        "Shadows twist and paths turn round, no escape can here be found.",
-        "Whispers echo in the cold, don't believe the lies you're told.",
-        "When the lights begin to fade, someone has a bargain made."
-    };
-
-    // -------------------------------------------------------------------------
-    //  Private & Static State
-    // -------------------------------------------------------------------------
-    public static string TargetSceneToLoad = null;
-    private bool _isLoading = false;
     private bool _netcodeSubscribed = false;
 
     // =========================================================================
@@ -86,39 +51,25 @@ public class LoadingScreen : MonoBehaviour
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
         DontDestroyOnLoad(gameObject);
-
-        if (IsBootScene())
-        {
-            if (loadingRoot != null) loadingRoot.SetActive(true);
-            if (fadeCanvasGroup != null) fadeCanvasGroup.alpha = 1f;
-        }
-        else
-        {
-            if (loadingRoot != null) loadingRoot.SetActive(false);
-            if (fadeCanvasGroup != null) fadeCanvasGroup.alpha = 0f;
-        }
-    }
-
-    void OnEnable()
-    {
-        SceneManager.sceneLoaded += OnSceneLoaded;
-        SubscribeNetcodeSceneEvents();
-    }
-
-    void OnDisable()
-    {
-        SceneManager.sceneLoaded -= OnSceneLoaded;
-        UnsubscribeNetcodeSceneEvents();
     }
 
     void Start()
     {
-        ShowInitialLoadScreen();
+        // Boot path: LoadingScene is scene index 0. Evo spawns the prefab immediately,
+        // covering the entire LobbyScene load so the player never sees a black freeze.
+        if (autoLoadOnStart && IsBootScene())
+            LoadScene(targetSceneName);
     }
+
+    void OnEnable()  => SubscribeNetcodeSceneEvents();
+    void OnDisable() => UnsubscribeNetcodeSceneEvents();
 
     void Update()
     {
-        if (!_netcodeSubscribed && NetworkManager.Singleton != null && NetworkManager.Singleton.SceneManager != null)
+        // Netcode's SceneManager may not exist yet at OnEnable — poll until it appears.
+        if (!_netcodeSubscribed &&
+            NetworkManager.Singleton != null &&
+            NetworkManager.Singleton.SceneManager != null)
         {
             NetworkManager.Singleton.SceneManager.OnSceneEvent += OnNetcodeSceneEvent;
             _netcodeSubscribed = true;
@@ -126,85 +77,101 @@ public class LoadingScreen : MonoBehaviour
     }
 
     // =========================================================================
-    //  Public API — Scene Loading
+    //  Boot Detection
+    // =========================================================================
+    private bool IsBootScene()
+    {
+        string sceneName = SceneManager.GetActiveScene().name;
+        int    index     = SceneManager.GetActiveScene().buildIndex;
+        return index == 0
+            || sceneName.Equals("LoadingScene", System.StringComparison.OrdinalIgnoreCase)
+            || sceneName.Equals("BootScene",    System.StringComparison.OrdinalIgnoreCase)
+            || sceneName.Equals("Boot",         System.StringComparison.OrdinalIgnoreCase);
+    }
+
+    // =========================================================================
+    //  Public API  (same surface as before — all callsites compile unchanged)
     // =========================================================================
 
     /// <summary>
-    /// Async-loads a scene by name with a smooth loading screen & tips.
-    /// Example: LoadingScreen.Instance.LoadScene("GameScene");
+    /// Loads a scene by name through Evo Loader (instantiates prefab, fades, loads, destroys).
     /// </summary>
     public void LoadScene(string sceneName)
     {
-        if (_isLoading) return;
-        StartCoroutine(LoadSceneRoutineInternal(sceneName, -1, isInitialBoot: false));
+        if (loaderPrefab == null)
+        {
+            Debug.LogError("[LoadingScreen] loaderPrefab is not assigned! Drag your prefab into the Inspector.");
+            return;
+        }
+        Evo.Loader.LoadingScreen.LoadScene(sceneName, loaderPrefab);
     }
 
     /// <summary>
-    /// Async-loads a scene by build index with a smooth loading screen & tips.
-    /// Example: LoadingScreen.Instance.LoadScene(2);
+    /// Loads a scene by build index through Evo Loader.
     /// </summary>
     public void LoadScene(int sceneIndex)
     {
-        if (_isLoading) return;
-        StartCoroutine(LoadSceneRoutineInternal(null, sceneIndex, isInitialBoot: false));
+        string path = SceneUtility.GetScenePathByBuildIndex(sceneIndex);
+        if (!string.IsNullOrEmpty(path))
+        {
+            string sceneName = System.IO.Path.GetFileNameWithoutExtension(path);
+            Evo.Loader.LoadingScreen.LoadScene(sceneName, loaderPrefab);
+        }
+        else
+        {
+            Debug.LogWarning($"[LoadingScreen] Could not resolve scene name for build index {sceneIndex}.");
+        }
     }
 
     /// <summary>
-    /// Fades in the loading screen over the current view without immediately switching scene.
+    /// Shows the loading screen in Transition-Only mode (no scene load).
+    /// Use before a Netcode-driven load so clients see the screen while the server drives the switch.
     /// </summary>
     public void ShowLoadingScreen()
     {
-        if (_isLoading) return;
-        _isLoading = true;
-        ShowRandomTip();
-        SetProgress(0.1f);
-        StartCoroutine(FadeIn());
+        if (loaderPrefab == null) return;
+        Evo.Loader.LoadingScreen.ShowTransition(loaderPrefab);
     }
 
     /// <summary>
-    /// Instantly shows the loading screen at full opacity with no fade delay.
-    /// Use this when you need to immediately hide a freeze or hitch (e.g. right after
-    /// the player clicks Ready, before heavy Unity work begins).
+    /// Shows the loading screen instantly in Transition-Only mode.
+    /// Call right before a freeze-prone moment (e.g. player clicks Ready, Netcode handshake).
     /// </summary>
     public void ShowImmediate()
     {
-        if (loadingRoot != null) loadingRoot.SetActive(true);
-        if (fadeCanvasGroup != null)
-        {
-            fadeCanvasGroup.alpha = 1f;
-            fadeCanvasGroup.blocksRaycasts = true;
-        }
-        ShowRandomTip();
-        SetProgress(0.05f);
-        _isLoading = true;
+        if (loaderPrefab == null) return;
+        Evo.Loader.LoadingScreen.ShowTransition(loaderPrefab);
     }
 
     /// <summary>
-    /// Fades out the loading screen.
+    /// Signals the active Evo loading screen to proceed to teardown and hide.
+    /// Only needed for ShowLoadingScreen / ShowImmediate calls — a real LoadScene hides itself.
     /// </summary>
     public void HideLoadingScreen()
     {
-        StartCoroutine(FadeOutAndComplete());
+        Evo.Loader.LoadingScreen active = Evo.Loader.LoadingScreen.GetInstance();
+        if (active != null)
+            active.NotifyInputReceived();
     }
 
     // =========================================================================
-    //  Netcode & Scene Change Interception
+    //  Netcode Scene Event Interception
     // =========================================================================
-
     private void SubscribeNetcodeSceneEvents()
     {
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.SceneManager != null)
         {
             NetworkManager.Singleton.SceneManager.OnSceneEvent += OnNetcodeSceneEvent;
+            _netcodeSubscribed = true;
         }
     }
 
     private void UnsubscribeNetcodeSceneEvents()
     {
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.SceneManager != null)
-        {
             NetworkManager.Singleton.SceneManager.OnSceneEvent -= OnNetcodeSceneEvent;
-        }
+
+        _netcodeSubscribed = false;
     }
 
     private void OnNetcodeSceneEvent(SceneEvent sceneEvent)
@@ -212,167 +179,14 @@ public class LoadingScreen : MonoBehaviour
         switch (sceneEvent.SceneEventType)
         {
             case SceneEventType.Load:
-                // Triggered when Netcode starts loading a new scene on this client
+                // Netcode is loading a new scene for everyone — show the loading screen on this client.
                 ShowLoadingScreen();
                 break;
 
             case SceneEventType.LoadComplete:
-                // Triggered when Netcode finishes scene load for this client
+                // Scene is live on this client — dismiss the loading screen.
                 HideLoadingScreen();
                 break;
         }
-    }
-
-    private void OnSceneLoaded(Scene scene, LoadSceneMode mode)
-    {
-        // When any new scene loads, auto-hide loading screen after a brief hold
-        if (_isLoading)
-        {
-            StartCoroutine(FadeOutAndComplete());
-        }
-    }
-
-    // =========================================================================
-    //  Initial Boot Handling
-    // =========================================================================
-    private bool IsBootScene()
-    {
-        string activeName = SceneManager.GetActiveScene().name;
-        return SceneManager.GetActiveScene().buildIndex == 0 ||
-               activeName.Equals("LoadingScene", System.StringComparison.OrdinalIgnoreCase) ||
-               activeName.Equals("BootScene", System.StringComparison.OrdinalIgnoreCase) ||
-               activeName.Equals("Boot", System.StringComparison.OrdinalIgnoreCase);
-    }
-
-    private void ShowInitialLoadScreen()
-    {
-        if (!autoLoadOnStart || !IsBootScene()) return;
-        string sceneToLoad = !string.IsNullOrEmpty(TargetSceneToLoad) ? TargetSceneToLoad : targetSceneName;
-        TargetSceneToLoad = null;
-        StartCoroutine(LoadSceneRoutineInternal(sceneToLoad, targetSceneIndex, isInitialBoot: true));
-    }
-
-    // =========================================================================
-    //  Unified Scene Load Routine
-    // =========================================================================
-    private IEnumerator LoadSceneRoutineInternal(string sceneName, int sceneIndex, bool isInitialBoot)
-    {
-        _isLoading = true;
-
-        yield return StartCoroutine(FadeIn());
-        ShowRandomTip();
-        SetProgress(0f);
-
-        float minDuration = isInitialBoot ? initialBootMinDuration : sceneTransitionMinDuration;
-        float startTime = Time.realtimeSinceStartup;
-        float currentDisplayedProgress = 0f;
-
-        AsyncOperation op = null;
-
-        if (!string.IsNullOrEmpty(sceneName) && Application.CanStreamedLevelBeLoaded(sceneName))
-        {
-            op = SceneManager.LoadSceneAsync(sceneName);
-        }
-        else if (sceneIndex >= 0 && sceneIndex < SceneManager.sceneCountInBuildSettings)
-        {
-            op = SceneManager.LoadSceneAsync(sceneIndex);
-        }
-
-        if (op != null)
-        {
-            op.allowSceneActivation = false;
-
-            while (!op.isDone)
-            {
-                float targetProgress = Mathf.Clamp01(op.progress / 0.9f);
-                float elapsed = Time.realtimeSinceStartup - startTime;
-                float timeProgress = Mathf.Clamp01(elapsed / minDuration);
-
-                currentDisplayedProgress = (op.progress >= 0.9f) ? timeProgress : Mathf.Min(targetProgress, timeProgress);
-
-                if (op.progress >= 0.9f && elapsed >= minDuration)
-                {
-                    SetProgress(1f);
-                    yield return new WaitForSecondsRealtime(holdAfterComplete);
-                    op.allowSceneActivation = true;
-                }
-
-                SetProgress(currentDisplayedProgress);
-                yield return null;
-            }
-        }
-        else
-        {
-            // Simulated progress fallback if scene isn't in build settings during Editor testing
-            while (currentDisplayedProgress < 1f)
-            {
-                float elapsed = Time.realtimeSinceStartup - startTime;
-                currentDisplayedProgress = Mathf.Clamp01(elapsed / minDuration);
-                SetProgress(currentDisplayedProgress);
-                yield return null;
-            }
-            yield return new WaitForSecondsRealtime(holdAfterComplete);
-        }
-
-        yield return StartCoroutine(FadeOutAndComplete());
-    }
-
-    // =========================================================================
-    //  UI & Fade Helpers
-    // =========================================================================
-    private void SetProgress(float fraction)
-    {
-        if (progressFill != null)
-            progressFill.fillAmount = fraction;
-
-        NightCrawler.UI.MichskyUIBridge.SetProgress(heatProgressBar, fraction);
-
-        if (progressText != null)
-            progressText.text = $"Loading...  {Mathf.RoundToInt(fraction * 100f)}%";
-    }
-
-    private void ShowRandomTip()
-    {
-        if (tipText == null || tips == null || tips.Length == 0) return;
-        tipText.text = tips[Random.Range(0, tips.Length)];
-    }
-
-    private IEnumerator FadeIn()
-    {
-        if (loadingRoot != null) loadingRoot.SetActive(true);
-
-        if (fadeCanvasGroup != null)
-        {
-            fadeCanvasGroup.blocksRaycasts = true;
-            float t = 0f;
-            float startAlpha = fadeCanvasGroup.alpha;
-            while (t < fadeDuration)
-            {
-                t += Time.unscaledDeltaTime;
-                fadeCanvasGroup.alpha = Mathf.Lerp(startAlpha, 1f, t / fadeDuration);
-                yield return null;
-            }
-            fadeCanvasGroup.alpha = 1f;
-        }
-    }
-
-    private IEnumerator FadeOutAndComplete()
-    {
-        if (fadeCanvasGroup != null)
-        {
-            float t = 0f;
-            float startAlpha = fadeCanvasGroup.alpha;
-            while (t < fadeDuration)
-            {
-                t += Time.unscaledDeltaTime;
-                fadeCanvasGroup.alpha = Mathf.Lerp(startAlpha, 0f, t / fadeDuration);
-                yield return null;
-            }
-            fadeCanvasGroup.alpha = 0f;
-            fadeCanvasGroup.blocksRaycasts = false;
-        }
-
-        if (loadingRoot != null) loadingRoot.SetActive(false);
-        _isLoading = false;
     }
 }
