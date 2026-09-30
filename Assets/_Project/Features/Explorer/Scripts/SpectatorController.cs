@@ -453,12 +453,39 @@ public class SpectatorController : MonoBehaviour
             exitHotkeyEvent.onHotkeyPress.RemoveListener(ExitSpectating);
             exitHotkeyEvent.onHotkeyPress.AddListener(ExitSpectating);
 
-            // Also wire mouse clicks if there is a Button / ButtonManager / BoxButtonManager on this hotkey element
-            var uiBtn = exitHotkeyEvent.GetComponentInChildren<UnityEngine.UI.Button>(true);
-            if (uiBtn != null)
+            // Rebind the InputAction on exitHotkeyEvent to match KeybindingManager / C key so it triggers reliably
+            string exitKeyStr = KeybindingManager.GetBoundKeyString("SpectateExit", "C");
+            try
             {
-                uiBtn.onClick.RemoveListener(ExitSpectating);
-                uiBtn.onClick.AddListener(ExitSpectating);
+                if (exitHotkeyEvent.hotkey != null) exitHotkeyEvent.hotkey.Disable();
+                exitHotkeyEvent.hotkey = new UnityEngine.InputSystem.InputAction("ExitSpectatingHotkey", UnityEngine.InputSystem.InputActionType.Button, $"<Keyboard>/{exitKeyStr.ToLower()}");
+                if (_isSpectating) exitHotkeyEvent.hotkey.Enable();
+            }
+            catch {}
+
+            // Ensure an Image with raycastTarget = true exists on exitHotkeyEvent so mouse pointer clicks are detected
+            var raycastImg = exitHotkeyEvent.GetComponent<UnityEngine.UI.Image>();
+            if (raycastImg == null)
+            {
+                raycastImg = exitHotkeyEvent.gameObject.AddComponent<UnityEngine.UI.Image>();
+                raycastImg.color = Color.clear;
+            }
+            raycastImg.raycastTarget = true;
+
+            // Also attach an invisible Button so standard click routing and event triggers work
+            var uiBtn = exitHotkeyEvent.GetComponent<UnityEngine.UI.Button>();
+            if (uiBtn == null)
+            {
+                uiBtn = exitHotkeyEvent.gameObject.AddComponent<UnityEngine.UI.Button>();
+            }
+            uiBtn.onClick.RemoveListener(ExitSpectating);
+            uiBtn.onClick.AddListener(ExitSpectating);
+
+            var childBtn = exitHotkeyEvent.GetComponentInChildren<UnityEngine.UI.Button>(true);
+            if (childBtn != null && childBtn != uiBtn)
+            {
+                childBtn.onClick.RemoveListener(ExitSpectating);
+                childBtn.onClick.AddListener(ExitSpectating);
             }
             var heatBtn = exitHotkeyEvent.GetComponentInChildren<Michsky.UI.Heat.ButtonManager>(true);
             if (heatBtn != null)
@@ -474,7 +501,7 @@ public class SpectatorController : MonoBehaviour
             }
         }
 
-        // Also wire any button under customCanvasRoot or this GameObject with "exit" in its name
+        // Also wire any button under customCanvasRoot, this GameObject, or parent Canvas with "exit" in its name
         GameObject hudRoot = customCanvasRoot != null ? customCanvasRoot : gameObject;
         if (hudRoot != null)
         {
@@ -495,6 +522,35 @@ public class SpectatorController : MonoBehaviour
                 }
             }
             foreach (var hbm in hudRoot.GetComponentsInChildren<Michsky.UI.Heat.ButtonManager>(true))
+            {
+                if (hbm != null && hbm.name.ToLower().Contains("exit"))
+                {
+                    hbm.onClick.RemoveListener(ExitSpectating);
+                    hbm.onClick.AddListener(ExitSpectating);
+                }
+            }
+        }
+
+        Canvas parentCanvas = GetComponentInParent<Canvas>();
+        if (parentCanvas != null && parentCanvas.gameObject != hudRoot)
+        {
+            foreach (var btn in parentCanvas.GetComponentsInChildren<UnityEngine.UI.Button>(true))
+            {
+                if (btn != null && btn.name.ToLower().Contains("exit"))
+                {
+                    btn.onClick.RemoveListener(ExitSpectating);
+                    btn.onClick.AddListener(ExitSpectating);
+                }
+            }
+            foreach (var bbm in parentCanvas.GetComponentsInChildren<Michsky.UI.Heat.BoxButtonManager>(true))
+            {
+                if (bbm != null && bbm.name.ToLower().Contains("exit"))
+                {
+                    bbm.onClick.RemoveListener(ExitSpectating);
+                    bbm.onClick.AddListener(ExitSpectating);
+                }
+            }
+            foreach (var hbm in parentCanvas.GetComponentsInChildren<Michsky.UI.Heat.ButtonManager>(true))
             {
                 if (hbm != null && hbm.name.ToLower().Contains("exit"))
                 {
@@ -592,17 +648,29 @@ public class SpectatorController : MonoBehaviour
     /// </summary>
     public static void ExitAllSpectating()
     {
+        bool anyWasSpectating = false;
         if (SurvivorInstance != null && SurvivorInstance._isSpectating)
         {
+            anyWasSpectating = true;
             SurvivorInstance.DoExitSpectating();
         }
         if (MonsterInstance != null && MonsterInstance._isSpectating)
         {
+            anyWasSpectating = true;
             MonsterInstance.DoExitSpectating();
         }
         if (_instance != null && _instance._isSpectating && _instance != SurvivorInstance && _instance != MonsterInstance)
         {
+            anyWasSpectating = true;
             _instance.DoExitSpectating();
+        }
+
+        // Failsafe: if neither was marked _isSpectating but spectator cameras/UI are still active in the scene,
+        // force drop all spectator cameras and cut back to player camera!
+        if (!anyWasSpectating)
+        {
+            if (SurvivorInstance != null) SurvivorInstance.DoExitSpectating();
+            if (MonsterInstance != null) MonsterInstance.DoExitSpectating();
         }
     }
 
@@ -616,13 +684,14 @@ public class SpectatorController : MonoBehaviour
 
     private void DoExitSpectating()
     {
-        if (!_isSpectating) return;
+        bool wasSpectating = _isSpectating;
+        _isSpectating = false;
 
         StopSpectating();
 
         if (modeType == SpectatorModeType.Survivors)
         {
-            if (DeathUI.Instance != null)
+            if (DeathUI.Instance != null && wasSpectating)
             {
                 DeathUI.Instance.ReturnFromSpectatorToDeath();
             }
@@ -841,8 +910,6 @@ public class SpectatorController : MonoBehaviour
     /// </summary>
     public void StopSpectating()
     {
-        if (!_isSpectating) return;
-
         _isSpectating = false;
         _isStopping = false;
         _currentTarget = null;
@@ -999,7 +1066,7 @@ public class SpectatorController : MonoBehaviour
         if (modeType == SpectatorModeType.Survivors && !IsLocalPlayerDead())
         {
             Debug.Log("[SpectatorController] Local player is alive — Exiting Spectator Mode immediately.");
-            StopSpectating();
+            ExitAllSpectating();
             return;
         }
 
@@ -1011,9 +1078,11 @@ public class SpectatorController : MonoBehaviour
 
         // 1. Handle Navigation & Controls
         HandleInput();
+        if (!_isSpectating) return;
 
         // 2. Validate current target (auto-switch if target just died or DC'd)
         ValidateCurrentTarget();
+        if (!_isSpectating) return;
 
         // 3. Update HUD data (health bar, survivor counts)
         UpdateHUD();
@@ -1140,6 +1209,8 @@ public class SpectatorController : MonoBehaviour
 
     private void SelectTargetByIndex(int index, bool snapImmediate = false)
     {
+        if (!_isSpectating) return;
+
         if (_aliveTargets.Count == 0)
         {
             _currentTarget = null;
@@ -1183,6 +1254,8 @@ public class SpectatorController : MonoBehaviour
 
     private void ValidateCurrentTarget()
     {
+        if (!_isSpectating) return;
+
         if (_currentTarget == null || _currentTarget.gameObject == null ||
             _currentTarget.isCorpse.Value || _currentTarget.CurrentHealth <= 0)
         {
@@ -1190,6 +1263,8 @@ public class SpectatorController : MonoBehaviour
             ShowToast($"{fallenName} HAS FALLEN!\n<size=80%>Switching camera...</size>", new Color(1f, 0.3f, 0.3f, 1f));
 
             RefreshAliveTargets();
+            if (!_isSpectating) return;
+
             if (_aliveTargets.Count > 0)
             {
                 _currentTargetIndex = _currentTargetIndex % _aliveTargets.Count;
@@ -1204,7 +1279,7 @@ public class SpectatorController : MonoBehaviour
                     {
                         NotificationManager.Instance.ShowNotification("All summoned monsters have fallen!", 3f);
                     }
-                    StopSpectating();
+                    ExitAllSpectating();
                 }
                 else if (DeathUI.Instance != null)
                 {
@@ -1214,7 +1289,7 @@ public class SpectatorController : MonoBehaviour
                 }
                 else
                 {
-                    StopSpectating();
+                    ExitAllSpectating();
                 }
             }
         }
@@ -1222,6 +1297,7 @@ public class SpectatorController : MonoBehaviour
 
     private void RefreshAliveTargets()
     {
+        if (!_isSpectating) return;
         _aliveTargets.Clear();
 
         if (modeType == SpectatorModeType.Monsters)
@@ -1303,6 +1379,7 @@ public class SpectatorController : MonoBehaviour
 
     private void UpdateAnchorTransform()
     {
+        if (!_isSpectating) return;
         if (_spectatorAnchor == null) return;
 
         if (_currentTarget != null && _currentTarget.gameObject != null)
@@ -1517,6 +1594,8 @@ public class SpectatorController : MonoBehaviour
 
     private void BindCinemachineToAnchor()
     {
+        if (!_isSpectating) return;
+
         ResolveCamera();
         if (_cinemachineCam != null && _spectatorCamTransform != null && _spectatorAnchor != null)
         {
@@ -1546,6 +1625,8 @@ public class SpectatorController : MonoBehaviour
 
     private void UpdateHUD()
     {
+        if (!_isSpectating) return;
+
         RefreshAliveTargets();
 
         // 1. Survivors / Living Count & Total Connected Players
