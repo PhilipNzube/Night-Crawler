@@ -134,6 +134,9 @@ public class PauseManager : MonoBehaviour
         if (spec != null && spec.IsSpectating)
         {
             spec.ExitSpectating();
+            // Reset cooldown so a fast follow-up ESC press within the cooldown window
+            // cannot also trigger TogglePause on the same or next frame.
+            _lastToggleTime = Time.unscaledTime;
             return;
         }
 

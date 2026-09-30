@@ -474,6 +474,17 @@ public class LobbyUI : MonoBehaviour
         // 4. Host Lobby Panel
         MichskyUIBridge.BindButton(null, heatHostStartMatchButton, OnStartMatch);
         MichskyUIBridge.BindButton(null, heatHostDisconnectButton, RequestDisconnect);
+
+        // Copy Code: strip any stale persistent listeners on the underlying Button first
+        // so Inspector-assigned exit/disconnect calls can't fire alongside OnCopyJoinCode.
+        if (heatHostCopyCodeButton != null)
+        {
+            var underlyingBtn = heatHostCopyCodeButton.GetComponent<UnityEngine.UI.Button>();
+            if (underlyingBtn == null)
+                underlyingBtn = heatHostCopyCodeButton.GetComponentInChildren<UnityEngine.UI.Button>(true);
+            if (underlyingBtn != null)
+                underlyingBtn.onClick = new UnityEngine.UI.Button.ButtonClickedEvent();
+        }
         MichskyUIBridge.BindButton(null, heatHostCopyCodeButton, OnCopyJoinCode);
 
         if (hostLobbyPanel != null)

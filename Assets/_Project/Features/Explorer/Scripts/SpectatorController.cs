@@ -90,12 +90,19 @@ public class SpectatorController : MonoBehaviour
     [Tooltip("Optional Michsky Heat HotkeyEvent for Cursor Lock Toggle.")]
     public Michsky.UI.Heat.HotkeyEvent cursorHotkey;
 
+    [Header("Camera Return Reference")]
+    [Tooltip("Drag PlayerFollowCamera_Local_0 from the scene hierarchy here. " +
+             "This is the virtual camera that follows the Girl and is the target we restore on exit. " +
+             "Set this ONCE in the Inspector so the exit logic never needs to search for it.")]
+    public CinemachineVirtualCameraBase playerFollowCamera;
+
     [Header("Michsky Heat / Dark UI")]
     [Tooltip("Optional: Michsky ProgressBar to display spectated player's health.")]
     public Michsky.UI.Heat.ProgressBar heatHealthProgressBar;
 
     // Runtime state
     private bool _isSpectating = false;
+    private bool _isStopping = false; // True during StopSpectating to block StartSpectating's StopAllCoroutines
     public bool IsSpectating => _isSpectating;
 
     public static bool IsAnySpectating =>
@@ -169,10 +176,14 @@ public class SpectatorController : MonoBehaviour
 
     private void HandlePauseStateChanged(bool isPaused)
     {
-        if (_canvasGroup != null && _isSpectating)
+        // Only react to pause state while actively spectating.
+        // If we're stopped or in the process of stopping, don't re-show the HUD.
+        if (_canvasGroup != null && _isSpectating && !_isStopping)
         {
             _canvasGroup.alpha = isPaused ? 0f : 1f;
-            _canvasGroup.blocksRaycasts = !isPaused;
+            // Keep blocksRaycasts FALSE at all times — the pause menu must always
+            // be interactable, even while spectating.
+            _canvasGroup.blocksRaycasts = false;
         }
 
         SetHotkeysActive(!isPaused);
@@ -327,10 +338,13 @@ public class SpectatorController : MonoBehaviour
         if (viewModeHotkey != null) viewModeHotkey.SetLabel(_freeOrbitMode ? "FREE ORBIT" : "SHOULDER CAM");
         if (cursorHotkey != null) cursorHotkey.SetLabel(Cursor.lockState == CursorLockMode.Locked ? "UNLOCK CURSOR" : "LOCK CURSOR");
 
-        // Fade in HUD — stop any previous fade before starting a new one
-        if (_canvasGroup != null)
+        // Fade in HUD — only stop coroutines if we are NOT in the middle of stopping
+        // (StopAllCoroutines would kill the fade-out and ReassertPlayerCamPriority coroutines)
+        if (_canvasGroup != null && !_isStopping)
         {
             StopAllCoroutines();
+            _canvasGroup.alpha = 0f;
+            _canvasGroup.blocksRaycasts = false; // Never block raycasts — pause must always work
             _canvasGroup.gameObject.SetActive(true);
             StartCoroutine(FadeCanvasGroup(_canvasGroup, 0f, 1f, 0.5f));
         }
@@ -386,7 +400,8 @@ public class SpectatorController : MonoBehaviour
 
         SetHotkeyVisual(prevHotkey, prevKeyStr, modeType == SpectatorModeType.Monsters ? "PREV MONSTER" : "PREV SURVIVOR");
         SetHotkeyVisual(nextHotkey, nextKeyStr, modeType == SpectatorModeType.Monsters ? "NEXT MONSTER" : "NEXT SURVIVOR");
-        SetHotkeyVisual(viewModeHotkey, viewModeKeyStr, _freeOrbitMode ? "FREE ORBIT" : "SHOULDER CAM");
+        // Show the mode you'd switch TO, not the current mode
+        SetHotkeyVisual(viewModeHotkey, viewModeKeyStr, _freeOrbitMode ? "SHOULDER CAM" : "FREE ORBIT");
         SetHotkeyVisual(cursorHotkey, cursorKeyStr, Cursor.lockState == CursorLockMode.Locked ? "UNLOCK CURSOR" : "LOCK CURSOR");
         SetHotkeyVisual(exitHotkeyEvent, exitKeyStr, modeType == SpectatorModeType.Monsters ? "EXIT SPECTATE" : "EXIT TO DEATH");
 
@@ -567,15 +582,18 @@ public class SpectatorController : MonoBehaviour
     public void ToggleOrbitMode()
     {
         _freeOrbitMode = !_freeOrbitMode;
-        string modeName = _freeOrbitMode ? "FREE ORBIT" : "SHOULDER CAM";
-        ShowToast($"CAMERA MODE: {modeName}", new Color(1f, 0.85f, 0.2f, 1f));
+        // currentModeName = what we just switched TO (for the toast)
+        string currentModeName = _freeOrbitMode ? "FREE ORBIT" : "SHOULDER CAM";
+        // nextModeName = what pressing Space NEXT TIME would switch to (for the hotkey label)
+        string nextModeName = _freeOrbitMode ? "SHOULDER CAM" : "FREE ORBIT";
+        ShowToast($"CAMERA MODE: {currentModeName}", new Color(1f, 0.85f, 0.2f, 1f));
         if (viewModeHotkey != null)
         {
-            viewModeHotkey.SetLabel(modeName);
+            viewModeHotkey.SetLabel(nextModeName);
         }
         if (_modePromptText != null)
         {
-            _modePromptText.text = $"[SPACE] View Mode: {modeName}   •   [MOUSE] Orbit   •   [SCROLL] Zoom   •   [ALT] Cursor";
+            _modePromptText.text = $"[SPACE] Switch to {nextModeName}   •   [MOUSE] Orbit   •   [SCROLL] Zoom   •   [ALT] Cursor";
         }
     }
 
@@ -690,6 +708,7 @@ public class SpectatorController : MonoBehaviour
         if (!_isSpectating) return;
 
         _isSpectating = false;
+        _isStopping = true; // Block StartSpectating from calling StopAllCoroutines on our cleanup coroutines
         _currentTarget = null;
 
         // Immediately disable all spectator hotkeys so they can no longer
@@ -716,54 +735,40 @@ public class SpectatorController : MonoBehaviour
             NightCrawler.Monsters.GirlMonsterSummonHUD.Instance.monsterSpawnVirtualCamera.gameObject.SetActive(false);
         }
 
-        // 3. Find the real PlayerFollowCamera that is already following the Girl in the scene
-        CinemachineVirtualCameraBase playerCam = null;
-        var allCams = FindObjectsByType<CinemachineVirtualCameraBase>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-        foreach (var c in allCams)
-        {
-            if (c == null || c == _cinemachineCam) continue;
-            if (c.gameObject.name.Contains("Spectator") || c.gameObject.name.Contains("MonsterSpawn")) continue;
-            if (c.gameObject.name.Contains("PlayerFollowCamera"))
-            {
-                playerCam = c;
-                break;
-            }
-        }
-        if (playerCam == null && _cachedGameplayCam != null && _cachedGameplayCam != _cinemachineCam)
-        {
-            playerCam = _cachedGameplayCam;
-        }
+        // 3. Find PlayerFollowCamera — prefer the direct Inspector reference, fall back to search.
+        // The Inspector reference is set once and never changes, guaranteeing no lookup failure.
+        CinemachineVirtualCameraBase playerCam = playerFollowCamera;
+
         if (playerCam == null)
         {
+            // Fallback: dynamic search (only needed if Inspector field is not wired)
+            var allCams = FindObjectsByType<CinemachineVirtualCameraBase>(FindObjectsInactive.Include, FindObjectsSortMode.None);
             foreach (var c in allCams)
             {
                 if (c == null || c == _cinemachineCam) continue;
                 if (c.gameObject.name.Contains("Spectator") || c.gameObject.name.Contains("MonsterSpawn")) continue;
-                playerCam = c;
-                break;
+                if (c.gameObject.name.Contains("PlayerFollowCamera"))
+                {
+                    playerCam = c;
+                    break;
+                }
             }
         }
+        if (playerCam == null && _cachedGameplayCam != null && _cachedGameplayCam != _cinemachineCam)
+            playerCam = _cachedGameplayCam;
 
-        // 4. Restore PlayerFollowCamera and snap Camera.main directly to it!
+        // 4. Restore PlayerFollowCamera — just set priority and enable.
+        // Do NOT touch CinemachineBrain.DefaultBlend or .ActiveBlend:
+        //   - ActiveBlend is read-only in Cinemachine 3.x (causes silent failure).
+        //   - The Brain handles blending in its own LateUpdate automatically.
+        // By disabling _cinemachineCam (step 1 above, priority = -999999) and raising
+        // playerCam priority here, the Brain will cut to playerCam on its next LateUpdate.
         if (playerCam != null)
         {
             playerCam.gameObject.SetActive(true);
             playerCam.enabled = true;
             playerCam.Priority = 99999;
-            playerCam.PreviousStateIsValid = false;
-
-            if (Camera.main != null)
-            {
-                Camera.main.transform.position = playerCam.transform.position;
-                Camera.main.transform.rotation = playerCam.transform.rotation;
-            }
-        }
-
-        CinemachineBrain brain = Camera.main != null ? Camera.main.GetComponent<CinemachineBrain>() : FindFirstObjectByType<CinemachineBrain>();
-        if (brain != null)
-        {
-            brain.DefaultBlend = new CinemachineBlendDefinition(CinemachineBlendDefinition.Styles.Cut, 0f);
-            brain.ActiveBlend = null;
+            playerCam.PreviousStateIsValid = false; // tells Brain to snap, not blend
         }
 
         // 5. Restore local player controls and inputs
@@ -815,24 +820,26 @@ public class SpectatorController : MonoBehaviour
 
         if (_canvasGroup != null)
         {
-            StartCoroutine(FadeCanvasGroup(_canvasGroup, 1f, 0f, 0.4f, () =>
-            {
-                if (_canvasGroup != null && _canvasGroup.gameObject != gameObject)
-                {
-                    _canvasGroup.gameObject.SetActive(false);
-                }
-                if (customCanvasRoot != null && customCanvasRoot != gameObject)
-                {
-                    customCanvasRoot.SetActive(false);
-                }
-            }));
+            // IMMEDIATELY hide the canvas so it can never show behind the pause menu
+            // during the brief window between StopSpectating and the fade completing.
+            _canvasGroup.alpha = 0f;
+            _canvasGroup.blocksRaycasts = false;
+            _canvasGroup.interactable = false;
+            if (_canvasGroup.gameObject != gameObject)
+                _canvasGroup.gameObject.SetActive(false);
+            if (customCanvasRoot != null && customCanvasRoot != gameObject)
+                customCanvasRoot.SetActive(false);
         }
 
-        // Snap camera to PlayerFollowCamera at end of frames to guarantee smooth transition
-        if (modeType == SpectatorModeType.Monsters && playerCam != null)
-        {
-            StartCoroutine(SnapCameraToFollowCam(playerCam));
-        }
+        // NOTE: We do NOT run ReassertPlayerCamPriority here.
+        // Running it across multiple exits caused coroutines to fight each other
+        // (one exit's coroutine reasserting playerCam while the next exit's
+        //  spectator cam had already taken control, causing the glitch loop).
+        // Setting Priority = 99999 + PreviousStateIsValid = false above is sufficient
+        // for the Brain to cut to playerCam on its own next LateUpdate.
+
+        // Clear the stopping flag after a short delay
+        StartCoroutine(ClearStoppingFlag());
 
         if (modeType == SpectatorModeType.Monsters)
         {
@@ -1668,23 +1675,41 @@ public class SpectatorController : MonoBehaviour
     }
 
     /// <summary>
-    /// Locks Camera.main directly to PlayerFollowCamera for N end-of-frames.
-    /// PlayerFollowCamera is already tracking the Girl, so this guarantees Camera.main
-    /// seamlessly takes over its exact position and rotation.
+    /// Re-asserts PlayerFollowCamera as the highest priority virtual camera across
+    /// several end-of-frames. This forces the CinemachineBrain to stay locked onto
+    /// the Girl's camera even if another system tries to reassert priority concurrently.
+    /// We NEVER touch Camera.main.transform — the Brain owns that transform.
     /// </summary>
-    private IEnumerator SnapCameraToFollowCam(CinemachineVirtualCameraBase followCam, int frames = 8)
+    private IEnumerator ReassertPlayerCamPriority(CinemachineVirtualCameraBase followCam, CinemachineBrain brain, int frames = 5)
     {
         for (int i = 0; i < frames; i++)
         {
             yield return new WaitForEndOfFrame();
 
-            if (Camera.main == null || followCam == null) yield break;
+            if (followCam == null) yield break;
 
+            followCam.gameObject.SetActive(true);
+            followCam.enabled = true;
             followCam.Priority = 99999;
             followCam.PreviousStateIsValid = false;
-            Camera.main.transform.position = followCam.transform.position;
-            Camera.main.transform.rotation = followCam.transform.rotation;
+
+            if (brain != null)
+            {
+                // NOTE: Do NOT call brain.ManualUpdate() — that requires the Brain to be in
+                // ManualUpdate update mode (set via Inspector). In default mode the Brain
+                // updates itself automatically via LateUpdate; setting priority high and
+                // clearing the blend is sufficient to guarantee a cut on the next frame.
+                brain.DefaultBlend = new CinemachineBlendDefinition(CinemachineBlendDefinition.Styles.Cut, 0f);
+                brain.ActiveBlend = null;
+            }
         }
+    }
+
+    private IEnumerator ClearStoppingFlag()
+    {
+        // Wait longer than ReassertPlayerCamPriority (5 frames) plus the HUD fade (0.4s)
+        yield return new WaitForSecondsRealtime(0.6f);
+        _isStopping = false;
     }
 
     // =========================================================================

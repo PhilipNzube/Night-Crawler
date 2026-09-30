@@ -184,9 +184,17 @@ public class LoadingScreen : MonoBehaviour
                 break;
 
             case SceneEventType.LoadComplete:
-                // Scene is live on this client — dismiss the loading screen.
-                HideLoadingScreen();
+                // Scene is live on this client — wait one frame so the new scene renders at least
+                // once before dismissing the loading screen, preventing a flash of the old scene
+                // on standalone builds.
+                StartCoroutine(HideAfterOneFrame());
                 break;
         }
+    }
+
+    private System.Collections.IEnumerator HideAfterOneFrame()
+    {
+        yield return null;
+        HideLoadingScreen();
     }
 }

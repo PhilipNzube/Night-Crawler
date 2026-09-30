@@ -28,6 +28,16 @@ namespace NightCrawler.UI
         public Button confirmStakeButton;
         public TextMeshProUGUI confirmButtonText;
 
+        [Header("Warning / Error Display")]
+        [Tooltip("The ErrorText label inside the Staking modal. Drag it here from the scene hierarchy.")]
+        public TextMeshProUGUI stakeErrorText;
+
+        [Tooltip("Color shown on errorText while the warning is active (default red). Change to amber/yellow to soften it.")]
+        public Color warningActiveColor = new Color(1f, 0.45f, 0.1f, 1f); // Amber-orange instead of red
+
+        [Tooltip("Color shown on errorText once the player has made a valid selection (warning acknowledged).")]
+        public Color warningAcknowledgedColor = new Color(0.55f, 0.85f, 0.55f, 1f); // Soft green
+
         [Header("Michsky Heat / Dark UI")]
         public ModalWindowManager heatStakingModal;
         public SliderManager heatStakeSlider;
@@ -71,6 +81,10 @@ namespace NightCrawler.UI
             {
                 stakingModalPanel.SetActive(false);
             }
+
+            // Apply initial warning color now — UIManagerText resets .color to red every frame
+            // if useCustomColor is false. We must set useCustomColor = true here to own the color.
+            ApplyErrorTextColor(false);
         }
 
         private void Update()
@@ -118,6 +132,9 @@ namespace NightCrawler.UI
             _selectedStake = minStake;
             UpdateDisplay();
 
+            // Reset error text to warning color when modal opens (user hasn't adjusted slider yet)
+            ApplyErrorTextColor(false);
+
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
         }
@@ -126,6 +143,48 @@ namespace NightCrawler.UI
         {
             _selectedStake = Mathf.RoundToInt(value);
             UpdateDisplay();
+            // User has interacted with the slider — stake is valid, switch to acknowledged color
+            ApplyErrorTextColor(true);
+        }
+
+        /// <summary>
+        /// Sets the error/warning text content and switches its color to either the
+        /// active-warning color or the acknowledged color depending on <paramref name="isAcknowledged"/>.
+        /// Handles Heat UIManagerText by enabling useCustomColor so Heat stops overriding the color.
+        /// </summary>
+        public void SetErrorText(string message, bool isAcknowledged = false)
+        {
+            if (stakeErrorText == null) return;
+
+            // If Heat's UIManagerText is on this label it overrides .color every frame.
+            // Setting useCustomColor = true makes its UpdateText() return early so our color sticks.
+            var umt = stakeErrorText.GetComponent<Michsky.UI.Heat.UIManagerText>();
+            if (umt != null) umt.useCustomColor = true;
+
+            stakeErrorText.text = message;
+            stakeErrorText.color = isAcknowledged ? warningAcknowledgedColor : warningActiveColor;
+            stakeErrorText.gameObject.SetActive(!string.IsNullOrEmpty(message));
+        }
+
+        /// <summary>
+        /// Changes the stakeErrorText color only (without touching its text content).
+        /// Call with isAcknowledged=false for warning state, true for acknowledged/confirmed state.
+        /// Disables UIManagerText's override so the chosen color actually sticks.
+        /// </summary>
+        private void ApplyErrorTextColor(bool isAcknowledged)
+        {
+            if (stakeErrorText == null) return;
+            var umt = stakeErrorText.GetComponent<Michsky.UI.Heat.UIManagerText>();
+            if (umt != null) umt.useCustomColor = true;
+            stakeErrorText.color = isAcknowledged ? warningAcknowledgedColor : warningActiveColor;
+        }
+
+        /// <summary>Hides the error text entirely.</summary>
+        public void ClearErrorText()
+        {
+            if (stakeErrorText == null) return;
+            stakeErrorText.text = string.Empty;
+            stakeErrorText.gameObject.SetActive(false);
         }
 
         private void UpdateDisplay()
