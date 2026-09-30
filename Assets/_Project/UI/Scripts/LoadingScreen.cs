@@ -61,9 +61,6 @@ public class LoadingScreen : MonoBehaviour
             LoadScene(targetSceneName);
     }
 
-    void OnEnable()  => SubscribeNetcodeSceneEvents();
-    void OnDisable() => UnsubscribeNetcodeSceneEvents();
-
     void Update()
     {
         // Netcode's SceneManager may not exist yet at OnEnable — poll until it appears.
@@ -88,6 +85,8 @@ public class LoadingScreen : MonoBehaviour
             || sceneName.Equals("BootScene",    System.StringComparison.OrdinalIgnoreCase)
             || sceneName.Equals("Boot",         System.StringComparison.OrdinalIgnoreCase);
     }
+
+    private const string HOLD_TASK_ID = "SceneTransitionHold";
 
     // =========================================================================
     //  Public API  (same surface as before — all callsites compile unchanged)
@@ -126,11 +125,23 @@ public class LoadingScreen : MonoBehaviour
     /// <summary>
     /// Shows the loading screen in Transition-Only mode (no scene load).
     /// Use before a Netcode-driven load so clients see the screen while the server drives the switch.
+    /// Adds a hold task so Evo Loader does NOT self-dismiss until HideLoadingScreen() is called.
     /// </summary>
     public void ShowLoadingScreen()
     {
         if (loaderPrefab == null) return;
-        Evo.Loader.LoadingScreen.ShowTransition(loaderPrefab);
+        var active = Evo.Loader.LoadingScreen.GetInstance();
+        if (active != null)
+        {
+            EnsureHoldTask(active);
+            return;
+        }
+
+        active = Evo.Loader.LoadingScreen.ShowTransition(loaderPrefab);
+        if (active != null)
+        {
+            EnsureHoldTask(active);
+        }
     }
 
     /// <summary>
@@ -139,8 +150,15 @@ public class LoadingScreen : MonoBehaviour
     /// </summary>
     public void ShowImmediate()
     {
-        if (loaderPrefab == null) return;
-        Evo.Loader.LoadingScreen.ShowTransition(loaderPrefab);
+        ShowLoadingScreen();
+    }
+
+    private void EnsureHoldTask(Evo.Loader.LoadingScreen active)
+    {
+        if (active == null) return;
+        if (active.tasks != null && active.tasks.Exists(t => t.id == HOLD_TASK_ID && !t.isComplete))
+            return;
+        active.AddTask(HOLD_TASK_ID, "");
     }
 
     /// <summary>
@@ -151,11 +169,22 @@ public class LoadingScreen : MonoBehaviour
     {
         Evo.Loader.LoadingScreen active = Evo.Loader.LoadingScreen.GetInstance();
         if (active != null)
+        {
+            if (active.tasks != null)
+            {
+                for (int i = 0; i < active.tasks.Count; i++)
+                {
+                    if (active.tasks[i].id == HOLD_TASK_ID)
+                        active.tasks[i].isComplete = true;
+                }
+            }
+            active.CompleteTask(HOLD_TASK_ID);
             active.NotifyInputReceived();
+        }
     }
 
     // =========================================================================
-    //  Netcode Scene Event Interception
+    //  Scene Event Interception
     // =========================================================================
     private void SubscribeNetcodeSceneEvents()
     {
@@ -174,19 +203,49 @@ public class LoadingScreen : MonoBehaviour
         _netcodeSubscribed = false;
     }
 
+    private void OnEnable()
+    {
+        SubscribeNetcodeSceneEvents();
+        SceneManager.sceneLoaded += OnUnitySceneLoaded;
+    }
+
+    private void OnDisable()
+    {
+        UnsubscribeNetcodeSceneEvents();
+        SceneManager.sceneLoaded -= OnUnitySceneLoaded;
+    }
+
+    private void OnUnitySceneLoaded(Scene scene, LoadSceneMode mode)
+    {
+        if (scene.name.Equals("LoadingScene", System.StringComparison.OrdinalIgnoreCase) ||
+            scene.name.Equals("BootScene",    System.StringComparison.OrdinalIgnoreCase) ||
+            scene.name.Equals("Boot",         System.StringComparison.OrdinalIgnoreCase))
+        {
+            return;
+        }
+
+        // Destination scene (GameScene or LobbyScene) finished loading — hide after rendering
+        StartCoroutine(HideAfterOneFrame());
+    }
+
     private void OnNetcodeSceneEvent(SceneEvent sceneEvent)
     {
         switch (sceneEvent.SceneEventType)
         {
             case SceneEventType.Load:
-                // Netcode is loading a new scene for everyone — show the loading screen on this client.
+                // Netcode is loading a new scene for everyone — show and hold the loading screen on this client.
                 ShowLoadingScreen();
                 break;
 
             case SceneEventType.LoadComplete:
-                // Scene is live on this client — wait one frame so the new scene renders at least
-                // once before dismissing the loading screen, preventing a flash of the old scene
-                // on standalone builds.
+                // Scene is live on this client — wait until it renders then dismiss
+                if (NetworkManager.Singleton != null && sceneEvent.ClientId == NetworkManager.Singleton.LocalClientId)
+                {
+                    StartCoroutine(HideAfterOneFrame());
+                }
+                break;
+
+            case SceneEventType.LoadEventCompleted:
                 StartCoroutine(HideAfterOneFrame());
                 break;
         }
@@ -195,6 +254,7 @@ public class LoadingScreen : MonoBehaviour
     private System.Collections.IEnumerator HideAfterOneFrame()
     {
         yield return null;
+        yield return new WaitForEndOfFrame();
         HideLoadingScreen();
     }
 }

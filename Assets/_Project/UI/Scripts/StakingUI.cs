@@ -32,11 +32,11 @@ namespace NightCrawler.UI
         [Tooltip("The ErrorText label inside the Staking modal. Drag it here from the scene hierarchy.")]
         public TextMeshProUGUI stakeErrorText;
 
-        [Tooltip("Color shown on errorText while the warning is active (default red). Change to amber/yellow to soften it.")]
-        public Color warningActiveColor = new Color(1f, 0.45f, 0.1f, 1f); // Amber-orange instead of red
+        [Tooltip("Color shown on errorText while the warning is active (default red).")]
+        public Color warningActiveColor = new Color(0.95f, 0.25f, 0.25f, 1f); // Red
 
-        [Tooltip("Color shown on errorText once the player has made a valid selection (warning acknowledged).")]
-        public Color warningAcknowledgedColor = new Color(0.55f, 0.85f, 0.55f, 1f); // Soft green
+        [Tooltip("Color shown on errorText once the player has made a valid selection (warning acknowledged / green).")]
+        public Color warningAcknowledgedColor = new Color(0.2f, 0.9f, 0.3f, 1f); // Green
 
         [Header("Michsky Heat / Dark UI")]
         public ModalWindowManager heatStakingModal;

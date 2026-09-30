@@ -144,6 +144,9 @@ public class NetworkPlayer : NetworkBehaviour
                 virtualCamera.Follow = target;
                 virtualCamera.LookAt = target;
 
+                // Register camera with SpectatorController so it can always return to this camera on exit
+                SpectatorController.RegisterPlayerFollowCamera(virtualCamera);
+
                 // Force CinemachineBrain to instantly cut to the local player camera
                 CinemachineBrain brain = Camera.main != null
                     ? Camera.main.GetComponent<CinemachineBrain>()

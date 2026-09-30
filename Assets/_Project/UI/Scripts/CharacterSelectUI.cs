@@ -412,6 +412,9 @@ public class CharacterSelectUI : MonoBehaviour
         }
     }
 
+    private static readonly Color StakeValidColor = new Color(0.2f, 0.9f, 0.3f, 1f);   // Green when confirm active
+    private static readonly Color StakeInvalidColor = new Color(0.95f, 0.25f, 0.25f, 1f); // Red on error/warning
+
     private void EnsureStakeReferences()
     {
         if (stakeErrorText == null && matchStakeModal != null)
@@ -430,6 +433,8 @@ public class CharacterSelectUI : MonoBehaviour
         if (stakeErrorText != null)
         {
             stakeErrorText.richText = true;
+            var umt = stakeErrorText.GetComponent<Michsky.UI.Heat.UIManagerText>();
+            if (umt != null) umt.useCustomColor = true;
         }
     }
 
@@ -465,14 +470,19 @@ public class CharacterSelectUI : MonoBehaviour
 
         if (stakeErrorText != null)
         {
+            var umt = stakeErrorText.GetComponent<Michsky.UI.Heat.UIManagerText>();
+            if (umt != null) umt.useCustomColor = true;
+
             if (isValid)
             {
                 stakeErrorText.text = $"Ready to stake {CurrencyConfig.Format(stake)}";
+                stakeErrorText.color = StakeValidColor;
                 stakeErrorText.gameObject.SetActive(true);
             }
             else
             {
                 stakeErrorText.text = error;
+                stakeErrorText.color = StakeInvalidColor;
                 stakeErrorText.gameObject.SetActive(!string.IsNullOrEmpty(error));
             }
         }
@@ -553,7 +563,10 @@ public class CharacterSelectUI : MonoBehaviour
         {
             if (stakeErrorText != null)
             {
+                var umt = stakeErrorText.GetComponent<Michsky.UI.Heat.UIManagerText>();
+                if (umt != null) umt.useCustomColor = true;
                 stakeErrorText.text = error;
+                stakeErrorText.color = StakeInvalidColor;
                 stakeErrorText.gameObject.SetActive(true);
             }
             SetStakeConfirmInteractable(false);

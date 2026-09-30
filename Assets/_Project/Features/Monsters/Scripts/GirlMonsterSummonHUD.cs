@@ -740,7 +740,19 @@ namespace NightCrawler.Monsters
             else if (confirmationModal != null) confirmationModal.CloseWindow();
             CloseHUD();
 
-            StartCoroutine(SpectateSpawnedMonsterRoutine());
+            if (_activeSpectateRoutine != null) StopCoroutine(_activeSpectateRoutine);
+            _activeSpectateRoutine = StartCoroutine(SpectateSpawnedMonsterRoutine());
+        }
+
+        private Coroutine _activeSpectateRoutine;
+
+        public void CancelPendingSpectateRoutine()
+        {
+            if (_activeSpectateRoutine != null)
+            {
+                StopCoroutine(_activeSpectateRoutine);
+                _activeSpectateRoutine = null;
+            }
         }
 
         private System.Collections.IEnumerator SpectateSpawnedMonsterRoutine()

@@ -91,10 +91,81 @@ public class SpectatorController : MonoBehaviour
     public Michsky.UI.Heat.HotkeyEvent cursorHotkey;
 
     [Header("Camera Return Reference")]
-    [Tooltip("Drag PlayerFollowCamera_Local_0 from the scene hierarchy here. " +
-             "This is the virtual camera that follows the Girl and is the target we restore on exit. " +
-             "Set this ONCE in the Inspector so the exit logic never needs to search for it.")]
+    [Tooltip("Dynamic runtime reference to PlayerFollowCamera (auto-resolved when local player spawns).")]
     public CinemachineVirtualCameraBase playerFollowCamera;
+
+    private static CinemachineVirtualCameraBase s_RegisteredPlayerFollowCam;
+
+    /// <summary>
+    /// Called by NetworkPlayer when the local player's PlayerFollowCamera is spawned.
+    /// Eliminates the need to manually drag anything in the Editor Inspector.
+    /// </summary>
+    public static void RegisterPlayerFollowCamera(CinemachineVirtualCameraBase cam)
+    {
+        if (cam != null)
+        {
+            s_RegisteredPlayerFollowCam = cam;
+            if (SurvivorInstance != null) SurvivorInstance.playerFollowCamera = cam;
+            if (MonsterInstance != null) MonsterInstance.playerFollowCamera = cam;
+            if (_instance != null) _instance.playerFollowCamera = cam;
+        }
+    }
+
+    /// <summary>
+    /// Robustly resolves the local player's gameplay follow camera at runtime.
+    /// </summary>
+    public CinemachineVirtualCameraBase GetPlayerFollowCamera()
+    {
+        if (playerFollowCamera != null) return playerFollowCamera;
+        if (s_RegisteredPlayerFollowCam != null)
+        {
+            playerFollowCamera = s_RegisteredPlayerFollowCam;
+            return playerFollowCamera;
+        }
+
+        // 1. Check local NetworkPlayer
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null && NetworkManager.Singleton.LocalClient.PlayerObject != null)
+        {
+            if (NetworkManager.Singleton.LocalClient.PlayerObject.TryGetComponent<NetworkPlayer>(out var np) && np.virtualCamera != null)
+            {
+                playerFollowCamera = np.virtualCamera;
+                s_RegisteredPlayerFollowCam = playerFollowCamera;
+                return playerFollowCamera;
+            }
+        }
+
+        // 2. Search by runtime name format: "PlayerFollowCamera_Local_{id}"
+        ulong localId = NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0;
+        var camObj = GameObject.Find($"PlayerFollowCamera_Local_{localId}") ?? GameObject.Find("PlayerFollowCamera_Local_0");
+        if (camObj != null && camObj.TryGetComponent<CinemachineVirtualCameraBase>(out var vcam))
+        {
+            playerFollowCamera = vcam;
+            s_RegisteredPlayerFollowCam = playerFollowCamera;
+            return playerFollowCamera;
+        }
+
+        // 3. Fallback search all virtual cameras
+        var allCams = FindObjectsByType<CinemachineVirtualCameraBase>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        foreach (var c in allCams)
+        {
+            if (c == null || c == _cinemachineCam) continue;
+            if (c.gameObject.name.Contains("Spectator") || c.gameObject.name.Contains("MonsterSpawn")) continue;
+            if (c.gameObject.name.Contains("PlayerFollowCamera"))
+            {
+                playerFollowCamera = c;
+                s_RegisteredPlayerFollowCam = playerFollowCamera;
+                return playerFollowCamera;
+            }
+        }
+
+        if (_cachedGameplayCam != null && _cachedGameplayCam != _cinemachineCam)
+        {
+            playerFollowCamera = _cachedGameplayCam;
+            return playerFollowCamera;
+        }
+
+        return null;
+    }
 
     [Header("Michsky Heat / Dark UI")]
     [Tooltip("Optional: Michsky ProgressBar to display spectated player's health.")]
@@ -381,6 +452,20 @@ public class SpectatorController : MonoBehaviour
         {
             exitHotkeyEvent.onHotkeyPress.RemoveListener(ExitSpectating);
             exitHotkeyEvent.onHotkeyPress.AddListener(ExitSpectating);
+
+            // Also wire mouse clicks if there is a Button / ButtonManager on this hotkey element
+            var uiBtn = exitHotkeyEvent.GetComponentInChildren<UnityEngine.UI.Button>(true);
+            if (uiBtn != null)
+            {
+                uiBtn.onClick.RemoveListener(ExitSpectating);
+                uiBtn.onClick.AddListener(ExitSpectating);
+            }
+            var heatBtn = exitHotkeyEvent.GetComponentInChildren<Michsky.UI.Heat.ButtonManager>(true);
+            if (heatBtn != null)
+            {
+                heatBtn.onClick.RemoveListener(ExitSpectating);
+                heatBtn.onClick.AddListener(ExitSpectating);
+            }
         }
 
         UpdateSpectatorHotkeyLabels();
@@ -708,8 +793,14 @@ public class SpectatorController : MonoBehaviour
         if (!_isSpectating) return;
 
         _isSpectating = false;
-        _isStopping = true; // Block StartSpectating from calling StopAllCoroutines on our cleanup coroutines
+        _isStopping = false;
         _currentTarget = null;
+
+        // Cancel any pending monster summon spectate routines
+        if (NightCrawler.Monsters.GirlMonsterSummonHUD.Instance != null)
+        {
+            NightCrawler.Monsters.GirlMonsterSummonHUD.Instance.CancelPendingSpectateRoutine();
+        }
 
         // Immediately disable all spectator hotkeys so they can no longer
         // intercept Escape or other keys now that we are no longer spectating.
@@ -735,40 +826,23 @@ public class SpectatorController : MonoBehaviour
             NightCrawler.Monsters.GirlMonsterSummonHUD.Instance.monsterSpawnVirtualCamera.gameObject.SetActive(false);
         }
 
-        // 3. Find PlayerFollowCamera — prefer the direct Inspector reference, fall back to search.
-        // The Inspector reference is set once and never changes, guaranteeing no lookup failure.
-        CinemachineVirtualCameraBase playerCam = playerFollowCamera;
+        // 3. Find and restore PlayerFollowCamera
+        CinemachineVirtualCameraBase playerCam = GetPlayerFollowCamera();
 
-        if (playerCam == null)
-        {
-            // Fallback: dynamic search (only needed if Inspector field is not wired)
-            var allCams = FindObjectsByType<CinemachineVirtualCameraBase>(FindObjectsInactive.Include, FindObjectsSortMode.None);
-            foreach (var c in allCams)
-            {
-                if (c == null || c == _cinemachineCam) continue;
-                if (c.gameObject.name.Contains("Spectator") || c.gameObject.name.Contains("MonsterSpawn")) continue;
-                if (c.gameObject.name.Contains("PlayerFollowCamera"))
-                {
-                    playerCam = c;
-                    break;
-                }
-            }
-        }
-        if (playerCam == null && _cachedGameplayCam != null && _cachedGameplayCam != _cinemachineCam)
-            playerCam = _cachedGameplayCam;
-
-        // 4. Restore PlayerFollowCamera — just set priority and enable.
-        // Do NOT touch CinemachineBrain.DefaultBlend or .ActiveBlend:
-        //   - ActiveBlend is read-only in Cinemachine 3.x (causes silent failure).
-        //   - The Brain handles blending in its own LateUpdate automatically.
-        // By disabling _cinemachineCam (step 1 above, priority = -999999) and raising
-        // playerCam priority here, the Brain will cut to playerCam on its next LateUpdate.
         if (playerCam != null)
         {
             playerCam.gameObject.SetActive(true);
             playerCam.enabled = true;
             playerCam.Priority = 99999;
             playerCam.PreviousStateIsValid = false; // tells Brain to snap, not blend
+        }
+
+        // 4. Force CinemachineBrain to instantly Cut to the player camera
+        CinemachineBrain brain = Camera.main != null ? Camera.main.GetComponent<CinemachineBrain>() : FindFirstObjectByType<CinemachineBrain>();
+        if (brain != null)
+        {
+            brain.DefaultBlend = new CinemachineBlendDefinition(CinemachineBlendDefinition.Styles.Cut, 0f);
+            brain.ActiveBlend = null;
         }
 
         // 5. Restore local player controls and inputs
