@@ -492,10 +492,16 @@ public class LobbyUI : MonoBehaviour
             var hostModal = hostLobbyPanel.GetComponent<ModalWindowManager>();
             if (hostModal != null)
             {
+                // CRITICAL: If the host modal's cancelButton slot was pointing to the copy code button, decouple it!
+                if (hostModal.cancelButton == heatHostCopyCodeButton)
+                {
+                    hostModal.cancelButton = null;
+                }
+
                 hostModal.closeOnCancel = false;
                 hostModal.onCancel.RemoveListener(RequestDisconnect);
                 hostModal.onCancel.AddListener(RequestDisconnect);
-                if (hostModal.cancelButton != null)
+                if (hostModal.cancelButton != null && hostModal.cancelButton != heatHostCopyCodeButton)
                 {
                     MichskyUIBridge.BindButton(null, hostModal.cancelButton, RequestDisconnect);
                 }
@@ -1105,6 +1111,19 @@ public class LobbyUI : MonoBehaviour
             codeToCopy = RelayManager.Instance.CurrentJoinCode;
         }
 
+        if (string.IsNullOrEmpty(codeToCopy) && hostJoinCodeText != null && !string.IsNullOrEmpty(hostJoinCodeText.text))
+        {
+            string t = hostJoinCodeText.text.Trim();
+            if (t.StartsWith("JOIN CODE:", System.StringComparison.OrdinalIgnoreCase))
+            {
+                codeToCopy = t.Substring("JOIN CODE:".Length).Trim();
+            }
+            else
+            {
+                codeToCopy = t;
+            }
+        }
+
         if (!string.IsNullOrEmpty(codeToCopy))
         {
             GUIUtility.systemCopyBuffer = codeToCopy;
@@ -1118,7 +1137,7 @@ public class LobbyUI : MonoBehaviour
 
     private IEnumerator ShowCopyFeedbackRoutine()
     {
-        MichskyUIBridge.SetButtonText(heatHostCopyCodeButton, "COPIED! \u2713");
+        MichskyUIBridge.SetButtonText(heatHostCopyCodeButton, "COPIED!");
 
         yield return new WaitForSeconds(1.5f);
 

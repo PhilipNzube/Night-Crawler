@@ -177,7 +177,20 @@ public class PlayerHUD : MonoBehaviour
 
         // Bind to target
         _isDemon = false;
-        if (demonPanel != null) demonPanel.SetActive(false);
+        if (demonPanel != null)
+        {
+            var cg = demonPanel.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 0f;
+                cg.interactable = false;
+                cg.blocksRaycasts = false;
+            }
+            else
+            {
+                demonPanel.SetActive(false);
+            }
+        }
 
         // Turn on minimap if target is an Adventurer/Explorer
         AdventurerMinimapSetup.OnPossessionChanged(targetObj, true);
@@ -347,7 +360,20 @@ public class PlayerHUD : MonoBehaviour
         }
 
         // Configure role-specific panels
-        if (demonPanel != null) demonPanel.SetActive(_isDemon);
+        if (demonPanel != null)
+        {
+            var cg = demonPanel.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = _isDemon ? 1f : 0f;
+                cg.interactable = _isDemon;
+                cg.blocksRaycasts = _isDemon;
+            }
+            else
+            {
+                demonPanel.SetActive(_isDemon);
+            }
+        }
         _isBound = true;
         // Ensure auxiliary HUD overlays (Corpse looting prompt, Blood damage vignette) are active
         var interactionHUD = GetComponentInChildren<ContextInteractionHUD>(true);

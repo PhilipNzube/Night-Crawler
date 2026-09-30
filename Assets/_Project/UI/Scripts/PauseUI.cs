@@ -37,17 +37,34 @@ public class PauseUI : MonoBehaviour
     [Tooltip("The Exit Confirmation Modal Window (ModalWindowManager).")]
     public ModalWindowManager exitModal;
 
+    [Header("Escape / Hotkey Indicator (Optional)")]
+    [Tooltip("Optional Michsky Heat HotkeyEvent for Resume/Back (e.g. EscHotkey under PauseCanvas).")]
+    public HotkeyEvent escapeHotkey;
+
     // -------------------------------------------------------------------------
     //  State helpers for PauseManager ESC navigation
     // -------------------------------------------------------------------------
-    public bool IsSettingsOpen => panelManager != null && panelManager.panels.Count > panelManager.currentPanelIndex
-                               && panelManager.panels[panelManager.currentPanelIndex].panelName == settingsPanelName;
+    public bool IsSettingsOpen
+    {
+        get
+        {
+            if (panelManager == null || panelManager.panels == null || panelManager.panels.Count == 0)
+                return false;
+
+            if (panelManager.currentPanelIndex < 0 || panelManager.currentPanelIndex >= panelManager.panels.Count)
+                return false;
+
+            string currentName = panelManager.panels[panelManager.currentPanelIndex].panelName;
+            return currentName == settingsPanelName || (!string.IsNullOrEmpty(pausePanelName) && currentName != pausePanelName);
+        }
+    }
 
     public bool IsExitDialogOpen => exitModal != null && exitModal.isOn;
 
     private PauseManager _pauseManager;
     private Canvas _canvas;
     private CanvasGroup _canvasGroup;
+    private int _pauseOpenFrame = -1;
 
     private void Awake()
     {
@@ -80,13 +97,20 @@ public class PauseUI : MonoBehaviour
             exitModal.onCancel.AddListener(CloseExitDialog);
         }
 
-        // Disable any HotkeyEvent components inside pause canvas to prevent conflicts with PauseManager
+        if (escapeHotkey != null)
+        {
+            escapeHotkey.onHotkeyPress.RemoveListener(OnResumePressed);
+            escapeHotkey.onHotkeyPress.RemoveListener(OnEscapePressed);
+            escapeHotkey.onHotkeyPress.AddListener(OnEscapePressed);
+        }
+
+        // Disable any other HotkeyEvent components inside pause canvas to prevent conflicts with PauseManager
         if (pauseCanvas != null)
         {
             var hotkeys = pauseCanvas.GetComponentsInChildren<HotkeyEvent>(true);
             for (int i = 0; i < hotkeys.Length; i++)
             {
-                if (hotkeys[i] != null) hotkeys[i].enabled = false;
+                if (hotkeys[i] != null && hotkeys[i] != escapeHotkey) hotkeys[i].enabled = false;
             }
         }
 
@@ -105,17 +129,23 @@ public class PauseUI : MonoBehaviour
     // =========================================================================
     public void ShowPauseMenu()
     {
+        _pauseOpenFrame = Time.frameCount;
         StopAllCoroutines();
         SetCanvasState(true);
 
-        // Disable any HotkeyEvent components inside pause canvas to prevent them from hijacking ESC and immediately closing the menu
+        // Disable any other HotkeyEvent components inside pause canvas to prevent them from hijacking ESC
         if (pauseCanvas != null)
         {
             var hotkeys = pauseCanvas.GetComponentsInChildren<HotkeyEvent>(true);
             for (int i = 0; i < hotkeys.Length; i++)
             {
-                if (hotkeys[i] != null) hotkeys[i].enabled = false;
+                if (hotkeys[i] != null && hotkeys[i] != escapeHotkey) hotkeys[i].enabled = false;
             }
+        }
+
+        if (escapeHotkey != null)
+        {
+            escapeHotkey.enabled = true;
         }
 
 
@@ -143,6 +173,8 @@ public class PauseUI : MonoBehaviour
                 }
             }
         }
+
+        UpdateEscapeHotkeyVisuals();
 
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
@@ -189,19 +221,75 @@ public class PauseUI : MonoBehaviour
 
     public void CloseSettings()
     {
-        if (panelManager != null) panelManager.OpenPanel(pausePanelName);
+        if (panelManager != null)
+        {
+            panelManager.OpenPanel(pausePanelName);
+            panelManager.ShowCurrentPanel();
+        }
+        UpdateEscapeHotkeyVisuals();
     }
 
     public void CloseExitDialog()
     {
         if (exitModal != null && exitModal.isOn) exitModal.CloseWindow();
+        UpdateEscapeHotkeyVisuals();
     }
 
     // =========================================================================
-    //  Button Handlers
+    //  Hotkey & Button Handlers
     // =========================================================================
+
+    /// <summary>
+    /// Handles ESC hotkey action matching normal Escape button hierarchical behavior:
+    ///   1st priority — close Exit confirmation dialog if open
+    ///   2nd priority — close Settings and return to Pause Menu if Settings is open
+    ///   3rd priority — close Pause Menu and resume game
+    /// </summary>
+    public void OnEscapePressed()
+    {
+        if (Time.frameCount == _pauseOpenFrame) return;
+
+        // 1. If Exit dialog is open, close it (stay in Pause Menu)
+        if (IsExitDialogOpen)
+        {
+            CloseExitDialog();
+            return;
+        }
+
+        // 2. If Settings panel is open, close Settings and return to Pause Menu
+        if (IsSettingsOpen)
+        {
+            CloseSettings();
+            return;
+        }
+
+        // 3. Otherwise, on the main Pause Menu, resume game
+        OnResumePressed();
+    }
+
+    public void UpdateEscapeHotkeyVisuals()
+    {
+        if (escapeHotkey == null) return;
+
+        string desiredLabel = IsExitDialogOpen ? "CANCEL" : (IsSettingsOpen ? "BACK" : "RESUME");
+        if (escapeHotkey.hotkeyLabel != desiredLabel)
+        {
+            escapeHotkey.hotkeyLabel = desiredLabel;
+            escapeHotkey.UpdateUI();
+        }
+    }
+
+    private void Update()
+    {
+        if (!PauseManager.IsGamePaused) return;
+
+        UpdateEscapeHotkeyVisuals();
+    }
+
     public void OnResumePressed()
     {
+        if (Time.frameCount == _pauseOpenFrame) return;
+
         if (_pauseManager != null)
             _pauseManager.ResumeGame();
         else
@@ -212,6 +300,7 @@ public class PauseUI : MonoBehaviour
     {
         if (panelManager != null)
             panelManager.OpenPanel(settingsPanelName);
+        UpdateEscapeHotkeyVisuals();
     }
 
     public void OnExitPressed()
@@ -220,6 +309,7 @@ public class PauseUI : MonoBehaviour
             exitModal.OpenWindow();
         else
             ConfirmDisconnect();
+        UpdateEscapeHotkeyVisuals();
     }
 
     public void ConfirmDisconnect()

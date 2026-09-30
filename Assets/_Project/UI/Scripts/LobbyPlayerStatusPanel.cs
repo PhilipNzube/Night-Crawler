@@ -53,6 +53,10 @@ public class LobbyPlayerStatusPanel : MonoBehaviour
     [Tooltip("Format for the subtext label. {0} = Player Level, {1} = Role Name. Example: '{1}' for just role name, or 'Lv. {0} • {1}'")]
     public string subtextFormat = "{1}";
 
+    [Header("Status Header")]
+    [Tooltip("Text displaying 'Waiting for players...' or ready status. Auto-found on 'WaitText' if null.")]
+    public TextMeshProUGUI statusHeaderText;
+
     private readonly List<GameObject> _statusRows = new List<GameObject>();
 
     private void Awake()
@@ -71,6 +75,30 @@ public class LobbyPlayerStatusPanel : MonoBehaviour
         if (playerStatusRowPrefab == null)
         {
             Debug.LogWarning("[LobbyPlayerStatusPanel] playerStatusRowPrefab is not assigned in the Inspector. Please drag HeatPlayerStatusRow.prefab into playerStatusRowPrefab.");
+        }
+
+        if (statusHeaderText == null)
+        {
+            Transform waitT = transform.Find("WaitText");
+            if (waitT != null)
+                statusHeaderText = waitT.GetComponent<TextMeshProUGUI>();
+            else
+                statusHeaderText = GetComponentInChildren<TextMeshProUGUI>(true);
+        }
+
+        if (statusHeaderText != null)
+        {
+            statusHeaderText.richText = true;
+            if (statusHeaderText.rectTransform != null)
+            {
+                // Ensure sufficient width so rich text and counts never wrap/truncate
+                Vector2 size = statusHeaderText.rectTransform.sizeDelta;
+                if (size.x < 420f)
+                {
+                    size.x = 450f;
+                    statusHeaderText.rectTransform.sizeDelta = size;
+                }
+            }
         }
     }
 
@@ -99,6 +127,9 @@ public class LobbyPlayerStatusPanel : MonoBehaviour
 
             PlayerReadyTracker.Instance.OnReadyStatesUpdated -= HandleReadyStatesUpdated;
             PlayerReadyTracker.Instance.OnReadyStatesUpdated += HandleReadyStatesUpdated;
+
+            PlayerReadyTracker.Instance.OnAllPlayersReady -= HandleAllPlayersReady;
+            PlayerReadyTracker.Instance.OnAllPlayersReady += HandleAllPlayersReady;
         }
     }
 
@@ -108,6 +139,33 @@ public class LobbyPlayerStatusPanel : MonoBehaviour
         {
             PlayerReadyTracker.Instance.OnPlayerLobbyStatesUpdated -= HandlePlayerLobbyStatesUpdated;
             PlayerReadyTracker.Instance.OnReadyStatesUpdated -= HandleReadyStatesUpdated;
+            PlayerReadyTracker.Instance.OnAllPlayersReady -= HandleAllPlayersReady;
+        }
+    }
+
+    private void HandleAllPlayersReady()
+    {
+        if (statusHeaderText != null)
+        {
+            statusHeaderText.text = "<color=#2ECC71>ALL OPERATIVES READY • INITIATING DESCENT...</color>";
+        }
+    }
+
+    public void UpdateStatusHeader(int readyCount, int totalCount)
+    {
+        if (statusHeaderText == null) return;
+
+        if (totalCount > 0 && readyCount >= totalCount)
+        {
+            statusHeaderText.text = "<color=#2ECC71>ALL OPERATIVES READY • INITIATING DESCENT...</color>";
+        }
+        else if (totalCount > 0)
+        {
+            statusHeaderText.text = $"WAITING FOR PLAYERS ({readyCount}/{totalCount} READY)...";
+        }
+        else
+        {
+            statusHeaderText.text = "WAITING FOR PLAYERS...";
         }
     }
 
@@ -148,30 +206,39 @@ public class LobbyPlayerStatusPanel : MonoBehaviour
         }
         _statusRows.Clear();
 
-        foreach (var kvp in snapshot)
+        int readyCount = 0;
+        int totalCount = snapshot != null ? snapshot.Count : 0;
+
+        if (snapshot != null)
         {
-            PlayerLobbyInfo info = kvp.Value;
-            GameObject row = Instantiate(playerStatusRowPrefab, playerStatusContainer);
-            _statusRows.Add(row);
-
-            string roleName = GetRoleNameForCharacter(info.characterIndex, info.isGirl);
-            string subtext = !string.IsNullOrEmpty(subtextFormat) 
-                ? string.Format(subtextFormat, info.playerLevel, roleName) 
-                : roleName;
-
-            HeatPlayerStatusRow heatRow = row.GetComponent<HeatPlayerStatusRow>();
-            if (heatRow != null)
+            foreach (var kvp in snapshot)
             {
-                heatRow.Setup(info.playerName, info.isReady, subtext);
-            }
-            else
-            {
-                var texts = row.GetComponentsInChildren<TextMeshProUGUI>(true);
-                if (texts.Length >= 1) texts[0].text = info.playerName;
-                if (texts.Length >= 2) texts[1].text = subtext;
+                PlayerLobbyInfo info = kvp.Value;
+                if (info.isReady) readyCount++;
+
+                GameObject row = Instantiate(playerStatusRowPrefab, playerStatusContainer);
+                _statusRows.Add(row);
+
+                string roleName = GetRoleNameForCharacter(info.characterIndex, info.isGirl);
+                string subtext = !string.IsNullOrEmpty(subtextFormat) 
+                    ? string.Format(subtextFormat, info.playerLevel, roleName) 
+                    : roleName;
+
+                HeatPlayerStatusRow heatRow = row.GetComponent<HeatPlayerStatusRow>();
+                if (heatRow != null)
+                {
+                    heatRow.Setup(info.playerName, info.isReady, subtext);
+                }
+                else
+                {
+                    var texts = row.GetComponentsInChildren<TextMeshProUGUI>(true);
+                    if (texts.Length >= 1) texts[0].text = info.playerName;
+                    if (texts.Length >= 2) texts[1].text = subtext;
+                }
             }
         }
 
+        UpdateStatusHeader(readyCount, totalCount);
         RebuildLayout();
     }
 
@@ -185,28 +252,37 @@ public class LobbyPlayerStatusPanel : MonoBehaviour
         }
         _statusRows.Clear();
 
-        foreach (var kvp in snapshot)
+        int readyCount = 0;
+        int totalCount = snapshot != null ? snapshot.Count : 0;
+
+        if (snapshot != null)
         {
-            GameObject row = Instantiate(playerStatusRowPrefab, playerStatusContainer);
-            _statusRows.Add(row);
-
-            string subtext = !string.IsNullOrEmpty(subtextFormat) 
-                ? string.Format(subtextFormat, 1, defaultRoleName) 
-                : defaultRoleName;
-
-            HeatPlayerStatusRow heatRow = row.GetComponent<HeatPlayerStatusRow>();
-            if (heatRow != null)
+            foreach (var kvp in snapshot)
             {
-                heatRow.Setup(kvp.Value.name, kvp.Value.ready, subtext);
-            }
-            else
-            {
-                var texts = row.GetComponentsInChildren<TextMeshProUGUI>(true);
-                if (texts.Length >= 1) texts[0].text = kvp.Value.name;
-                if (texts.Length >= 2) texts[1].text = subtext;
+                if (kvp.Value.ready) readyCount++;
+
+                GameObject row = Instantiate(playerStatusRowPrefab, playerStatusContainer);
+                _statusRows.Add(row);
+
+                string subtext = !string.IsNullOrEmpty(subtextFormat) 
+                    ? string.Format(subtextFormat, 1, defaultRoleName) 
+                    : defaultRoleName;
+
+                HeatPlayerStatusRow heatRow = row.GetComponent<HeatPlayerStatusRow>();
+                if (heatRow != null)
+                {
+                    heatRow.Setup(kvp.Value.name, kvp.Value.ready, subtext);
+                }
+                else
+                {
+                    var texts = row.GetComponentsInChildren<TextMeshProUGUI>(true);
+                    if (texts.Length >= 1) texts[0].text = kvp.Value.name;
+                    if (texts.Length >= 2) texts[1].text = subtext;
+                }
             }
         }
 
+        UpdateStatusHeader(readyCount, totalCount);
         RebuildLayout();
     }
 

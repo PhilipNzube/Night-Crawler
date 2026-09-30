@@ -8,6 +8,7 @@ using TMPro;
 /// Shows target victim name, formatted remaining time (00:00), and dynamic exit prompt
 /// that adapts between keyboard [E] and official Heat UI controller icons.
 /// </summary>
+[RequireComponent(typeof(CanvasGroup))]
 public class PossessionActiveHUD : MonoBehaviour
 {
     private static PossessionActiveHUD _instance;
@@ -18,10 +19,6 @@ public class PossessionActiveHUD : MonoBehaviour
             if (_instance == null)
             {
                 _instance = FindFirstObjectByType<PossessionActiveHUD>(FindObjectsInactive.Include);
-                if (_instance != null && !_instance.gameObject.activeInHierarchy)
-                {
-                    _instance.gameObject.SetActive(true);
-                }
             }
             return _instance;
         }
@@ -49,6 +46,9 @@ public class PossessionActiveHUD : MonoBehaviour
     [Tooltip("Text component displaying the keyboard key inside Text Parent (e.g. 'E').")]
     public TMP_Text exitKeyText;
 
+    [Header("Canvas Group Visibility")]
+    public CanvasGroup canvasGroup;
+
     private GirlPossession _activeGirlPossession;
     private bool _isActive = false;
 
@@ -63,6 +63,14 @@ public class PossessionActiveHUD : MonoBehaviour
 
         EnsureReferences();
         Hide();
+    }
+
+    private void Start()
+    {
+        if (!_isActive)
+        {
+            Hide();
+        }
     }
 
     private void OnEnable()
@@ -160,6 +168,28 @@ public class PossessionActiveHUD : MonoBehaviour
                 else exitKeyText = textParent.GetComponentInChildren<TMP_Text>(true);
             }
         }
+
+        if (canvasGroup == null)
+        {
+            canvasGroup = GetComponent<CanvasGroup>();
+            if (canvasGroup == null && Application.isPlaying)
+            {
+                canvasGroup = gameObject.AddComponent<CanvasGroup>();
+            }
+        }
+
+        // Auto-correct RectTransform if placed in negative off-screen coordinate or incorrect anchors
+        if (transform is RectTransform rt)
+        {
+            if (rt.anchorMin.x < 0.1f && rt.anchorMax.x < 0.1f && rt.anchoredPosition.x < -10f)
+            {
+                rt.anchorMin = new Vector2(0.5f, 1f);
+                rt.anchorMax = new Vector2(0.5f, 1f);
+                rt.pivot = new Vector2(0.5f, 1f);
+                rt.anchoredPosition = new Vector2(0f, -40f);
+                rt.sizeDelta = new Vector2(340f, 100f);
+            }
+        }
     }
 
     private void Update()
@@ -191,6 +221,17 @@ public class PossessionActiveHUD : MonoBehaviour
 
     public void Show(string victimName, GirlPossession girlPossession)
     {
+        // Safety: Only show if the local player is actually the Girl possessing a target
+        if (girlPossession != null && !girlPossession.IsOwner)
+        {
+            return;
+        }
+
+        if (!gameObject.activeSelf)
+        {
+            gameObject.SetActive(true);
+        }
+
         EnsureReferences();
         _activeGirlPossession = girlPossession;
         _isActive = true;
@@ -202,11 +243,17 @@ public class PossessionActiveHUD : MonoBehaviour
 
         UpdatePromptDisplay();
 
-        if (hudContainer != null)
+        if (canvasGroup != null)
+        {
+            canvasGroup.alpha = 1f;
+            canvasGroup.interactable = false;
+            canvasGroup.blocksRaycasts = false;
+        }
+
+        if (hudContainer != null && !hudContainer.activeSelf)
         {
             hudContainer.SetActive(true);
         }
-        gameObject.SetActive(true);
 
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
@@ -252,16 +299,33 @@ public class PossessionActiveHUD : MonoBehaviour
 
     public void Hide()
     {
+        bool wasActive = _isActive;
         _isActive = false;
         _activeGirlPossession = null;
 
-        if (hudContainer != null)
+        EnsureReferences();
+
+        if (canvasGroup != null)
+        {
+            canvasGroup.alpha = 0f;
+            canvasGroup.interactable = false;
+            canvasGroup.blocksRaycasts = false;
+        }
+
+        if (hudContainer != null && hudContainer != gameObject)
         {
             hudContainer.SetActive(false);
         }
+        else
+        {
+            gameObject.SetActive(false);
+        }
 
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
+        if (wasActive)
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
     }
 
     public void OnReleaseClicked()

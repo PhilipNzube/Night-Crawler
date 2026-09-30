@@ -26,7 +26,19 @@ public struct PlayerLobbyInfo
 [DisallowMultipleComponent]
 public class PlayerReadyTracker : NetworkBehaviour
 {
-    public static PlayerReadyTracker Instance { get; private set; }
+    private static PlayerReadyTracker _instance;
+    public static PlayerReadyTracker Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                _instance = FindFirstObjectByType<PlayerReadyTracker>(FindObjectsInactive.Include);
+            }
+            return _instance;
+        }
+        private set => _instance = value;
+    }
 
     // Fired on every client whenever the ready-state snapshot changes (legacy tuple).
     public event Action<Dictionary<ulong, (string name, bool ready)>> OnReadyStatesUpdated;
@@ -34,7 +46,7 @@ public class PlayerReadyTracker : NetworkBehaviour
     // Fired on every client with rich info: (playerName, isReady, playerLevel, characterIndex, isGirl).
     public event Action<Dictionary<ulong, PlayerLobbyInfo>> OnPlayerLobbyStatesUpdated;
 
-    // Fired on the server when all players are ready.
+    // Fired on every client and host when all players are ready.
     public event Action OnAllPlayersReady;
 
     // Server state
@@ -55,10 +67,23 @@ public class PlayerReadyTracker : NetworkBehaviour
 
     public bool AllPlayersReady => IsSnapshotAllReady();
 
+    public int ReadyCount
+    {
+        get
+        {
+            int count = 0;
+            foreach (var kvp in _lobbySnapshot)
+                if (kvp.Value.isReady) count++;
+            return count;
+        }
+    }
+
+    public int TotalCount => _lobbySnapshot.Count;
+
     void Awake()
     {
-        if (Instance != null && Instance != this) { Destroy(gameObject); return; }
-        Instance = this;
+        if (_instance != null && _instance != this) { Destroy(gameObject); return; }
+        _instance = this;
     }
 
     // =========================================================================
@@ -263,6 +288,9 @@ public class PlayerReadyTracker : NetworkBehaviour
 
     private void CheckAllReady()
     {
+        if (IsSpawned && !_trackingStarted) return;
+        if (_investigatorReady.Count == 0 && _girlClientId == ulong.MaxValue) return;
+
         bool investigatorsDone = true;
         foreach (var kvp in _investigatorReady)
             if (!kvp.Value) { investigatorsDone = false; break; }
@@ -272,10 +300,25 @@ public class PlayerReadyTracker : NetworkBehaviour
         if (investigatorsDone && girlDone)
         {
             Debug.Log("[PlayerReadyTracker] All players ready!");
-            OnAllPlayersReady?.Invoke();
+            if (IsServer && IsSpawned)
+            {
+                BroadcastAllPlayersReadyClientRpc();
+            }
+            else
+            {
+                OnAllPlayersReady?.Invoke();
+            }
+
             if (GirlRevealManager.Instance != null)
                 GirlRevealManager.Instance.OnAllTrackerPlayersReady();
         }
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void BroadcastAllPlayersReadyClientRpc()
+    {
+        Debug.Log("[PlayerReadyTracker] All players confirmed ready across network.");
+        OnAllPlayersReady?.Invoke();
     }
 
     private bool IsSnapshotAllReady()

@@ -90,6 +90,11 @@ public class GirlPlayerScreen : MonoBehaviour
     [Tooltip("Fallback root GameObject for the player status panel.")]
     public GameObject playerStatusPanel;
 
+    [Header("Departure Countdown (Girl Screen)")]
+    [Tooltip("Optional text displaying countdown before game loads. Auto-created if null.")]
+    public TextMeshProUGUI departureCountdownText;
+    private Coroutine _departureCountdownRoutine;
+
     // =========================================================================
     //  Inspector — Exit Confirmation Modal & Hotkey (Manual Wiring — No Auto-Find)
     // =========================================================================
@@ -257,6 +262,7 @@ public class GirlPlayerScreen : MonoBehaviour
         {
             PlayerReadyTracker.Instance.OnReadyStatesUpdated += HandleReadyStatesUpdated;
             PlayerReadyTracker.Instance.OnPlayerLobbyStatesUpdated += HandlePlayerLobbyStatesUpdated;
+            PlayerReadyTracker.Instance.OnAllPlayersReady += HandleAllPlayersReady;
         }
     }
 
@@ -268,10 +274,17 @@ public class GirlPlayerScreen : MonoBehaviour
             _readyDelayCoroutine = null;
         }
 
+        if (_departureCountdownRoutine != null)
+        {
+            StopCoroutine(_departureCountdownRoutine);
+            _departureCountdownRoutine = null;
+        }
+
         if (PlayerReadyTracker.Instance != null)
         {
             PlayerReadyTracker.Instance.OnReadyStatesUpdated -= HandleReadyStatesUpdated;
             PlayerReadyTracker.Instance.OnPlayerLobbyStatesUpdated -= HandlePlayerLobbyStatesUpdated;
+            PlayerReadyTracker.Instance.OnAllPlayersReady -= HandleAllPlayersReady;
         }
 
         DestroyModel();
@@ -479,10 +492,6 @@ public class GirlPlayerScreen : MonoBehaviour
     {
         if (_readySent) return;
 
-        // ── Show loading screen immediately so the player doesn't see Unity freeze ──
-        if (LoadingScreen.Instance != null)
-            LoadingScreen.Instance.ShowImmediate();
-
         PersistentCharacterSelection.SetSavedMatchStake(stake);
         if (CloudCharacterSaveManager.Instance != null)
         {
@@ -513,11 +522,52 @@ public class GirlPlayerScreen : MonoBehaviour
         {
             int localLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetPlayerLevel() : 1;
             PlayerReadyTracker.Instance.ReportGirlReady(localLvl);
+
+            if (PlayerReadyTracker.Instance.AllPlayersReady)
+            {
+                HandleAllPlayersReady();
+            }
         }
 
         // Legacy fallback: GirlRevealManager
         if (GirlRevealManager.Instance != null)
             GirlRevealManager.Instance.ReportGirlReady();
+    }
+
+    private void HandleAllPlayersReady()
+    {
+        if (_departureCountdownRoutine != null) return;
+        _departureCountdownRoutine = StartCoroutine(RunDepartureCountdown());
+    }
+
+    private IEnumerator RunDepartureCountdown()
+    {
+        if (departureCountdownText != null)
+        {
+            departureCountdownText.gameObject.SetActive(true);
+        }
+
+        for (int i = 3; i >= 1; i--)
+        {
+            if (departureCountdownText != null)
+            {
+                departureCountdownText.text = $"<size=75%>ALL OPERATIVES READY</size>\n<color=#FF0055><b>THE HUNT BEGINS IN {i}...</b></color>";
+            }
+
+            if (i == 1 && LoadingScreen.Instance != null)
+            {
+                LoadingScreen.Instance.ShowImmediate();
+            }
+
+            yield return new WaitForSecondsRealtime(1f);
+        }
+
+        if (departureCountdownText != null)
+        {
+            departureCountdownText.gameObject.SetActive(false);
+        }
+
+        _departureCountdownRoutine = null;
     }
 
     private void HandlePlayerLobbyStatesUpdated(Dictionary<ulong, PlayerLobbyInfo> snapshot)

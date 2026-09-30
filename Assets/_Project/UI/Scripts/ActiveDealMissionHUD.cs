@@ -21,6 +21,7 @@ namespace NightCrawler.UI
 
         [Header("UI Controls")]
         public GameObject missionPanel;
+        public CanvasGroup canvasGroup;
         public TextMeshProUGUI missionTitleText;
         public TextMeshProUGUI missionTimerText;
 
@@ -40,11 +41,21 @@ namespace NightCrawler.UI
             }
             Instance = this;
 
+            if (canvasGroup == null)
+            {
+                canvasGroup = GetComponent<CanvasGroup>() ?? (missionPanel != null ? missionPanel.GetComponent<CanvasGroup>() : null);
+            }
+
             _audioSource = GetComponent<AudioSource>();
             if (_audioSource == null)
             {
                 _audioSource = gameObject.AddComponent<AudioSource>();
                 _audioSource.spatialBlend = 0f;
+            }
+
+            if (!gameObject.activeSelf)
+            {
+                gameObject.SetActive(true);
             }
 
             SetVisible(false);
@@ -78,6 +89,11 @@ namespace NightCrawler.UI
 
         public void StartMission(string title, string terms, int durationSeconds, int penaltyAmount)
         {
+            if (!gameObject.activeSelf)
+            {
+                gameObject.SetActive(true);
+            }
+
             _activeMissionTitle = title;
             _totalDuration = Mathf.Max(30f, durationSeconds);
             _timeRemaining = _totalDuration;
@@ -88,8 +104,6 @@ namespace NightCrawler.UI
             {
                 missionTitleText.text = $"<b>PACT OBJECTIVE:</b> {title}";
             }
-
-
 
             SetVisible(true);
             Debug.Log($"[ActiveDealMissionHUD] Started pact mission '{title}' with {durationSeconds}s timer and {penaltyAmount} penalty.");
@@ -110,7 +124,14 @@ namespace NightCrawler.UI
                 NotificationManager.Instance.ShowNotification("PACT FULFILLED: The dark forces are pleased. Your stake is safe.", 4f);
             }
 
-            StartCoroutine(HideAfterDelay(3.5f));
+            if (gameObject.activeInHierarchy)
+            {
+                StartCoroutine(HideAfterDelay(3.5f));
+            }
+            else
+            {
+                SetVisible(false);
+            }
         }
 
         public void FailMission()
@@ -131,7 +152,14 @@ namespace NightCrawler.UI
                 missionTitleText.text = "<b>PACT FAILED — TIME EXPIRED</b>";
             }
 
-            StartCoroutine(HideAfterDelay(4.5f));
+            if (gameObject.activeInHierarchy)
+            {
+                StartCoroutine(HideAfterDelay(4.5f));
+            }
+            else
+            {
+                SetVisible(false);
+            }
         }
 
         private IEnumerator HideAfterDelay(float delay)
@@ -142,7 +170,13 @@ namespace NightCrawler.UI
 
         private void SetVisible(bool visible)
         {
-            if (missionPanel != null)
+            if (canvasGroup != null)
+            {
+                canvasGroup.alpha = visible ? 1f : 0f;
+                canvasGroup.interactable = visible;
+                canvasGroup.blocksRaycasts = visible;
+            }
+            else if (missionPanel != null && missionPanel != gameObject)
             {
                 missionPanel.SetActive(visible);
             }

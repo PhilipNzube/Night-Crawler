@@ -321,14 +321,24 @@ public class GirlRevealManager : NetworkBehaviour
         CheckAllReady();
     }
 
+    private Coroutine _serverDepartureRoutine;
+
     /// <summary>
     /// Called by PlayerReadyTracker when ALL players (girl + all investigators) are ready.
-    /// This is the definitive trigger for scene loading.
+    /// Runs a synced countdown before definitively loading the scene.
     /// </summary>
     public void OnAllTrackerPlayersReady()
     {
         if (!IsServer) return;
-        Debug.Log("[GirlRevealManager] PlayerReadyTracker confirmed all ready — loading game scene.");
+        if (_serverDepartureRoutine != null) return;
+        Debug.Log("[GirlRevealManager] PlayerReadyTracker confirmed all ready — beginning 3.5s departure countdown before loading scene.");
+        _serverDepartureRoutine = StartCoroutine(ServerDepartureRoutine());
+    }
+
+    private System.Collections.IEnumerator ServerDepartureRoutine()
+    {
+        yield return new WaitForSecondsRealtime(3.5f);
+        _serverDepartureRoutine = null;
         LoadGameScene();
     }
 

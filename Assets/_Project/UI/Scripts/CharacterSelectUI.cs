@@ -338,6 +338,7 @@ public class CharacterSelectUI : MonoBehaviour
         {
             PlayerReadyTracker.Instance.OnReadyStatesUpdated += HandleReadyStatesUpdated;
             PlayerReadyTracker.Instance.OnPlayerLobbyStatesUpdated += HandlePlayerLobbyStatesUpdated;
+            PlayerReadyTracker.Instance.OnAllPlayersReady += HandleAllPlayersReady;
         }
     }
 
@@ -350,6 +351,7 @@ public class CharacterSelectUI : MonoBehaviour
         {
             PlayerReadyTracker.Instance.OnReadyStatesUpdated -= HandleReadyStatesUpdated;
             PlayerReadyTracker.Instance.OnPlayerLobbyStatesUpdated -= HandlePlayerLobbyStatesUpdated;
+            PlayerReadyTracker.Instance.OnAllPlayersReady -= HandleAllPlayersReady;
         }
     }
 
@@ -630,8 +632,14 @@ public class CharacterSelectUI : MonoBehaviour
             playerStatusPanel.SetActive(true);
 
         bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
-        if (forceInvestigator || PlayerReadyTracker.Instance == null)
+        if (forceInvestigator)
+        {
             GoToSquadScreen();
+        }
+        else if (PlayerReadyTracker.Instance != null && PlayerReadyTracker.Instance.AllPlayersReady)
+        {
+            GoToSquadScreen();
+        }
     }
 
     // =========================================================================
@@ -1420,6 +1428,16 @@ public class CharacterSelectUI : MonoBehaviour
         }
     }
 
+    private void HandleAllPlayersReady()
+    {
+        if (!_localConfirmed)
+        {
+            FinalizeSelectionAndReady(CurrencyConfig.MinimumStake);
+            return;
+        }
+        GoToSquadScreen();
+    }
+
     // Called by PlayerReadyTracker when the ready snapshot changes
     private void HandleReadyStatesUpdated(Dictionary<ulong, (string name, bool ready)> snapshot)
     {
@@ -1428,11 +1446,19 @@ public class CharacterSelectUI : MonoBehaviour
         if (!_localConfirmed) return;
 
         bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
+        if (forceInvestigator)
+        {
+            GoToSquadScreen();
+            return;
+        }
+
+        if (snapshot == null || snapshot.Count == 0) return;
+
         bool allReady = true;
         foreach (var kvp in snapshot)
             if (!kvp.Value.ready) { allReady = false; break; }
 
-        if (allReady || forceInvestigator)
+        if (allReady)
             GoToSquadScreen();
     }
 
@@ -1443,11 +1469,19 @@ public class CharacterSelectUI : MonoBehaviour
         if (!_localConfirmed) return;
 
         bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
+        if (forceInvestigator)
+        {
+            GoToSquadScreen();
+            return;
+        }
+
+        if (snapshot == null || snapshot.Count == 0) return;
+
         bool allReady = true;
         foreach (var kvp in snapshot)
             if (!kvp.Value.isReady) { allReady = false; break; }
 
-        if (allReady || forceInvestigator)
+        if (allReady)
             GoToSquadScreen();
     }
 
@@ -1497,6 +1531,7 @@ public class CharacterSelectUI : MonoBehaviour
         {
             PlayerReadyTracker.Instance.OnReadyStatesUpdated -= HandleReadyStatesUpdated;
             PlayerReadyTracker.Instance.OnPlayerLobbyStatesUpdated -= HandlePlayerLobbyStatesUpdated;
+            PlayerReadyTracker.Instance.OnAllPlayersReady -= HandleAllPlayersReady;
         }
 
         if (_currentPreviewInstance != null)
