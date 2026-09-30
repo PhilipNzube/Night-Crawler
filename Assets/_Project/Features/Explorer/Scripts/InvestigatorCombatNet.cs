@@ -305,13 +305,17 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         }
 
         // Weapon hide/holster toggle [X] — only non-miners can hide
-        if (Keyboard.current != null && Keyboard.current.xKey != null && Keyboard.current.xKey.wasPressedThisFrame)
+        bool holsterPressed = KeybindingManager.IsActionTriggered("Holster")
+            || (Keyboard.current != null && Keyboard.current.xKey != null && Keyboard.current.xKey.wasPressedThisFrame);
+        if (holsterPressed)
         {
             ToggleWeaponHide();
         }
 
         // Weapon draw/toggle [1]
-        if (Keyboard.current != null && Keyboard.current.digit1Key != null && Keyboard.current.digit1Key.wasPressedThisFrame)
+        bool equip1Pressed = KeybindingManager.IsActionTriggered("EquipWeapon1")
+            || (Keyboard.current != null && Keyboard.current.digit1Key != null && Keyboard.current.digit1Key.wasPressedThisFrame);
+        if (equip1Pressed)
         {
             if (currentWeaponIndex.Value == 0 && !IsMiner)
             {
@@ -324,14 +328,17 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         }
 
         // Weapon draw/switch [2] (Gun)
-        if (Keyboard.current != null && Keyboard.current.digit2Key != null && Keyboard.current.digit2Key.wasPressedThisFrame && HasWeapon)
+        bool equip2Pressed = KeybindingManager.IsActionTriggered("EquipWeapon2")
+            || (Keyboard.current != null && Keyboard.current.digit2Key != null && Keyboard.current.digit2Key.wasPressedThisFrame);
+        if (equip2Pressed && HasWeapon)
         {
             SwitchWeapon(1);
         }
 
-        // Attack (Left Click) — each combo step requires a deliberate click.
+        // Attack (Left Click / Gamepad Trigger) — each combo step requires a deliberate click.
         // Intentionally do NOT use leftButton.isPressed: holding must not spam the full combo.
-        bool clickDown = Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame;
+        bool clickDown = KeybindingManager.IsActionTriggered("Attack")
+            || (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame);
 
         if (clickDown && !_isReloading)
         {
@@ -358,7 +365,9 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         }
 
         // Reload (R - Gun only)
-        if (Keyboard.current != null && Keyboard.current.rKey != null && Keyboard.current.rKey.wasPressedThisFrame && currentWeaponIndex.Value == 1 && !_isReloading)
+        bool reloadPressed = KeybindingManager.IsActionTriggered("Reload")
+            || (Keyboard.current != null && Keyboard.current.rKey != null && Keyboard.current.rKey.wasPressedThisFrame);
+        if (reloadPressed && currentWeaponIndex.Value == 1 && !_isReloading)
         {
             StartCoroutine(ReloadRoutine());
         }
@@ -507,6 +516,17 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                 {
                     MatchEconomyManager.Instance.LogMonsterKill(OwnerClientId);
                 }
+                else if (IsOwner)
+                {
+                    // Check if player eliminated another investigator to fulfill Kill Player pact
+                    if (hit.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= finalDamage))
+                    {
+                        if (NightCrawler.UI.ActiveDealMissionHUD.Instance != null && NightCrawler.UI.ActiveDealMissionHUD.Instance.IsMissionActive)
+                        {
+                            NightCrawler.UI.ActiveDealMissionHUD.Instance.NotifyPlayerKilled();
+                        }
+                    }
+                }
             }
         }
     }
@@ -545,6 +565,17 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                 if (isMonsterCol && MatchEconomyManager.Instance != null)
                 {
                     MatchEconomyManager.Instance.LogMonsterKill(OwnerClientId);
+                }
+                else if (IsOwner)
+                {
+                    // Check if player eliminated another investigator to fulfill Kill Player pact
+                    if (hit.collider.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= finalDamage))
+                    {
+                        if (NightCrawler.UI.ActiveDealMissionHUD.Instance != null && NightCrawler.UI.ActiveDealMissionHUD.Instance.IsMissionActive)
+                        {
+                            NightCrawler.UI.ActiveDealMissionHUD.Instance.NotifyPlayerKilled();
+                        }
+                    }
                 }
             }
         }

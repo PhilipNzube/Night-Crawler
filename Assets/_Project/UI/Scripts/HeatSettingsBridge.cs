@@ -239,6 +239,13 @@ public class HeatSettingsBridge : MonoBehaviour
     [Tooltip("Horizontal Selector for Anisotropic Filtering (Disabled, Per Texture, Forced On).")]
     public HorizontalSelector anisotropicSelector;
 
+    [Tooltip("Horizontal Selector for 3D Render Scale (Scales 3D models while keeping UI 100% crisp).")]
+    public HorizontalSelector renderScaleSelector;
+
+    [Header("Error Modal (Keybind Conflict)")]
+    [Tooltip("Optional ModalWindowManager used to display keybinding conflict errors.")]
+    public ModalWindowManager errorModal;
+
     [Header("Inspector Editable Descriptions & Preview Images")]
     [Tooltip("Modify any setting's Title, Description, and Cover Image here. Changes apply immediately to both the row text and the side preview card!")]
     public List<SettingDescriptionEntry> settingDescriptions = new List<SettingDescriptionEntry>();
@@ -659,6 +666,62 @@ public class HeatSettingsBridge : MonoBehaviour
                 elementName = "Possession Selection Menu",
                 displayTitle = "Possession Selection Menu",
                 description = "Open the possession target selection modal to choose an investigator host to inhabit.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Attack / Fire Weapon",
+                displayTitle = "Attack / Fire Weapon",
+                description = "Execute tactical melee strikes with pickaxe or fire equipped firearms.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Reload Firearm",
+                displayTitle = "Reload Firearm",
+                description = "Chamber fresh ammunition into your equipped firearm.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Holster / Stow Weapon",
+                displayTitle = "Holster / Stow Weapon",
+                description = "Conceal equipped weaponry to maintain low acoustic and visual profile.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Equip Primary Weapon",
+                displayTitle = "Equip Primary Weapon",
+                description = "Draw primary tactical pickaxe or melee tool.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Equip Secondary Weapon",
+                displayTitle = "Equip Secondary Weapon",
+                description = "Draw secondary firearm if acquired from fallen miners or supply caches.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Push-to-Talk (Radio)",
+                displayTitle = "Push-to-Talk (Radio)",
+                description = "Transmit tactical radio communication across the subterranean network.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Shadow Teleport",
+                displayTitle = "Shadow Teleport",
+                description = "Vanish and remanifest instantaneously behind unsuspecting explorers.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Render Scale",
+                displayTitle = "3D Resolution Scaling",
+                description = "Controls the internal 3D scene rendering resolution while keeping UI, fonts, and HUD 100% crisp. Lowering this drastically improves framerate without blurring text.",
                 coverImage = null
             },
 
@@ -1407,6 +1470,49 @@ public class HeatSettingsBridge : MonoBehaviour
                     GameSettingsManager.Instance.SaveSettings();
                     GameSettingsManager.Instance.ApplySettings();
                 });
+        }
+
+        if (renderScaleSelector != null)
+        {
+            var entry = GetDescriptionEntry("Render Scale", "3D Resolution Scaling");
+            ConfigureSelectorComponent(renderScaleSelector, entry,
+                options: new string[] { "Ultra Perf (50%)", "Performance (65%)", "Balanced (75%)", "Quality (85%)", "Native (100%)" },
+                initialIndex: GameSettingsManager.Instance != null ? GameSettingsManager.Instance.renderScaleIndex : 4,
+                onChanged: index =>
+                {
+                    if (_isInitializing || GameSettingsManager.Instance == null) return;
+                    GameSettingsManager.Instance.renderScaleIndex = index;
+                    GameSettingsManager.Instance.SaveSettings();
+                    GameSettingsManager.Instance.ApplySettings();
+                });
+        }
+    }
+
+    /// <summary>
+    /// Displays an error modal for keybinding conflicts or settings violations.
+    /// </summary>
+    public void ShowErrorModal(string title, string description)
+    {
+        if (errorModal != null)
+        {
+            errorModal.useLocalization = false;
+            errorModal.titleText = title;
+            errorModal.descriptionText = description;
+            if (errorModal.windowTitle != null) errorModal.windowTitle.text = title;
+            if (errorModal.windowDescription != null) errorModal.windowDescription.text = description;
+            errorModal.OpenWindow();
+            return;
+        }
+
+        if (PauseUI.Instance != null && PauseUI.Instance.errorModal != null)
+        {
+            PauseUI.Instance.ShowErrorModal(title, description);
+            return;
+        }
+
+        if (NotificationManager.Instance != null)
+        {
+            NotificationManager.Instance.ShowNotification($"{title}: {description}", 4.5f);
         }
     }
 

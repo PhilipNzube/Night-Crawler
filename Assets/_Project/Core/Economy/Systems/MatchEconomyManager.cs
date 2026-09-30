@@ -288,7 +288,11 @@ namespace NightCrawler.Economy
         /// </summary>
         public void ApplyPactFailurePenalty(ulong traitorClientId, int penaltyAmount)
         {
-            if (!IsServer) return;
+            if (!IsServer)
+            {
+                ApplyPactFailurePenaltyServerRpc(traitorClientId, penaltyAmount);
+                return;
+            }
 
             if (_playerRecords.TryGetValue(traitorClientId, out var record))
             {
@@ -301,6 +305,39 @@ namespace NightCrawler.Economy
             }
         }
 
+        [Rpc(SendTo.Server)]
+        public void ApplyPactFailurePenaltyServerRpc(ulong traitorClientId, int penaltyAmount)
+        {
+            ApplyPactFailurePenalty(traitorClientId, penaltyAmount);
+        }
+
+        /// <summary>
+        /// Applies reward credits to an investigator who successfully fulfilled their accepted pact/deal.
+        /// </summary>
+        public void ApplyPactSuccessReward(ulong traitorClientId, int rewardAmount)
+        {
+            if (!IsServer)
+            {
+                ApplyPactSuccessRewardServerRpc(traitorClientId, rewardAmount);
+                return;
+            }
+
+            if (_playerRecords.TryGetValue(traitorClientId, out var record))
+            {
+                record.stakedCredits += rewardAmount;
+                Debug.Log($"[MatchEconomyManager] Applied pact success reward to {record.playerName}: +{rewardAmount} {CurrencyConfig.CurrencyName}. Total stake: {record.stakedCredits}");
+
+                RecalculateTotalPot();
+                NotifyPactRewardClientRpc(traitorClientId, rewardAmount);
+            }
+        }
+
+        [Rpc(SendTo.Server)]
+        public void ApplyPactSuccessRewardServerRpc(ulong traitorClientId, int rewardAmount)
+        {
+            ApplyPactSuccessReward(traitorClientId, rewardAmount);
+        }
+
         [ClientRpc]
         private void NotifyPactPenaltyClientRpc(ulong targetClientId, int penalty)
         {
@@ -309,6 +346,18 @@ namespace NightCrawler.Economy
                 if (NotificationManager.Instance != null)
                 {
                     NotificationManager.Instance.ShowNotification($"PACT EXPIRED: Failed pact in time! {penalty} {CurrencyConfig.CurrencySymbol} deducted from your stake.", 4.5f);
+                }
+            }
+        }
+
+        [ClientRpc]
+        private void NotifyPactRewardClientRpc(ulong targetClientId, int reward)
+        {
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == targetClientId)
+            {
+                if (NotificationManager.Instance != null)
+                {
+                    NotificationManager.Instance.ShowNotification($"PACT REWARD SECURED: +{reward} {CurrencyConfig.CurrencySymbol} credited to your match stake!", 4.5f);
                 }
             }
         }

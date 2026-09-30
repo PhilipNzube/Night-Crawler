@@ -185,7 +185,8 @@ public class ProximityVoiceChatNet : NetworkBehaviour
         // 2. Handle Push-To-Talk input
         if (pushToTalk)
         {
-            bool isHeld = (Keyboard.current != null && Keyboard.current[pushToTalkKey].isPressed);
+            bool isHeld = KeybindingManager.IsActionHeld("VoiceChat")
+                || (Keyboard.current != null && pushToTalkKey != Key.None && Keyboard.current[pushToTalkKey].isPressed);
             if (isHeld && VivoxService.Instance.IsInputDeviceMuted)
             {
                 VivoxService.Instance.UnmuteInputDevice();

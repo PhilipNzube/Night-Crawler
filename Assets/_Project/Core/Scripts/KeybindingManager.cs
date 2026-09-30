@@ -29,7 +29,14 @@ public enum KeybindingActionType
     SpectateCursor,
     SpectateCategory,
     CommandHunt,
-    CommandRecall
+    CommandRecall,
+    Attack,
+    Reload,
+    Holster,
+    EquipWeapon1,
+    EquipWeapon2,
+    VoiceChat,
+    ShadowTeleport
 }
 
 /// <summary>
@@ -318,6 +325,62 @@ public class KeybindingManager : MonoBehaviour
                 tacticalDescription = "Open the possession target selection modal to choose an investigator host to inhabit.",
                 defaultKey = Key.P,
                 defaultGamepadControl = "dpadDown"
+            },
+            new ActionBinding
+            {
+                actionId = "Attack",
+                displayName = "Attack / Fire Weapon",
+                tacticalDescription = "Execute tactical melee strikes with pickaxe or fire equipped firearms.",
+                defaultKey = Key.None,
+                defaultGamepadControl = "rightTrigger"
+            },
+            new ActionBinding
+            {
+                actionId = "Reload",
+                displayName = "Reload Firearm",
+                tacticalDescription = "Chamber ammunition into your equipped firearm.",
+                defaultKey = Key.R,
+                defaultGamepadControl = "buttonWest"
+            },
+            new ActionBinding
+            {
+                actionId = "Holster",
+                displayName = "Holster / Stow Weapon",
+                tacticalDescription = "Conceal equipped weaponry to maintain low acoustic and visual profile.",
+                defaultKey = Key.X,
+                defaultGamepadControl = "dpadDown"
+            },
+            new ActionBinding
+            {
+                actionId = "EquipWeapon1",
+                displayName = "Equip Primary Weapon",
+                tacticalDescription = "Draw primary tactical pickaxe or melee tool.",
+                defaultKey = Key.Digit1,
+                defaultGamepadControl = "dpadLeft"
+            },
+            new ActionBinding
+            {
+                actionId = "EquipWeapon2",
+                displayName = "Equip Secondary Weapon",
+                tacticalDescription = "Draw secondary firearm if acquired from fallen miners or supply caches.",
+                defaultKey = Key.Digit2,
+                defaultGamepadControl = "dpadRight"
+            },
+            new ActionBinding
+            {
+                actionId = "VoiceChat",
+                displayName = "Push-to-Talk (Radio)",
+                tacticalDescription = "Transmit tactical radio communication across the subterranean network.",
+                defaultKey = Key.V,
+                defaultGamepadControl = "leftStickPress"
+            },
+            new ActionBinding
+            {
+                actionId = "ShadowTeleport",
+                displayName = "Shadow Teleport",
+                tacticalDescription = "Vanish and remanifest instantaneously behind unsuspecting explorers.",
+                defaultKey = Key.F,
+                defaultGamepadControl = "buttonEast"
             }
         };
 
@@ -407,16 +470,22 @@ public class KeybindingManager : MonoBehaviour
                 {
                     if (control is KeyControl keyControl && keyControl.wasPressedThisFrame)
                     {
-                        act.currentKey = keyControl.keyCode;
-                        // Prevent duplicate keys: unbind any conflicting actions
-                        foreach (var other in actions)
+                        Key newKey = keyControl.keyCode;
+                        if (newKey == Key.None) break;
+
+                        // Check for duplicate key conflict
+                        ActionBinding conflict = actions.Find(other => other != act && other.currentKey == newKey && other.currentKey != Key.None);
+                        if (conflict != null)
                         {
-                            if (other != act && other.currentKey == act.currentKey)
-                            {
-                                other.currentKey = Key.None;
-                                PlayerPrefs.SetString($"NC_Bind_Key_{other.actionId}", Key.None.ToString());
-                            }
+                            string keyName = FormatKeyName(newKey);
+                            ShowConflictError("Key Conflict", $"Key '{keyName}' is already mapped to '{conflict.displayName}'!\nPlease choose an unassigned key or rebind that command first.");
+                            // Revert button text and cancel without saving changes
+                            onComplete?.Invoke(FormatKeyName(act.currentKey));
+                            _rebindCoroutine = null;
+                            yield break;
                         }
+
+                        act.currentKey = newKey;
                         bound = true;
                         break;
                     }
@@ -453,16 +522,22 @@ public class KeybindingManager : MonoBehaviour
                 {
                     if (control is ButtonControl btnControl && btnControl.wasPressedThisFrame)
                     {
-                        act.currentGamepadControl = btnControl.name;
-                        // Prevent duplicate gamepad controls: unbind any conflicting actions
-                        foreach (var other in actions)
+                        string newControl = btnControl.name;
+                        if (string.IsNullOrEmpty(newControl)) break;
+
+                        // Check for duplicate gamepad button conflict
+                        ActionBinding conflict = actions.Find(other => other != act && !string.IsNullOrEmpty(other.currentGamepadControl) && other.currentGamepadControl.Equals(newControl, StringComparison.OrdinalIgnoreCase));
+                        if (conflict != null)
                         {
-                            if (other != act && !string.IsNullOrEmpty(other.currentGamepadControl) && other.currentGamepadControl.Equals(act.currentGamepadControl, StringComparison.OrdinalIgnoreCase))
-                            {
-                                other.currentGamepadControl = "";
-                                PlayerPrefs.SetString($"NC_Bind_Pad_{other.actionId}", "");
-                            }
+                            string btnName = FormatGamepadName(newControl, IsPlayStationActive());
+                            ShowConflictError("Button Conflict", $"Button '{btnName}' is already mapped to '{conflict.displayName}'!\nPlease choose an unassigned button or rebind that command first.");
+                            // Revert button visual and cancel without saving changes
+                            onComplete?.Invoke(FormatGamepadName(act.currentGamepadControl, IsPlayStationActive()));
+                            _rebindCoroutine = null;
+                            yield break;
                         }
+
+                        act.currentGamepadControl = newControl;
                         bound = true;
                         break;
                     }
@@ -475,6 +550,29 @@ public class KeybindingManager : MonoBehaviour
         SaveBindings();
         onComplete?.Invoke(FormatGamepadName(act.currentGamepadControl, IsPlayStationActive()));
         _rebindCoroutine = null;
+    }
+
+    /// <summary>
+    /// Displays a binding conflict error via the Error Modal in Pause Canvas / Settings, or via NotificationManager.
+    /// </summary>
+    public static void ShowConflictError(string title, string description)
+    {
+        if (HeatSettingsBridge.Instance != null && HeatSettingsBridge.Instance.errorModal != null)
+        {
+            HeatSettingsBridge.Instance.ShowErrorModal(title, description);
+            return;
+        }
+
+        if (PauseUI.Instance != null && PauseUI.Instance.errorModal != null)
+        {
+            PauseUI.Instance.ShowErrorModal(title, description);
+            return;
+        }
+
+        if (NotificationManager.Instance != null)
+        {
+            NotificationManager.Instance.ShowNotification($"{title}: {description}", 4.5f);
+        }
     }
 
     public static void ApplyToPlayerInput(PlayerInput playerInput)
@@ -691,8 +789,18 @@ public class KeybindingManager : MonoBehaviour
         var act = Instance.actions.Find(a => a.actionId.Equals(actionId, StringComparison.OrdinalIgnoreCase));
         if (act == null) return false;
 
+        // Check Mouse for Attack action or if left click pressed
+        if (actionId.Equals("Attack", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)
+            {
+                SetGamepadActive(false);
+                return true;
+            }
+        }
+
         // Check Keyboard
-        if (Keyboard.current != null && Keyboard.current[act.currentKey].wasPressedThisFrame)
+        if (Keyboard.current != null && act.currentKey != Key.None && Keyboard.current[act.currentKey].wasPressedThisFrame)
         {
             SetGamepadActive(false);
             return true;
@@ -714,8 +822,17 @@ public class KeybindingManager : MonoBehaviour
         var act = Instance.actions.Find(a => a.actionId.Equals(actionId, StringComparison.OrdinalIgnoreCase));
         if (act == null) return false;
 
+        // Check Mouse for Attack action
+        if (actionId.Equals("Attack", StringComparison.OrdinalIgnoreCase))
+        {
+            if (Mouse.current != null && Mouse.current.leftButton.isPressed)
+            {
+                return true;
+            }
+        }
+
         // Check Keyboard
-        if (Keyboard.current != null && Keyboard.current[act.currentKey].isPressed)
+        if (Keyboard.current != null && act.currentKey != Key.None && Keyboard.current[act.currentKey].isPressed)
         {
             return true;
         }

@@ -33,9 +33,15 @@ public class PauseUI : MonoBehaviour
     [Tooltip("The Exit button (PanelButton on Btn_Exit).")]
     public PanelButton exitButton;
 
+    public static PauseUI Instance { get; private set; }
+
     [Header("Heat UI Exit Modal Window")]
     [Tooltip("The Exit Confirmation Modal Window (ModalWindowManager).")]
     public ModalWindowManager exitModal;
+
+    [Header("Heat UI Error Modal Window")]
+    [Tooltip("The Error Warning Modal Window (ModalWindowManager).")]
+    public ModalWindowManager errorModal;
 
     [Header("Escape / Hotkey Indicator (Optional)")]
     [Tooltip("Optional Michsky Heat HotkeyEvent for Resume/Back (e.g. EscHotkey under PauseCanvas).")]
@@ -68,6 +74,8 @@ public class PauseUI : MonoBehaviour
 
     private void Awake()
     {
+        if (Instance == null) Instance = this;
+
         if (pauseCanvas == null)
             pauseCanvas = gameObject;
 
@@ -366,6 +374,31 @@ public class PauseUI : MonoBehaviour
         else
         {
             UnityEngine.SceneManagement.SceneManager.LoadScene("LobbyScene");
+        }
+    }
+
+    private void OnDestroy()
+    {
+        if (Instance == this) Instance = null;
+    }
+
+    /// <summary>
+    /// Opens the Error Modal on Pause Canvas displaying a custom error message.
+    /// </summary>
+    public void ShowErrorModal(string title, string description)
+    {
+        if (errorModal != null)
+        {
+            errorModal.useLocalization = false;
+            errorModal.titleText = title;
+            errorModal.descriptionText = description;
+            if (errorModal.windowTitle != null) errorModal.windowTitle.text = title;
+            if (errorModal.windowDescription != null) errorModal.windowDescription.text = description;
+            errorModal.OpenWindow();
+        }
+        else if (NotificationManager.Instance != null)
+        {
+            NotificationManager.Instance.ShowNotification($"{title}: {description}", 4f);
         }
     }
 }

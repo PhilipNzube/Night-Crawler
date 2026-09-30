@@ -475,6 +475,12 @@ public class CorpseLootableNet : NetworkBehaviour
                 NotificationManager.Instance.ShowNotification(msg, 4.5f);
             }
 
+            // Complete any active Loot Body deal/pact
+            if (NightCrawler.UI.ActiveDealMissionHUD.Instance != null && NightCrawler.UI.ActiveDealMissionHUD.Instance.IsMissionActive)
+            {
+                NightCrawler.UI.ActiveDealMissionHUD.Instance.NotifyCorpseLooted();
+            }
+
             // Visual dead accessories attachment
             if (activePlayer != null)
             {

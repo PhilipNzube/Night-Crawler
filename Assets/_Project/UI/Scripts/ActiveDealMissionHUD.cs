@@ -28,15 +28,22 @@ namespace NightCrawler.UI
         private float _timeRemaining = 0f;
         private float _totalDuration = 0f;
         private int _penaltyAmount = 15;
+        private int _rewardAmount = 30;
         private bool _isMissionActive = false;
         private string _activeMissionTitle = string.Empty;
         private AudioSource _audioSource;
+
+        public bool IsMissionActive => _isMissionActive;
+        public bool IsLootMission => !string.IsNullOrEmpty(_activeMissionTitle) && _activeMissionTitle.ToLower().Contains("loot");
+        public bool IsKillMission => !string.IsNullOrEmpty(_activeMissionTitle) && _activeMissionTitle.ToLower().Contains("kill");
 
         private void Awake()
         {
             if (Instance != null && Instance != this)
             {
-                Destroy(gameObject);
+                // CRITICAL BUG FIX: Destroy only this duplicate component, NEVER Destroy(gameObject)!
+                // Destroying gameObject here was deleting DealSlotsLeft and BerserkerSlotsLeft in GameScene.
+                Destroy(this);
                 return;
             }
             Instance = this;
@@ -72,8 +79,6 @@ namespace NightCrawler.UI
 
             _timeRemaining -= Time.deltaTime;
 
-
-
             if (missionTimerText != null)
             {
                 int mins = Mathf.Max(0, Mathf.FloorToInt(_timeRemaining / 60f));
@@ -87,7 +92,7 @@ namespace NightCrawler.UI
             }
         }
 
-        public void StartMission(string title, string terms, int durationSeconds, int penaltyAmount)
+        public void StartMission(string title, string terms, int durationSeconds, int penaltyAmount, int rewardAmount = 30)
         {
             if (!gameObject.activeSelf)
             {
@@ -98,6 +103,7 @@ namespace NightCrawler.UI
             _totalDuration = Mathf.Max(30f, durationSeconds);
             _timeRemaining = _totalDuration;
             _penaltyAmount = penaltyAmount;
+            _rewardAmount = rewardAmount;
             _isMissionActive = true;
 
             if (missionTitleText != null)
@@ -106,13 +112,45 @@ namespace NightCrawler.UI
             }
 
             SetVisible(true);
-            Debug.Log($"[ActiveDealMissionHUD] Started pact mission '{title}' with {durationSeconds}s timer and {penaltyAmount} penalty.");
+            Debug.Log($"[ActiveDealMissionHUD] Started pact mission '{title}' with {durationSeconds}s timer, {penaltyAmount} penalty, and {rewardAmount} reward.");
+        }
+
+        /// <summary>
+        /// Called when the local player loots a corpse. Completes the Loot Body deal if active.
+        /// </summary>
+        public void NotifyCorpseLooted()
+        {
+            if (!_isMissionActive) return;
+            if (IsLootMission)
+            {
+                Debug.Log("[ActiveDealMissionHUD] Corpse successfully looted! Completing Loot Body pact.");
+                CompleteMission();
+            }
+        }
+
+        /// <summary>
+        /// Called when the local player eliminates another player. Completes the Kill Player deal if active.
+        /// </summary>
+        public void NotifyPlayerKilled()
+        {
+            if (!_isMissionActive) return;
+            if (IsKillMission)
+            {
+                Debug.Log("[ActiveDealMissionHUD] Target player eliminated! Completing Kill Player pact.");
+                CompleteMission();
+            }
         }
 
         public void CompleteMission()
         {
             if (!_isMissionActive) return;
             _isMissionActive = false;
+
+            // Credit the promised reward to the player's match economy
+            if (MatchEconomyManager.Instance != null && NetworkManager.Singleton != null)
+            {
+                MatchEconomyManager.Instance.ApplyPactSuccessReward(NetworkManager.Singleton.LocalClientId, _rewardAmount);
+            }
 
             if (missionTitleText != null)
             {
@@ -121,7 +159,7 @@ namespace NightCrawler.UI
 
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification("PACT FULFILLED: The dark forces are pleased. Your stake is safe.", 4f);
+                NotificationManager.Instance.ShowNotification($"PACT FULFILLED! Dark pact completed. +{_rewardAmount} credits secured.", 4f);
             }
 
             if (gameObject.activeInHierarchy)

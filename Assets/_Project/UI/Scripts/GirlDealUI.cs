@@ -65,6 +65,17 @@ public class GirlDealUI : MonoBehaviour
     [Tooltip("Container where deal cards live (e.g. DealPanel/Deals/Content/List/Layout Group).")]
     public Transform cardsContainer;
 
+    [Header("Progression & Inspector Testing (Dev Purposes)")]
+    [Tooltip("If >= 0, overrides the max deals capacity with this custom number for dev/testing purposes (-1 uses normal upgrade level).")]
+    public int debugOverrideMaxDeals = -1;
+
+    [Tooltip("Override deal capacity upgrade level for testing (-1 uses real save level, 0 to 5 forces specific level).")]
+    [Range(-1, 5)]
+    public int debugOverrideDealLevel = -1;
+
+    [Tooltip("If checked, gives infinite deal sending (remaining deals never depletes).")]
+    public bool debugInfiniteDeals = false;
+
     [Header("Hotkeys")]
     [Tooltip("Toggle hotkey (default [B] for Bargain/Deals).")]
     public Key toggleKey = Key.B;
@@ -447,11 +458,19 @@ public class GirlDealUI : MonoBehaviour
 
     private int _dealsSentThisMatch = 0;
 
+    public int GetEffectiveDealCapacity()
+    {
+        if (debugOverrideMaxDeals >= 0) return debugOverrideMaxDeals;
+        int capLvl = debugOverrideDealLevel >= 0 
+            ? debugOverrideDealLevel 
+            : (CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.DealCapacity) : 0);
+        return UpgradeStatFormulas.GetGirlDealCapacity(capLvl);
+    }
+
     public void UpdateDealSlotsDisplay()
     {
-        int capLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.DealCapacity) : 0;
-        int maxDeals = UpgradeStatFormulas.GetGirlDealCapacity(capLvl);
-        int remainingSlots = Mathf.Max(0, maxDeals - _dealsSentThisMatch);
+        int maxDeals = GetEffectiveDealCapacity();
+        int remainingSlots = debugInfiniteDeals ? maxDeals : Mathf.Max(0, maxDeals - _dealsSentThisMatch);
 
         if (dealSlotsLeftCapsule != null)
         {
@@ -465,7 +484,7 @@ public class GirlDealUI : MonoBehaviour
 
         if (sendButton != null)
         {
-            sendButton.Interactable(remainingSlots > 0);
+            sendButton.Interactable(debugInfiniteDeals || remainingSlots > 0);
         }
     }
 
@@ -600,11 +619,10 @@ public class GirlDealUI : MonoBehaviour
             return;
         }
 
-        int capLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.DealCapacity) : 0;
-        int maxDeals = UpgradeStatFormulas.GetGirlDealCapacity(capLvl);
-        int remainingSlots = Mathf.Max(0, maxDeals - _dealsSentThisMatch);
+        int maxDeals = GetEffectiveDealCapacity();
+        int remainingSlots = debugInfiniteDeals ? maxDeals : Mathf.Max(0, maxDeals - _dealsSentThisMatch);
 
-        if (remainingSlots <= 0)
+        if (remainingSlots <= 0 && !debugInfiniteDeals)
         {
             ShowError("DEAL CAPACITY REACHED", 
                 $"You have exhausted all {maxDeals} dark deal slots for this match.\n\nUpgrade Deal Capacity in the store to offer more pacts per match.");
@@ -617,7 +635,11 @@ public class GirlDealUI : MonoBehaviour
             ? _currentCardDesc 
             : $"Complete the objective before the timer expires.\nReward: {rewardAmount} Credits.\nPenalty on failure: -{penaltyAmount} Credits.";
         string rewardStr = $"{rewardAmount} Credits";
-        bool grantWeapon = true;
+
+        // CRITICAL: Loot Body deal must NOT grant any weapon abilities! Only assassination/kill deals grant weapons.
+        bool isLootDeal = (!string.IsNullOrEmpty(_currentCardTitle) && _currentCardTitle.ToLower().Contains("loot"))
+            || (!string.IsNullOrEmpty(_currentCardDesc) && _currentCardDesc.ToLower().Contains("loot"));
+        bool grantWeapon = !isLootDeal;
 
         if (DealSystemNet.Instance != null)
         {

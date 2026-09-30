@@ -55,6 +55,7 @@ public class DealNotificationUI : MonoBehaviour
 
     private int _currentTimeLimitSeconds = 120;
     private int _currentPenaltyCredits = 15;
+    private int _currentRewardCredits = 30;
     private string _currentTitle = "DARK PACT";
     private string _currentTerms = "";
 
@@ -181,6 +182,17 @@ public class DealNotificationUI : MonoBehaviour
         _currentTerms = terms;
         _timer = timeoutSeconds;
 
+        int parsedReward = 30;
+        if (!string.IsNullOrEmpty(reward))
+        {
+            var parts = reward.Split(' ');
+            if (parts.Length > 0 && int.TryParse(parts[0], out int val))
+            {
+                parsedReward = val;
+            }
+        }
+        _currentRewardCredits = parsedReward;
+
         if (headerTitleText != null) headerTitleText.text = "DEAL PROPOSAL";
         if (dealNameText != null) dealNameText.text = title.ToUpper();
         if (rewardText != null) rewardText.text = $"REWARD: {reward}";
@@ -262,7 +274,7 @@ public class DealNotificationUI : MonoBehaviour
         // Start active deal timer HUD
         if (ActiveDealMissionHUD.Instance != null)
         {
-            ActiveDealMissionHUD.Instance.StartMission(_currentTitle, _currentTerms, _currentTimeLimitSeconds, _currentPenaltyCredits);
+            ActiveDealMissionHUD.Instance.StartMission(_currentTitle, _currentTerms, _currentTimeLimitSeconds, _currentPenaltyCredits, _currentRewardCredits);
         }
 
         if (DealSystemNet.Instance != null)

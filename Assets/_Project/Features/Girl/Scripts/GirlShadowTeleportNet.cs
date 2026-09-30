@@ -22,7 +22,8 @@ public class GirlShadowTeleportNet : NetworkBehaviour
     {
         if (!IsOwner || PauseManager.IsGamePaused || GirlDealUI.IsAnyPanelOrModalOpen() || SpectatorController.IsAnySpectating) return;
 
-        bool pressed = (Keyboard.current != null && (Keyboard.current[teleportKey].wasPressedThisFrame || Keyboard.current.fKey.wasPressedThisFrame))
+        bool pressed = KeybindingManager.IsActionTriggered("ShadowTeleport")
+                     || (Keyboard.current != null && teleportKey != Key.None && Keyboard.current[teleportKey].wasPressedThisFrame)
                      || Input.GetKeyDown(KeyCode.F);
 
         if (pressed) TryAutoTeleport();

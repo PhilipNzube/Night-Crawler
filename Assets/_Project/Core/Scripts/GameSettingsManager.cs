@@ -23,6 +23,27 @@ public class GameSettingsManager : MonoBehaviour
     public static event Action<bool>  OnPerformanceOverlayChanged;
     public static event Action<bool>  OnCameraShakeChanged;
     public static event Action<bool>  OnStruggleModeChanged;
+    public static event Action<float> OnUIScaleChanged;
+
+    private readonly Dictionary<UnityEngine.UI.CanvasScaler, Vector2> _baseRefResolutions = new Dictionary<UnityEngine.UI.CanvasScaler, Vector2>();
+    private readonly Dictionary<UnityEngine.UI.CanvasScaler, float> _baseScaleFactors = new Dictionary<UnityEngine.UI.CanvasScaler, float>();
+
+    private void OnEnable()
+    {
+        UnityEngine.SceneManagement.SceneManager.sceneLoaded += HandleSceneLoaded;
+    }
+
+    private void OnDisable()
+    {
+        UnityEngine.SceneManagement.SceneManager.sceneLoaded -= HandleSceneLoaded;
+    }
+
+    private void HandleSceneLoaded(UnityEngine.SceneManagement.Scene scene, UnityEngine.SceneManagement.LoadSceneMode mode)
+    {
+        _baseRefResolutions.Clear();
+        _baseScaleFactors.Clear();
+        ApplyUIScale();
+    }
 
     // =========================================================================
     //  PlayerPrefs Keys
@@ -53,6 +74,7 @@ public class GameSettingsManager : MonoBehaviour
     private const string PREF_CAM_SHAKE       = "NC_Setting_CamShake";
     private const string PREF_STRUGGLE_HOLD   = "NC_Setting_StruggleHold";
     private const string PREF_UI_SCALE        = "NC_Setting_UIScale";
+    private const string PREF_RENDER_SCALE    = "NC_Setting_RenderScale";
 
     // =========================================================================
     //  Public Settings State
@@ -88,6 +110,7 @@ public class GameSettingsManager : MonoBehaviour
     public bool cameraShakeEnabled      = true;  // Seismic tremors, roars, possession strain
     public bool struggleQTEHoldMode     = false; // false = Rapid Mash, true = Hold Key
     public int  uiScaleIndex            = 2;     // 0=0.25x, 1=0.5x, 2=1.0x, 3=1.5x, 4=2.0x
+    public int  renderScaleIndex        = 4;     // 0=50%, 1=65%, 2=75%, 3=85%, 4=100%
 
     // Static Accessors for convenience
     public static float MouseSens           => Instance != null ? Instance.mouseSensitivity : 1.0f;
@@ -166,6 +189,7 @@ public class GameSettingsManager : MonoBehaviour
         cameraShakeEnabled      = PlayerPrefs.GetInt(PREF_CAM_SHAKE, 1) == 1;
         struggleQTEHoldMode     = PlayerPrefs.GetInt(PREF_STRUGGLE_HOLD, 0) == 1;
         uiScaleIndex            = PlayerPrefs.GetInt(PREF_UI_SCALE, 2);
+        renderScaleIndex        = PlayerPrefs.GetInt(PREF_RENDER_SCALE, 4);
     }
 
     public void SaveSettings()
@@ -196,6 +220,7 @@ public class GameSettingsManager : MonoBehaviour
         PlayerPrefs.SetInt(PREF_CAM_SHAKE, cameraShakeEnabled ? 1 : 0);
         PlayerPrefs.SetInt(PREF_STRUGGLE_HOLD, struggleQTEHoldMode ? 1 : 0);
         PlayerPrefs.SetInt(PREF_UI_SCALE, uiScaleIndex);
+        PlayerPrefs.SetInt(PREF_RENDER_SCALE, renderScaleIndex);
 
         PlayerPrefs.Save();
         Debug.Log("[GameSettingsManager] Settings successfully saved to PlayerPrefs.");
@@ -261,8 +286,97 @@ public class GameSettingsManager : MonoBehaviour
         // Ensure PerformanceOverlay instance matches setting
         PerformanceOverlay.SetOverlayActive(showPerformanceOverlay);
 
+        // 5. Apply UI Scaling across all active and inactive CanvasScalers in scene
+        ApplyUIScale();
+
+        // 6. Apply 3D Render Scale (scales 3D models while keeping UI 100% crisp)
+        ApplyRenderScale();
+
         OnSettingsChanged?.Invoke();
-        Debug.Log($"[GameSettingsManager] Applied settings: Res={resolutionWidth}x{resolutionHeight}@{refreshRate}Hz, Mode={windowMode}, Quality={QualitySettings.names[qualityLevel]}, VSync={vSync}, Overlay={showPerformanceOverlay}");
+        Debug.Log($"[GameSettingsManager] Applied settings: Res={resolutionWidth}x{resolutionHeight}@{refreshRate}Hz, Mode={windowMode}, Quality={QualitySettings.names[qualityLevel]}, VSync={vSync}, Overlay={showPerformanceOverlay}, UIScale={GetCurrentUIScaleMultiplier()}x");
+    }
+
+    /// <summary>
+    /// Returns the scale multiplier matching uiScaleIndex (0.9x, 1.0x, 1.1x, 1.2x).
+    /// </summary>
+    public float GetCurrentUIScaleMultiplier()
+    {
+        switch (uiScaleIndex)
+        {
+            case 0: return 0.90f; // Compact (90%)
+            case 1: return 1.00f; // Standard (100%)
+            case 2: return 1.10f; // Expanded (110%)
+            case 3: return 1.20f; // Large (120%)
+            default: return 1.00f;
+        }
+    }
+
+    /// <summary>
+    /// Scales all UI CanvasScalers in the active scene according to the configured uiScaleIndex.
+    /// Preserves original base resolutions so scaling never drifts over multiple adjustments.
+    /// </summary>
+    public void ApplyUIScale()
+    {
+        float scale = GetCurrentUIScaleMultiplier();
+        var scalers = FindObjectsByType<UnityEngine.UI.CanvasScaler>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        foreach (var scaler in scalers)
+        {
+            if (scaler == null) continue;
+
+            if (scaler.uiScaleMode == UnityEngine.UI.CanvasScaler.ScaleMode.ScaleWithScreenSize)
+            {
+                if (!_baseRefResolutions.TryGetValue(scaler, out var baseRes))
+                {
+                    baseRes = scaler.referenceResolution;
+                    if (baseRes.x <= 0 || baseRes.y <= 0) baseRes = new Vector2(1920, 1080);
+                    _baseRefResolutions[scaler] = baseRes;
+                }
+
+                // In ScaleWithScreenSize, dividing reference resolution by the multiplier makes UI larger when scale > 1
+                scaler.referenceResolution = baseRes / scale;
+            }
+            else if (scaler.uiScaleMode == UnityEngine.UI.CanvasScaler.ScaleMode.ConstantPixelSize)
+            {
+                if (!_baseScaleFactors.TryGetValue(scaler, out float baseFactor))
+                {
+                    baseFactor = scaler.scaleFactor > 0 ? scaler.scaleFactor : 1f;
+                    _baseScaleFactors[scaler] = baseFactor;
+                }
+                scaler.scaleFactor = baseFactor * scale;
+            }
+        }
+
+        OnUIScaleChanged?.Invoke(scale);
+    }
+
+    /// <summary>
+    /// Returns the 3D render scale multiplier matching renderScaleIndex (50%, 65%, 75%, 85%, 100%).
+    /// </summary>
+    public float GetCurrentRenderScaleMultiplier()
+    {
+        switch (renderScaleIndex)
+        {
+            case 0: return 0.50f; // Ultra Performance
+            case 1: return 0.65f; // Performance
+            case 2: return 0.75f; // Balanced
+            case 3: return 0.85f; // Quality
+            case 4: return 1.00f; // Native (100%)
+            default: return 1.00f;
+        }
+    }
+
+    /// <summary>
+    /// Adjusts the URP 3D render scale. Scales 3D world geometry and models while keeping
+    /// 2D UI Canvas, texts, icons, and HUD 100% pixel-sharp at native display resolution.
+    /// </summary>
+    public void ApplyRenderScale()
+    {
+        float scale = GetCurrentRenderScaleMultiplier();
+        var urpAsset = UnityEngine.Rendering.GraphicsSettings.currentRenderPipeline as UnityEngine.Rendering.Universal.UniversalRenderPipelineAsset;
+        if (urpAsset != null)
+        {
+            urpAsset.renderScale = scale;
+        }
     }
 
     // =========================================================================

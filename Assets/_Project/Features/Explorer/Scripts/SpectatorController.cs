@@ -1227,11 +1227,16 @@ public class SpectatorController : MonoBehaviour
 
             if (modeType == SpectatorModeType.Monsters)
             {
+                bool isBerserker = _currentTarget.name.ToLower().Contains("berserker") || 
+                                   _currentTarget.GetComponent<BerserkerAI>() != null ||
+                                   (_currentTarget.TryGetComponent<MonsterAI>(out var bmai) && bmai.monsterType == MonsterAI.MonsterType.Berserker);
+
                 // Align camera directly in front of the monster facing its snarling face when it spawns/roars!
                 _yaw = _currentTarget.transform.eulerAngles.y + 180f;
-                _pitch = 10f; // Eye/chest level, looking directly into its face
-                _currentDistance = 2.1f;
-                _collisionDistance = 2.1f;
+                _pitch = isBerserker ? 8f : 12f; // Eye/chest level, looking directly into its face
+                float targetDist = isBerserker ? 4.2f : 2.5f;
+                _currentDistance = targetDist;
+                _collisionDistance = targetDist;
             }
             else
             {
@@ -1389,13 +1394,25 @@ public class SpectatorController : MonoBehaviour
             // Smooth position tracking
             _spectatorAnchor.position = Vector3.Lerp(_spectatorAnchor.position, targetFocus, Time.deltaTime * followSmoothness);
 
-            // If the monster is crawling, smoothly bias pitch to an elevated top-down angle
-            if (modeType == SpectatorModeType.Monsters && _currentTarget.TryGetComponent<MonsterAI>(out var crawlerAI))
+            // Dynamic monster camera tracking
+            if (modeType == SpectatorModeType.Monsters)
             {
-                if (crawlerAI.currentPosture == MonsterAI.ZombiePosture.Crawling)
+                bool isScreaming = false;
+                if (_currentTarget.TryGetComponent<MonsterAI>(out var crawlerAI))
                 {
-                    // High angle top-down view looking down from above at the crawling monster
-                    _pitch = Mathf.Lerp(_pitch, Mathf.Clamp(_pitch, 35f, 52f), Time.deltaTime * 3.5f);
+                    isScreaming = (crawlerAI.currentState == MonsterAI.AIState.SpawningScream);
+                    if (crawlerAI.currentPosture == MonsterAI.ZombiePosture.Crawling)
+                    {
+                        // High angle top-down view looking down from above at the crawling monster
+                        _pitch = Mathf.Lerp(_pitch, Mathf.Clamp(_pitch, 35f, 52f), Time.deltaTime * 3.5f);
+                    }
+                }
+
+                // While spawning/screaming, continuously rotate the camera yaw to remain directly in front of the beast's face
+                if (isScreaming)
+                {
+                    float frontYaw = _currentTarget.transform.eulerAngles.y + 180f;
+                    _yaw = Mathf.LerpAngle(_yaw, frontYaw, Time.deltaTime * 8f);
                 }
             }
 
@@ -1560,7 +1577,27 @@ public class SpectatorController : MonoBehaviour
     {
         if (target == null) return Vector3.zero;
 
-        if (target.TryGetComponent<MonsterController>(out var mc) && mc.GetCameraTarget() != null)
+        // Monsters (Berserker / Undead)
+        if (modeType == SpectatorModeType.Monsters || IsMonsterTarget(target))
+        {
+            bool isBerserker = target.name.ToLower().Contains("berserker") || 
+                               target.GetComponent<BerserkerAI>() != null ||
+                               (target.TryGetComponent<MonsterAI>(out var bmai) && bmai.monsterType == MonsterAI.MonsterType.Berserker);
+
+            if (target.TryGetComponent<MonsterAI>(out var mai))
+            {
+                if (mai.currentPosture == MonsterAI.ZombiePosture.Crawling)
+                {
+                    return target.transform.position + Vector3.up * 0.5f;
+                }
+            }
+
+            // Berserker is 3.5m tall; Undead is ~1.75m tall
+            float focusHeight = isBerserker ? 2.3f : 1.45f;
+            return target.transform.position + Vector3.up * focusHeight;
+        }
+
+        if (target.TryGetComponent<MonsterController>(out var mc) && mc.GetCameraTarget() != null && mc.GetCameraTarget() != mc.transform)
         {
             return mc.GetCameraTarget().position;
         }
@@ -1573,16 +1610,6 @@ public class SpectatorController : MonoBehaviour
 
         Transform root = target.transform.Find("PlayerCameraRoot") ?? target.transform.Find("CameraFollowAnchor");
         if (root != null) return root.position;
-
-        if (target.TryGetComponent<MonsterAI>(out var mai))
-        {
-            if (mai.currentPosture == MonsterAI.ZombiePosture.Crawling)
-            {
-                // Lower focus point directly over crawling monster
-                return target.transform.position + Vector3.up * 0.45f;
-            }
-            return target.transform.position + Vector3.up * 1.25f;
-        }
 
         return target.transform.position + Vector3.up * 1.35f;
     }
