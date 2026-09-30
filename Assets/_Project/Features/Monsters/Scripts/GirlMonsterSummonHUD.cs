@@ -156,8 +156,16 @@ namespace NightCrawler.Monsters
             // Wire MonsterSpectateHotkey if assigned in inspector
             if (monsterSpectateHotkeyEvent != null)
             {
+                // CRITICAL: Prevent monsterSpectateHotkeyEvent from hijacking Escape!
+                // Its prefab originally had <Keyboard>/escape bound in the scene. Rebind it to Space.
+                monsterSpectateHotkeyEvent.hotkey.Disable();
+                monsterSpectateHotkeyEvent.hotkey = new InputAction("SpectateHotkey", InputActionType.Button, "<Keyboard>/space");
+                monsterSpectateHotkeyEvent.keyID = "Space";
+                monsterSpectateHotkeyEvent.hotkeyLabel = "SPECTATE MONSTERS";
+                monsterSpectateHotkeyEvent.SetLabel("SPECTATE MONSTERS");
                 monsterSpectateHotkeyEvent.onHotkeyPress.RemoveListener(OnSpectateMonstersClicked);
                 monsterSpectateHotkeyEvent.onHotkeyPress.AddListener(OnSpectateMonstersClicked);
+                monsterSpectateHotkeyEvent.enabled = false; // Only active when HUD is open
             }
             if (monsterSpectateButton != null)
             {
@@ -331,11 +339,23 @@ namespace NightCrawler.Monsters
             Cursor.visible = true;
             UpdateChargesDisplay();
             SelectCard(_selectedMonsterIndex);
+
+            if (monsterSpectateHotkeyEvent != null)
+            {
+                monsterSpectateHotkeyEvent.enabled = true;
+                monsterSpectateHotkeyEvent.hotkey.Enable();
+            }
         }
 
         public void CloseHUD()
         {
             _isOpen = false;
+
+            if (monsterSpectateHotkeyEvent != null)
+            {
+                monsterSpectateHotkeyEvent.hotkey.Disable();
+                monsterSpectateHotkeyEvent.enabled = false;
+            }
 
             // Close sub-modals if open
             if (selectionConfirmationModal != null) selectionConfirmationModal.CloseWindow();
@@ -579,6 +599,10 @@ namespace NightCrawler.Monsters
 
         public void OnSpectateMonstersClicked()
         {
+            // CRITICAL GUARD: Only allow opening spectator mode if Summon HUD is currently open
+            // and we are NOT already spectating!
+            if (!_isOpen || SpectatorController.IsAnySpectating) return;
+
             if (!SpectatorController.HasActiveMonstersInScene())
             {
                 if (monsterSpectateHotkey != null) monsterSpectateHotkey.SetActive(false);
@@ -833,6 +857,15 @@ namespace NightCrawler.Monsters
                 monsterSpawnVirtualCamera.Follow = camTarget;
                 monsterSpawnVirtualCamera.LookAt = camTarget;
                 monsterSpawnVirtualCamera.Priority = 99999;
+            }
+        }
+
+        private void OnDestroy()
+        {
+            if (Instance == this) Instance = null;
+            if (monsterSpectateHotkeyEvent != null)
+            {
+                monsterSpectateHotkeyEvent.hotkey.Disable();
             }
         }
     }

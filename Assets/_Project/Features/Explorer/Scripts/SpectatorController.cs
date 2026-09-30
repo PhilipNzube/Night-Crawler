@@ -252,9 +252,8 @@ public class SpectatorController : MonoBehaviour
         if (_canvasGroup != null && _isSpectating && !_isStopping)
         {
             _canvasGroup.alpha = isPaused ? 0f : 1f;
-            // Keep blocksRaycasts FALSE at all times — the pause menu must always
-            // be interactable, even while spectating.
-            _canvasGroup.blocksRaycasts = false;
+            _canvasGroup.blocksRaycasts = !isPaused;
+            _canvasGroup.interactable = !isPaused;
         }
 
         SetHotkeysActive(!isPaused);
@@ -415,7 +414,8 @@ public class SpectatorController : MonoBehaviour
         {
             StopAllCoroutines();
             _canvasGroup.alpha = 0f;
-            _canvasGroup.blocksRaycasts = false; // Never block raycasts — pause must always work
+            _canvasGroup.blocksRaycasts = true; // MUST allow raycasts so mouse can click on-screen buttons!
+            _canvasGroup.interactable = true;
             _canvasGroup.gameObject.SetActive(true);
             StartCoroutine(FadeCanvasGroup(_canvasGroup, 0f, 1f, 0.5f));
         }
@@ -453,7 +453,7 @@ public class SpectatorController : MonoBehaviour
             exitHotkeyEvent.onHotkeyPress.RemoveListener(ExitSpectating);
             exitHotkeyEvent.onHotkeyPress.AddListener(ExitSpectating);
 
-            // Also wire mouse clicks if there is a Button / ButtonManager on this hotkey element
+            // Also wire mouse clicks if there is a Button / ButtonManager / BoxButtonManager on this hotkey element
             var uiBtn = exitHotkeyEvent.GetComponentInChildren<UnityEngine.UI.Button>(true);
             if (uiBtn != null)
             {
@@ -465,6 +465,42 @@ public class SpectatorController : MonoBehaviour
             {
                 heatBtn.onClick.RemoveListener(ExitSpectating);
                 heatBtn.onClick.AddListener(ExitSpectating);
+            }
+            var boxBtn = exitHotkeyEvent.GetComponentInChildren<Michsky.UI.Heat.BoxButtonManager>(true);
+            if (boxBtn != null)
+            {
+                boxBtn.onClick.RemoveListener(ExitSpectating);
+                boxBtn.onClick.AddListener(ExitSpectating);
+            }
+        }
+
+        // Also wire any button under customCanvasRoot or this GameObject with "exit" in its name
+        GameObject hudRoot = customCanvasRoot != null ? customCanvasRoot : gameObject;
+        if (hudRoot != null)
+        {
+            foreach (var btn in hudRoot.GetComponentsInChildren<UnityEngine.UI.Button>(true))
+            {
+                if (btn != null && btn.name.ToLower().Contains("exit"))
+                {
+                    btn.onClick.RemoveListener(ExitSpectating);
+                    btn.onClick.AddListener(ExitSpectating);
+                }
+            }
+            foreach (var bbm in hudRoot.GetComponentsInChildren<Michsky.UI.Heat.BoxButtonManager>(true))
+            {
+                if (bbm != null && bbm.name.ToLower().Contains("exit"))
+                {
+                    bbm.onClick.RemoveListener(ExitSpectating);
+                    bbm.onClick.AddListener(ExitSpectating);
+                }
+            }
+            foreach (var hbm in hudRoot.GetComponentsInChildren<Michsky.UI.Heat.ButtonManager>(true))
+            {
+                if (hbm != null && hbm.name.ToLower().Contains("exit"))
+                {
+                    hbm.onClick.RemoveListener(ExitSpectating);
+                    hbm.onClick.AddListener(ExitSpectating);
+                }
             }
         }
 
@@ -552,9 +588,33 @@ public class SpectatorController : MonoBehaviour
     }
 
     /// <summary>
+    /// Exits spectator mode across all active instances cleanly.
+    /// </summary>
+    public static void ExitAllSpectating()
+    {
+        if (SurvivorInstance != null && SurvivorInstance._isSpectating)
+        {
+            SurvivorInstance.DoExitSpectating();
+        }
+        if (MonsterInstance != null && MonsterInstance._isSpectating)
+        {
+            MonsterInstance.DoExitSpectating();
+        }
+        if (_instance != null && _instance._isSpectating && _instance != SurvivorInstance && _instance != MonsterInstance)
+        {
+            _instance.DoExitSpectating();
+        }
+    }
+
+    /// <summary>
     /// Exits spectator mode via hotkey (e.g. Esc) and returns to death screen or normal view.
     /// </summary>
     public void ExitSpectating()
+    {
+        ExitAllSpectating();
+    }
+
+    private void DoExitSpectating()
     {
         if (!_isSpectating) return;
 
@@ -569,20 +629,11 @@ public class SpectatorController : MonoBehaviour
         }
         else
         {
-            // CRITICAL: Do NOT call customCanvasRoot.SetActive(false) here!
-            // For the Monster spectator, customCanvasRoot IS this GameObject.
-            // Calling SetActive(false) on ourselves mid-frame instantly kills all
-            // running coroutines (including the camera-restore and HUD-fade ones
-            // started by StopSpectating) and can leave the camera frozen at the
-            // monster's position forever.
-            //
-            // StopSpectating() already started a FadeCanvasGroup coroutine that
-            // will call SetActive(false) after 0.4 s. Just make it invisible NOW
-            // via alpha so the user never sees the half-faded HUD.
             if (_canvasGroup != null)
             {
                 _canvasGroup.alpha = 0f;
                 _canvasGroup.blocksRaycasts = false;
+                _canvasGroup.interactable = false;
             }
             if (_spectatorCanvas != null) _spectatorCanvas.gameObject.SetActive(false);
             Cursor.lockState = CursorLockMode.Locked;
@@ -816,6 +867,19 @@ public class SpectatorController : MonoBehaviour
         if (_spectatorCamTransform != null)
         {
             _spectatorCamTransform.gameObject.SetActive(false);
+        }
+
+        if (SurvivorInstance != null && SurvivorInstance._cinemachineCam != null && SurvivorInstance != this)
+        {
+            SurvivorInstance._cinemachineCam.Priority = -999999;
+            SurvivorInstance._cinemachineCam.enabled = false;
+            SurvivorInstance._cinemachineCam.gameObject.SetActive(false);
+        }
+        if (MonsterInstance != null && MonsterInstance._cinemachineCam != null && MonsterInstance != this)
+        {
+            MonsterInstance._cinemachineCam.Priority = -999999;
+            MonsterInstance._cinemachineCam.enabled = false;
+            MonsterInstance._cinemachineCam.gameObject.SetActive(false);
         }
 
         // 2. Disable monster spawn virtual camera if active
@@ -1351,12 +1415,6 @@ public class SpectatorController : MonoBehaviour
             {
                 _spectatorCamTransform.rotation = Quaternion.LookRotation(lookDir);
             }
-
-            if (Camera.main != null)
-            {
-                Camera.main.transform.position = _spectatorCamTransform.position;
-                Camera.main.transform.rotation = _spectatorCamTransform.rotation;
-            }
         }
         else if (Camera.main != null && _spectatorAnchor != null)
         {
@@ -1781,8 +1839,7 @@ public class SpectatorController : MonoBehaviour
 
     private IEnumerator ClearStoppingFlag()
     {
-        // Wait longer than ReassertPlayerCamPriority (5 frames) plus the HUD fade (0.4s)
-        yield return new WaitForSecondsRealtime(0.6f);
+        yield return new WaitForSecondsRealtime(0.2f);
         _isStopping = false;
     }
 
@@ -1798,6 +1855,8 @@ public class SpectatorController : MonoBehaviour
             _canvasGroup = root.GetComponent<CanvasGroup>();
             if (_canvasGroup == null) _canvasGroup = root.AddComponent<CanvasGroup>();
             _canvasGroup.alpha = 0f;
+            _canvasGroup.blocksRaycasts = false;
+            _canvasGroup.interactable = false;
             if (customCanvasRoot != null) customCanvasRoot.SetActive(false);
 
             _roleBadgeText = customRoleText;

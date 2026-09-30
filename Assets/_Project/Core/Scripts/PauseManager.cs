@@ -130,10 +130,9 @@ public class PauseManager : MonoBehaviour
         }
 
         // 0th priority — If spectator mode is active, exit spectator mode instead of pausing!
-        var spec = SpectatorController.Instance;
-        if (spec != null && spec.IsSpectating)
+        if (SpectatorController.IsAnySpectating)
         {
-            spec.ExitSpectating();
+            SpectatorController.ExitAllSpectating();
             // Reset cooldown so a fast follow-up ESC press within the cooldown window
             // cannot also trigger TogglePause on the same or next frame.
             _lastToggleTime = Time.unscaledTime;
