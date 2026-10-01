@@ -215,6 +215,8 @@ public class LoadingScreen : MonoBehaviour
         SceneManager.sceneLoaded -= OnUnitySceneLoaded;
     }
 
+    private Coroutine _dismissRoutine;
+
     private void OnUnitySceneLoaded(Scene scene, LoadSceneMode mode)
     {
         if (scene.name.Equals("LoadingScene", System.StringComparison.OrdinalIgnoreCase) ||
@@ -224,8 +226,7 @@ public class LoadingScreen : MonoBehaviour
             return;
         }
 
-        // Destination scene (GameScene or LobbyScene) finished loading — hide after rendering
-        StartCoroutine(HideAfterOneFrame());
+        QueueDismissForScene(scene.name);
     }
 
     private void OnNetcodeSceneEvent(SceneEvent sceneEvent)
@@ -238,17 +239,124 @@ public class LoadingScreen : MonoBehaviour
                 break;
 
             case SceneEventType.LoadComplete:
-                // Scene is live on this client — wait until it renders then dismiss
+                // Scene is live on this client — wait until it renders (or player spawns) then dismiss
                 if (NetworkManager.Singleton != null && sceneEvent.ClientId == NetworkManager.Singleton.LocalClientId)
                 {
-                    StartCoroutine(HideAfterOneFrame());
+                    QueueDismissForScene(sceneEvent.SceneName);
                 }
                 break;
 
             case SceneEventType.LoadEventCompleted:
-                StartCoroutine(HideAfterOneFrame());
+                QueueDismissForScene(sceneEvent.SceneName);
                 break;
         }
+    }
+
+    private void QueueDismissForScene(string sceneName)
+    {
+        if (_dismissRoutine != null)
+            StopCoroutine(_dismissRoutine);
+
+        bool isGameplayScene = !string.IsNullOrEmpty(sceneName) &&
+            sceneName.IndexOf("Game", System.StringComparison.OrdinalIgnoreCase) >= 0;
+
+        if (isGameplayScene)
+        {
+            _dismissRoutine = StartCoroutine(WaitForPlayerSpawnAndDismiss());
+        }
+        else
+        {
+            _dismissRoutine = StartCoroutine(HideAfterOneFrame());
+        }
+    }
+
+    private System.Collections.IEnumerator WaitForPlayerSpawnAndDismiss()
+    {
+        // Re-ensure loading screen hold task is active so Evo doesn't dismiss prematurely
+        var active = Evo.Loader.LoadingScreen.GetInstance();
+        if (active != null) EnsureHoldTask(active);
+
+        float timeout = 12f;
+        float elapsed = 0f;
+
+        // Hold loading screen until local player (investigator) or girl has physically spawned
+        while (elapsed < timeout)
+        {
+            if (IsLocalPlayerOrGirlSpawned())
+            {
+                break;
+            }
+
+            yield return new WaitForSecondsRealtime(0.05f);
+            elapsed += 0.05f;
+        }
+
+        // Wait brief moment for camera, Cinemachine targets, and lighting to settle on the local player
+        yield return new WaitForSecondsRealtime(0.1f);
+        yield return null;
+        yield return new WaitForEndOfFrame();
+
+        HideLoadingScreen();
+        _dismissRoutine = null;
+    }
+
+    /// <summary>
+    /// Strictly verifies that THIS client's own character (Investigator or Girl) is physically spawned in the scene.
+    /// Remote players' characters will NEVER trigger this check.
+    /// </summary>
+    private bool IsLocalPlayerOrGirlSpawned()
+    {
+        // 1. In networked multiplayer: Strictly check that THIS local client has their own spawned PlayerObject
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+        {
+            // Primary check: Netcode's assigned PlayerObject for the local client
+            if (NetworkManager.Singleton.LocalClient != null && NetworkManager.Singleton.LocalClient.PlayerObject != null)
+            {
+                var localNetObj = NetworkManager.Singleton.LocalClient.PlayerObject;
+                if (localNetObj.IsSpawned && localNetObj.IsOwner && localNetObj.gameObject.activeInHierarchy)
+                {
+                    return true;
+                }
+            }
+
+            // Secondary check: Search scene for any spawned NetworkObject owned specifically by this client
+            var allNetObjects = FindObjectsByType<NetworkObject>(FindObjectsSortMode.None);
+            for (int i = 0; i < allNetObjects.Length; i++)
+            {
+                var netObj = allNetObjects[i];
+                if (netObj != null && netObj.IsSpawned && netObj.IsOwner && netObj.gameObject.activeInHierarchy)
+                {
+                    // Must be a playable character (Girl or Investigator)
+                    if (netObj.GetComponent<GirlMovement>() != null ||
+                        netObj.GetComponent<StarterAssets.ThirdPersonController>() != null ||
+                        netObj.GetComponent<NetworkPlayer>() != null)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            // In networked mode, if THIS client's own character has not spawned yet, keep loading screen visible!
+            // Other players' characters in the match must NEVER dismiss our loading screen.
+            return false;
+        }
+
+        // 2. Offline / Solo test mode (no active Netcode server/client)
+        var offlineGirls = FindObjectsByType<GirlMovement>(FindObjectsSortMode.None);
+        for (int i = 0; i < offlineGirls.Length; i++)
+        {
+            if (offlineGirls[i] != null && offlineGirls[i].gameObject.activeInHierarchy)
+                return true;
+        }
+
+        var offlineControllers = FindObjectsByType<StarterAssets.ThirdPersonController>(FindObjectsSortMode.None);
+        for (int i = 0; i < offlineControllers.Length; i++)
+        {
+            if (offlineControllers[i] != null && offlineControllers[i].gameObject.activeInHierarchy)
+                return true;
+        }
+
+        return false;
     }
 
     private System.Collections.IEnumerator HideAfterOneFrame()
@@ -256,5 +364,6 @@ public class LoadingScreen : MonoBehaviour
         yield return null;
         yield return new WaitForEndOfFrame();
         HideLoadingScreen();
+        _dismissRoutine = null;
     }
 }

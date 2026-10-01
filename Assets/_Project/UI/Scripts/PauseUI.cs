@@ -357,7 +357,9 @@ public class PauseUI : MonoBehaviour
 
             try
             {
+                var netObj = NetworkManager.Singleton.gameObject;
                 NetworkManager.Singleton.Shutdown();
+                Destroy(netObj);
             }
             catch (System.Exception ex)
             {

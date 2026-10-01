@@ -39,10 +39,16 @@ namespace NightCrawler.UI
 
         private void Awake()
         {
+            // If mistakenly placed on TimeBankText, remove it immediately
+            if (gameObject.name == "TimeBankText")
+            {
+                Destroy(this);
+                return;
+            }
+
             if (Instance != null && Instance != this)
             {
-                // CRITICAL BUG FIX: Destroy only this duplicate component, NEVER Destroy(gameObject)!
-                // Destroying gameObject here was deleting DealSlotsLeft and BerserkerSlotsLeft in GameScene.
+                SetVisible(false);
                 Destroy(this);
                 return;
             }
@@ -50,7 +56,15 @@ namespace NightCrawler.UI
 
             if (canvasGroup == null)
             {
-                canvasGroup = GetComponent<CanvasGroup>() ?? (missionPanel != null ? missionPanel.GetComponent<CanvasGroup>() : null);
+                canvasGroup = GetComponent<CanvasGroup>();
+                if (canvasGroup == null && missionPanel != null && missionPanel != gameObject)
+                {
+                    canvasGroup = missionPanel.GetComponent<CanvasGroup>();
+                }
+                if (canvasGroup == null)
+                {
+                    canvasGroup = gameObject.AddComponent<CanvasGroup>();
+                }
             }
 
             _audioSource = GetComponent<AudioSource>();
@@ -208,13 +222,29 @@ namespace NightCrawler.UI
 
         private void SetVisible(bool visible)
         {
+            if (canvasGroup == null)
+            {
+                canvasGroup = GetComponent<CanvasGroup>();
+                if (canvasGroup == null)
+                {
+                    canvasGroup = gameObject.AddComponent<CanvasGroup>();
+                }
+            }
+
             if (canvasGroup != null)
             {
                 canvasGroup.alpha = visible ? 1f : 0f;
                 canvasGroup.interactable = visible;
                 canvasGroup.blocksRaycasts = visible;
             }
-            else if (missionPanel != null && missionPanel != gameObject)
+
+            // Also explicitly toggle child objects so nothing renders while hidden
+            for (int i = 0; i < transform.childCount; i++)
+            {
+                transform.GetChild(i).gameObject.SetActive(visible);
+            }
+
+            if (missionPanel != null && missionPanel != gameObject)
             {
                 missionPanel.SetActive(visible);
             }

@@ -28,8 +28,8 @@ public class GirlMovement : NetworkBehaviour
     [Tooltip("Fallback footstep clips if mine or rail specific clips are unassigned.")]
     public AudioClip[] footstepClips;
 
-    [Tooltip("Volume of footstep audio playback.")]
-    [Range(0f, 1f)] public float footstepVolume = 0.4f;
+    [Tooltip("Volume of footstep audio playback. Values above 1.0 provide extra audio boost.")]
+    [Range(0f, 2.5f)] public float footstepVolume = 0.9f;
 
     [Tooltip("Cadence/interval between footsteps while walking (seconds).")]
     public float walkStepInterval = 0.45f;
@@ -146,11 +146,17 @@ public class GirlMovement : NetworkBehaviour
     {
         SanitizeGirlAnimator();
 
-        // Synchronize entity stats to ThirdPersonController if present
-        if (TryGetComponent<ThirdPersonController>(out var tpc) && stats != null)
+        // Synchronize entity stats and silence ThirdPersonController's built-in footsteps
+        // so its boots sounds do NOT collide or double-play over the Girl's barefoot/metal footsteps!
+        if (TryGetComponent<ThirdPersonController>(out var tpc))
         {
-            tpc.MoveSpeed = stats.walkSpeed;
-            tpc.SprintSpeed = stats.runSpeed;
+            if (stats != null)
+            {
+                tpc.MoveSpeed = stats.walkSpeed;
+                tpc.SprintSpeed = stats.runSpeed;
+            }
+            tpc.FootstepAudioClips = new AudioClip[0];
+            tpc.FootstepAudioVolume = 0f;
         }
     }
 
@@ -249,6 +255,8 @@ public class GirlMovement : NetworkBehaviour
     /// </summary>
     public void OnFootstep(AnimationEvent animationEvent)
     {
+        if (!enabled) return;
+        if (animationEvent != null && animationEvent.animatorClipInfo.weight <= 0.5f) return;
         PlayFootstep();
     }
 
@@ -291,16 +299,12 @@ public class GirlMovement : NetworkBehaviour
         Vector3 rayStart = transform.position + Vector3.up * 0.2f;
         if (Physics.Raycast(rayStart, Vector3.down, out RaycastHit hit, surfaceCheckDistance, groundLayerMask, QueryTriggerInteraction.Ignore))
         {
-            // 1. Tag check
-            if (!string.IsNullOrEmpty(metalTag) && (hit.collider.CompareTag(metalTag) || hit.collider.CompareTag("Rail")))
-                return true;
-
-            // 2. Object name check
+            // 1. Object name check (e.g. 'Rail', 'Minecart', 'IronBar')
             string objName = hit.collider.gameObject.name.ToLower();
             if (MatchesRailKeyword(objName))
                 return true;
 
-            // 3. Parent name check
+            // 2. Parent name check
             if (hit.collider.transform.parent != null)
             {
                 string parentName = hit.collider.transform.parent.name.ToLower();
@@ -308,13 +312,17 @@ public class GirlMovement : NetworkBehaviour
                     return true;
             }
 
-            // 4. PhysicMaterial check
+            // 3. PhysicMaterial check
             if (hit.collider.sharedMaterial != null)
             {
                 string matName = hit.collider.sharedMaterial.name.ToLower();
                 if (MatchesRailKeyword(matName))
                     return true;
             }
+
+            // 4. Safe Tag check (does not throw if tag is not defined)
+            if (SafeCompareTag(hit.collider, metalTag) || SafeCompareTag(hit.collider, "Rail"))
+                return true;
         }
         return false;
     }
@@ -377,6 +385,19 @@ public class GirlMovement : NetworkBehaviour
             {
                 NightCrawler.Monsters.DeadSpawnManager.Instance.CommandAllMonstersServerRpc(1, NetworkManager.Singleton.LocalClientId);
             }
+        }
+    }
+
+    private bool SafeCompareTag(Component comp, string tag)
+    {
+        if (comp == null || string.IsNullOrEmpty(tag)) return false;
+        try
+        {
+            return string.Equals(comp.gameObject.tag, tag, System.StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
         }
     }
 }

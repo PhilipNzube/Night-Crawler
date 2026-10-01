@@ -4,6 +4,13 @@ using StarterAssets;
 /// <summary>
 /// Dynamically updates the Investigator's footstep audio clips based on the surface beneath their feet.
 /// Switches between mine ground (dirt/rock/stone) and minecart tracks/metal (rail/iron).
+/// 
+/// Works in TWO modes:
+/// 1. Built-in Mode (Default): If footstepSource is left empty, it feeds clips directly into
+///    ThirdPersonController.FootstepAudioClips and lets Unity play them via PlayClipAtPoint (no AudioSource required!).
+/// 2. Dedicated AudioSource Mode: If you assign an AudioSource to footstepSource, it plays footsteps
+///    directly through that AudioSource with full 3D spatial settings, and silences ThirdPersonController
+///    so footsteps never double-play.
 /// </summary>
 [DisallowMultipleComponent]
 public class InvestigatorSurfaceFootsteps : MonoBehaviour
@@ -18,6 +25,9 @@ public class InvestigatorSurfaceFootsteps : MonoBehaviour
     [Tooltip("Drag the ThirdPersonController component from this GameObject here.")]
     public ThirdPersonController controller;
 
+    [Tooltip("Optional AudioSource. If assigned, footsteps play through this source with your custom 3D curves. If left empty, ThirdPersonController plays them automatically.")]
+    public AudioSource footstepSource;
+
     [Tooltip("Optional CharacterController reference. If empty, will auto-detect from this GameObject.")]
     public CharacterController characterController;
 
@@ -27,6 +37,9 @@ public class InvestigatorSurfaceFootsteps : MonoBehaviour
 
     [Tooltip("Clips played when walking on minecart rails, iron tracks, or metallic surfaces.")]
     public AudioClip[] railFootstepClips;
+
+    [Tooltip("Volume for footstep playback. Values above 1.0 provide extra audio boost for quiet clips.")]
+    [Range(0f, 2.5f)] public float footstepVolume = 0.9f;
 
     [Header("Surface Detection")]
     [Tooltip("Raycast distance downwards to check the ground surface.")]
@@ -59,6 +72,14 @@ public class InvestigatorSurfaceFootsteps : MonoBehaviour
 
     private void Start()
     {
+        if (footstepSource != null && controller != null)
+        {
+            // If using a dedicated AudioSource, silence ThirdPersonController's built-in PlayClipAtPoint
+            // so footsteps never double-play!
+            controller.FootstepAudioClips = new AudioClip[0];
+            controller.FootstepAudioVolume = 0f;
+        }
+
         UpdateSurfaceAndClips(force: true);
     }
 
@@ -68,7 +89,7 @@ public class InvestigatorSurfaceFootsteps : MonoBehaviour
     }
 
     /// <summary>
-    /// Checks ground beneath player and updates controller.FootstepAudioClips accordingly.
+    /// Checks ground beneath player and updates clips accordingly.
     /// </summary>
     public void UpdateSurfaceAndClips(bool force = false)
     {
@@ -85,26 +106,57 @@ public class InvestigatorSurfaceFootsteps : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Animation event receiver. Triggered automatically by Walk/Run animation events.
+    /// </summary>
+    public void OnFootstep(AnimationEvent animationEvent)
+    {
+        if (!enabled) return;
+        if (animationEvent != null && animationEvent.animatorClipInfo.weight <= 0.5f) return;
+
+        // If using dedicated AudioSource, play the sound here
+        if (footstepSource != null)
+        {
+            PlayFootstepClip();
+        }
+    }
+
+    private void PlayFootstepClip()
+    {
+        AudioClip[] targetClips = (_currentSurface == SurfaceType.RailMetal && railFootstepClips != null && railFootstepClips.Length > 0)
+            ? railFootstepClips
+            : mineFootstepClips;
+
+        if (targetClips == null || targetClips.Length == 0) return;
+
+        int idx = Random.Range(0, targetClips.Length);
+        AudioClip clip = targetClips[idx];
+        if (clip == null) return;
+
+        if (footstepSource != null)
+        {
+            footstepSource.PlayOneShot(clip, footstepVolume);
+        }
+        else
+        {
+            AudioSource.PlayClipAtPoint(clip, transform.position, footstepVolume);
+        }
+    }
+
     private SurfaceType DetectSurfaceUnderfoot()
     {
         Vector3 origin = transform.position + Vector3.up * 0.2f;
 
         if (Physics.Raycast(origin, Vector3.down, out RaycastHit hit, surfaceCheckDistance, groundLayerMask, QueryTriggerInteraction.Ignore))
         {
-            // 1. Tag check
-            if (!string.IsNullOrEmpty(metalTag) && (hit.collider.CompareTag(metalTag) || hit.collider.CompareTag("Rail")))
-            {
-                return SurfaceType.RailMetal;
-            }
-
-            // 2. GameObject name check
+            // 1. GameObject name check (e.g. 'Rail (1)', 'Minecart', 'IronBar')
             string objName = hit.collider.gameObject.name.ToLower();
             if (MatchesKeyword(objName))
             {
                 return SurfaceType.RailMetal;
             }
 
-            // 3. Parent GameObject name check
+            // 2. Parent GameObject name check
             if (hit.collider.transform.parent != null)
             {
                 string parentName = hit.collider.transform.parent.name.ToLower();
@@ -114,7 +166,7 @@ public class InvestigatorSurfaceFootsteps : MonoBehaviour
                 }
             }
 
-            // 4. PhysicMaterial check
+            // 3. PhysicMaterial check
             if (hit.collider.sharedMaterial != null)
             {
                 string matName = hit.collider.sharedMaterial.name.ToLower();
@@ -122,6 +174,12 @@ public class InvestigatorSurfaceFootsteps : MonoBehaviour
                 {
                     return SurfaceType.RailMetal;
                 }
+            }
+
+            // 4. Safe Tag check (surrounded in try-catch so undefined tags never throw exceptions)
+            if (SafeCompareTag(hit.collider, metalTag) || SafeCompareTag(hit.collider, "Rail"))
+            {
+                return SurfaceType.RailMetal;
             }
         }
 
@@ -144,15 +202,31 @@ public class InvestigatorSurfaceFootsteps : MonoBehaviour
 
     private void ApplyClipsForCurrentSurface()
     {
-        if (controller == null) return;
-
-        if (_currentSurface == SurfaceType.RailMetal && railFootstepClips != null && railFootstepClips.Length > 0)
+        // In built-in mode (no dedicated AudioSource), feed clips directly into ThirdPersonController
+        if (footstepSource == null && controller != null)
         {
-            controller.FootstepAudioClips = railFootstepClips;
+            controller.FootstepAudioVolume = Mathf.Clamp01(footstepVolume);
+            if (_currentSurface == SurfaceType.RailMetal && railFootstepClips != null && railFootstepClips.Length > 0)
+            {
+                controller.FootstepAudioClips = railFootstepClips;
+            }
+            else if (mineFootstepClips != null && mineFootstepClips.Length > 0)
+            {
+                controller.FootstepAudioClips = mineFootstepClips;
+            }
         }
-        else if (mineFootstepClips != null && mineFootstepClips.Length > 0)
+    }
+
+    private bool SafeCompareTag(Component comp, string tag)
+    {
+        if (comp == null || string.IsNullOrEmpty(tag)) return false;
+        try
         {
-            controller.FootstepAudioClips = mineFootstepClips;
+            return string.Equals(comp.gameObject.tag, tag, System.StringComparison.OrdinalIgnoreCase);
+        }
+        catch
+        {
+            return false;
         }
     }
 }

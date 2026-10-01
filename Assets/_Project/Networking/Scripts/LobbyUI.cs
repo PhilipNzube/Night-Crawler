@@ -128,6 +128,16 @@ public class LobbyUI : MonoBehaviour
     public List<Button> standardExitTriggerButtons = new List<Button>();
 
     // -------------------------------------------------------------------------
+    //  Inspector — Error Modal Window
+    // -------------------------------------------------------------------------
+    [Header("Heat UI Error Modal Window")]
+    [Tooltip("Michsky Heat Modal Window Manager for displaying errors (e.g. host start failed, invalid room code).")]
+    public ModalWindowManager heatErrorModal;
+
+    [Tooltip("Confirm / Close button inside the Error Modal.")]
+    public ButtonManager heatErrorConfirmButton;
+
+    // -------------------------------------------------------------------------
     //  Inspector — 5. Dedicated Client Join Code Panel
     // -------------------------------------------------------------------------
     [Header("5. Join Code Panel (Client)  ← Dedicated screen to enter code")]
@@ -318,6 +328,24 @@ public class LobbyUI : MonoBehaviour
         UpdateProfileUI();
         UpdateCreditsUI();
         HideLoading();
+
+        // Clean Network Reset: If returning from a match or disconnected session,
+        // cleanly shut down any lingering Netcode socket so hosting/joining works immediately.
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+        {
+            try
+            {
+                NetworkManager.Singleton.Shutdown();
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"[LobbyUI] Start cleanup exception: {ex.Message}");
+            }
+        }
+        if (RelayManager.Instance != null)
+        {
+            RelayManager.Instance.ConfigureLocalTransport(localIpAddress, localPort);
+        }
 
         // Always show the home connection panel on start
         ShowConnectionPanel();
@@ -581,6 +609,16 @@ public class LobbyUI : MonoBehaviour
                 if (btn != null) MichskyUIBridge.BindButton(btn, RequestDisconnect);
             }
         }
+
+        // 7. Error Modal Window
+        if (heatErrorConfirmButton != null)
+        {
+            MichskyUIBridge.BindButton(null, heatErrorConfirmButton, CloseErrorModal);
+        }
+        if (heatErrorModal != null && heatErrorModal.cancelButton != null)
+        {
+            MichskyUIBridge.BindButton(null, heatErrorModal.cancelButton, CloseErrorModal);
+        }
     }
 
     // =========================================================================
@@ -736,6 +774,55 @@ public class LobbyUI : MonoBehaviour
     }
 
     // =========================================================================
+    //  Error Modal Window
+    // =========================================================================
+    /// <summary>
+    /// Displays a dedicated or fallback modal window for network/lobby errors.
+    /// </summary>
+    public void ShowErrorModal(string title, string description)
+    {
+        Debug.LogWarning($"[LobbyUI] Showing Error Modal: [{title}] {description}");
+
+        if (heatErrorModal != null)
+        {
+            heatErrorModal.useLocalization = false;
+            heatErrorModal.titleText = title;
+            heatErrorModal.descriptionText = description;
+            if (heatErrorModal.windowTitle != null) heatErrorModal.windowTitle.text = title;
+            if (heatErrorModal.windowDescription != null) heatErrorModal.windowDescription.text = description;
+            heatErrorModal.OpenWindow();
+            UnlockCursor();
+            return;
+        }
+
+        // Clean Fallback: If dedicated error modal is unassigned, use exitConfirmModal customized for error notification
+        if (exitConfirmModal != null)
+        {
+            exitConfirmModal.useLocalization = false;
+            exitConfirmModal.titleText = title;
+            exitConfirmModal.descriptionText = description;
+            if (exitConfirmModal.windowTitle != null) exitConfirmModal.windowTitle.text = title;
+            if (exitConfirmModal.windowDescription != null) exitConfirmModal.windowDescription.text = description;
+            exitConfirmModal.OpenWindow();
+            UnlockCursor();
+            return;
+        }
+
+        if (NotificationManager.Instance != null)
+        {
+            NotificationManager.Instance.ShowNotification($"{title}: {description}", 4.5f);
+        }
+    }
+
+    public void CloseErrorModal()
+    {
+        if (heatErrorModal != null && heatErrorModal.isOn)
+        {
+            heatErrorModal.CloseWindow();
+        }
+    }
+
+    // =========================================================================
     //  Name Entry Actions
     // =========================================================================
     private bool _isSanitizingInput = false;
@@ -866,49 +953,85 @@ public class LobbyUI : MonoBehaviour
 
         SetConnectionButtonsInteractable(false);
 
-        if (networkMode == NetworkMode.LocalLAN)
+        try
         {
-            ShowLoading($"Starting local host session ({localIpAddress}:{localPort})...");
-
-            var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
-            if (transport != null)
-                transport.SetConnectionData(localIpAddress, localPort);
-
-            bool success = NetworkManager.Singleton.StartHost();
-            HideLoading();
-
-            if (success)
+            if (NetworkManager.Singleton == null)
             {
-                ShowHostLobby($"LOCAL LAN ({localIpAddress}:{localPort})");
-            }
-            else
-            {
-                Debug.LogWarning("[LobbyUI] Failed to start local host.");
+                ShowErrorModal("HOST ERROR", "NetworkManager not found. Please reload the lobby scene.");
                 SetConnectionButtonsInteractable(true);
+                return;
+            }
+
+            // Clean reset if any previous session was active
+            if (NetworkManager.Singleton.IsListening)
+            {
+                NetworkManager.Singleton.Shutdown();
+                await Task.Delay(100);
+            }
+
+            if (networkMode == NetworkMode.LocalLAN)
+            {
+                ShowLoading($"Starting local host session ({localIpAddress}:{localPort})...");
+
+                var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
+                if (transport != null)
+                    transport.SetConnectionData(localIpAddress, localPort);
+
+                bool success = NetworkManager.Singleton.StartHost();
+                HideLoading();
+
+                if (success)
+                {
+                    ShowHostLobby($"LOCAL LAN ({localIpAddress}:{localPort})");
+                }
+                else
+                {
+                    Debug.LogWarning("[LobbyUI] Failed to start local host.");
+                    ShowErrorModal("HOST FAILED", $"Could not start local host on {localIpAddress}:{localPort}. The port may already be in use.");
+                    SetConnectionButtonsInteractable(true);
+                }
+            }
+            else // Relay mode
+            {
+                EnsureRelayManager();
+                ShowLoading("Connecting to Relay & generating lobby code...");
+
+                string joinCode = await RelayManager.Instance.StartRelayHostAsync(maxPlayers);
+
+                if (!string.IsNullOrEmpty(joinCode))
+                {
+                    ShowLoading("Finalizing lobby session & determining player count...");
+                    bool connected = await WaitForRelayConnectionAsync(10f);
+                    HideLoading();
+
+                    if (connected)
+                    {
+                        ShowHostLobby(joinCode);
+                        GirlRevealManager.Instance?.SubmitLocalPlayerName();
+                        RefreshLobbyPanels();
+                    }
+                    else
+                    {
+                        ShowErrorModal("HOST TIMEOUT", "Relay room was created, but connection to host session timed out. Please try again.");
+                        if (NetworkManager.Singleton != null) NetworkManager.Singleton.Shutdown();
+                        SetConnectionButtonsInteractable(true);
+                    }
+                }
+                else
+                {
+                    HideLoading();
+                    Debug.LogWarning("[LobbyUI] Failed to create Relay session. Check internet & dashboard.");
+                    ShowErrorModal("RELAY ERROR", "Failed to create online Relay session. Please check your internet connection.");
+                    SetConnectionButtonsInteractable(true);
+                }
             }
         }
-        else // Relay mode
+        catch (System.Exception ex)
         {
-            EnsureRelayManager();
-            ShowLoading("Connecting to Relay & generating lobby code...");
-
-            string joinCode = await RelayManager.Instance.StartRelayHostAsync(maxPlayers);
-
-            if (!string.IsNullOrEmpty(joinCode))
-            {
-                ShowLoading("Finalizing lobby session & determining player count...");
-                await WaitForRelayConnectionAsync(10f);
-                HideLoading();
-                ShowHostLobby(joinCode);
-                GirlRevealManager.Instance?.SubmitLocalPlayerName();
-                RefreshLobbyPanels();
-            }
-            else
-            {
-                HideLoading();
-                Debug.LogWarning("[LobbyUI] Failed to create Relay session. Check internet & dashboard.");
-                SetConnectionButtonsInteractable(true);
-            }
+            HideLoading();
+            Debug.LogError($"[LobbyUI] Host Exception: {ex.Message}");
+            ShowErrorModal("HOST ERROR", ex.Message);
+            SetConnectionButtonsInteractable(true);
         }
     }
 
@@ -931,26 +1054,50 @@ public class LobbyUI : MonoBehaviour
         }
     }
 
-    private void ConnectLocalClient()
+    private async void ConnectLocalClient()
     {
         SetConnectionButtonsInteractable(false);
         ShowLoading($"Connecting to local host at {localIpAddress}...");
 
-        var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
-        if (transport != null)
-            transport.SetConnectionData(localIpAddress, localPort);
-
-        bool success = NetworkManager.Singleton.StartClient();
-        HideLoading();
-
-        if (success)
+        try
         {
-            ShowClientLobby($"LOCAL LAN ({localIpAddress})");
-            GirlRevealManager.Instance?.SubmitLocalPlayerName();
+            if (NetworkManager.Singleton == null)
+            {
+                HideLoading();
+                ShowErrorModal("CLIENT ERROR", "NetworkManager not found.");
+                SetConnectionButtonsInteractable(true);
+                return;
+            }
+
+            if (NetworkManager.Singleton.IsListening)
+            {
+                NetworkManager.Singleton.Shutdown();
+                await Task.Delay(100);
+            }
+
+            var transport = NetworkManager.Singleton.GetComponent<UnityTransport>();
+            if (transport != null)
+                transport.SetConnectionData(localIpAddress, localPort);
+
+            bool success = NetworkManager.Singleton.StartClient();
+            HideLoading();
+
+            if (success)
+            {
+                ShowClientLobby($"LOCAL LAN ({localIpAddress})");
+                GirlRevealManager.Instance?.SubmitLocalPlayerName();
+            }
+            else
+            {
+                Debug.LogWarning("[LobbyUI] Failed to connect to local host.");
+                ShowErrorModal("CONNECTION FAILED", $"Failed to connect to local host at {localIpAddress}:{localPort}. Ensure the host has already started.");
+                SetConnectionButtonsInteractable(true);
+            }
         }
-        else
+        catch (System.Exception ex)
         {
-            Debug.LogWarning("[LobbyUI] Failed to connect to local host.");
+            HideLoading();
+            ShowErrorModal("CLIENT ERROR", ex.Message);
             SetConnectionButtonsInteractable(true);
         }
     }
@@ -983,34 +1130,53 @@ public class LobbyUI : MonoBehaviour
         SetJoinCodeButtonsInteractable(false);
         ShowLoading($"Connecting to Relay room '{code}'...");
 
-        EnsureRelayManager();
-        bool success = await RelayManager.Instance.StartRelayClientAsync(code);
-
-        if (success)
+        try
         {
-            ShowLoading("Establishing session & determining player count...");
-            bool connected = await WaitForRelayConnectionAsync(15f);
-            HideLoading();
-
-            if (connected)
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
             {
-                ShowClientLobby(code);
-                GirlRevealManager.Instance?.SubmitLocalPlayerName();
-                RefreshLobbyPanels();
+                NetworkManager.Singleton.Shutdown();
+                await Task.Delay(100);
+            }
+
+            EnsureRelayManager();
+            bool success = await RelayManager.Instance.StartRelayClientAsync(code);
+
+            if (success)
+            {
+                ShowLoading("Establishing session & determining player count...");
+                bool connected = await WaitForRelayConnectionAsync(15f);
+                HideLoading();
+
+                if (connected)
+                {
+                    ShowClientLobby(code);
+                    GirlRevealManager.Instance?.SubmitLocalPlayerName();
+                    RefreshLobbyPanels();
+                }
+                else
+                {
+                    Debug.LogWarning("[LobbyUI] Connection timed out. Please check the code and try again.");
+                    ShowJoinCodeError("Connection timed out. Check the code and try again.");
+                    ShowErrorModal("CONNECTION TIMEOUT", "Connection to the room timed out. The host may have left or the lobby is full.");
+                    SetJoinCodeButtonsInteractable(true);
+                    if (NetworkManager.Singleton != null) NetworkManager.Singleton.Shutdown();
+                }
             }
             else
             {
-                Debug.LogWarning("[LobbyUI] Connection timed out. Please check the code and try again.");
-                ShowJoinCodeError("Connection timed out. Check the code and try again.");
+                HideLoading();
+                Debug.LogWarning("[LobbyUI] Failed to join. Check the code and try again.");
+                ShowJoinCodeError("Invalid room code or room not found.");
+                ShowErrorModal("JOIN FAILED", "Invalid room code or room not found. Please double-check the 6-character code with the host.");
                 SetJoinCodeButtonsInteractable(true);
-                if (NetworkManager.Singleton != null) NetworkManager.Singleton.Shutdown();
             }
         }
-        else
+        catch (System.Exception ex)
         {
             HideLoading();
-            Debug.LogWarning("[LobbyUI] Failed to join. Check the code and try again.");
-            ShowJoinCodeError("Invalid room code or room not found.");
+            Debug.LogError($"[LobbyUI] Join Exception: {ex.Message}");
+            ShowJoinCodeError(ex.Message);
+            ShowErrorModal("JOIN ERROR", ex.Message);
             SetJoinCodeButtonsInteractable(true);
         }
     }
@@ -1198,12 +1364,26 @@ public class LobbyUI : MonoBehaviour
     {
         if (NetworkManager.Singleton != null)
         {
-            NetworkManager.Singleton.Shutdown();
+            try
+            {
+                if (NetworkManager.Singleton.IsListening)
+                {
+                    NetworkManager.Singleton.Shutdown();
+                }
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"[LobbyUI] Disconnect exception: {ex.Message}");
+            }
         }
 
         if (RelayManager.Instance != null)
         {
-            RelayManager.Instance.ConfigureLocalTransport(localIpAddress, localPort);
+            try
+            {
+                RelayManager.Instance.ConfigureLocalTransport(localIpAddress, localPort);
+            }
+            catch {}
         }
 
         SetConnectionButtonsInteractable(true);
