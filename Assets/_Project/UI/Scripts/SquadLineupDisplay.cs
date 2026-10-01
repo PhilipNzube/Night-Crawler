@@ -19,7 +19,7 @@ using System.Collections.Generic;
 ///   • All investigators stand side-by-side in a lit, cinematic 3D row.
 ///   • The Vengeful Spirit stands among them disguised — nobody knows who she is yet.
 ///     This preserves the social-horror paranoia that is core to "The Mine".
-///   • A countdown header reads "ENTERING THE MINE IN X..." before scene load.
+///   • A status header reads "SQUAD ASSEMBLED" followed by "ENTERING THE MINE..." before scene load.
 /// </summary>
 public class SquadLineupDisplay : MonoBehaviour
 {
@@ -49,14 +49,32 @@ public class SquadLineupDisplay : MonoBehaviour
     public GameObject squadTagPrefab;
 
     // -------------------------------------------------------------------------
-    //  Inspector — Timing
+    //  Inspector — Header Text & Timing
     // -------------------------------------------------------------------------
-    [Header("Timing (Customizable in Inspector)")]
-    [Tooltip("Seconds to wait and display 'SQUAD ASSEMBLED' before starting the countdown.")]
-    public float initialHoldBeforeCountdown = 3.0f;
+    [Header("Header Text & Timing")]
+    [Tooltip("Initial header text displayed when squad lineup appears.")]
+    public string initialHeaderText = "SQUAD ASSEMBLED";
 
-    [Tooltip("Starting number in seconds for the countdown header (e.g. 10).")]
-    public int countdownFrom = 10;
+    [Tooltip("Status text displayed while awaiting descent / scene load (e.g. 'ENTERING THE MINE...').")]
+    public string deploymentText = "ENTERING THE MINE...";
+
+    [Tooltip("Seconds to display initial text ('SQUAD ASSEMBLED') before transitioning.")]
+    public float initialHoldDuration = 2.5f;
+
+    [Tooltip("Max seconds to display deployment status text before transitioning to loading screen (useful for solo / offline testing).")]
+    public float deploymentDisplayDuration = 6.0f;
+
+    [System.Obsolete("Replaced by initialHoldDuration. Kept for inspector backwards compatibility.")]
+    [HideInInspector]
+    public float initialHoldBeforeCountdown
+    {
+        get => initialHoldDuration;
+        set => initialHoldDuration = value;
+    }
+
+    [System.Obsolete("Countdown loop is scrapped. Kept for inspector backwards compatibility.")]
+    [HideInInspector]
+    public int countdownFrom = 0;
 
     // -------------------------------------------------------------------------
     //  Inspector — Cinematic Animation & Gestures
@@ -138,26 +156,37 @@ public class SquadLineupDisplay : MonoBehaviour
         if (_gestureRoutine != null) StopCoroutine(_gestureRoutine);
         _gestureRoutine = StartCoroutine(TriggerSquadGesturesAfterDelay());
 
+        // Phase 1: Show Initial Header ("SQUAD ASSEMBLED")
         if (headerText != null)
-            headerText.text = "SQUAD ASSEMBLED";
+            headerText.text = initialHeaderText;
 
-        // Initial hold before starting countdown
-        yield return new WaitForSecondsRealtime(Mathf.Max(0f, initialHoldBeforeCountdown));
+        yield return new WaitForSecondsRealtime(Mathf.Max(0f, initialHoldDuration));
 
-        // Countdown header - counts down completely to 0 without interruption
-        for (int i = countdownFrom; i >= 0; i--)
+        // Phase 2: Show Deployment Status Text with animated dots ("ENTERING THE MINE.", "..", "...")
+        string baseText = string.IsNullOrEmpty(deploymentText) ? "ENTERING THE MINE" : deploymentText.TrimEnd('.');
+        float elapsed = 0f;
+        int dotCount = 1;
+
+        while (elapsed < deploymentDisplayDuration)
         {
             if (headerText != null)
             {
-                headerText.text = i > 0 
-                    ? $"ENTERING THE MINE IN {i}..." 
-                    : "ENTERING THE MINE IN 0...";
+                string dots = new string('.', dotCount);
+                headerText.text = $"{baseText}{dots}";
             }
 
-            yield return new WaitForSecondsRealtime(1f);
+            dotCount = (dotCount % 3) + 1;
+            yield return new WaitForSecondsRealtime(0.5f);
+            elapsed += 0.5f;
+
+            // If loading screen has already been triggered by server or network transition, exit loop
+            if (LoadingScreen.Instance != null && LoadingScreen.Instance.IsLoadingScreenActive)
+            {
+                break;
+            }
         }
 
-        // Countdown has reached zero and finished its full 0s display: show loading screen to transition
+        // Show loading screen if not already visible (e.g. solo/offline test fallback)
         if (LoadingScreen.Instance != null)
         {
             LoadingScreen.Instance.ShowImmediate();

@@ -30,6 +30,9 @@ public class DealNotificationUI : MonoBehaviour
     [Tooltip("The ModalWindowManager on DealNotificationPromptModal.")]
     public ModalWindowManager heatModalWindow;
 
+    [Tooltip("CanvasGroup controlling prompt visibility and input interception.")]
+    public CanvasGroup canvasGroup;
+
     [Header("Text Display Elements")]
     [Tooltip("Title text in modal header.")]
     public TextMeshProUGUI headerTitleText;
@@ -76,7 +79,7 @@ public class DealNotificationUI : MonoBehaviour
         {
             _instance = found;
             found.gameObject.SetActive(true);
-            found.SetVisible(false);
+            found.SetVisible(false, modifyCursor: false);
             Debug.Log($"[DealNotificationUI] Discovered and initialized prompt: {found.gameObject.name}");
         }
     }
@@ -95,21 +98,59 @@ public class DealNotificationUI : MonoBehaviour
             heatModalWindow = GetComponent<ModalWindowManager>();
         }
 
+        if (canvasGroup == null)
+        {
+            canvasGroup = GetComponent<CanvasGroup>();
+            if (canvasGroup == null) canvasGroup = GetComponentInChildren<CanvasGroup>(true);
+        }
+
         SanitizeModal(heatModalWindow);
 
         if (acceptButton != null)
         {
-            acceptButton.onClick.RemoveAllListeners();
+            acceptButton.onClick.RemoveListener(OnAcceptClicked);
             acceptButton.onClick.AddListener(OnAcceptClicked);
         }
 
         if (declineButton != null)
         {
-            declineButton.onClick.RemoveAllListeners();
+            declineButton.onClick.RemoveListener(OnDeclineClicked);
             declineButton.onClick.AddListener(OnDeclineClicked);
         }
 
-        SetVisible(false);
+        // Also bind heatModalWindow's own confirm and cancel buttons if present
+        if (heatModalWindow != null)
+        {
+            if (heatModalWindow.confirmButton != null)
+            {
+                heatModalWindow.confirmButton.onClick.RemoveListener(OnAcceptClicked);
+                heatModalWindow.confirmButton.onClick.AddListener(OnAcceptClicked);
+            }
+            if (heatModalWindow.cancelButton != null)
+            {
+                heatModalWindow.cancelButton.onClick.RemoveListener(OnDeclineClicked);
+                heatModalWindow.cancelButton.onClick.AddListener(OnDeclineClicked);
+            }
+        }
+
+        // Also support standard UnityEngine.UI.Button if present in children
+        var standardButtons = GetComponentsInChildren<UnityEngine.UI.Button>(true);
+        foreach (var btn in standardButtons)
+        {
+            string n = btn.gameObject.name.ToLower();
+            if (n.Contains("accept") || n.Contains("confirm") || n.Contains("yes"))
+            {
+                btn.onClick.RemoveListener(OnAcceptClicked);
+                btn.onClick.AddListener(OnAcceptClicked);
+            }
+            else if (n.Contains("decline") || n.Contains("cancel") || n.Contains("no"))
+            {
+                btn.onClick.RemoveListener(OnDeclineClicked);
+                btn.onClick.AddListener(OnDeclineClicked);
+            }
+        }
+
+        SetVisible(false, modifyCursor: false);
     }
 
     private void OnDestroy()
@@ -119,38 +160,102 @@ public class DealNotificationUI : MonoBehaviour
 
     public bool IsActive => _isActive;
 
-    private void SetVisible(bool visible)
+    private void SetVisible(bool visible, bool modifyCursor = true)
     {
         _isActive = visible;
-
-        if (heatModalWindow != null)
-        {
-            if (visible) heatModalWindow.OpenWindow();
-            else heatModalWindow.CloseWindow();
-        }
 
         if (visible)
         {
             gameObject.SetActive(true);
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
-            SetPlayerLookInputs(false);
+            transform.SetAsLastSibling();
+
+            if (canvasGroup != null)
+            {
+                canvasGroup.alpha = 1f;
+                canvasGroup.interactable = true;
+                canvasGroup.blocksRaycasts = true;
+            }
+
+            // Ensure EventSystem.current is valid before Heat UI OpenWindow touches it
+            if (UnityEngine.EventSystems.EventSystem.current == null)
+            {
+                var es = FindFirstObjectByType<UnityEngine.EventSystems.EventSystem>();
+                if (es != null) UnityEngine.EventSystems.EventSystem.current = es;
+            }
+
+            if (heatModalWindow != null)
+            {
+                heatModalWindow.isOn = false;
+                try
+                {
+                    heatModalWindow.OpenWindow();
+                }
+                catch (System.Exception ex)
+                {
+                    Debug.LogWarning($"[DealNotificationUI] Heat Modal OpenWindow suppressed exception: {ex.Message}");
+                }
+            }
+
+            // Guarantee alpha remains 1f even if animator did not fire or was disabled
+            if (canvasGroup != null)
+            {
+                canvasGroup.alpha = 1f;
+                canvasGroup.interactable = true;
+                canvasGroup.blocksRaycasts = true;
+            }
+
+            if (modifyCursor)
+            {
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
+                SetPlayerLookInputs(false);
+            }
         }
         else
         {
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
-            SetPlayerLookInputs(true);
+            if (canvasGroup != null)
+            {
+                canvasGroup.alpha = 0f;
+                canvasGroup.interactable = false;
+                canvasGroup.blocksRaycasts = false;
+            }
+
+            if (heatModalWindow != null)
+            {
+                try
+                {
+                    heatModalWindow.CloseWindow();
+                }
+                catch { }
+            }
+
+            if (modifyCursor)
+            {
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+                SetPlayerLookInputs(true);
+            }
         }
     }
 
     private void SetPlayerLookInputs(bool allowLookAndLock)
     {
-        if (Unity.Netcode.NetworkManager.Singleton != null &&
-            Unity.Netcode.NetworkManager.Singleton.LocalClient != null &&
-            Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject != null)
+        Unity.Netcode.NetworkObject localObj = null;
+        if (Unity.Netcode.NetworkManager.Singleton != null)
         {
-            var inputs = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject.GetComponent<StarterAssets.StarterAssetsInputs>();
+            if (Unity.Netcode.NetworkManager.Singleton.SpawnManager != null)
+            {
+                localObj = Unity.Netcode.NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
+            }
+            if (localObj == null && Unity.Netcode.NetworkManager.Singleton.LocalClient != null)
+            {
+                localObj = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject;
+            }
+        }
+
+        if (localObj != null)
+        {
+            var inputs = localObj.GetComponent<StarterAssets.StarterAssetsInputs>();
             if (inputs != null)
             {
                 inputs.cursorLocked = allowLookAndLock;
@@ -162,14 +267,26 @@ public class DealNotificationUI : MonoBehaviour
     public void DisplayDealOffer(ulong senderId, string title, string terms, string reward, bool grantWeapon, int timeLimitSeconds = 120, int penaltyCredits = 15)
     {
         // If local player is dead, reject/ignore immediately
-        var localObj = Unity.Netcode.NetworkManager.Singleton?.LocalClient?.PlayerObject;
+        Unity.Netcode.NetworkObject localObj = null;
+        if (Unity.Netcode.NetworkManager.Singleton != null)
+        {
+            if (Unity.Netcode.NetworkManager.Singleton.SpawnManager != null)
+            {
+                localObj = Unity.Netcode.NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
+            }
+            if (localObj == null && Unity.Netcode.NetworkManager.Singleton.LocalClient != null)
+            {
+                localObj = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject;
+            }
+        }
+
         if (localObj != null)
         {
             if ((localObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) ||
                 (localObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead))
             {
                 Debug.Log("[DealNotificationUI] Local player is dead; suppressing deal offer display.");
-                SetVisible(false);
+                SetVisible(false, modifyCursor: true);
                 return;
             }
         }
@@ -193,23 +310,41 @@ public class DealNotificationUI : MonoBehaviour
         }
         _currentRewardCredits = parsedReward;
 
-        if (headerTitleText != null) headerTitleText.text = "DEAL PROPOSAL";
+        string displayTerms = $"{terms}\n\nTime Limit: {timeLimitSeconds}s\nPenalty: -{penaltyCredits} {CurrencyConfig.CurrencySymbol}\nReward: {reward}";
+
+        // If headerTitleText was assigned to windowDescription in the scene, avoid overwriting description with "DEAL PROPOSAL"
+        if (headerTitleText != null && (heatModalWindow == null || headerTitleText != heatModalWindow.windowDescription))
+        {
+            headerTitleText.text = "DEAL PROPOSAL";
+        }
+
         if (dealNameText != null) dealNameText.text = title.ToUpper();
         if (rewardText != null) rewardText.text = $"REWARD: {reward}";
+
         if (termsDescriptionText != null)
         {
-            termsDescriptionText.text = $"{terms}\n\nTime Limit: {timeLimitSeconds}s\nPenalty on Failure: -{penaltyCredits} {CurrencyConfig.CurrencySymbol}";
+            termsDescriptionText.text = displayTerms;
+        }
+        else if (headerTitleText != null && heatModalWindow != null && headerTitleText == heatModalWindow.windowDescription)
+        {
+            // headerTitleText in scene points to windowDescription
+            headerTitleText.text = displayTerms;
         }
 
         if (heatModalWindow != null)
         {
             heatModalWindow.titleText = "DEAL PROPOSAL";
-            heatModalWindow.descriptionText = $"{terms}\n\nTime Limit: {timeLimitSeconds}s\nPenalty: -{penaltyCredits} {CurrencyConfig.CurrencySymbol}\n\nREWARD: {reward}";
-            heatModalWindow.UpdateUI();
+            heatModalWindow.descriptionText = displayTerms;
+            heatModalWindow.useLocalization = false;
+            heatModalWindow.titleKey = string.Empty;
+            heatModalWindow.descriptionKey = string.Empty;
+            if (heatModalWindow.windowTitle != null) heatModalWindow.windowTitle.text = "DEAL PROPOSAL";
+            if (heatModalWindow.windowDescription != null) heatModalWindow.windowDescription.text = displayTerms;
+            try { heatModalWindow.UpdateUI(); } catch { }
         }
 
         gameObject.SetActive(true);
-        SetVisible(true);
+        SetVisible(true, modifyCursor: true);
         Debug.Log($"[DealNotificationUI] Displaying deal '{title}' from {senderId} to local player! (grantWeapon={grantWeapon}, time={timeLimitSeconds}s)");
     }
 
@@ -254,11 +389,22 @@ public class DealNotificationUI : MonoBehaviour
         // Immediately grant and equip weapon on the local investigator character if requested
         if (_grantWeapon)
         {
-            if (Unity.Netcode.NetworkManager.Singleton != null &&
-                Unity.Netcode.NetworkManager.Singleton.LocalClient != null &&
-                Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject != null)
+            Unity.Netcode.NetworkObject localObj = null;
+            if (Unity.Netcode.NetworkManager.Singleton != null)
             {
-                var combat = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject.GetComponent<InvestigatorCombatNet>();
+                if (Unity.Netcode.NetworkManager.Singleton.SpawnManager != null)
+                {
+                    localObj = Unity.Netcode.NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
+                }
+                if (localObj == null && Unity.Netcode.NetworkManager.Singleton.LocalClient != null)
+                {
+                    localObj = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject;
+                }
+            }
+
+            if (localObj != null)
+            {
+                var combat = localObj.GetComponent<InvestigatorCombatNet>();
                 if (combat != null)
                 {
                     combat.GrantMeleeWeapon(true);
@@ -282,7 +428,7 @@ public class DealNotificationUI : MonoBehaviour
             DealSystemNet.Instance.RespondToDeal(_currentGirlSenderId, true, _grantWeapon);
         }
 
-        SetVisible(false);
+        SetVisible(false, modifyCursor: true);
     }
 
     public void OnDeclineClicked()
@@ -296,7 +442,7 @@ public class DealNotificationUI : MonoBehaviour
             DealSystemNet.Instance.RespondToDeal(_currentGirlSenderId, false, _grantWeapon);
         }
 
-        SetVisible(false);
+        SetVisible(false, modifyCursor: true);
     }
 
     private static void SanitizeModal(ModalWindowManager modal)
@@ -305,6 +451,12 @@ public class DealNotificationUI : MonoBehaviour
         modal.useLocalization = false;
         modal.titleKey = string.Empty;
         modal.descriptionKey = string.Empty;
+
+        var locObj = modal.GetComponent("LocalizedObject") as Behaviour;
+        if (locObj != null)
+        {
+            locObj.enabled = false;
+        }
 
         var exitComp = modal.GetComponent("ExitGame");
         if (exitComp != null)

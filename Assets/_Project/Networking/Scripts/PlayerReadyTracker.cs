@@ -291,7 +291,8 @@ public class PlayerReadyTracker : NetworkBehaviour
         if (IsSpawned && !_trackingStarted) return;
         if (_investigatorReady.Count == 0 && _girlClientId == ulong.MaxValue) return;
 
-        bool investigatorsDone = true;
+        bool hasInvestigators = (_investigatorReady.Count > 0);
+        bool investigatorsDone = hasInvestigators;
         foreach (var kvp in _investigatorReady)
             if (!kvp.Value) { investigatorsDone = false; break; }
 

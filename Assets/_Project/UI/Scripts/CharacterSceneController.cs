@@ -159,7 +159,12 @@ public class CharacterSceneController : MonoBehaviour
 
     private void SetEnvironmentVisible(bool visible)
     {
-        if (whiteRoomRoot   != null) whiteRoomRoot.SetActive(visible);
-        if (whiteRoomCamera != null) whiteRoomCamera.enabled = visible;
+        if (whiteRoomRoot != null) whiteRoomRoot.SetActive(visible);
+        if (whiteRoomCamera != null)
+        {
+            if (whiteRoomCamera.gameObject != null && whiteRoomCamera.gameObject.activeSelf != visible)
+                whiteRoomCamera.gameObject.SetActive(visible);
+            whiteRoomCamera.enabled = visible;
+        }
     }
 }

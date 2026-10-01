@@ -56,6 +56,10 @@ public class GirlRevealManager : NetworkBehaviour
              "Use this to test character selection without needing a second player.")]
     public bool forceInvestigatorMode = false;
 
+    [Header("Match Start Timing")]
+    [Tooltip("Seconds to showcase the squad lineup / departure screen after all players are confirmed ready before the server loads the game scene. Gives players plenty of time to view their squad.")]
+    public float departureDelay = 8.0f;
+
     // -------------------------------------------------------------------------
     //  Network State
     // -------------------------------------------------------------------------
@@ -349,13 +353,13 @@ public class GirlRevealManager : NetworkBehaviour
     {
         if (!IsServer) return;
         if (_serverDepartureRoutine != null) return;
-        Debug.Log("[GirlRevealManager] PlayerReadyTracker confirmed all ready — beginning 3.5s departure countdown before loading scene.");
+        Debug.Log($"[GirlRevealManager] PlayerReadyTracker confirmed all ready — beginning {departureDelay}s departure delay before loading scene.");
         _serverDepartureRoutine = StartCoroutine(ServerDepartureRoutine());
     }
 
     private System.Collections.IEnumerator ServerDepartureRoutine()
     {
-        yield return new WaitForSecondsRealtime(3.5f);
+        yield return new WaitForSecondsRealtime(Mathf.Max(1.0f, departureDelay));
         _serverDepartureRoutine = null;
         LoadGameScene();
     }
@@ -391,7 +395,17 @@ public class GirlRevealManager : NetworkBehaviour
                 girlFlow.SetActive(false);
 
             if (investigatorFlow != null)
+            {
                 investigatorFlow.SetActive(true);
+                var charUI = investigatorFlow.GetComponentInChildren<CharacterSelectUI>(true);
+                if (charUI != null)
+                {
+                    if (!charUI.gameObject.activeSelf)
+                        charUI.gameObject.SetActive(true);
+                    if (charUI.characterSelectPanel != null && !charUI.characterSelectPanel.activeSelf)
+                        charUI.characterSelectPanel.SetActive(true);
+                }
+            }
             else
                 Debug.LogWarning("[GirlRevealManager] 'investigatorFlow' not assigned in Inspector.");
             return;
@@ -426,6 +440,14 @@ public class GirlRevealManager : NetworkBehaviour
             if (investigatorFlow != null)
             {
                 investigatorFlow.SetActive(true);
+                var charUI = investigatorFlow.GetComponentInChildren<CharacterSelectUI>(true);
+                if (charUI != null)
+                {
+                    if (!charUI.gameObject.activeSelf)
+                        charUI.gameObject.SetActive(true);
+                    if (charUI.characterSelectPanel != null && !charUI.characterSelectPanel.activeSelf)
+                        charUI.characterSelectPanel.SetActive(true);
+                }
             }
             else
             {

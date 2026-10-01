@@ -521,18 +521,58 @@ public class GirlDealUI : MonoBehaviour
         playerSelector.items.Clear();
 
         ulong localId = NetworkManager.Singleton.LocalClientId;
-        foreach (var kvp in NetworkManager.Singleton.ConnectedClients)
+        var candidateIds = new HashSet<ulong>();
+
+        // 1. From ConnectedClientsIds (available on both Host and Client in Netcode for GameObjects)
+        if (NetworkManager.Singleton.ConnectedClientsIds != null)
         {
-            ulong id = kvp.Key;
-            if (id == localId) continue; // Skip Girl herself
+            foreach (ulong id in NetworkManager.Singleton.ConnectedClientsIds)
+            {
+                if (id != localId) candidateIds.Add(id);
+            }
+        }
 
-            var clientObj = kvp.Value.PlayerObject;
-            if (clientObj == null) continue;
+        // 2. From ConnectedClients (Server / Host only)
+        if (NetworkManager.Singleton.IsServer && NetworkManager.Singleton.ConnectedClients != null)
+        {
+            foreach (var kvp in NetworkManager.Singleton.ConnectedClients)
+            {
+                if (kvp.Key != localId) candidateIds.Add(kvp.Key);
+            }
+        }
 
-            if (clientObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0))
-                continue;
-            if (clientObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead)
-                continue;
+        // 3. Fallback: inspect SpawnManager for all player NetworkObjects
+        if (NetworkManager.Singleton.SpawnManager != null && NetworkManager.Singleton.SpawnManager.SpawnedObjects != null)
+        {
+            foreach (var netObj in NetworkManager.Singleton.SpawnManager.SpawnedObjects.Values)
+            {
+                if (netObj != null && netObj.IsPlayerObject && netObj.OwnerClientId != localId)
+                {
+                    candidateIds.Add(netObj.OwnerClientId);
+                }
+            }
+        }
+
+        foreach (ulong id in candidateIds)
+        {
+            NetworkObject clientObj = null;
+            if (NetworkManager.Singleton.IsServer && NetworkManager.Singleton.ConnectedClients != null &&
+                NetworkManager.Singleton.ConnectedClients.TryGetValue(id, out var client))
+            {
+                clientObj = client.PlayerObject;
+            }
+            if (clientObj == null && NetworkManager.Singleton.SpawnManager != null)
+            {
+                clientObj = NetworkManager.Singleton.SpawnManager.GetPlayerNetworkObject(id);
+            }
+
+            if (clientObj != null)
+            {
+                if (clientObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0))
+                    continue;
+                if (clientObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead)
+                    continue;
+            }
 
             string pName = PlayerNameManager.GetPlayerName(id);
             if (string.IsNullOrEmpty(pName)) pName = $"Investigator {id}";

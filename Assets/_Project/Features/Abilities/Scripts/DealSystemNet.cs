@@ -131,6 +131,11 @@ public class DealSystemNet : MonoBehaviour
             return;
         }
 
+        if (!_isRegistered)
+        {
+            RegisterMessages();
+        }
+
         ulong localId = NetworkManager.Singleton.LocalClientId;
         Debug.Log($"[DealSystemNet] Sending deal '{title}' to client {targetClientId} (time={timeLimitSeconds}s, penalty={penaltyCredits})");
 
@@ -158,21 +163,31 @@ public class DealSystemNet : MonoBehaviour
     private void DeliverOfferToTarget(ulong senderId, ulong targetClientId, string title, string terms, string reward, bool grantWeapon, int timeLimitSeconds = 120, int penaltyCredits = 15)
     {
         // Suppress deal delivery if target player is dead
-        if (NetworkManager.Singleton != null && NetworkManager.Singleton.ConnectedClients.TryGetValue(targetClientId, out var client))
+        NetworkObject targetObj = null;
+        if (NetworkManager.Singleton != null)
         {
-            var targetObj = client.PlayerObject;
-            if (targetObj != null)
+            if (NetworkManager.Singleton.IsServer && NetworkManager.Singleton.ConnectedClients != null &&
+                NetworkManager.Singleton.ConnectedClients.TryGetValue(targetClientId, out var client))
             {
-                if ((targetObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) ||
-                    (targetObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead))
-                {
-                    Debug.Log($"[DealSystemNet] Target client {targetClientId} is dead; suppressing deal offer delivery.");
-                    return;
-                }
+                targetObj = client.PlayerObject;
+            }
+            if (targetObj == null && NetworkManager.Singleton.SpawnManager != null)
+            {
+                targetObj = NetworkManager.Singleton.SpawnManager.GetPlayerNetworkObject(targetClientId);
             }
         }
 
-        if (targetClientId == NetworkManager.Singleton.LocalClientId)
+        if (targetObj != null)
+        {
+            if ((targetObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) ||
+                (targetObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead))
+            {
+                Debug.Log($"[DealSystemNet] Target client {targetClientId} is dead; suppressing deal offer delivery.");
+                return;
+            }
+        }
+
+        if (NetworkManager.Singleton != null && targetClientId == NetworkManager.Singleton.LocalClientId)
         {
             var notif = DealNotificationUI.Instance ?? FindFirstObjectByType<DealNotificationUI>(FindObjectsInactive.Include);
             if (notif != null)
@@ -185,7 +200,8 @@ public class DealSystemNet : MonoBehaviour
                 Debug.LogError("[DealSystemNet] DealNotificationUI not found when delivering to local player!");
             }
         }
-        else if (NetworkManager.Singleton.ConnectedClients.ContainsKey(targetClientId))
+        else if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer &&
+                 (NetworkManager.Singleton.ConnectedClients == null || NetworkManager.Singleton.ConnectedClients.ContainsKey(targetClientId)))
         {
             using var writer = new FastBufferWriter(1024, Allocator.Temp);
             writer.WriteValueSafe(senderId);
@@ -201,7 +217,7 @@ public class DealSystemNet : MonoBehaviour
         }
         else
         {
-            Debug.LogWarning($"[DealSystemNet] Target client {targetClientId} is not connected.");
+            Debug.LogWarning($"[DealSystemNet] Target client {targetClientId} is not connected or cannot receive offer.");
         }
     }
 

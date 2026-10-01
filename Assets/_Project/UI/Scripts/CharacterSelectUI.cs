@@ -303,13 +303,24 @@ public class CharacterSelectUI : MonoBehaviour
         EnsureDefaultCharacterData();
         RefreshFilteredRoster();
 
-        // Reset visibility of selection controls according to selected style
-        ApplySelectionStyle();
+        // Make sure all root panels and details are active
+        if (characterSelectPanel != null && !characterSelectPanel.activeSelf)
+            characterSelectPanel.SetActive(true);
+        if (investigatorPanel != null && !investigatorPanel.activeSelf)
+            investigatorPanel.SetActive(true);
+        if (vengefulSpiritPanel != null)
+            vengefulSpiritPanel.SetActive(false);
+        if (sideDetailsPanel != null && !sideDetailsPanel.activeSelf)
+            sideDetailsPanel.SetActive(true);
 
         if (heatConfirmButton != null) heatConfirmButton.gameObject.SetActive(true);
+        if (detailsTitleText != null) detailsTitleText.gameObject.SetActive(true);
         if (detailsAbilitiesText != null) detailsAbilitiesText.gameObject.SetActive(true);
         if (detailsDescriptionText != null) detailsDescriptionText.gameObject.SetActive(true);
-        if (sideDetailsPanel != null) sideDetailsPanel.SetActive(true);
+        // if (detailsIconImage != null) detailsIconImage.gameObject.SetActive(true);
+
+        // Reset visibility of selection controls according to selected style
+        ApplySelectionStyle();
 
         // Ensure 3D character select environment / camera is activated
         if (CharacterSceneController.Instance != null)
@@ -718,8 +729,8 @@ public class CharacterSelectUI : MonoBehaviour
             selectedCharName = so.characterName;
 
             if (detailsTitleText       != null) detailsTitleText.text       = so.characterName;
-            if (detailsDescriptionText != null) detailsDescriptionText.text = so.description;
-            if (detailsAbilitiesText   != null) detailsAbilitiesText.text   = so.abilityDescriptions;
+            if (detailsDescriptionText != null) detailsDescriptionText.text = !string.IsNullOrWhiteSpace(so.description) ? so.description : GetFallbackDescription(so.profession, so.characterName);
+            if (detailsAbilitiesText   != null) detailsAbilitiesText.text   = !string.IsNullOrWhiteSpace(so.abilityDescriptions) ? so.abilityDescriptions : GetFallbackAbilities(so.profession, so.characterName);
 
             if (detailsIconImage != null)
             {
@@ -739,8 +750,8 @@ public class CharacterSelectUI : MonoBehaviour
                 selectedCharName = data.characterName;
 
                 if (detailsTitleText       != null) detailsTitleText.text       = data.characterName;
-                if (detailsDescriptionText != null) detailsDescriptionText.text = data.description;
-                if (detailsAbilitiesText   != null) detailsAbilitiesText.text   = data.specialAbilities;
+                if (detailsDescriptionText != null) detailsDescriptionText.text = !string.IsNullOrWhiteSpace(data.description) ? data.description : GetFallbackDescription(data.profession, data.characterName);
+                if (detailsAbilitiesText   != null) detailsAbilitiesText.text   = !string.IsNullOrWhiteSpace(data.specialAbilities) ? data.specialAbilities : GetFallbackAbilities(data.profession, data.characterName);
 
                 if (detailsIconImage != null)
                 {
@@ -1033,14 +1044,11 @@ public class CharacterSelectUI : MonoBehaviour
     {
         EnsureCharacterSelectorReference();
 
-        if (useHorizontalSelectorStyle)
+        if (useHorizontalSelectorStyle && characterSelector != null)
         {
             if (slotCardContainer != null) slotCardContainer.gameObject.SetActive(false);
-            if (characterSelector != null)
-            {
-                characterSelector.gameObject.SetActive(true);
-                SetupCharacterSelector();
-            }
+            characterSelector.gameObject.SetActive(true);
+            SetupCharacterSelector();
         }
         else
         {
@@ -1432,7 +1440,6 @@ public class CharacterSelectUI : MonoBehaviour
     {
         if (!_localConfirmed)
         {
-            FinalizeSelectionAndReady(CurrencyConfig.MinimumStake);
             return;
         }
         GoToSquadScreen();
@@ -1444,13 +1451,6 @@ public class CharacterSelectUI : MonoBehaviour
         RefreshStatusRows(snapshot);
 
         if (!_localConfirmed) return;
-
-        bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
-        if (forceInvestigator)
-        {
-            GoToSquadScreen();
-            return;
-        }
 
         if (snapshot == null || snapshot.Count == 0) return;
 
@@ -1467,13 +1467,6 @@ public class CharacterSelectUI : MonoBehaviour
         RefreshLobbyStatusRows(snapshot);
 
         if (!_localConfirmed) return;
-
-        bool forceInvestigator = GirlRevealManager.Instance != null && GirlRevealManager.Instance.forceInvestigatorMode;
-        if (forceInvestigator)
-        {
-            GoToSquadScreen();
-            return;
-        }
 
         if (snapshot == null || snapshot.Count == 0) return;
 
@@ -1583,5 +1576,86 @@ public class CharacterSelectUI : MonoBehaviour
                 specialAbilities = "• Ward Aura\n• Curse Detection\n• Holy Blessing"
             }
         };
+    }
+
+    public string GetFallbackAbilities(InvestigatorProfession profession, string charName)
+    {
+        var list = (characterDataList != null && characterDataList.Count > 0)
+            ? characterDataList
+            : (CharacterSelectManager.Instance != null ? CharacterSelectManager.Instance.availableCharacters : null);
+
+        if (list != null)
+        {
+            foreach (var d in list)
+            {
+                if (d == null) continue;
+                if (d.profession == profession || IsNameMatch(d.characterName, charName))
+                {
+                    if (!string.IsNullOrWhiteSpace(d.specialAbilities))
+                        return d.specialAbilities;
+                }
+            }
+        }
+
+        switch (profession)
+        {
+            case InvestigatorProfession.MineWorker:
+                return "• Heavy Pickaxe Attack\n• Structural Inspection\n• Machine Repair";
+            case InvestigatorProfession.HazardSpecialist:
+                return "• Toxic Gas Immunity\n• Hazard Filter Deployment\n• Heavy Armor";
+            case InvestigatorProfession.Explorer:
+                return "• Tactical Stamina\n• Terrain Traversal\n• Flare Marker";
+            case InvestigatorProfession.CursedPriest:
+                return "• Occult Sensing\n• Ward Placement\n• Presence Detection";
+            case InvestigatorProfession.FieldMedic:
+                return "• First Aid Healing\n• Autopsy Examination\n• Revive Assistance";
+            default:
+                if (!string.IsNullOrEmpty(charName))
+                {
+                    string lower = charName.ToLowerInvariant();
+                    if (lower.Contains("miner") || lower.Contains("mine")) return "• Heavy Pickaxe Attack\n• Structural Inspection\n• Machine Repair";
+                    if (lower.Contains("hazard")) return "• Toxic Gas Immunity\n• Hazard Filter Deployment\n• Heavy Armor";
+                    if (lower.Contains("explorer") || lower.Contains("adventurer")) return "• Tactical Stamina\n• Terrain Traversal\n• Flare Marker";
+                    if (lower.Contains("priest") || lower.Contains("cursed")) return "• Occult Sensing\n• Ward Placement\n• Presence Detection";
+                    if (lower.Contains("medic") || lower.Contains("doctor")) return "• First Aid Healing\n• Autopsy Examination\n• Revive Assistance";
+                }
+                return "• Tactical Investigation\n• Team Communication\n• Survival Knowledge";
+        }
+    }
+
+    public string GetFallbackDescription(InvestigatorProfession profession, string charName)
+    {
+        var list = (characterDataList != null && characterDataList.Count > 0)
+            ? characterDataList
+            : (CharacterSelectManager.Instance != null ? CharacterSelectManager.Instance.availableCharacters : null);
+
+        if (list != null)
+        {
+            foreach (var d in list)
+            {
+                if (d == null) continue;
+                if (d.profession == profession || IsNameMatch(d.characterName, charName))
+                {
+                    if (!string.IsNullOrWhiteSpace(d.description))
+                        return d.description;
+                }
+            }
+        }
+
+        switch (profession)
+        {
+            case InvestigatorProfession.MineWorker:
+                return "Understands mine structures, heavy machinery, and practical underground navigation.";
+            case InvestigatorProfession.HazardSpecialist:
+                return "Wears a heavy protective suit to handle environmental hazards and toxic gas without panic.";
+            case InvestigatorProfession.Explorer:
+                return "Experienced with subterranean mapping, rappelling, and difficult terrain.";
+            case InvestigatorProfession.CursedPriest:
+                return "Supernatural specialist whose unsettling presence makes the team wonder why he joined.";
+            case InvestigatorProfession.FieldMedic:
+                return "Examines injuries and determines if deaths were caused by accidents or violence.";
+            default:
+                return "Investigator deployed to uncover the mysteries of the mine.";
+        }
     }
 }

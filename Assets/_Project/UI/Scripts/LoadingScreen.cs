@@ -22,6 +22,9 @@ public class LoadingScreen : MonoBehaviour
     // =========================================================================
     public static LoadingScreen Instance { get; private set; }
 
+    /// <summary>Returns true if an Evo LoadingScreen instance currently exists in the scene.</summary>
+    public bool IsLoadingScreenActive => Evo.Loader.LoadingScreen.GetInstance() != null;
+
     // =========================================================================
     //  Inspector
     // =========================================================================

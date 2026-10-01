@@ -545,18 +545,20 @@ public class GirlPlayerScreen : MonoBehaviour
         if (departureCountdownText != null)
         {
             departureCountdownText.gameObject.SetActive(true);
+            departureCountdownText.text = "<size=75%>ALL OPERATIVES READY</size>\n<color=#FF0055><b>PREPARING INFILTRATION...</b></color>";
         }
 
-        for (int i = 3; i >= 0; i--)
-        {
-            if (departureCountdownText != null)
-            {
-                departureCountdownText.text = i > 0
-                    ? $"<size=75%>ALL OPERATIVES READY</size>\n<color=#FF0055><b>THE HUNT BEGINS IN {i}...</b></color>"
-                    : $"<size=75%>ALL OPERATIVES READY</size>\n<color=#FF0055><b>THE HUNT BEGINS IN 0...</b></color>";
-            }
+        float maxWait = 8.5f;
+        if (GirlRevealManager.Instance != null)
+            maxWait = GirlRevealManager.Instance.departureDelay;
 
-            yield return new WaitForSecondsRealtime(1f);
+        float elapsed = 0f;
+        while (elapsed < maxWait)
+        {
+            if (LoadingScreen.Instance != null && LoadingScreen.Instance.IsLoadingScreenActive)
+                break;
+            yield return new WaitForSecondsRealtime(0.5f);
+            elapsed += 0.5f;
         }
 
         if (LoadingScreen.Instance != null)
