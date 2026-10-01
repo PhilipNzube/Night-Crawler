@@ -158,12 +158,34 @@ public class GameManager : NetworkBehaviour
             if (clientId == NetworkManager.Singleton.LocalClientId || clientId == NetworkManager.ServerClientId)
             {
                 Debug.Log($"[GameManager] Remote client detected host disconnect (clientId={clientId})");
+                if (NotificationManager.Instance != null)
+                {
+                    string reason = GetFriendlyNetworkDisconnectReason();
+                    NotificationManager.Instance.ShowNotification($"Connection Lost: {reason}", 4.5f);
+                }
                 if (HostDisconnectUI.Instance != null)
                 {
                     HostDisconnectUI.Instance.TriggerHostDisconnect();
                 }
             }
         }
+    }
+
+    public static string GetFriendlyNetworkDisconnectReason()
+    {
+        if (NetworkManager.Singleton != null && !string.IsNullOrWhiteSpace(NetworkManager.Singleton.DisconnectReason))
+        {
+            string raw = NetworkManager.Singleton.DisconnectReason.Trim();
+            string lower = raw.ToLowerInvariant();
+            if (lower.Contains("full")) return "The match session is full.";
+            if (lower.Contains("timeout") || lower.Contains("timed out")) return "Connection timed out.";
+            if (lower.Contains("version") || lower.Contains("mismatch")) return "Game version mismatch.";
+            if (lower.Contains("rejected") || lower.Contains("denied")) return "Connection rejected by host.";
+            if (lower.Contains("kick")) return "You have been disconnected from the session.";
+            return raw;
+        }
+
+        return "Lost connection to the host server.";
     }
 
     private void OnClientDisconnected(ulong clientId)
@@ -714,16 +736,38 @@ public class GameManager : NetworkBehaviour
     [ClientRpc]
     public void BroadcastPlayerJoinedClientRpc(ulong joiningClientId, string playerName)
     {
-        // Don't show to the player who just joined!
-        if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == joiningClientId)
+        StartCoroutine(DeliverPlayerJoinedRoutine(joiningClientId, playerName));
+    }
+
+    private System.Collections.IEnumerator DeliverPlayerJoinedRoutine(ulong joiningClientId, string playerName)
+    {
+        // Wait until LoadingScreen has finished completely so player actually sees it
+        while (LoadingScreen.Instance != null && LoadingScreen.Instance.IsLoadingScreenActive)
         {
-            return;
+            yield return new WaitForSeconds(0.4f);
         }
 
-        Debug.Log($"[MatchNotification] {playerName} joined.");
-        if (DeathUI.Instance != null)
+        yield return new WaitForSeconds(0.3f);
+
+        bool isLocal = (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == joiningClientId);
+
+        Debug.Log($"[MatchNotification] Player Joined: {playerName} (Local={isLocal})");
+
+        if (isLocal)
         {
-            DeathUI.Instance.PostPlayerJoined(playerName);
+            // My own deployment notification belongs in NotificationManager
+            if (NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification($"Here we go: {playerName}", 4.5f);
+            }
+        }
+        else
+        {
+            // Other players joining belong strictly in AllyBanner
+            if (DeathUI.Instance != null)
+            {
+                DeathUI.Instance.PostPlayerJoined(playerName);
+            }
         }
     }
 

@@ -783,13 +783,20 @@ public class LobbyUI : MonoBehaviour
     {
         Debug.LogWarning($"[LobbyUI] Showing Error Modal: [{title}] {description}");
 
+        string friendlyDescription = GetFriendlyNetworkErrorMessage(description);
+
+        if (NotificationManager.Instance != null)
+        {
+            NotificationManager.Instance.ShowNotification($"{title}: {friendlyDescription}", 4.5f);
+        }
+
         if (heatErrorModal != null)
         {
             heatErrorModal.useLocalization = false;
             heatErrorModal.titleText = title;
-            heatErrorModal.descriptionText = description;
+            heatErrorModal.descriptionText = friendlyDescription;
             if (heatErrorModal.windowTitle != null) heatErrorModal.windowTitle.text = title;
-            if (heatErrorModal.windowDescription != null) heatErrorModal.windowDescription.text = description;
+            if (heatErrorModal.windowDescription != null) heatErrorModal.windowDescription.text = friendlyDescription;
             heatErrorModal.OpenWindow();
             UnlockCursor();
             return;
@@ -800,18 +807,34 @@ public class LobbyUI : MonoBehaviour
         {
             exitConfirmModal.useLocalization = false;
             exitConfirmModal.titleText = title;
-            exitConfirmModal.descriptionText = description;
+            exitConfirmModal.descriptionText = friendlyDescription;
             if (exitConfirmModal.windowTitle != null) exitConfirmModal.windowTitle.text = title;
-            if (exitConfirmModal.windowDescription != null) exitConfirmModal.windowDescription.text = description;
+            if (exitConfirmModal.windowDescription != null) exitConfirmModal.windowDescription.text = friendlyDescription;
             exitConfirmModal.OpenWindow();
             UnlockCursor();
             return;
         }
+    }
 
-        if (NotificationManager.Instance != null)
-        {
-            NotificationManager.Instance.ShowNotification($"{title}: {description}", 4.5f);
-        }
+    public static string GetFriendlyNetworkErrorMessage(string rawMessage)
+    {
+        if (string.IsNullOrWhiteSpace(rawMessage)) return "A network connection error occurred.";
+
+        string lower = rawMessage.ToLowerInvariant();
+        if (lower.Contains("socket") || lower.Contains("refused") || lower.Contains("unreachable"))
+            return "Unable to reach the host server. Check the IP address or host status.";
+        if (lower.Contains("timeout") || lower.Contains("timed out"))
+            return "Connection timed out. The session may be full or the host may have disconnected.";
+        if (lower.Contains("relay") || lower.Contains("allocation") || lower.Contains("join code"))
+            return "Online relay session error. Please check your internet connection or verify the room code.";
+        if (lower.Contains("auth") || lower.Contains("sign in") || lower.Contains("anonymous"))
+            return "Authentication service unavailable. Please check your network connection.";
+        if (lower.Contains("not found") || lower.Contains("invalid"))
+            return "Session not found or room code is invalid. Please double check the code.";
+        if (lower.Contains("full"))
+            return "The match session is currently full.";
+
+        return rawMessage;
     }
 
     public void CloseErrorModal()

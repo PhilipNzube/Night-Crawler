@@ -125,6 +125,11 @@ public class HostDisconnectUI : MonoBehaviour
         if (clientId == NetworkManager.Singleton.LocalClientId || clientId == NetworkManager.ServerClientId)
         {
             Debug.Log($"[HostDisconnectUI] ClientDisconnectCallback fired for id={clientId}");
+            if (NotificationManager.Instance != null)
+            {
+                string reason = GameManager.GetFriendlyNetworkDisconnectReason();
+                NotificationManager.Instance.ShowNotification($"Connection Lost: {reason}", 4.5f);
+            }
             TriggerHostDisconnect();
         }
     }
@@ -209,10 +214,14 @@ public class HostDisconnectUI : MonoBehaviour
 
     private IEnumerator HostDisconnectedRoutine()
     {
-        // 1. Send alert into AllyBanner feed
+        // 1. Send alert into AllyBanner feed & NotificationManager
         if (DeathUI.Instance != null)
         {
             DeathUI.Instance.AddAllyAlertEntry("The Host has left the match.", new Color(0.95f, 0.6f, 0.15f, 1f));
+        }
+        if (NotificationManager.Instance != null)
+        {
+            NotificationManager.Instance.ShowNotification("Host left the match. Returning to Lobby...", 4.5f);
         }
 
         // 2. Unlock cursor so user is not trapped in locked mouse mode

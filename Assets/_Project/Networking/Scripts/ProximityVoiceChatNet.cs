@@ -155,8 +155,28 @@ public class ProximityVoiceChatNet : NetworkBehaviour
 
         if (NotificationManager.Instance != null)
         {
-            NotificationManager.Instance.ShowNotification($"Voice Chat: {errorMessage}", 5f);
+            string friendly = GetFriendlyVoiceErrorMessage(errorMessage);
+            NotificationManager.Instance.ShowNotification($"Voice Chat: {friendly}", 4.5f);
         }
+    }
+
+    private string GetFriendlyVoiceErrorMessage(string technicalError)
+    {
+        if (string.IsNullOrWhiteSpace(technicalError)) return "Voice service is currently offline.";
+        string lower = technicalError.ToLowerInvariant();
+        if (lower.Contains("internet") || lower.Contains("notreachable") || lower.Contains("network"))
+            return "Offline. Please check your internet connection.";
+        if (lower.Contains("mic") || lower.Contains("microphone") || lower.Contains("device") || lower.Contains("audio"))
+            return "Microphone or audio device not detected.";
+        if (lower.Contains("permission") || lower.Contains("denied"))
+            return "Microphone access was denied in system settings.";
+        if (lower.Contains("timeout") || lower.Contains("timed out"))
+            return "Voice chat connection timed out. Retrying in background...";
+        if (lower.Contains("auth") || lower.Contains("signin") || lower.Contains("sign-in") || lower.Contains("login"))
+            return "Voice login failed. Playing in silent mode.";
+        if (lower.Contains("channel") || lower.Contains("room") || lower.Contains("join"))
+            return "Unable to connect to proximity voice room.";
+        return "Voice service is temporarily unavailable.";
     }
 
     // =========================================================================
