@@ -15,6 +15,43 @@ public class GirlMovement : NetworkBehaviour
     public Animator animator;
     public EntityStats stats; 
 
+    [Header("Audio (Footsteps)")]
+    [Tooltip("AudioSource used to play footstep sounds. Drag the AudioSource component here.")]
+    public AudioSource footstepSource;
+
+    [Tooltip("Barefoot audio clips played when walking on cave dirt, rock, or stone ground.")]
+    public AudioClip[] mineFootstepClips;
+
+    [Tooltip("Audio clips played when stepping on minecart rails, iron tracks, or metallic surfaces.")]
+    public AudioClip[] railFootstepClips;
+
+    [Tooltip("Fallback footstep clips if mine or rail specific clips are unassigned.")]
+    public AudioClip[] footstepClips;
+
+    [Tooltip("Volume of footstep audio playback.")]
+    [Range(0f, 1f)] public float footstepVolume = 0.4f;
+
+    [Tooltip("Cadence/interval between footsteps while walking (seconds).")]
+    public float walkStepInterval = 0.45f;
+
+    [Tooltip("Cadence/interval between footsteps while running (seconds).")]
+    public float runStepInterval = 0.3f;
+
+    [Header("Surface Detection")]
+    [Tooltip("Raycast distance downwards to check the ground surface.")]
+    public float surfaceCheckDistance = 1.5f;
+
+    [Tooltip("Layers to consider when raycasting for ground surfaces.")]
+    public LayerMask groundLayerMask = ~0;
+
+    [Tooltip("Tag that identifies metal or rail surfaces.")]
+    public string metalTag = "Metal";
+
+    [Tooltip("Keywords matched against hit GameObject or material names to identify rails/metal.")]
+    public string[] railKeywords = new string[] { "rail", "metal", "track", "cart", "iron" };
+
+    private float _stepTimer = 0f;
+
     private Vector3 _velocity;
     private readonly int _speedHash = Animator.StringToHash("Speed");
     private float _lastAnimSpeed = -1f;
@@ -178,6 +215,21 @@ public class GirlMovement : NetworkBehaviour
         // Physical movement
         controller.Move(move * currentSpeed * Time.deltaTime);
 
+        // Footstep audio cadence (plays while moving on ground)
+        if (move.sqrMagnitude > 0.01f && controller.isGrounded)
+        {
+            _stepTimer -= Time.deltaTime;
+            if (_stepTimer <= 0f)
+            {
+                PlayFootstep();
+                _stepTimer = isRunning ? runStepInterval : walkStepInterval;
+            }
+        }
+        else
+        {
+            _stepTimer = 0f;
+        }
+
         // --- OPTIMIZED: Only update animator if speed changed significantly ---
         if (animator != null)
         {
@@ -190,6 +242,93 @@ public class GirlMovement : NetworkBehaviour
         }
 
         ApplyGravity();
+    }
+
+    /// <summary>
+    /// Triggered by animation events (if on the walk/run animation) or by cadence timer above.
+    /// </summary>
+    public void OnFootstep(AnimationEvent animationEvent)
+    {
+        PlayFootstep();
+    }
+
+    public void PlayFootstep()
+    {
+        bool isRailOrMetal = CheckIfOnRailOrMetal();
+        AudioClip[] targetClips = null;
+
+        if (isRailOrMetal && railFootstepClips != null && railFootstepClips.Length > 0)
+        {
+            targetClips = railFootstepClips;
+        }
+        else if (mineFootstepClips != null && mineFootstepClips.Length > 0)
+        {
+            targetClips = mineFootstepClips;
+        }
+        else
+        {
+            targetClips = footstepClips;
+        }
+
+        if (targetClips == null || targetClips.Length == 0) return;
+
+        int idx = Random.Range(0, targetClips.Length);
+        AudioClip clip = targetClips[idx];
+        if (clip == null) return;
+
+        if (footstepSource != null)
+        {
+            footstepSource.PlayOneShot(clip, footstepVolume);
+        }
+        else
+        {
+            AudioSource.PlayClipAtPoint(clip, transform.position, footstepVolume);
+        }
+    }
+
+    private bool CheckIfOnRailOrMetal()
+    {
+        Vector3 rayStart = transform.position + Vector3.up * 0.2f;
+        if (Physics.Raycast(rayStart, Vector3.down, out RaycastHit hit, surfaceCheckDistance, groundLayerMask, QueryTriggerInteraction.Ignore))
+        {
+            // 1. Tag check
+            if (!string.IsNullOrEmpty(metalTag) && (hit.collider.CompareTag(metalTag) || hit.collider.CompareTag("Rail")))
+                return true;
+
+            // 2. Object name check
+            string objName = hit.collider.gameObject.name.ToLower();
+            if (MatchesRailKeyword(objName))
+                return true;
+
+            // 3. Parent name check
+            if (hit.collider.transform.parent != null)
+            {
+                string parentName = hit.collider.transform.parent.name.ToLower();
+                if (MatchesRailKeyword(parentName))
+                    return true;
+            }
+
+            // 4. PhysicMaterial check
+            if (hit.collider.sharedMaterial != null)
+            {
+                string matName = hit.collider.sharedMaterial.name.ToLower();
+                if (MatchesRailKeyword(matName))
+                    return true;
+            }
+        }
+        return false;
+    }
+
+    private bool MatchesRailKeyword(string str)
+    {
+        if (string.IsNullOrEmpty(str) || railKeywords == null) return false;
+        for (int i = 0; i < railKeywords.Length; i++)
+        {
+            string kw = railKeywords[i];
+            if (!string.IsNullOrEmpty(kw) && str.Contains(kw.ToLower()))
+                return true;
+        }
+        return false;
     }
 
     private void ApplyGravity()

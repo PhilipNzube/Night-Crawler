@@ -188,23 +188,41 @@ public class GirlRevealManager : NetworkBehaviour
     {
         if (!IsServer) return;
 
-        // Re-select with the full current player list
-        if (CharacterSelectManager.Instance != null)
-            CharacterSelectManager.Instance.SelectRandomVengefulSpirit();
-
-        ulong girlClientId = GetGirlClientId();
-        revealedGirlClientId.Value = girlClientId;
-        s_SavedGirlClientId = girlClientId;
-        CharacterSelectManager.SaveVengefulSpiritRole(girlClientId);
-
         List<ulong> clientIds = new List<ulong>(NetworkManager.Singleton.ConnectedClientsIds);
+        ulong girlClientId;
 
-        int investigatorCount = clientIds.Count - 1; // everyone except girl
-        _expectedInvestigators  = Mathf.Max(0, investigatorCount);
-        _investigatorsReadyCount = 0;
-        _girlReady               = false;
+        if (forceInvestigatorMode)
+        {
+            girlClientId = ulong.MaxValue;
+            revealedGirlClientId.Value = ulong.MaxValue;
+            s_SavedGirlClientId = ulong.MaxValue;
+            CharacterSelectManager.SaveVengefulSpiritRole(ulong.MaxValue);
+            PersistentCharacterSelection.SetIsVengefulSpirit(false);
 
-        Debug.Log($"[GirlRevealManager] Beginning reveal. Girl: {girlClientId}. Expecting {_expectedInvestigators} investigator(s).");
+            _expectedInvestigators = Mathf.Max(1, clientIds.Count);
+            _investigatorsReadyCount = 0;
+            _girlReady = false;
+
+            Debug.Log($"[GirlRevealManager] Beginning reveal in forceInvestigatorMode. Expecting {_expectedInvestigators} investigator(s). No girl assigned.");
+        }
+        else
+        {
+            // Re-select with the full current player list
+            if (CharacterSelectManager.Instance != null)
+                CharacterSelectManager.Instance.SelectRandomVengefulSpirit();
+
+            girlClientId = GetGirlClientId();
+            revealedGirlClientId.Value = girlClientId;
+            s_SavedGirlClientId = girlClientId;
+            CharacterSelectManager.SaveVengefulSpiritRole(girlClientId);
+
+            int investigatorCount = clientIds.Count - 1; // everyone except girl
+            _expectedInvestigators  = Mathf.Max(0, investigatorCount);
+            _investigatorsReadyCount = 0;
+            _girlReady               = false;
+
+            Debug.Log($"[GirlRevealManager] Beginning reveal. Girl: {girlClientId}. Expecting {_expectedInvestigators} investigator(s).");
+        }
 
         // Start centralised ready-tracking so all clients see a live status panel
         if (PlayerReadyTracker.Instance != null)
@@ -213,7 +231,7 @@ public class GirlRevealManager : NetworkBehaviour
         // Solo testing handling
         if (clientIds.Count <= 1 && !enableSlotSpinInSoloTest)
         {
-            _expectedInvestigators = 0;
+            _expectedInvestigators = forceInvestigatorMode ? 1 : 0;
             RoutePlayersRpc(girlClientId);
             return;
         }
@@ -427,7 +445,7 @@ public class GirlRevealManager : NetworkBehaviour
 
         bool investigatorsDone = (_investigatorsReadyCount >= _expectedInvestigators);
         // If there are no investigators (solo test with 1 player assigned girl), auto-pass
-        bool girlDone = _girlReady || (_expectedInvestigators == 0);
+        bool girlDone = _girlReady || (!forceInvestigatorMode && _expectedInvestigators == 0);
 
         if (investigatorsDone && girlDone)
         {

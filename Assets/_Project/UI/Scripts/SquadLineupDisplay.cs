@@ -260,10 +260,13 @@ public class SquadLineupDisplay : MonoBehaviour
             }
         }
 
-        // Offline / Solo test fallback: only if no clients or zero investigators found in standalone mode
-        if (clientIds.Count == 0 && (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening))
+        // Offline / Solo test fallback: guarantee at least 1 slot if no other client was registered
+        if (clientIds.Count == 0)
         {
-            clientIds.Add(0); // Local player slot for offline scene preview
+            ulong localId = (NetworkManager.Singleton != null && NetworkManager.Singleton.IsListening)
+                ? NetworkManager.Singleton.LocalClientId
+                : 0UL;
+            clientIds.Add(localId);
         }
 
         return clientIds;
@@ -340,6 +343,13 @@ public class SquadLineupDisplay : MonoBehaviour
                 var so = selectUI.GetCharacterDefinition(idx);
                 if (so != null && so.characterPrefab != null)
                     return so.characterPrefab;
+            }
+
+            if (selectUI.characterDefinitions != null && selectUI.characterDefinitions.Count > 0)
+            {
+                int safeIdx = Mathf.Clamp(slotIndex, 0, selectUI.characterDefinitions.Count - 1);
+                if (selectUI.characterDefinitions[safeIdx] != null && selectUI.characterDefinitions[safeIdx].characterPrefab != null)
+                    return selectUI.characterDefinitions[safeIdx].characterPrefab;
             }
         }
 

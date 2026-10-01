@@ -1,0 +1,16 @@
+This bundle contains free integrated footstep sound effects.
+
+Quick Setup Video:
+https://youtu.be/FXOlMptntiw
+
+How to implement:
+1. Import the folder in your Unity Project
+2. Add the Script WASDFootstepSource to a gameobject
+3. In the WASDFootstepSource assign the Scriptable Object "Free Bundle" in "Footsteps"
+	You find "Free Bundle" under /WASDSound/Assets/FreeBundle
+4. Call the methods PlayFootstep() or PlayFootstepByAction(enum) from a script or an animation event
+	Notice: PlayFootstepByAction(enum) 
+
+Set the material automaticaly:
+1. Add the Script WASDRaycast to the same gameobject as WASDFootstepSource
+2. Apply the material that should trigger the sound material

@@ -510,6 +510,12 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                 float finalDamage = CombatEconomyFilter.CalculateEffectiveDamage(stats.damage, attackerWpnLvl, 0, true);
                 receiver.TakeDamage(finalDamage);
 
+                // Audio feedback on successful melee contact
+                if (stats.impactSound != null && _audioSource != null)
+                {
+                    _audioSource.PlayOneShot(stats.impactSound);
+                }
+
                 // Log monster kill for Miner / weapon holder bonus
                 bool isMonsterTarget = hit.GetComponentInParent<MonsterAI>() != null || hit.GetComponentInParent<MonsterController>() != null || hit.name.ToLower().Contains("monster");
                 if (isMonsterTarget && MatchEconomyManager.Instance != null)
@@ -560,6 +566,12 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
             {
                 float finalDamage = CombatEconomyFilter.CalculateEffectiveDamage(stats.damage, attackerWpnLvl, 0, true);
                 receiver.TakeDamage(finalDamage);
+
+                // Audio feedback on successful bullet impact
+                if (stats.impactSound != null && _audioSource != null)
+                {
+                    _audioSource.PlayOneShot(stats.impactSound);
+                }
 
                 bool isMonsterCol = hit.collider.GetComponentInParent<MonsterAI>() != null || hit.collider.GetComponentInParent<MonsterController>() != null || hit.collider.name.ToLower().Contains("monster");
                 if (isMonsterCol && MatchEconomyManager.Instance != null)

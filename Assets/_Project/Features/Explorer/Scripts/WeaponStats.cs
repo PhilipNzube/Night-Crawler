@@ -22,6 +22,7 @@ public class WeaponStats : ScriptableObject
     public GameObject muzzleFlashPrefab;
     public GameObject impactVFX;
     public AudioClip fireSound;
+    public AudioClip impactSound; // Played when an attack connects with a target (flesh cut, impact thud)
     public AudioClip reloadSound;
     public AudioClip emptySound;
 }

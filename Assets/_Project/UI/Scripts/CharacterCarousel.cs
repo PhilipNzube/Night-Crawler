@@ -244,13 +244,23 @@ public class CharacterCarousel : MonoBehaviour
 
         characterPrefabs = new List<GameObject>();
 
-        if (characterSelectUI != null && characterSelectUI.characterDataList != null)
+        if (characterSelectUI != null && characterSelectUI.characterDefinitions != null && characterSelectUI.characterDefinitions.Count > 0)
+        {
+            for (int i = 0; i < characterSelectUI.characterDefinitions.Count; i++)
+            {
+                var def = characterSelectUI.characterDefinitions[i];
+                GameObject prefab = (def != null) ? def.characterPrefab : null;
+                if (prefab != null) characterPrefabs.Add(prefab);
+            }
+        }
+
+        if (characterPrefabs.Count == 0 && characterSelectUI != null && characterSelectUI.characterDataList != null)
         {
             for (int i = 0; i < characterSelectUI.characterDataList.Count; i++)
             {
                 var data = characterSelectUI.characterDataList[i];
                 GameObject prefab = (data != null) ? data.characterPrefab : null;
-                characterPrefabs.Add(prefab);
+                if (prefab != null) characterPrefabs.Add(prefab);
             }
         }
 
@@ -261,7 +271,7 @@ public class CharacterCarousel : MonoBehaviour
             {
                 var data = CharacterSelectManager.Instance.availableCharacters[i];
                 GameObject prefab = (data != null) ? data.characterPrefab : null;
-                characterPrefabs.Add(prefab);
+                if (prefab != null) characterPrefabs.Add(prefab);
             }
         }
     }

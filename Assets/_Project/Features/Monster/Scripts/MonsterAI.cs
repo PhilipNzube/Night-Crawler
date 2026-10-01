@@ -103,6 +103,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     public AudioClip spawnScreamClip;
     [Tooltip("3D AudioSource configured for scary spatial audio.")]
     public AudioSource audioSource;
+    [Tooltip("Audio clip for attack swing vocalization or grunt.")]
+    public AudioClip attackSoundClip;
+    [Tooltip("Audio clip for screech or hurt groan when damaged.")]
+    public AudioClip hurtSoundClip;
 
     [Header("Targeting & Threat Aggro")]
     [Tooltip("Current target being pursued.")]
@@ -1262,6 +1266,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             PlayAttackClientRpc();
         }
 
+        if (attackSoundClip != null && audioSource != null)
+        {
+            audioSource.PlayOneShot(attackSoundClip);
+        }
+
         // Enable attack hitbox for the damage window
         if (attackHitbox != null)
         {
@@ -1306,6 +1315,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         else if (monsterType == MonsterType.Berserker)
         {
             SafeCrossFade(Animator.StringToHash("Mutant Swiping"), "Mutant Swiping", 0.12f);
+        }
+
+        if (attackSoundClip != null && audioSource != null)
+        {
+            audioSource.PlayOneShot(attackSoundClip);
         }
     }
 
@@ -1756,6 +1770,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         SafeSetTrigger(_hitReactionHash);
         SafeCrossFade(_stateHitReaction, "Zombie Reaction Hit", 0.08f, true);
 
+        if (hurtSoundClip != null && audioSource != null)
+        {
+            audioSource.PlayOneShot(hurtSoundClip);
+        }
+
         if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
         {
             PlayHitReactionClientRpc();
@@ -1769,6 +1788,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         SafeSetTrigger(_hitHash);
         SafeSetTrigger(_hitReactionHash);
         SafeCrossFade(_stateHitReaction, "Zombie Reaction Hit", 0.08f, true);
+
+        if (hurtSoundClip != null && audioSource != null)
+        {
+            audioSource.PlayOneShot(hurtSoundClip);
+        }
     }
 
     private Transform FindClosestAttacker()
