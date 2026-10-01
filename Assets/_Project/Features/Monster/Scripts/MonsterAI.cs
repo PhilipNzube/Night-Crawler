@@ -118,6 +118,18 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     [Tooltip("WorldSpace billboard Heat UI health bar mounted above the monster's head.")]
     public MonsterHealthBar healthBar;
 
+    [Header("Obstacle & Line-of-Sight Detection")]
+    [Tooltip("Layer mask representing solid cave walls, props, and doors (used to prevent attacking or tracking through walls).")]
+    public LayerMask wallObstacleMask = 0;
+
+    [Header("Anti-Stuck & Auto-Reroute")]
+    [Tooltip("Enables smart obstacle avoidance and automatic rerouting when jammed against tunnel walls.")]
+    public bool enableAntiStuck = true;
+    [Tooltip("Time in seconds the monster must be pushing forward without progress before triggering an auto-reroute.")]
+    public float stuckDetectionDuration = 0.7f;
+    [Tooltip("Duration in seconds the monster focuses on the escape path away from the wall before re-evaluating.")]
+    public float rerouteDuration = 1.1f;
+
     [Header("Runtime State")]
     public AIState currentState = AIState.Falling;
 
@@ -195,6 +207,19 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected float _guardWalkTimer = 0f;
     protected Vector3 _guardWanderDestination;
 
+    // Smart pathing & Anti-Stuck state
+    protected float _stuckTimer = 0f;
+    protected float _rerouteTimer = 0f;
+    protected Vector3 _rerouteWaypoint;
+    protected Vector3 _lastStuckCheckPos;
+    protected float _stuckCheckInterval = 0.25f;
+    protected float _stuckCheckTimer = 0f;
+    protected int _consecutiveStuckCount = 0;
+    protected Transform _temporarilyIgnoredTarget;
+    protected float _targetIgnoreTimer = 0f;
+    protected NavMeshPath _pathCalc;
+    protected NavMeshPath _reroutePath;
+
     protected bool HasAuthority => (NetworkObject != null && NetworkObject.IsSpawned) ? IsServer : true;
     protected Coroutine _spawnScreamCoroutine;
 
@@ -229,6 +254,19 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         CacheAnimatorParameters();
         ConfigureMonsterDefaults();
         SetRagdollState(false);
+
+        if (wallObstacleMask.value == 0)
+        {
+            int excluded = LayerMask.GetMask("Ignore Raycast", "UI", "Monster", "Player", "Explorer", "Minimap", "Fog");
+            if (excluded != 0)
+            {
+                wallObstacleMask = ~excluded;
+            }
+            else
+            {
+                wallObstacleMask = LayerMask.GetMask("Default", "Environment", "Terrain", "Obstacle");
+            }
+        }
 
         // Immediate responsive initialization:
         // Monsters spawned on the subterranean NavMesh shouldn't be blocked by CharacterController falling logic
@@ -399,6 +437,33 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         if (_hitCooldownTimer > 0f) _hitCooldownTimer -= Time.deltaTime;
 
+        if (_targetIgnoreTimer > 0f)
+        {
+            _targetIgnoreTimer -= Time.deltaTime;
+            if (_targetIgnoreTimer <= 0f) _temporarilyIgnoredTarget = null;
+        }
+
+        // Active reroute handling: steer away from the obstacle/wall
+        if (_rerouteTimer > 0f)
+        {
+            _rerouteTimer -= Time.deltaTime;
+            if (_agent != null && _agent.isOnNavMesh && _agent.enabled)
+            {
+                _agent.isStopped = false;
+                _agent.speed = runSpeed;
+                _agent.SetDestination(_rerouteWaypoint);
+                SafeSetFloat(_speedHash, runSpeed);
+                SafeSetBool(_isRunningHash, true);
+                UpdateNavMeshTurningAnimation();
+            }
+
+            if (_agent != null && (_agent.remainingDistance <= 0.6f || _rerouteTimer <= 0f))
+            {
+                _rerouteTimer = 0f;
+            }
+            return;
+        }
+
         // Hit stagger: pause movement and attack updates briefly on impact
         if (_hitStaggerTimer > 0f)
         {
@@ -422,12 +487,16 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 break;
 
             case AIState.Running:
+                UpdateAntiStuck();
                 HandlePursuitAndTargeting();
                 UpdateNavMeshTurningAnimation();
                 break;
 
             case AIState.Attacking:
-                RotateTowardsTarget(target);
+                if (target != null && HasLineOfSight(target))
+                {
+                    RotateTowardsTarget(target);
+                }
                 break;
         }
     }
@@ -628,8 +697,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         {
             float distToThreat = Vector3.Distance(transform.position, threat.position);
             float girlToThreat = Vector3.Distance(leader.position, threat.position);
+            bool threatLoS = HasLineOfSight(threat);
 
-            if (distToThreat <= attackRange)
+            if (distToThreat <= attackRange && threatLoS)
             {
                 _agent.isStopped = true;
                 SafeSetFloat(_speedHash, 0f);
@@ -849,7 +919,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     private void HandleZombieThreatEngagement(Transform threat, float distToThreat)
     {
-        if (distToThreat <= attackRange)
+        bool hasLoS = HasLineOfSight(threat);
+
+        // Only initiate attack when close AND has direct Line of Sight! Never attack through a solid wall!
+        if (distToThreat <= attackRange && hasLoS)
         {
             if (currentPosture == ZombiePosture.Crawling)
             {
@@ -875,9 +948,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             return;
         }
 
+        // Target is either far away or behind a wall: continue running along the tunnel NavMesh!
         if (currentPosture == ZombiePosture.Crawling)
         {
-            if (distToThreat <= standTransitionDistance)
+            // Only transition to standing if we have direct Line of Sight or are rounding into the room
+            if (distToThreat <= standTransitionDistance && hasLoS)
             {
                 StartStandUp();
                 return;
@@ -926,6 +1001,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (target != null && !IsTargetInvalidOrDead(target))
         {
             float distance = Vector3.Distance(transform.position, target.position);
+            bool hasLoS = HasLineOfSight(target);
 
             if (monsterType == MonsterType.Zombie)
             {
@@ -933,8 +1009,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 return;
             }
 
-            // Berserker hunting pursuit
-            if (distance <= attackRange)
+            // Berserker hunting pursuit: Only attack if in range AND has Line of Sight!
+            if (distance <= attackRange && hasLoS)
             {
                 _agent.isStopped = true;
                 SafeSetFloat(_speedHash, 0f);
@@ -1376,8 +1452,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (best == null) return null;
         if (current == null) return best;
 
-        // If current target died, immediately switch
-        if (IsTargetInvalidOrDead(current))
+        // If current target died or is temporarily blocked, immediately switch
+        if (IsTargetInvalidOrDead(current) || current == _temporarilyIgnoredTarget)
         {
             return best;
         }
@@ -1394,11 +1470,178 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         return current;
     }
 
+    /// <summary>
+    /// Checks if the monster has an unobstructed line of sight to the target through cave corridors.
+    /// Raycasts from monster chest height to target chest height against the obstacle mask.
+    /// </summary>
+    public virtual bool HasLineOfSight(Transform t)
+    {
+        if (t == null) return false;
+
+        Vector3 eyePos = transform.position + Vector3.up * 1.35f;
+        Vector3 targetPos = t.position + Vector3.up * 1.1f;
+        Vector3 toTarget = targetPos - eyePos;
+        float distance = toTarget.magnitude;
+
+        if (distance <= 0.25f) return true;
+
+        if (Physics.Raycast(eyePos, toTarget.normalized, out RaycastHit hit, distance, wallObstacleMask, QueryTriggerInteraction.Ignore))
+        {
+            Transform hitRoot = hit.transform.root != null ? hit.transform.root : hit.transform;
+            Transform targetRoot = t.root != null ? t.root : t;
+
+            if (hitRoot != targetRoot && !hit.collider.CompareTag("Player"))
+            {
+                return false; // Solid wall or cave prop is blocking Line of Sight!
+            }
+        }
+
+        return true;
+    }
+
+    /// <summary>
+    /// Calculates the actual walking distance along the baked NavMesh corridors.
+    /// Used to prioritize players in the same tunnel rather than chasing someone separated by solid stone.
+    /// </summary>
+    protected float GetNavMeshPathDistance(Vector3 start, Vector3 end)
+    {
+        if (_pathCalc == null) _pathCalc = new NavMeshPath();
+        if (NavMesh.CalculatePath(start, end, NavMesh.AllAreas, _pathCalc))
+        {
+            if (_pathCalc.status == NavMeshPathStatus.PathComplete && _pathCalc.corners != null && _pathCalc.corners.Length > 1)
+            {
+                float len = 0f;
+                for (int k = 1; k < _pathCalc.corners.Length; k++)
+                {
+                    len += Vector3.Distance(_pathCalc.corners[k - 1], _pathCalc.corners[k]);
+                }
+                return len;
+            }
+        }
+        return -1f;
+    }
+
+    /// <summary>
+    /// Detects when a monster is stuck against a cave wall or obstacle while trying to run forward.
+    /// </summary>
+    protected virtual void UpdateAntiStuck()
+    {
+        if (!enableAntiStuck || _agent == null || !_agent.isOnNavMesh || !_agent.enabled || _agent.isStopped)
+        {
+            _stuckTimer = 0f;
+            return;
+        }
+
+        _stuckCheckTimer -= Time.deltaTime;
+        if (_stuckCheckTimer <= 0f)
+        {
+            _stuckCheckTimer = _stuckCheckInterval;
+
+            if (_agent.hasPath && _agent.desiredVelocity.sqrMagnitude > 0.35f)
+            {
+                float movedDist = Vector3.Distance(transform.position, _lastStuckCheckPos);
+                if (movedDist < 0.10f)
+                {
+                    _stuckTimer += _stuckCheckInterval;
+                    if (_stuckTimer >= stuckDetectionDuration)
+                    {
+                        ExecuteSmartReroute();
+                        _stuckTimer = 0f;
+                    }
+                }
+                else
+                {
+                    _stuckTimer = 0f;
+                    _consecutiveStuckCount = 0;
+                }
+            }
+            else
+            {
+                _stuckTimer = 0f;
+            }
+
+            _lastStuckCheckPos = transform.position;
+        }
+    }
+
+    /// <summary>
+    /// Intelligently maneuvers the monster away from a wall or obstacle into clear NavMesh tunnel space.
+    /// </summary>
+    protected virtual void ExecuteSmartReroute()
+    {
+        _consecutiveStuckCount++;
+
+        // If jammed repeatedly trying to reach a player behind a wall/obstruction, temporarily ignore that player
+        if (_consecutiveStuckCount >= 2 && target != null)
+        {
+            _temporarilyIgnoredTarget = target;
+            _targetIgnoreTimer = 4.0f;
+            target = null;
+        }
+
+        if (_reroutePath == null) _reroutePath = new NavMeshPath();
+
+        // 1. Try steering away from the closest NavMesh wall edge
+        if (NavMesh.FindClosestEdge(transform.position, out NavMeshHit edgeHit, NavMesh.AllAreas))
+        {
+            Vector3 pushAwayDir = edgeHit.normal; // Normal points directly into open space
+            pushAwayDir.y = 0f;
+            if (pushAwayDir.sqrMagnitude > 0.01f)
+            {
+                Vector3 escapeCandidate = transform.position + pushAwayDir.normalized * 3.2f;
+                if (NavMesh.SamplePosition(escapeCandidate, out NavMeshHit navHit, 2.5f, NavMesh.AllAreas))
+                {
+                    if (NavMesh.CalculatePath(transform.position, navHit.position, NavMesh.AllAreas, _reroutePath) &&
+                        _reroutePath.status == NavMeshPathStatus.PathComplete)
+                    {
+                        _rerouteWaypoint = navHit.position;
+                        _rerouteTimer = rerouteDuration;
+                        _agent.isStopped = false;
+                        _agent.SetDestination(_rerouteWaypoint);
+                        return;
+                    }
+                }
+            }
+        }
+
+        // 2. Flanking escape angles (90 deg, -90 deg, 135 deg, -135 deg, 180 deg)
+        float[] escapeAngles = new float[] { 90f, -90f, 135f, -135f, 180f, 45f, -45f };
+        Vector3 forward = transform.forward;
+        foreach (float angle in escapeAngles)
+        {
+            Vector3 testDir = Quaternion.Euler(0f, angle, 0f) * forward;
+            Vector3 testSpot = transform.position + testDir * 3.0f;
+            if (NavMesh.SamplePosition(testSpot, out NavMeshHit navHit, 2.0f, NavMesh.AllAreas))
+            {
+                if (NavMesh.CalculatePath(transform.position, navHit.position, NavMesh.AllAreas, _reroutePath) &&
+                    _reroutePath.status == NavMeshPathStatus.PathComplete)
+                {
+                    _rerouteWaypoint = navHit.position;
+                    _rerouteTimer = rerouteDuration;
+                    _agent.isStopped = false;
+                    _agent.SetDestination(_rerouteWaypoint);
+                    return;
+                }
+            }
+        }
+
+        // 3. Fallback: Nearby clear spot
+        Vector3 randomPoint = transform.position + Random.insideUnitSphere * 3.5f;
+        randomPoint.y = transform.position.y;
+        if (NavMesh.SamplePosition(randomPoint, out NavMeshHit fallbackHit, 3f, NavMesh.AllAreas))
+        {
+            _rerouteWaypoint = fallbackHit.position;
+            _rerouteTimer = rerouteDuration;
+            _agent.isStopped = false;
+            _agent.SetDestination(_rerouteWaypoint);
+        }
+    }
+
     protected Transform FindBestTarget()
     {
         int hitCount = Physics.OverlapSphereNonAlloc(transform.position, searchRadius, _searchBuffer);
         Transform closest = null;
-        float minDistance = Mathf.Infinity;
+        float minEffectiveDistance = Mathf.Infinity;
 
         for (int i = 0; i < hitCount; i++)
         {
@@ -1412,11 +1655,25 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 Transform candidate = col.transform.root != null ? col.transform.root : col.transform;
 
                 if (IsTargetInvalidOrDead(candidate)) continue;
+                if (_temporarilyIgnoredTarget != null && candidate == _temporarilyIgnoredTarget) continue;
 
-                float dist = Vector3.Distance(transform.position, candidate.position);
-                if (dist < minDistance)
+                float straightDist = Vector3.Distance(transform.position, candidate.position);
+                bool hasLoS = HasLineOfSight(candidate);
+
+                // Smart tunnel distance calculation:
+                // If candidate has direct Line of Sight in the tunnel, use straight distance.
+                // If separated by solid walls, evaluate actual NavMesh path distance so the monster doesn't
+                // try to chase someone through 50m of winding tunnels when another player is right in front of it!
+                float effectiveDist = straightDist;
+                if (!hasLoS)
                 {
-                    minDistance = dist;
+                    float pathDist = GetNavMeshPathDistance(transform.position, candidate.position);
+                    effectiveDist = pathDist > 0f ? pathDist : (straightDist + 35f);
+                }
+
+                if (effectiveDist < minEffectiveDistance)
+                {
+                    minEffectiveDistance = effectiveDist;
                     closest = candidate;
                 }
             }
