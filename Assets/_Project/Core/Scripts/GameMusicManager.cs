@@ -55,6 +55,10 @@ public class GameMusicManager : MonoBehaviour
     [Range(0.1f, 5f)]
     public float crossfadeDuration = 1.5f;
 
+    [Header("Playback Behavior")]
+    [Tooltip("If true, background music will NOT play during normal gameplay, letting the mine environmental ambience play cleanly. Music will only play while the game is paused in the pause menu.")]
+    public bool onlyPlayWhenPaused = true;
+
     // -------------------------------------------------------------------------
     //  Inspector — Volume
     // -------------------------------------------------------------------------
@@ -91,7 +95,20 @@ public class GameMusicManager : MonoBehaviour
             intenseAudioSource.clip = intenseTrack;
 
         ValidateAudioSources();
-        StartBackgroundLoop();
+
+        if (!onlyPlayWhenPaused)
+        {
+            StartBackgroundLoop();
+        }
+        else
+        {
+            // Keep silent at start so environmental mine ambient audio plays cleanly
+            if (bgAudioSource != null)
+            {
+                bgAudioSource.Stop();
+                bgAudioSource.volume = 0f;
+            }
+        }
     }
 
     // =========================================================================
@@ -130,6 +147,23 @@ public class GameMusicManager : MonoBehaviour
     {
         if (_bgLoopCoroutine != null) StopCoroutine(_bgLoopCoroutine);
         _bgLoopCoroutine = StartCoroutine(BackgroundLoopRoutine());
+    }
+
+    /// <summary>
+    /// Controls music playback based on game pause state when onlyPlayWhenPaused is enabled.
+    /// </summary>
+    public void SetPauseMusicState(bool isPaused)
+    {
+        if (!onlyPlayWhenPaused) return;
+
+        if (isPaused)
+        {
+            StartBackgroundLoop();
+        }
+        else
+        {
+            StopAll();
+        }
     }
 
     // =========================================================================

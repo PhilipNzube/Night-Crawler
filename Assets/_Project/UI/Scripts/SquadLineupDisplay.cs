@@ -144,22 +144,20 @@ public class SquadLineupDisplay : MonoBehaviour
         // Initial hold before starting countdown
         yield return new WaitForSecondsRealtime(Mathf.Max(0f, initialHoldBeforeCountdown));
 
-        // Countdown header - counts down completely to zero without interruption
-        for (int i = countdownFrom; i >= 1; i--)
+        // Countdown header - counts down completely to 0 without interruption
+        for (int i = countdownFrom; i >= 0; i--)
         {
             if (headerText != null)
-                headerText.text = $"ENTERING THE MINE IN {i}...";
+            {
+                headerText.text = i > 0 
+                    ? $"ENTERING THE MINE IN {i}..." 
+                    : "ENTERING THE MINE IN 0...";
+            }
 
             yield return new WaitForSecondsRealtime(1f);
         }
 
-        if (headerText != null)
-            headerText.text = "ENTERING THE MINE IN 0...";
-
-        // Small hold at 0 so players see the countdown reach completion
-        yield return new WaitForSecondsRealtime(0.4f);
-
-        // Countdown has reached zero: show loading screen to transition
+        // Countdown has reached zero and finished its full 0s display: show loading screen to transition
         if (LoadingScreen.Instance != null)
         {
             LoadingScreen.Instance.ShowImmediate();

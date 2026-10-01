@@ -547,19 +547,21 @@ public class GirlPlayerScreen : MonoBehaviour
             departureCountdownText.gameObject.SetActive(true);
         }
 
-        for (int i = 3; i >= 1; i--)
+        for (int i = 3; i >= 0; i--)
         {
             if (departureCountdownText != null)
             {
-                departureCountdownText.text = $"<size=75%>ALL OPERATIVES READY</size>\n<color=#FF0055><b>THE HUNT BEGINS IN {i}...</b></color>";
-            }
-
-            if (i == 1 && LoadingScreen.Instance != null)
-            {
-                LoadingScreen.Instance.ShowImmediate();
+                departureCountdownText.text = i > 0
+                    ? $"<size=75%>ALL OPERATIVES READY</size>\n<color=#FF0055><b>THE HUNT BEGINS IN {i}...</b></color>"
+                    : $"<size=75%>ALL OPERATIVES READY</size>\n<color=#FF0055><b>THE HUNT BEGINS IN 0...</b></color>";
             }
 
             yield return new WaitForSecondsRealtime(1f);
+        }
+
+        if (LoadingScreen.Instance != null)
+        {
+            LoadingScreen.Instance.ShowImmediate();
         }
 
         if (departureCountdownText != null)

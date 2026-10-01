@@ -186,10 +186,19 @@ public class PauseUI : MonoBehaviour
 
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
+
+        if (GameMusicManager.Instance != null)
+        {
+            GameMusicManager.Instance.SetPauseMusicState(true);
+        }
     }
 
     public void HidePauseMenu()
     {
+        if (GameMusicManager.Instance != null)
+        {
+            GameMusicManager.Instance.SetPauseMusicState(false);
+        }
 
         if (exitModal != null && exitModal.isOn) exitModal.CloseWindow();
         if (panelManager != null) panelManager.HideCurrentPanel();
