@@ -149,6 +149,23 @@ public class HeatSettingsBridge : MonoBehaviour
         public Sprite touchpadPress;
     }
 
+    [System.Serializable]
+    public class MouseIconSet
+    {
+        [Tooltip("Official Heat UI icon for Left Mouse Click (LMB).")]
+        public Sprite leftClick;
+        [Tooltip("Official Heat UI icon for Right Mouse Click (RMB).")]
+        public Sprite rightClick;
+        [Tooltip("Official Heat UI icon for Middle Mouse Click (MMB / Scroll Wheel).")]
+        public Sprite middleClick;
+        [Tooltip("Official Heat UI icon for Mouse Button 4 (MB4 / Forward).")]
+        public Sprite mouse4;
+        [Tooltip("Official Heat UI icon for Mouse Button 5 (MB5 / Back).")]
+        public Sprite mouse5;
+        [Tooltip("Fallback icon for generic mouse button.")]
+        public Sprite mouseGeneric;
+    }
+
     // =========================================================================
     //  Inspector Fields (Manual Drag & Drop)
     // =========================================================================
@@ -199,6 +216,10 @@ public class HeatSettingsBridge : MonoBehaviour
 
     [Tooltip("Official Heat UI sprite icons for Sony DualSense controllers with exact button names.")]
     public DualSenseIconSet dualSenseIcons = new DualSenseIconSet();
+
+    [Header("Mouse Icon Pack (Heat UI)")]
+    [Tooltip("Official Heat UI sprite icons for mouse button clicks.")]
+    public MouseIconSet mouseIcons = new MouseIconSet();
 
     [Header("Heat UI Preset Manager (Optional)")]
     [Tooltip("Reference to Heat UI's _Preset Manager asset for direct preset lookups.")]
@@ -392,6 +413,27 @@ public class HeatSettingsBridge : MonoBehaviour
             changed = true;
         }
 
+        // 3. Ensure Render Scale entry exists with complete atmospheric description
+        var renderScaleEntry = settingDescriptions.Find(e => e != null && (e.elementName.Equals("Render Scale", StringComparison.OrdinalIgnoreCase) || e.displayTitle.Equals("3D Resolution Scaling", StringComparison.OrdinalIgnoreCase)));
+        if (renderScaleEntry == null)
+        {
+            settingDescriptions.Add(new SettingDescriptionEntry
+            {
+                elementName = "Render Scale",
+                displayTitle = "3D Resolution Scaling",
+                description = "Scales internal 3D scene rendering resolution (50% to 100%) to drastically boost framerate while keeping the HUD, biometric vitals, and fonts 100% crisp.",
+                coverImage = null
+            });
+            changed = true;
+        }
+        else if (string.IsNullOrEmpty(renderScaleEntry.description))
+        {
+            renderScaleEntry.elementName = "Render Scale";
+            renderScaleEntry.displayTitle = "3D Resolution Scaling";
+            renderScaleEntry.description = "Scales internal 3D scene rendering resolution (50% to 100%) to drastically boost framerate while keeping the HUD, biometric vitals, and fonts 100% crisp.";
+            changed = true;
+        }
+
 #if UNITY_EDITOR
         if (changed && !Application.isPlaying)
         {
@@ -457,6 +499,23 @@ public class HeatSettingsBridge : MonoBehaviour
         {
             presetManager = UnityEditor.AssetDatabase.LoadAssetAtPath<ControllerPresetManager>("Assets/ThirdParty/Heat - Complete Modern UI/Presets/Controllers/_Preset Manager.asset");
         }
+
+        // 4. Mouse Icons (Heat UI Textures & Custom Extensions)
+        string mousePath = "Assets/ThirdParty/Heat - Complete Modern UI/Textures/Controllers/Mouse/";
+        if (mouseIcons == null) mouseIcons = new MouseIconSet();
+        mouseIcons.leftClick = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(mousePath + "Mouse Left.png");
+        mouseIcons.rightClick = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(mousePath + "Mouse Right.png");
+        mouseIcons.middleClick = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(mousePath + "Mouse Scroll Wheel.png");
+        mouseIcons.mouseGeneric = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(mousePath + "Mouse.png");
+
+        // Mouse 4 & 5 (Check standard and custom project texture folders)
+        mouseIcons.mouse4 = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(mousePath + "Mouse 4.png");
+        if (mouseIcons.mouse4 == null)
+            mouseIcons.mouse4 = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>("Assets/_Project/UI/Textures/Mouse 4.png");
+
+        mouseIcons.mouse5 = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>(mousePath + "Mouse 5.png");
+        if (mouseIcons.mouse5 == null)
+            mouseIcons.mouse5 = UnityEditor.AssetDatabase.LoadAssetAtPath<Sprite>("Assets/_Project/UI/Textures/Mouse 5.png");
 
         UnityEditor.EditorUtility.SetDirty(this);
     }
@@ -717,13 +776,6 @@ public class HeatSettingsBridge : MonoBehaviour
                 description = "Vanish and remanifest instantaneously behind unsuspecting explorers.",
                 coverImage = null
             },
-            new SettingDescriptionEntry
-            {
-                elementName = "Render Scale",
-                displayTitle = "3D Resolution Scaling",
-                description = "Controls the internal 3D scene rendering resolution while keeping UI, fonts, and HUD 100% crisp. Lowering this drastically improves framerate without blurring text.",
-                coverImage = null
-            },
 
             // --- AUDIO TAB ---
             new SettingDescriptionEntry
@@ -768,6 +820,13 @@ public class HeatSettingsBridge : MonoBehaviour
                 elementName = "Resolution",
                 displayTitle = "Display Resolution",
                 description = "Adjust the native screen pixel grid. Higher resolutions maximize subterranean clarity and edge contrast against lurking silhouettes.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Render Scale",
+                displayTitle = "3D Resolution Scaling",
+                description = "Scales internal 3D scene rendering resolution (50% to 100%) to drastically boost framerate while keeping the HUD, biometric vitals, and fonts 100% crisp.",
                 coverImage = null
             },
             new SettingDescriptionEntry
@@ -970,14 +1029,28 @@ public class HeatSettingsBridge : MonoBehaviour
                 var bm1 = b1.GetComponent<ButtonManager>();
                 if (bm1 != null)
                 {
-                    bm1.SetText(KeybindingManager.FormatKeyName(actionData.currentKey));
+                    UpdateKeyboardMouseVisual(bm1, actionData);
                     bm1.onClick.RemoveAllListeners();
                     string targetActId = actionData.actionId;
                     bm1.onClick.AddListener(() =>
                     {
+                        var iconImg = EnsureButtonIcon(bm1.transform, "KbmIcon");
+                        if (iconImg != null) iconImg.gameObject.SetActive(false);
+
                         KeybindingManager.Instance.StartRebindKeyboard(targetActId,
                             waitingStr => bm1.SetText(waitingStr),
-                            finishedStr => bm1.SetText(finishedStr));
+                            finishedStr =>
+                            {
+                                var updatedAct = KeybindingManager.Instance.actions.Find(a => a.actionId.Equals(targetActId, StringComparison.OrdinalIgnoreCase));
+                                if (updatedAct != null)
+                                {
+                                    UpdateKeyboardMouseVisual(bm1, updatedAct);
+                                }
+                                else
+                                {
+                                    bm1.SetText(finishedStr);
+                                }
+                            });
                     });
                 }
             }
@@ -1023,6 +1096,45 @@ public class HeatSettingsBridge : MonoBehaviour
         });
     }
 
+    private void UpdateKeyboardMouseVisual(ButtonManager bm, KeybindingManager.ActionBinding actionData)
+    {
+        if (bm == null || actionData == null) return;
+
+        Image iconImg = EnsureButtonIcon(bm.transform, "KbmIcon");
+        Sprite mouseSprite = null;
+
+        if (actionData.currentMouseButton >= 0)
+        {
+            mouseSprite = GetMouseSprite(actionData.currentMouseButton);
+        }
+
+        if (mouseSprite != null && iconImg != null)
+        {
+            iconImg.sprite = mouseSprite;
+            iconImg.gameObject.SetActive(true);
+            bm.SetText(""); // Clear text to show clean icon
+        }
+        else
+        {
+            if (iconImg != null) iconImg.gameObject.SetActive(false);
+            bm.SetText(KeybindingManager.FormatActionInput(actionData));
+        }
+    }
+
+    public Sprite GetMouseSprite(int mouseButton)
+    {
+        if (mouseIcons == null) return null;
+        switch (mouseButton)
+        {
+            case 0: return mouseIcons.leftClick != null ? mouseIcons.leftClick : mouseIcons.mouseGeneric;
+            case 1: return mouseIcons.rightClick != null ? mouseIcons.rightClick : mouseIcons.mouseGeneric;
+            case 2: return mouseIcons.middleClick != null ? mouseIcons.middleClick : mouseIcons.mouseGeneric;
+            case 3: return mouseIcons.mouse4; // Strictly return dedicated mouse4 icon; if null, fallback to clean [MB4] text
+            case 4: return mouseIcons.mouse5; // Strictly return dedicated mouse5 icon; if null, fallback to clean [MB5] text
+            default: return null;
+        }
+    }
+
     private void UpdateGamepadButtonVisual(ButtonManager bm, string controlName)
     {
         if (bm == null) return;
@@ -1045,13 +1157,18 @@ public class HeatSettingsBridge : MonoBehaviour
 
     private Image EnsureGamepadIcon(Transform buttonRoot)
     {
-        Transform existing = buttonRoot.Find("GamepadIcon");
+        return EnsureButtonIcon(buttonRoot, "GamepadIcon");
+    }
+
+    private Image EnsureButtonIcon(Transform buttonRoot, string iconName)
+    {
+        Transform existing = buttonRoot.Find(iconName);
         if (existing != null)
         {
             return existing.GetComponent<Image>();
         }
 
-        GameObject go = new GameObject("GamepadIcon", typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
+        GameObject go = new GameObject(iconName, typeof(RectTransform), typeof(CanvasRenderer), typeof(Image));
         go.transform.SetParent(buttonRoot, false);
 
         RectTransform rt = go.GetComponent<RectTransform>();
@@ -1323,7 +1440,7 @@ public class HeatSettingsBridge : MonoBehaviour
             if (b1 != null)
             {
                 var bm1 = b1.GetComponent<ButtonManager>();
-                if (bm1 != null) bm1.SetText(KeybindingManager.FormatKeyName(actionData.currentKey));
+                if (bm1 != null) UpdateKeyboardMouseVisual(bm1, actionData);
             }
 
             Transform b2 = item.row.Find("Binding 2");
@@ -1630,17 +1747,30 @@ public class HeatSettingsBridge : MonoBehaviour
     private SettingDescriptionEntry GetDescriptionEntry(string key, string fallbackTitle)
     {
         var found = settingDescriptions.Find(e => 
+            e != null && (
             e.elementName.Equals(key, StringComparison.OrdinalIgnoreCase) ||
             e.displayTitle.Equals(key, StringComparison.OrdinalIgnoreCase) ||
-            e.displayTitle.Equals(fallbackTitle, StringComparison.OrdinalIgnoreCase));
+            e.displayTitle.Equals(fallbackTitle, StringComparison.OrdinalIgnoreCase)));
 
-        if (found != null) return found;
+        if (found != null && !string.IsNullOrEmpty(found.description)) return found;
+
+        string desc = string.Empty;
+        if (key.Equals("Render Scale", StringComparison.OrdinalIgnoreCase) || fallbackTitle.Equals("3D Resolution Scaling", StringComparison.OrdinalIgnoreCase))
+        {
+            desc = "Scales internal 3D scene rendering resolution (50% to 100%) to drastically boost framerate while keeping the HUD, biometric vitals, and fonts 100% crisp.";
+        }
+
+        if (found != null)
+        {
+            found.description = desc;
+            return found;
+        }
 
         return new SettingDescriptionEntry
         {
             elementName = key,
             displayTitle = fallbackTitle,
-            description = string.Empty,
+            description = desc,
             coverImage = null
         };
     }

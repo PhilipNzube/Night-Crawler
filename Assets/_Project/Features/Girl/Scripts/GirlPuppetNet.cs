@@ -44,7 +44,7 @@ public class GirlPuppetNet : NetworkBehaviour
             // 2. We are a Puppet! Update timer and check for Eruption
             UpdatePuppetState();
 
-            if (Mouse.current.leftButton.wasPressedThisFrame)
+            if (KeybindingManager.IsActionTriggered("Attack") || (KeybindingManager.Instance == null && Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame))
             {
                 RequestEruptionServerRpc();
             }

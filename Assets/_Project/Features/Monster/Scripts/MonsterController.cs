@@ -168,8 +168,7 @@ public class MonsterController : MonoBehaviour, IPossessable
     {
         if (_attackTimer > 0) _attackTimer -= Time.deltaTime;
 
-        // Left Mouse Click triggers attack
-        if (Mouse.current.leftButton.wasPressedThisFrame && _attackTimer <= 0)
+        if ((KeybindingManager.IsActionTriggered("Attack") || (KeybindingManager.Instance == null && Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame)) && _attackTimer <= 0)
         {
             if (_animator != null)
             {

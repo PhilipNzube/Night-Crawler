@@ -338,7 +338,7 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         // Attack (Left Click / Gamepad Trigger) — each combo step requires a deliberate click.
         // Intentionally do NOT use leftButton.isPressed: holding must not spam the full combo.
         bool clickDown = KeybindingManager.IsActionTriggered("Attack")
-            || (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame);
+            || (KeybindingManager.Instance == null && Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame);
 
         if (clickDown && !_isReloading)
         {
