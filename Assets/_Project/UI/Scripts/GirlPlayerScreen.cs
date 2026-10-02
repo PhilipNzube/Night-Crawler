@@ -140,16 +140,12 @@ public class GirlPlayerScreen : MonoBehaviour
     /// </summary>
     public bool IsTransitionOrDescentLocked()
     {
-        // 1. Squad scene is actively showing
+        // 1. Squad scene showcase is actively running
         if (SquadLineupDisplay.Instance != null && SquadLineupDisplay.Instance.IsShowingLineup)
-            return true;
-        if (SquadSceneController.Instance != null && SquadSceneController.Instance.squadCamera != null && SquadSceneController.Instance.squadCamera.enabled)
             return true;
 
         // 2. All players ready / departure countdown active / green wait text showing
         if (_isAllPlayersReady || _departureCountdownRoutine != null)
-            return true;
-        if (PlayerReadyTracker.Instance != null && PlayerReadyTracker.Instance.TotalCount > 0 && PlayerReadyTracker.Instance.AllPlayersReady)
             return true;
 
         // 3. Loading screen active

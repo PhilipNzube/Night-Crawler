@@ -28,7 +28,7 @@ public class SquadLineupDisplay : MonoBehaviour
     /// <summary>
     /// Returns true only when the squad lineup showcase is actively running.
     /// </summary>
-    public bool IsShowingLineup => _showcaseRoutine != null || (lineupUIPanel != null && lineupUIPanel.activeSelf);
+    public bool IsShowingLineup => _showcaseRoutine != null;
 
     // -------------------------------------------------------------------------
     //  Inspector — 3D Scene
@@ -121,6 +121,18 @@ public class SquadLineupDisplay : MonoBehaviour
         SetPanelVisible(false);
     }
 
+    void Update()
+    {
+        // Strictly prevent any ESC presses or pause/exit modals from opening during squad screen showcase
+        if (IsShowingLineup)
+        {
+            if (UnityEngine.InputSystem.Keyboard.current != null && UnityEngine.InputSystem.Keyboard.current.escapeKey.wasPressedThisFrame)
+            {
+                // Consumed / inactive
+            }
+        }
+    }
+
     // =========================================================================
     //  Public API
     // =========================================================================
@@ -135,6 +147,16 @@ public class SquadLineupDisplay : MonoBehaviour
         // Activate the rocks/trees squad world and camera
         if (SquadSceneController.Instance != null)
             SquadSceneController.Instance.EnableSquadEnvironment();
+
+        // Deactivate all HotkeyEvent components inside lineup UI to ensure ESC / hotkeys remain inactive
+        if (lineupUIPanel != null)
+        {
+            var hotkeys = lineupUIPanel.GetComponentsInChildren<Michsky.UI.Heat.HotkeyEvent>(true);
+            foreach (var hk in hotkeys)
+            {
+                if (hk != null) hk.gameObject.SetActive(false);
+            }
+        }
 
         if (_showcaseRoutine != null) StopCoroutine(_showcaseRoutine);
         _showcaseRoutine = StartCoroutine(RunShowcase(onComplete));

@@ -694,6 +694,20 @@ public class HeatSettingsBridge : MonoBehaviour
             },
             new SettingDescriptionEntry
             {
+                elementName = "Spectate Survivors",
+                displayTitle = "Spectate Survivors",
+                description = "Enter spectator mode when fallen to track surviving teammates in the mine.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName = "Spectate Monsters",
+                displayTitle = "Spectate Monsters",
+                description = "Switch camera perspective to summoned undead and berserker abominations.",
+                coverImage = null
+            },
+            new SettingDescriptionEntry
+            {
                 elementName = "Exit Spectator Mode",
                 displayTitle = "Exit Spectator Mode",
                 description = "Exit spectator observation mode and return to player view or death screen.",

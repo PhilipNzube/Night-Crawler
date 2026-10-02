@@ -236,11 +236,11 @@ public class DeathUI : MonoBehaviour
 
         // ── Determine whether there are survivors left to spectate ──────────
         bool hasSurvivors = HasAliveSurvivorsToSpectate();
+        string spectateKeyStr = KeybindingManager.GetBoundKeyString("SpectatePlayer", "SPACE");
 
         _skipRequested = false;
         if (spectatePromptObject != null)
         {
-            // Show spectate prompt only when there are survivors
             spectatePromptObject.SetActive(hasSurvivors);
             if (subtitleText != null) subtitleText.text = subtitle;
         }
@@ -250,7 +250,7 @@ public class DeathUI : MonoBehaviour
             if (hasSurvivors)
             {
                 spectatePromptText.gameObject.SetActive(true);
-                spectatePromptText.text = "<b>[SPACE / CLICK]</b> TO SPECTATE";
+                spectatePromptText.text = $"<b>[{spectateKeyStr} / CLICK]</b> TO SPECTATE PLAYERS";
             }
             else
             {
@@ -260,18 +260,49 @@ public class DeathUI : MonoBehaviour
         else if (subtitleText != null)
         {
             subtitleText.text = hasSurvivors
-                ? $"{subtitle}\n\n<size=85%><b>Press [SPACE] or [CLICK] to Spectate</b></size>"
+                ? $"{subtitle}\n\n<size=85%><b>Press [{spectateKeyStr}] or [CLICK] to Spectate Players</b></size>"
                 : subtitle;
         }
 
-        // Also hide the Heat HotkeyEvent spectate button when no one to spectate
+        // Also hide or update the Heat HotkeyEvent spectate button
         if (heatSpectateHotkey != null)
         {
             heatSpectateHotkey.gameObject.SetActive(hasSurvivors);
+            if (hasSurvivors)
+            {
+                SetHotkeyVisual(heatSpectateHotkey, spectateKeyStr, "SPECTATE PLAYERS");
+            }
         }
 
         if (_fadeCoroutine != null) StopCoroutine(_fadeCoroutine);
         _fadeCoroutine = StartCoroutine(FadeInDeathScreenRoutine(hasSurvivors));
+    }
+
+    /// <summary>
+    /// Sets the visual text elements on a Michsky Heat HotkeyEvent button.
+    /// </summary>
+    public static void SetHotkeyVisual(Michsky.UI.Heat.HotkeyEvent hotkey, string keyStr, string labelStr)
+    {
+        if (hotkey == null) return;
+        hotkey.keyID = keyStr;
+        hotkey.hotkeyLabel = labelStr;
+        hotkey.SetLabel(labelStr);
+        hotkey.UpdateUI();
+
+        var tmps = hotkey.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+        foreach (var t in tmps)
+        {
+            if (t == null) continue;
+            string n = t.gameObject.name.ToLower();
+            if (n.Contains("label"))
+            {
+                t.text = labelStr;
+            }
+            else
+            {
+                t.text = keyStr;
+            }
+        }
     }
 
     /// <summary>
@@ -295,10 +326,25 @@ public class DeathUI : MonoBehaviour
 
         // Keep spectate prompt available if survivors are still alive!
         bool hasSurvivors = HasAliveSurvivorsToSpectate();
+        string spectateKeyStr = KeybindingManager.GetBoundKeyString("SpectatePlayer", "SPACE");
 
         if (spectatePromptObject != null) spectatePromptObject.SetActive(hasSurvivors);
-        if (spectatePromptText != null) spectatePromptText.gameObject.SetActive(hasSurvivors);
-        if (heatSpectateHotkey != null) heatSpectateHotkey.gameObject.SetActive(hasSurvivors);
+        if (spectatePromptText != null)
+        {
+            spectatePromptText.gameObject.SetActive(hasSurvivors);
+            if (hasSurvivors)
+            {
+                spectatePromptText.text = $"<b>[{spectateKeyStr} / CLICK]</b> TO SPECTATE PLAYERS";
+            }
+        }
+        if (heatSpectateHotkey != null)
+        {
+            heatSpectateHotkey.gameObject.SetActive(hasSurvivors);
+            if (hasSurvivors)
+            {
+                SetHotkeyVisual(heatSpectateHotkey, spectateKeyStr, "SPECTATE PLAYERS");
+            }
+        }
 
         if (subtitleText != null)
         {
@@ -320,8 +366,9 @@ public class DeathUI : MonoBehaviour
 
     /// <summary>
     /// Returns true if there is at least one alive non-local Investigator to spectate.
+    /// Strictly filters out any monsters, the Girl entity, corpses, and self.
     /// </summary>
-    private bool HasAliveSurvivorsToSpectate()
+    public bool HasAliveSurvivorsToSpectate()
     {
         ulong localId = Unity.Netcode.NetworkManager.Singleton != null
             ? Unity.Netcode.NetworkManager.Singleton.LocalClientId
@@ -332,15 +379,42 @@ public class DeathUI : MonoBehaviour
         {
             if (th == null || th.gameObject == null) continue;
 
+            // Strict monster exclusion: check components, tags, and names
+            if (th.GetComponent<MonsterAI>() != null ||
+                th.GetComponent<MonsterController>() != null ||
+                th.GetComponentInChildren<MonsterAI>() != null ||
+                th.GetComponentInChildren<MonsterController>() != null ||
+                th.CompareTag("Monster") ||
+                th.name.ToLower().Contains("monster") ||
+                th.name.ToLower().Contains("zombie") ||
+                th.name.ToLower().Contains("crawler") ||
+                th.name.ToLower().Contains("berserker") ||
+                th.name.ToLower().Contains("brute"))
+            {
+                continue;
+            }
+
+            // Exclude self
             var netObj = th.GetComponent<Unity.Netcode.NetworkObject>();
-            if (netObj != null && netObj.OwnerClientId == localId) continue; // skip self
+            if (netObj != null && netObj.OwnerClientId == localId) continue;
 
             // Skip the Girl
             if (th.GetComponent<GirlPossession>() != null || th.GetComponent<GirlStealth>() != null ||
                 th.gameObject.name.ToLower().Contains("girl")) continue;
 
-            if (!th.isCorpse.Value && th.CurrentHealth > 0f)
+            if (th.isCorpse.Value || th.CurrentHealth <= 0f) continue;
+            if (th.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) continue;
+
+            // Must be living human investigator
+            bool isInvestigator = th.GetComponent<StarterAssets.ThirdPersonController>() != null ||
+                                  th.GetComponent<InvestigatorCombatNet>() != null ||
+                                  th.GetComponent<NetworkPlayer>() != null ||
+                                  (netObj != null && netObj.IsPlayerObject);
+
+            if (isInvestigator)
+            {
                 return true;
+            }
         }
         return false;
     }
@@ -381,7 +455,36 @@ public class DeathUI : MonoBehaviour
 
     public void RequestSkipToSpectator()
     {
+        if (!HasAliveSurvivorsToSpectate()) return;
         _skipRequested = true;
+    }
+
+    private void Update()
+    {
+        if (deathPanel == null || !deathPanel.activeSelf) return;
+
+        bool hasSurvivors = HasAliveSurvivorsToSpectate();
+
+        if (!hasSurvivors)
+        {
+            if (spectatePromptObject != null && spectatePromptObject.activeSelf) spectatePromptObject.SetActive(false);
+            if (spectatePromptText != null && spectatePromptText.gameObject.activeSelf) spectatePromptText.gameObject.SetActive(false);
+            if (heatSpectateHotkey != null && heatSpectateHotkey.gameObject.activeSelf) heatSpectateHotkey.gameObject.SetActive(false);
+            return;
+        }
+
+        // Only allow manual key/click trigger if death screen has finished fading in
+        if (deathCanvasGroup != null && deathCanvasGroup.alpha >= 0.9f)
+        {
+            bool triggerSpectate = KeybindingManager.IsActionTriggered("SpectatePlayer")
+                || (UnityEngine.InputSystem.Keyboard.current != null && UnityEngine.InputSystem.Keyboard.current.spaceKey.wasPressedThisFrame)
+                || (UnityEngine.InputSystem.Mouse.current != null && UnityEngine.InputSystem.Mouse.current.leftButton.wasPressedThisFrame);
+
+            if (triggerSpectate)
+            {
+                RequestSkipToSpectator();
+            }
+        }
     }
 
     private IEnumerator FadeInDeathScreenRoutine(bool hasSurvivors)

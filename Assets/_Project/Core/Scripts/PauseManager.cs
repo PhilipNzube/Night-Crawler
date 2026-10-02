@@ -101,11 +101,68 @@ public class PauseManager : MonoBehaviour
         Debug.Log("[PauseManager] Ready. Press ESC to pause.");
     }
 
+    private CursorLockMode        _lastFocusedLockMode = CursorLockMode.Locked;
+    private bool                  _lastFocusedVisible = false;
+
     private void Update()
     {
         if (!_ready) return;
+
+        // Continuously record cursor state while the application is focused
+        if (Application.isFocused)
+        {
+            _lastFocusedLockMode = Cursor.lockState;
+            _lastFocusedVisible = Cursor.visible;
+        }
+
         if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
             HandleEscapePress();
+    }
+
+    private void OnApplicationFocus(bool hasFocus)
+    {
+        if (hasFocus)
+        {
+            StartCoroutine(RestoreCursorStateRoutine());
+        }
+    }
+
+    private IEnumerator RestoreCursorStateRoutine()
+    {
+        // Wait one frame to ensure StarterAssetsInputs or internal Unity events don't override
+        yield return null;
+
+        bool shouldBeUnlocked = _isPaused ||
+            (DealNotificationUI.Instance != null && DealNotificationUI.Instance.IsOpen) ||
+            (NightCrawler.UI.DealCompletionModalUI.Instance != null && NightCrawler.UI.DealCompletionModalUI.Instance.IsOpen) ||
+            (NightCrawler.UI.DealFailureModalUI.Instance != null && NightCrawler.UI.DealFailureModalUI.Instance.IsOpen) ||
+            GirlDealUI.IsAnyPanelOrModalOpen() ||
+            (DeathUI.Instance != null && DeathUI.Instance.deathPanel != null && DeathUI.Instance.deathPanel.activeSelf) ||
+            (SpectatorController.Instance != null && SpectatorController.Instance.IsSpectating && _lastFocusedLockMode == CursorLockMode.None) ||
+            _lastFocusedLockMode == CursorLockMode.None;
+
+        if (shouldBeUnlocked)
+        {
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+            TryCacheLocalPlayerComponents();
+            if (_inputs != null)
+            {
+                _inputs.cursorLocked = false;
+                _inputs.cursorInputForLook = false;
+            }
+        }
+        else
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+            TryCacheLocalPlayerComponents();
+            if (_inputs != null)
+            {
+                _inputs.cursorLocked = true;
+                _inputs.cursorInputForLook = true;
+            }
+        }
     }
 
     // =========================================================================

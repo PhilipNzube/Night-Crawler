@@ -370,6 +370,20 @@ public class SpectatorController : MonoBehaviour
                 Debug.Log("[SpectatorController] Suppressed — Local player is the Vengeful Spirit.");
                 return;
             }
+
+            // Verify at least one living human survivor exists!
+            _isSpectating = true;
+            RefreshAliveTargets();
+            _isSpectating = false;
+            if (_aliveTargets.Count == 0)
+            {
+                Debug.LogWarning("[SpectatorController] Suppressed StartSpectating — No alive human survivors to spectate!");
+                if (DeathUI.Instance != null)
+                {
+                    DeathUI.Instance.ReturnFromSpectatorToDeath();
+                }
+                return;
+            }
         }
         else if (modeType == SpectatorModeType.Monsters)
         {
@@ -585,8 +599,8 @@ public class SpectatorController : MonoBehaviour
         string catKeyStr = KeybindingManager.GetBoundKeyString("SpectateCategory", "TAB");
         string exitKeyStr = KeybindingManager.GetBoundKeyString("SpectateExit", "C");
 
-        SetHotkeyVisual(prevHotkey, prevKeyStr, modeType == SpectatorModeType.Monsters ? "PREV MONSTER" : "PREV SURVIVOR");
-        SetHotkeyVisual(nextHotkey, nextKeyStr, modeType == SpectatorModeType.Monsters ? "NEXT MONSTER" : "NEXT SURVIVOR");
+        SetHotkeyVisual(prevHotkey, prevKeyStr, modeType == SpectatorModeType.Monsters ? "PREV MONSTER" : "PREV PLAYER");
+        SetHotkeyVisual(nextHotkey, nextKeyStr, modeType == SpectatorModeType.Monsters ? "NEXT MONSTER" : "NEXT PLAYER");
         // Show the mode you'd switch TO, not the current mode
         SetHotkeyVisual(viewModeHotkey, viewModeKeyStr, _freeOrbitMode ? "SHOULDER CAM" : "FREE ORBIT");
         SetHotkeyVisual(cursorHotkey, cursorKeyStr, Cursor.lockState == CursorLockMode.Locked ? "UNLOCK CURSOR" : "LOCK CURSOR");
@@ -595,7 +609,9 @@ public class SpectatorController : MonoBehaviour
         if (_modePromptText != null)
         {
             string modeName = _freeOrbitMode ? "FREE ORBIT" : "SHOULDER CAM";
-            _modePromptText.text = $"[{viewModeKeyStr}] View Mode: {modeName}   •   [{prevKeyStr}/{nextKeyStr}] Switch   •   [{catKeyStr}] Switch Category   •   [{cursorKeyStr}] Cursor   •   [{exitKeyStr}] Exit";
+            bool canSwitchCategory = !IsLocalPlayerDead();
+            string catSegment = canSwitchCategory ? $"   •   [{catKeyStr}] Switch Category" : "";
+            _modePromptText.text = $"[{viewModeKeyStr}] View Mode: {modeName}   •   [{prevKeyStr}/{nextKeyStr}] Switch{catSegment}   •   [{cursorKeyStr}] Cursor   •   [{exitKeyStr}] Exit";
         }
     }
 
@@ -1126,9 +1142,15 @@ public class SpectatorController : MonoBehaviour
         }
 
         // Switch Category (Survivors <-> Monsters): [Tab] or Gamepad Y / Triangle
+        // Dead players can ONLY spectate surviving teammates and can NEVER switch to monsters!
         if (KeybindingManager.IsActionTriggered("SpectateCategory") 
             || (Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame))
         {
+            if (modeType == SpectatorModeType.Survivors && IsLocalPlayerDead())
+            {
+                // Dead human players cannot spectate monsters!
+                return;
+            }
             ToggleSpectatorCategory();
             return;
         }
@@ -1162,11 +1184,16 @@ public class SpectatorController : MonoBehaviour
         // Mouse Orbit Input
         if (Mouse.current != null)
         {
-            // Auto re-lock cursor on left click if it became unlocked
+            // Auto re-lock cursor on left click if it became unlocked and not clicking UI
             if (Mouse.current.leftButton.wasPressedThisFrame && Cursor.lockState != CursorLockMode.Locked)
             {
-                Cursor.lockState = CursorLockMode.Locked;
-                Cursor.visible = false;
+                bool isPointerOverUI = UnityEngine.EventSystems.EventSystem.current != null &&
+                                       UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject();
+                if (!isPointerOverUI)
+                {
+                    Cursor.lockState = CursorLockMode.Locked;
+                    Cursor.visible = false;
+                }
             }
 
             Vector2 delta = Mouse.current.delta.ReadValue();
@@ -1367,6 +1394,21 @@ public class SpectatorController : MonoBehaviour
         {
             if (th == null || th.gameObject == null) continue;
 
+            // STRICT MONSTER EXCLUSION: Survivors can NEVER spectate monsters!
+            if (th.GetComponent<MonsterAI>() != null ||
+                th.GetComponent<MonsterController>() != null ||
+                th.GetComponentInChildren<MonsterAI>() != null ||
+                th.GetComponentInChildren<MonsterController>() != null ||
+                th.CompareTag("Monster") ||
+                th.name.ToLower().Contains("monster") ||
+                th.name.ToLower().Contains("zombie") ||
+                th.name.ToLower().Contains("crawler") ||
+                th.name.ToLower().Contains("berserker") ||
+                th.name.ToLower().Contains("brute"))
+            {
+                continue;
+            }
+
             // Exclude local dead player
             var netObj = th.GetComponent<NetworkObject>();
             if (netObj != null && netObj.OwnerClientId == localClientId) continue;
@@ -1382,7 +1424,16 @@ public class SpectatorController : MonoBehaviour
             if (th.isCorpse.Value || th.CurrentHealth <= 0) continue;
             if (th.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) continue;
 
-            _aliveTargets.Add(th);
+            // Must be living human investigator
+            bool isInvestigator = th.GetComponent<StarterAssets.ThirdPersonController>() != null ||
+                                  th.GetComponent<InvestigatorCombatNet>() != null ||
+                                  th.GetComponent<NetworkPlayer>() != null ||
+                                  (netObj != null && netObj.IsPlayerObject);
+
+            if (isInvestigator)
+            {
+                _aliveTargets.Add(th);
+            }
         }
 
         // Keep current index in bounds

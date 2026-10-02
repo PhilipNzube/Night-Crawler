@@ -202,16 +202,12 @@ public class CharacterSelectUI : MonoBehaviour
     /// </summary>
     public bool IsTransitionOrDescentLocked()
     {
-        // 1. Squad scene is actively showing
+        // 1. Squad scene showcase is actively running
         if (SquadLineupDisplay.Instance != null && SquadLineupDisplay.Instance.IsShowingLineup)
             return true;
-        if (SquadSceneController.Instance != null && SquadSceneController.Instance.squadCamera != null && SquadSceneController.Instance.squadCamera.enabled)
-            return true;
 
-        // 2. All connected players are confirmed ready
+        // 2. All connected players are confirmed ready (green wait texts showing / countdown active)
         if (_isAllPlayersReady)
-            return true;
-        if (PlayerReadyTracker.Instance != null && PlayerReadyTracker.Instance.TotalCount > 0 && PlayerReadyTracker.Instance.AllPlayersReady)
             return true;
 
         // 3. Loading screen active
@@ -396,8 +392,15 @@ public class CharacterSelectUI : MonoBehaviour
 
         CheckLocalRole();
 
-        // Refresh UI state and spawn the 3D character preview model
+        // Refresh UI state and spawn the 3D character preview model using previously saved character name / index
+        string savedName = PersistentCharacterSelection.GetSelectedCharacterName();
         int savedIndex = PersistentCharacterSelection.GetSelectedCharacterIndex();
+        if (!string.IsNullOrEmpty(savedName))
+        {
+            int matchedIdx = FindRosterIndexByName(savedName);
+            if (matchedIdx >= 0) savedIndex = matchedIdx;
+        }
+
         int totalCount = GetTotalCharacterCount();
         if (savedIndex < 0 || (totalCount > 0 && savedIndex >= totalCount)) savedIndex = 0;
         SelectProfession(savedIndex);
@@ -663,6 +666,22 @@ public class CharacterSelectUI : MonoBehaviour
         _localConfirmed = true;
         PersistentCharacterSelection.SetSelectedCharacterIndex(_selectedIndex);
 
+        string resolvedCharName = string.Empty;
+        if (_filteredDefinitions.Count > 0 && _selectedIndex < _filteredDefinitions.Count && _filteredDefinitions[_selectedIndex] != null)
+        {
+            resolvedCharName = _filteredDefinitions[_selectedIndex].characterName;
+        }
+        else
+        {
+            var data = GetCharacterData(_selectedIndex);
+            if (data != null && !string.IsNullOrEmpty(data.characterName))
+                resolvedCharName = data.characterName;
+        }
+        if (!string.IsNullOrEmpty(resolvedCharName))
+        {
+            PersistentCharacterSelection.SetSelectedCharacterName(resolvedCharName);
+        }
+
         if (!_isVengefulSpirit && CharacterSelectManager.Instance != null)
         {
             CharacterSelectManager.Instance.RequestSelectCharacterServerRpc(_selectedIndex);
@@ -769,6 +788,29 @@ public class CharacterSelectUI : MonoBehaviour
         if (_filteredDefinitions.Count > 0)
             return _filteredDefinitions.Count;
         return _filteredInlineData.Count;
+    }
+
+    public int FindRosterIndexByName(string charName)
+    {
+        if (string.IsNullOrEmpty(charName)) return -1;
+        RefreshFilteredRoster();
+        if (_filteredDefinitions.Count > 0)
+        {
+            for (int i = 0; i < _filteredDefinitions.Count; i++)
+            {
+                if (_filteredDefinitions[i] != null && IsNameMatch(_filteredDefinitions[i].characterName, charName))
+                    return i;
+            }
+        }
+        if (_filteredInlineData.Count > 0)
+        {
+            for (int i = 0; i < _filteredInlineData.Count; i++)
+            {
+                if (_filteredInlineData[i] != null && IsNameMatch(_filteredInlineData[i].characterName, charName))
+                    return i;
+            }
+        }
+        return -1;
     }
 
     public void SelectProfession(int index)

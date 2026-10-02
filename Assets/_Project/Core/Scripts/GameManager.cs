@@ -121,9 +121,10 @@ public class GameManager : NetworkBehaviour
         if (IsClient)
         {
             int savedIndex = PersistentCharacterSelection.GetSelectedCharacterIndex();
+            string savedName = PersistentCharacterSelection.GetSelectedCharacterName();
             bool isGirl = PersistentCharacterSelection.IsVengefulSpirit();
-            Debug.Log($"[GameManager] Local Client {NetworkManager.Singleton.LocalClientId} loaded GameScene. Requesting spawn (index={savedIndex}, isGirl={isGirl}).");
-            RequestSpawnPlayerServerRpc(savedIndex, isGirl);
+            Debug.Log($"[GameManager] Local Client {NetworkManager.Singleton.LocalClientId} loaded GameScene. Requesting spawn (index={savedIndex}, name='{savedName}', isGirl={isGirl}).");
+            RequestSpawnPlayerServerRpc(savedIndex, isGirl, savedName);
         }
     }
 
@@ -353,10 +354,11 @@ public class GameManager : NetworkBehaviour
     /// the correct character when the player's device is truly ready.
     /// </summary>
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
-    public void RequestSpawnPlayerServerRpc(int characterIndex, bool isGirl, RpcParams rpcParams = default)
+    public void RequestSpawnPlayerServerRpc(int characterIndex, bool isGirl, Unity.Collections.FixedString64Bytes characterName = default, RpcParams rpcParams = default)
     {
         ulong senderId = rpcParams.Receive.SenderClientId;
-        Debug.Log($"[GameManager] Received spawn request from Client {senderId} | characterIndex: {characterIndex} | isGirl: {isGirl}");
+        string reqName = characterName.ToString();
+        Debug.Log($"[GameManager] Received spawn request from Client {senderId} | characterIndex: {characterIndex} | name: '{reqName}' | isGirl: {isGirl}");
 
         if (_spawnedClients.Contains(senderId))
         {
@@ -404,15 +406,15 @@ public class GameManager : NetworkBehaviour
         }
 
         _spawnedClients.Add(senderId);
-        SpawnPlayerRole(senderId, characterIndex, finalIsGirl);
+        SpawnPlayerRole(senderId, characterIndex, finalIsGirl, reqName);
     }
 
     // =========================================================================
     //  Private Spawn Helpers
     // =========================================================================
-    private void SpawnPlayerRole(ulong clientId, int characterIndex, bool isGirl)
+    private void SpawnPlayerRole(ulong clientId, int characterIndex, bool isGirl, string characterName = null)
     {
-        GameObject prefabToSpawn = isGirl ? girlPrefab : GetInvestigatorPrefabForClient(clientId, characterIndex);
+        GameObject prefabToSpawn = isGirl ? girlPrefab : GetInvestigatorPrefabForClient(clientId, characterIndex, characterName);
         if (prefabToSpawn == null)
         {
             Debug.LogError($"[GameManager] Cannot spawn player for client {clientId}: prefab is null! (isGirl={isGirl})");
@@ -486,22 +488,22 @@ public class GameManager : NetworkBehaviour
         }
     }
 
-    private GameObject GetInvestigatorPrefabForClient(ulong clientId, int characterIndex)
+    private GameObject GetInvestigatorPrefabForClient(ulong clientId, int characterIndex, string characterName = null)
     {
-        // 1. Resolve by saved character name first (100% immune to roster index shifts when Hazard Specialist is filtered out)
-        string savedName = string.Empty;
-        if (NetworkManager.Singleton != null && clientId == NetworkManager.Singleton.LocalClientId)
+        // 1. Resolve by explicitly requested character name (from client RPC) or local saved name
+        string targetName = characterName;
+        if (string.IsNullOrEmpty(targetName) && NetworkManager.Singleton != null && clientId == NetworkManager.Singleton.LocalClientId)
         {
-            savedName = PersistentCharacterSelection.GetSelectedCharacterName();
+            targetName = PersistentCharacterSelection.GetSelectedCharacterName();
         }
 
-        if (!string.IsNullOrEmpty(savedName) && explorerPrefabs != null)
+        if (!string.IsNullOrEmpty(targetName) && explorerPrefabs != null)
         {
             foreach (var p in explorerPrefabs)
             {
-                if (p != null && CharacterSelectUI.IsNameMatch(p.name, savedName))
+                if (p != null && CharacterSelectUI.IsNameMatch(p.name, targetName))
                 {
-                    Debug.Log($"[GameManager] Matched player prefab '{p.name}' for Client {clientId} using saved name '{savedName}'.");
+                    Debug.Log($"[GameManager] Matched player prefab '{p.name}' for Client {clientId} using requested/saved name '{targetName}'.");
                     return p;
                 }
             }

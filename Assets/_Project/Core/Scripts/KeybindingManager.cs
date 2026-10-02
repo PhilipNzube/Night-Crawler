@@ -36,7 +36,9 @@ public enum KeybindingActionType
     EquipWeapon1,
     EquipWeapon2,
     VoiceChat,
-    ShadowTeleport
+    ShadowTeleport,
+    SpectatePlayer,
+    SpectateMonster
 }
 
 /// <summary>
@@ -454,6 +456,26 @@ public class KeybindingManager : MonoBehaviour
                 defaultKey = Key.N,
                 defaultMouseButton = -1,
                 defaultGamepadControl = "buttonNorth" // Y / Triangle
+            },
+            new ActionBinding
+            {
+                actionId = "SpectatePlayer",
+                displayName = "Spectate Survivors",
+                tacticalDescription = "Enter spectator mode when fallen to track surviving teammates in the mine.",
+                context = ActionContext.Spectator,
+                defaultKey = Key.Space,
+                defaultMouseButton = -1,
+                defaultGamepadControl = "buttonSouth" // A / Cross
+            },
+            new ActionBinding
+            {
+                actionId = "SpectateMonster",
+                displayName = "Spectate Monsters",
+                tacticalDescription = "Switch camera perspective to summoned undead and berserker abominations.",
+                context = ActionContext.Spirit,
+                defaultKey = Key.Space,
+                defaultMouseButton = -1,
+                defaultGamepadControl = "buttonSouth" // A / Cross
             },
             new ActionBinding
             {

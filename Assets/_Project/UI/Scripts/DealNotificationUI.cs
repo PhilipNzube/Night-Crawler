@@ -206,7 +206,9 @@ public class DealNotificationUI : MonoBehaviour
             {
                 heatModalWindow.gameObject.SetActive(true);
                 heatModalWindow.transform.localScale = Vector3.one;
-                heatModalWindow.isOn = true;
+                // Heat ModalWindowManager.OpenWindow() returns immediately if isOn is true.
+                // We must ensure isOn is false before calling OpenWindow so its animator and open routines execute properly.
+                heatModalWindow.isOn = false;
                 try
                 {
                     heatModalWindow.OpenWindow();
@@ -237,7 +239,7 @@ public class DealNotificationUI : MonoBehaviour
                 }
             }
 
-            if (heatModalWindow != null)
+            if (heatModalWindow != null && heatModalWindow.isOn)
             {
                 try
                 {

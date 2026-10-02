@@ -220,11 +220,47 @@ namespace NightCrawler.Monsters
             }
         }
 
+        private void OnEnable()
+        {
+            KeybindingManager.OnBindingsChanged += UpdateSpectateHotkeyVisual;
+        }
+
+        private void OnDisable()
+        {
+            KeybindingManager.OnBindingsChanged -= UpdateSpectateHotkeyVisual;
+        }
+
+        public void UpdateSpectateHotkeyVisual()
+        {
+            if (monsterSpectateHotkeyEvent == null) return;
+            string keyStr = KeybindingManager.GetBoundKeyString("SpectateMonster", spectateKey.ToString().ToUpper());
+            monsterSpectateHotkeyEvent.keyID = keyStr;
+            monsterSpectateHotkeyEvent.hotkeyLabel = "SPECTATE MONSTERS";
+            monsterSpectateHotkeyEvent.SetLabel("SPECTATE MONSTERS");
+            monsterSpectateHotkeyEvent.UpdateUI();
+
+            var tmps = monsterSpectateHotkeyEvent.GetComponentsInChildren<TMPro.TextMeshProUGUI>(true);
+            foreach (var t in tmps)
+            {
+                if (t == null) continue;
+                string n = t.gameObject.name.ToLower();
+                if (n.Contains("label"))
+                {
+                    t.text = "SPECTATE MONSTERS";
+                }
+                else
+                {
+                    t.text = keyStr;
+                }
+            }
+        }
+
         private void Start()
         {
             InitializeSummonCharges();
             InitCardBindings();
             ApplyLockStates();
+            UpdateSpectateHotkeyVisual();
 
             // Ensure summon panel starts hidden via CanvasGroup & Instant Out
             if (canvasGroup != null)
@@ -339,6 +375,7 @@ namespace NightCrawler.Monsters
             Cursor.visible = true;
             UpdateChargesDisplay();
             SelectCard(_selectedMonsterIndex);
+            UpdateSpectateHotkeyVisual();
 
             if (monsterSpectateHotkeyEvent != null)
             {

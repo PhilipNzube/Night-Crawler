@@ -311,6 +311,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         // Immediate responsive initialization:
         // Monsters spawned on the subterranean NavMesh shouldn't be blocked by CharacterController falling logic
         _hasLanded = true;
+        if (_characterController != null)
+        {
+            _characterController.enabled = false;
+        }
+
         if (_agent != null)
         {
             _agent.enabled = true;
@@ -499,6 +504,26 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             return;
         }
 
+        // Ground clamping & CharacterController suppression: eliminate vertical height drift ("flying" bug)
+        if (_agent != null && _agent.enabled && _agent.isOnNavMesh)
+        {
+            if (_characterController != null && _characterController.enabled)
+            {
+                _characterController.enabled = false;
+            }
+
+            Vector3 pos = transform.position;
+            if (NavMesh.SamplePosition(pos, out NavMeshHit gHit, 2.5f, NavMesh.AllAreas))
+            {
+                float targetY = gHit.position.y + _agent.baseOffset;
+                if (pos.y > targetY + 0.18f)
+                {
+                    pos.y = Mathf.MoveTowards(pos.y, targetY, Time.deltaTime * 7.0f);
+                    transform.position = pos;
+                }
+            }
+        }
+
         if (_hitCooldownTimer > 0f) _hitCooldownTimer -= Time.deltaTime;
 
         if (_targetIgnoreTimer > 0f)
@@ -569,6 +594,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         if (_characterController != null)
         {
+            if (!_characterController.enabled) _characterController.enabled = true;
             _characterController.Move(Vector3.down * 9.81f * Time.deltaTime);
             if (_characterController.isGrounded)
             {
@@ -584,6 +610,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     private void OnLanded()
     {
         _hasLanded = true;
+        if (_characterController != null) _characterController.enabled = false;
         if (_agent != null) _agent.enabled = true;
 
         if (playScreamOnSpawn && !_hasScreamed)
@@ -1113,13 +1140,15 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (_isRoamWaiting)
         {
             _agent.isStopped = true;
+            _agent.speed = Mathf.MoveTowards(_agent.speed, 0f, Time.deltaTime * 6f);
             if (monsterType == MonsterType.Zombie)
             {
                 PlayZombieIdleLocomotion();
             }
             else
             {
-                SafeSetFloat(_speedHash, 0f);
+                float curSpeed = _animator != null ? _animator.GetFloat(_speedHash) : 0f;
+                SafeSetFloat(_speedHash, Mathf.MoveTowards(curSpeed, 0f, Time.deltaTime * 6f));
                 SafeSetBool(_isRunningHash, false);
             }
 
@@ -1145,21 +1174,23 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             }
             else
             {
-                SafeSetFloat(_speedHash, 0f);
+                float curSpeed = _animator != null ? _animator.GetFloat(_speedHash) : 0f;
+                SafeSetFloat(_speedHash, Mathf.MoveTowards(curSpeed, 0f, Time.deltaTime * 6f));
                 SafeSetBool(_isRunningHash, false);
             }
             return;
         }
 
         _agent.isStopped = false;
-        _agent.speed = patrolSpeed;
+        _agent.speed = Mathf.MoveTowards(_agent.speed, patrolSpeed, Time.deltaTime * 3.5f);
         if (monsterType == MonsterType.Zombie)
         {
             PlayZombieStandingWalkLocomotion();
         }
         else
         {
-            SafeSetFloat(_speedHash, patrolSpeed);
+            float curSpeed = _animator != null ? _animator.GetFloat(_speedHash) : 0f;
+            SafeSetFloat(_speedHash, Mathf.MoveTowards(curSpeed, patrolSpeed, Time.deltaTime * 4f));
             SafeSetBool(_isRunningHash, false);
         }
     }
@@ -1167,14 +1198,28 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected void PickNewRoamDestination()
     {
         _roamTimer = Random.Range(10f, 16f);
-        Vector3 randomDirection = Random.insideUnitSphere * 22f + transform.position;
-        if (NavMesh.SamplePosition(randomDirection, out NavMeshHit navHit, 15f, NavMesh.AllAreas))
+
+        // Planar horizontal circle sampling with small vertical tolerance to prevent jumping between floors
+        Vector2 randomCircle = Random.insideUnitCircle.normalized * Random.Range(9f, 18f);
+        Vector3 sampleOrigin = transform.position + new Vector3(randomCircle.x, 0f, randomCircle.y);
+
+        if (NavMesh.SamplePosition(sampleOrigin, out NavMeshHit navHit, 3.5f, NavMesh.AllAreas))
         {
-            _roamDestination = navHit.position;
-            if (_agent != null && _agent.isOnNavMesh)
+            if (_pathCalc == null) _pathCalc = new NavMeshPath();
+            if (_agent != null && _agent.isOnNavMesh && _agent.CalculatePath(navHit.position, _pathCalc) && _pathCalc.status == NavMeshPathStatus.PathComplete)
             {
+                _roamDestination = navHit.position;
                 _agent.isStopped = false;
                 _agent.SetDestination(_roamDestination);
+            }
+            else
+            {
+                _roamDestination = navHit.position;
+                if (_agent != null && _agent.isOnNavMesh)
+                {
+                    _agent.isStopped = false;
+                    _agent.SetDestination(_roamDestination);
+                }
             }
         }
     }
@@ -1444,20 +1489,26 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (signedAngle > turnAngleThreshold)
         {
             // Turning Right
+            if (!_isTurningRight)
+            {
+                SafeSetTrigger(_turnRightHash);
+            }
             _isTurningRight = true;
             _isTurningLeft = false;
             SafeSetBool(_isTurningRightHash, true);
             SafeSetBool(_isTurningLeftHash, false);
-            SafeSetTrigger(_turnRightHash);
         }
         else if (signedAngle < -turnAngleThreshold)
         {
             // Turning Left (mirrored in Animator for Zombie, dedicated clip for Berserker)
+            if (!_isTurningLeft)
+            {
+                SafeSetTrigger(_turnLeftHash);
+            }
             _isTurningLeft = true;
             _isTurningRight = false;
             SafeSetBool(_isTurningLeftHash, true);
             SafeSetBool(_isTurningRightHash, false);
-            SafeSetTrigger(_turnLeftHash);
         }
         else if (Mathf.Abs(signedAngle) <= 12f)
         {
