@@ -578,6 +578,25 @@ public class DeathUI : MonoBehaviour
             if (txt != null)
             {
                 txt.text = message;
+
+                // Ensure RectTransform stretches across the card with proper margins
+                RectTransform textRt = txt.rectTransform;
+                if (textRt != null)
+                {
+                    textRt.anchorMin = new Vector2(0f, 0f);
+                    textRt.anchorMax = new Vector2(1f, 1f);
+                    textRt.pivot = new Vector2(0f, 0.5f);
+                    textRt.offsetMin = new Vector2(16f, 2f);  // Left padding (keeps space for accent bar)
+                    textRt.offsetMax = new Vector2(-12f, -2f); // Right padding
+                }
+
+                // Professional overflow protection: auto-fit font size, disable wrap, truncate with ellipsis
+                txt.enableAutoSizing = true;
+                txt.fontSizeMin = 10f;
+                txt.fontSizeMax = 15f;
+                txt.enableWordWrapping = false;
+                txt.overflowMode = TextOverflowModes.Ellipsis;
+                txt.alignment = TextAlignmentOptions.MidlineLeft;
             }
 
             if (accentColor.HasValue)
