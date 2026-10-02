@@ -310,15 +310,29 @@ public class DealNotificationUI : MonoBehaviour
         }
         _currentRewardCredits = parsedReward;
 
-        string displayTerms = $"{terms}\n\nTime Limit: {timeLimitSeconds}s\nPenalty: -{penaltyCredits} {CurrencyConfig.CurrencySymbol}\nReward: {reward}";
+        string cleanTitle = !string.IsNullOrWhiteSpace(title) && !title.Equals("select", System.StringComparison.OrdinalIgnoreCase)
+            ? title.ToUpper()
+            : "DARK PACT";
 
-        // If headerTitleText was assigned to windowDescription in the scene, avoid overwriting description with "DEAL PROPOSAL"
-        if (headerTitleText != null && (heatModalWindow == null || headerTitleText != heatModalWindow.windowDescription))
+        // Filter out any penalty text so the receiver never sees the penalty
+        string cleanTerms = terms ?? "";
+        int penaltyIdx = cleanTerms.IndexOf("Penalty", System.StringComparison.OrdinalIgnoreCase);
+        if (penaltyIdx >= 0)
         {
-            headerTitleText.text = "DEAL PROPOSAL";
+            cleanTerms = cleanTerms.Substring(0, penaltyIdx).TrimEnd();
         }
 
-        if (dealNameText != null) dealNameText.text = title.ToUpper();
+        string displayTerms = !string.IsNullOrWhiteSpace(cleanTerms)
+            ? $"{cleanTerms}\n\nReward: {reward}"
+            : $"Reward: {reward}";
+
+        // If headerTitleText was assigned to windowDescription in the scene, avoid overwriting description with title
+        if (headerTitleText != null && (heatModalWindow == null || headerTitleText != heatModalWindow.windowDescription))
+        {
+            headerTitleText.text = cleanTitle;
+        }
+
+        if (dealNameText != null) dealNameText.text = cleanTitle;
         if (rewardText != null) rewardText.text = $"REWARD: {reward}";
 
         if (termsDescriptionText != null)
@@ -333,19 +347,19 @@ public class DealNotificationUI : MonoBehaviour
 
         if (heatModalWindow != null)
         {
-            heatModalWindow.titleText = "DEAL PROPOSAL";
+            heatModalWindow.titleText = cleanTitle;
             heatModalWindow.descriptionText = displayTerms;
             heatModalWindow.useLocalization = false;
             heatModalWindow.titleKey = string.Empty;
             heatModalWindow.descriptionKey = string.Empty;
-            if (heatModalWindow.windowTitle != null) heatModalWindow.windowTitle.text = "DEAL PROPOSAL";
+            if (heatModalWindow.windowTitle != null) heatModalWindow.windowTitle.text = cleanTitle;
             if (heatModalWindow.windowDescription != null) heatModalWindow.windowDescription.text = displayTerms;
             try { heatModalWindow.UpdateUI(); } catch { }
         }
 
         gameObject.SetActive(true);
         SetVisible(true, modifyCursor: true);
-        Debug.Log($"[DealNotificationUI] Displaying deal '{title}' from {senderId} to local player! (grantWeapon={grantWeapon}, time={timeLimitSeconds}s)");
+        Debug.Log($"[DealNotificationUI] Displaying deal '{cleanTitle}' from {senderId} to local player! (grantWeapon={grantWeapon})");
     }
 
     private void Update()
@@ -370,12 +384,6 @@ public class DealNotificationUI : MonoBehaviour
                 OnDeclineClicked();
                 return;
             }
-        }
-
-        _timer -= Time.deltaTime;
-        if (_timer <= 0f)
-        {
-            OnDeclineClicked();
         }
     }
 

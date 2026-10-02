@@ -136,22 +136,39 @@ public class DeathUI : MonoBehaviour
             }
         }
 
-        // Ensure content has a layout group so instantiated alert entries are auto-positioned properly
+        // Ensure content has a layout group and size fitter so alert entries are auto-positioned properly
         if (allyAlertContent != null)
         {
+            RectTransform contentRt = allyAlertContent as RectTransform;
+            if (contentRt != null)
+            {
+                contentRt.pivot = new Vector2(0.5f, 0f);
+                contentRt.anchorMin = new Vector2(0f, 0f);
+                contentRt.anchorMax = new Vector2(1f, 0f);
+                contentRt.anchoredPosition = Vector2.zero;
+            }
+
             var vlg = allyAlertContent.GetComponent<VerticalLayoutGroup>();
             if (vlg == null)
             {
                 vlg = allyAlertContent.gameObject.AddComponent<VerticalLayoutGroup>();
-                vlg.childAlignment = TextAnchor.LowerRight;
-                vlg.childControlWidth = false;
-                vlg.childControlHeight = false;
-                vlg.childScaleWidth = false;
-                vlg.childScaleHeight = false;
-                vlg.childForceExpandWidth = false;
-                vlg.childForceExpandHeight = false;
-                vlg.spacing = 6f;
             }
+            vlg.childAlignment = TextAnchor.LowerRight;
+            vlg.childControlWidth = true;
+            vlg.childControlHeight = true;
+            vlg.childScaleWidth = false;
+            vlg.childScaleHeight = false;
+            vlg.childForceExpandWidth = true;
+            vlg.childForceExpandHeight = false;
+            vlg.spacing = 6f;
+
+            var csf = allyAlertContent.GetComponent<ContentSizeFitter>();
+            if (csf == null)
+            {
+                csf = allyAlertContent.gameObject.AddComponent<ContentSizeFitter>();
+            }
+            csf.verticalFit = ContentSizeFitter.FitMode.PreferredSize;
+            csf.horizontalFit = ContentSizeFitter.FitMode.Unconstrained;
         }
 
 
@@ -507,7 +524,21 @@ public class DeathUI : MonoBehaviour
         GameObject entryObj = null;
         if (alertItemPrefab != null)
         {
-            entryObj = Instantiate(alertItemPrefab, allyAlertContent);
+            try
+            {
+                entryObj = Instantiate(alertItemPrefab, allyAlertContent);
+            }
+            catch (System.Exception ex)
+            {
+                Debug.LogWarning($"[DeathUI] Failed to instantiate alertItemPrefab: {ex.Message}. Falling back to procedural card.");
+                entryObj = null;
+            }
+        }
+
+        // Procedural fallback if no prefab assigned or instantiation failed
+        if (entryObj == null)
+        {
+            entryObj = CreateProceduralAlertEntry(message, accentColor ?? new Color(0.2f, 0.85f, 0.95f, 1f));
         }
 
         if (entryObj != null)
@@ -521,18 +552,26 @@ public class DeathUI : MonoBehaviour
                 rt.localRotation = Quaternion.identity;
             }
 
+            var le = entryObj.GetComponent<LayoutElement>();
+            if (le == null) le = entryObj.AddComponent<LayoutElement>();
+            le.preferredHeight = 44f;
+            le.flexibleWidth = 1f;
+
             entryObj.SetActive(true);
 
-            // Heat UI QuestItem support (user modified AlertEntry to use Heat UI QuestItem)
+            // Heat UI QuestItem support: ensure it doesn't self-minimize/disable on Start()
             var questItem = entryObj.GetComponent<Michsky.UI.Heat.QuestItem>() ?? entryObj.GetComponentInChildren<Michsky.UI.Heat.QuestItem>();
             if (questItem != null)
             {
+                questItem.defaultState = Michsky.UI.Heat.QuestItem.DefaultState.Expanded;
                 questItem.useLocalization = false;
                 questItem.questText = message;
                 questItem.minimizeAfter = 0; // DeathUI handles lifecycle duration to prevent conflicts
-                questItem.afterMinimize = Michsky.UI.Heat.QuestItem.AfterMinimize.Disable;
                 questItem.UpdateUI();
-                questItem.ExpandQuest();
+
+                var anim = questItem.GetComponent<Animator>();
+                if (anim != null) anim.enabled = false; // Prevent animator from conflicting with fade coroutine
+                questItem.enabled = false; // Prevent Start() from calling SetActive(false)
             }
 
             var txt = entryObj.GetComponentInChildren<TMP_Text>();
@@ -554,13 +593,64 @@ public class DeathUI : MonoBehaviour
             }
 
             // Animate card in with spring easing, hold, and animate card out
-            StartCoroutine(AnimateAlertEntryLifecycle(entryObj, alertLifetime, questItem));
+            StartCoroutine(AnimateAlertEntryLifecycle(entryObj, alertLifetime));
         }
 
         StartCoroutine(ScrollToBottomRoutine());
     }
 
-    private IEnumerator AnimateAlertEntryLifecycle(GameObject entry, float lifetime, Michsky.UI.Heat.QuestItem questItem = null)
+    private GameObject CreateProceduralAlertEntry(string message, Color accent)
+    {
+        if (allyAlertContent == null) return null;
+
+        GameObject card = new GameObject("AllyAlertEntry", typeof(RectTransform), typeof(CanvasGroup), typeof(UnityEngine.UI.Image), typeof(LayoutElement));
+        card.transform.SetParent(allyAlertContent, false);
+
+        var rt = card.GetComponent<RectTransform>();
+        rt.sizeDelta = new Vector2(0f, 44f);
+        rt.localScale = Vector3.one;
+
+        var le = card.GetComponent<LayoutElement>();
+        le.preferredHeight = 44f;
+        le.flexibleWidth = 1f;
+
+        var img = card.GetComponent<UnityEngine.UI.Image>();
+        img.color = new Color(0.07f, 0.09f, 0.13f, 0.90f); // Sleek modern translucent backdrop
+
+        // Left accent bar
+        GameObject accentObj = new GameObject("AccentBar", typeof(RectTransform), typeof(UnityEngine.UI.Image));
+        accentObj.transform.SetParent(card.transform, false);
+        var accentRt = accentObj.GetComponent<RectTransform>();
+        accentRt.anchorMin = new Vector2(0f, 0f);
+        accentRt.anchorMax = new Vector2(0f, 1f);
+        accentRt.pivot = new Vector2(0f, 0.5f);
+        accentRt.anchoredPosition = Vector2.zero;
+        accentRt.sizeDelta = new Vector2(4f, 0f);
+        var accentImg = accentObj.GetComponent<UnityEngine.UI.Image>();
+        accentImg.color = accent;
+
+        // Text
+        GameObject textObj = new GameObject("AlertText", typeof(RectTransform), typeof(TextMeshProUGUI));
+        textObj.transform.SetParent(card.transform, false);
+        var textRt = textObj.GetComponent<RectTransform>();
+        textRt.anchorMin = new Vector2(0f, 0f);
+        textRt.anchorMax = new Vector2(1f, 1f);
+        textRt.offsetMin = new Vector2(12f, 2f);
+        textRt.offsetMax = new Vector2(-8f, -2f);
+
+        var tmp = textObj.GetComponent<TextMeshProUGUI>();
+        tmp.text = message;
+        tmp.fontSize = 14f;
+        tmp.fontStyle = FontStyles.Bold;
+        tmp.color = new Color(0.95f, 0.96f, 0.98f, 1f);
+        tmp.alignment = TextAlignmentOptions.MidlineLeft;
+        tmp.enableWordWrapping = true;
+        tmp.overflowMode = TextOverflowModes.Ellipsis;
+
+        return card;
+    }
+
+    private IEnumerator AnimateAlertEntryLifecycle(GameObject entry, float lifetime)
     {
         if (entry == null) yield break;
 
@@ -571,12 +661,12 @@ public class DeathUI : MonoBehaviour
         Vector3 initialScale = rt != null ? rt.localScale : Vector3.one;
         if (initialScale == Vector3.zero) initialScale = Vector3.one;
 
-        // 1. Animate In (Smooth Ease-Out Back Spring curve matching NotificationManager)
+        // 1. Animate In (Smooth Ease-Out Back Spring curve)
         cg.alpha = 0f;
         if (rt != null) rt.localScale = initialScale * 0.88f;
 
         float inElapsed = 0f;
-        float inDuration = 0.32f;
+        float inDuration = 0.30f;
         while (inElapsed < inDuration)
         {
             if (entry == null) yield break;
@@ -593,11 +683,13 @@ public class DeathUI : MonoBehaviour
         cg.alpha = 1f;
         if (rt != null) rt.localScale = initialScale;
 
-        // 2. Visible on-screen duration (hold timer does not tick down while LoadingScreen covers display)
+        // 2. Visible on-screen duration (hold timer, with 14s absolute failsafe)
         float holdElapsed = 0f;
-        while (holdElapsed < lifetime)
+        float totalTimer = 0f;
+        while (holdElapsed < lifetime && totalTimer < lifetime + 8f)
         {
             if (entry == null) yield break;
+            totalTimer += Time.deltaTime;
             if (LoadingScreen.Instance == null || !LoadingScreen.Instance.IsLoadingScreenActive)
             {
                 holdElapsed += Time.deltaTime;
@@ -607,14 +699,9 @@ public class DeathUI : MonoBehaviour
 
         if (entry == null) yield break;
 
-        // 3. Animate Out (Smooth Ease-In Tuck)
-        if (questItem != null && questItem.gameObject.activeInHierarchy && questItem.enabled)
-        {
-            questItem.MinimizeQuest();
-        }
-
+        // 3. Animate Out (Smooth Ease-In)
         float outElapsed = 0f;
-        float outDuration = 0.28f;
+        float outDuration = 0.25f;
         while (outElapsed < outDuration)
         {
             if (entry == null) yield break;

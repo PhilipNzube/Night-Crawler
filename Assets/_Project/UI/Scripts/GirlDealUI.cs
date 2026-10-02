@@ -339,6 +339,10 @@ public class GirlDealUI : MonoBehaviour
     //  Card Binding & Selection
     // =========================================================================
 
+    // =========================================================================
+    //  Card Hooking & Setup
+    // =========================================================================
+
     public void HookCardButtons()
     {
         Transform container = cardsContainer;
@@ -350,40 +354,133 @@ public class GirlDealUI : MonoBehaviour
 
         if (container == null) return;
 
-        // Find all ShopButtonManagers on cards
+        var handledButtons = new HashSet<Button>();
+
+        // 1. Find all ShopButtonManagers on cards
         var shopButtons = container.GetComponentsInChildren<ShopButtonManager>(true);
         foreach (var card in shopButtons)
         {
-            string title = !string.IsNullOrEmpty(card.buttonTitle) ? card.buttonTitle : card.gameObject.name;
-            string desc = card.buttonDescription;
+            string title = ResolveCardTitle(card.gameObject, card);
+            string desc = ResolveCardDesc(card.gameObject, card);
 
-            // 1. Hook purchaseButton (the "Select" button on the card)
+            // Hook purchaseButton (the action button on the card)
             if (card.purchaseButton != null)
             {
-                card.purchaseButton.onClick.RemoveListener(() => OnCardSelected(title, desc));
+                var pBtn = card.purchaseButton.GetComponentInChildren<Button>(true);
+                if (pBtn != null) handledButtons.Add(pBtn);
+
+                card.purchaseButton.onClick.RemoveAllListeners();
                 card.purchaseButton.onClick.AddListener(() => OnCardSelected(title, desc));
             }
 
-            // 2. Hook onPurchaseClick on ShopButtonManager
-            card.onPurchaseClick.RemoveListener(() => OnCardSelected(title, desc));
+            // Hook onPurchaseClick on ShopButtonManager
+            card.onPurchaseClick.RemoveAllListeners();
             card.onPurchaseClick.AddListener(() => OnCardSelected(title, desc));
 
-            // 3. Hook root card onClick
-            card.onClick.RemoveListener(() => OnCardSelected(title, desc));
+            // Hook root card onClick
+            card.onClick.RemoveAllListeners();
             card.onClick.AddListener(() => OnCardSelected(title, desc));
+
+            var rootBtn = card.GetComponent<Button>();
+            if (rootBtn != null) handledButtons.Add(rootBtn);
         }
 
-        // Also check plain UI Buttons if ShopButtonManager not used
+        // 2. Also check plain UI Buttons if ShopButtonManager not used
         var plainButtons = container.GetComponentsInChildren<Button>(true);
         foreach (var btn in plainButtons)
         {
-            if (btn.GetComponent<ShopButtonManager>() != null) continue;
-            string title = btn.gameObject.name;
-            var tmp = btn.GetComponentInChildren<TextMeshProUGUI>();
-            if (tmp != null && !string.IsNullOrEmpty(tmp.text)) title = tmp.text;
+            if (handledButtons.Contains(btn)) continue;
+            // Ignore any child buttons belonging to a ShopButtonManager
+            if (btn.GetComponentInParent<ShopButtonManager>() != null) continue;
+
+            // Resolve parent card root
+            GameObject cardObj = btn.gameObject;
+            if (btn.transform.parent != null && btn.transform.parent != container)
+            {
+                cardObj = btn.transform.parent.gameObject;
+            }
+
+            string title = ResolveCardTitle(cardObj, null);
+            string desc = ResolveCardDesc(cardObj, null);
+
             btn.onClick.RemoveAllListeners();
-            btn.onClick.AddListener(() => OnCardSelected(title, ""));
+            btn.onClick.AddListener(() => OnCardSelected(title, desc));
         }
+    }
+
+    private string ResolveCardTitle(GameObject cardObj, ShopButtonManager shopBtn)
+    {
+        // 1. Check titleObj on ShopButtonManager
+        if (shopBtn != null && shopBtn.titleObj != null && !string.IsNullOrWhiteSpace(shopBtn.titleObj.text))
+        {
+            string t = shopBtn.titleObj.text.Trim();
+            if (!IsGenericButtonLabel(t)) return t;
+        }
+
+        // 2. Check buttonTitle on ShopButtonManager
+        if (shopBtn != null && !string.IsNullOrWhiteSpace(shopBtn.buttonTitle))
+        {
+            string t = shopBtn.buttonTitle.Trim();
+            if (!IsGenericButtonLabel(t)) return t;
+        }
+
+        // 3. Search child TextMeshProUGUI with "title", "header", or "name" in GameObject name
+        var texts = cardObj.GetComponentsInChildren<TextMeshProUGUI>(true);
+        foreach (var txt in texts)
+        {
+            if (txt == null || string.IsNullOrWhiteSpace(txt.text)) continue;
+            string t = txt.text.Trim();
+            if (IsGenericButtonLabel(t)) continue;
+            string goName = txt.gameObject.name.ToLowerInvariant();
+            if (goName.Contains("title") || goName.Contains("header") || goName.Contains("name"))
+            {
+                return t;
+            }
+        }
+
+        // 4. Check all child texts for the first meaningful non-generic label
+        foreach (var txt in texts)
+        {
+            if (txt == null || string.IsNullOrWhiteSpace(txt.text)) continue;
+            string t = txt.text.Trim();
+            if (!IsGenericButtonLabel(t)) return t;
+        }
+
+        // 5. Fallback to card GameObject name
+        string objName = cardObj.name.Replace("(Clone)", "").Trim();
+        if (!IsGenericButtonLabel(objName)) return objName;
+
+        return "DARK PACT";
+    }
+
+    private string ResolveCardDesc(GameObject cardObj, ShopButtonManager shopBtn)
+    {
+        if (shopBtn != null && shopBtn.descriptionObj != null && !string.IsNullOrWhiteSpace(shopBtn.descriptionObj.text))
+            return shopBtn.descriptionObj.text.Trim();
+
+        if (shopBtn != null && !string.IsNullOrWhiteSpace(shopBtn.buttonDescription))
+            return shopBtn.buttonDescription.Trim();
+
+        var texts = cardObj.GetComponentsInChildren<TextMeshProUGUI>(true);
+        foreach (var txt in texts)
+        {
+            if (txt == null || string.IsNullOrWhiteSpace(txt.text)) continue;
+            string goName = txt.gameObject.name.ToLowerInvariant();
+            if (goName.Contains("desc") || goName.Contains("detail") || goName.Contains("term"))
+            {
+                return txt.text.Trim();
+            }
+        }
+
+        return "";
+    }
+
+    private static bool IsGenericButtonLabel(string s)
+    {
+        if (string.IsNullOrWhiteSpace(s)) return true;
+        string lower = s.ToLowerInvariant().Trim();
+        return lower == "select" || lower == "selected" || lower == "buy" || lower == "purchase" ||
+               lower == "button" || lower == "btn" || lower == "click" || lower == "submit";
     }
 
     public void OnCardSelected(string cardTitle, string cardDesc)
@@ -410,38 +507,32 @@ public class GirlDealUI : MonoBehaviour
         // Refresh player list in selector
         RefreshLivingPlayers();
 
-        // Configure Sliders
+        // Configure Sliders (whole numbers only, no decimal places, typing disabled)
         int girlCredits = GetGirlTotalCredits();
         int maxAllowedReward = Mathf.Max(10, Mathf.FloorToInt(girlCredits * 0.60f));
 
         if (rewardSlider != null && rewardSlider.mainSlider != null)
         {
-            rewardSlider.useRoundValue = true;
             rewardSlider.mainSlider.minValue = 10f;
             rewardSlider.mainSlider.maxValue = Mathf.Max(maxAllowedReward, 100f);
-            rewardSlider.mainSlider.wholeNumbers = true;
             rewardSlider.mainSlider.value = Mathf.Min(30f, maxAllowedReward);
-            rewardSlider.UpdateUI();
+            ConfigureSliderIntegers(rewardSlider);
         }
 
         if (penaltySlider != null && penaltySlider.mainSlider != null)
         {
-            penaltySlider.useRoundValue = true;
             penaltySlider.mainSlider.minValue = 5f;
             penaltySlider.mainSlider.maxValue = 100f;
-            penaltySlider.mainSlider.wholeNumbers = true;
             penaltySlider.mainSlider.value = 15f;
-            penaltySlider.UpdateUI();
+            ConfigureSliderIntegers(penaltySlider);
         }
 
         if (timeSlider != null && timeSlider.mainSlider != null)
         {
-            timeSlider.useRoundValue = true;
             timeSlider.mainSlider.minValue = 30f;
             timeSlider.mainSlider.maxValue = 180f;
-            timeSlider.mainSlider.wholeNumbers = true;
             timeSlider.mainSlider.value = 120f;
-            timeSlider.UpdateUI();
+            ConfigureSliderIntegers(timeSlider);
         }
 
         // Update slots left
@@ -454,6 +545,24 @@ public class GirlDealUI : MonoBehaviour
 
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
+    }
+
+    private void ConfigureSliderIntegers(SliderManager sm)
+    {
+        if (sm == null || sm.mainSlider == null) return;
+        sm.useRoundValue = true;
+        sm.mainSlider.wholeNumbers = true;
+
+        var si = sm.GetComponentInChildren<SliderInput>(true);
+        if (si != null) si.decimals = 0;
+
+        var inputField = sm.GetComponentInChildren<TMP_InputField>(true);
+        if (inputField != null)
+        {
+            inputField.readOnly = true;
+        }
+
+        sm.UpdateUI();
     }
 
     private int _dealsSentThisMatch = 0;
@@ -673,7 +782,7 @@ public class GirlDealUI : MonoBehaviour
         string dealTitle = !string.IsNullOrEmpty(_currentCardTitle) ? _currentCardTitle : "DARK PACT";
         string dealTerms = !string.IsNullOrEmpty(_currentCardDesc) 
             ? _currentCardDesc 
-            : $"Complete the objective before the timer expires.\nReward: {rewardAmount} Credits.\nPenalty on failure: -{penaltyAmount} Credits.";
+            : $"Complete the objective to claim your reward.\nReward: {rewardAmount} Credits.";
         string rewardStr = $"{rewardAmount} Credits";
 
         // CRITICAL: Loot Body deal must NOT grant any weapon abilities! Only assassination/kill deals grant weapons.
