@@ -76,7 +76,15 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     [Tooltip("Crawl run speed while sprinting on all fours across long distances.")]
     public float crawlSpeed = 6.8f;
 
-    [Header("Movement & Pursuit (Running Only)")]
+    [Tooltip("NavMeshAgent base offset when crawling. Fine-tune to ensure hands/knees touch the ground (e.g. 0.0 or -0.05).")]
+    public float crawlBaseOffset = 0f;
+
+    [Tooltip("CharacterController / NavMesh height while crawling on all fours to prevent floating.")]
+    public float crawlColliderHeight = 0.9f;
+
+    private float _defaultBaseOffset = 0f;
+    private float _defaultControllerHeight = 1.8f;
+    private Vector3 _defaultControllerCenter = new Vector3(0f, 0.9f, 0f);
     [Tooltip("Movement speed while sprinting at targets.")]
     public float runSpeed = 6.5f;
     [Tooltip("Angular rotation speed when turning towards players.")]
@@ -230,7 +238,18 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected virtual void Awake()
     {
         _agent = GetComponent<NavMeshAgent>();
+        if (_agent != null)
+        {
+            _defaultBaseOffset = _agent.baseOffset;
+        }
+
         _characterController = GetComponent<CharacterController>();
+        if (_characterController != null)
+        {
+            _defaultControllerHeight = _characterController.height;
+            _defaultControllerCenter = _characterController.center;
+        }
+
         _animator = GetComponentInChildren<Animator>();
         _networkAnimator = GetComponent<NetworkAnimator>();
         _targetHealth = GetComponent<TargetHealth>();
@@ -289,6 +308,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     protected virtual void Start()
     {
+        if (monsterType == MonsterType.Zombie)
+        {
+            ApplyPostureColliders(currentPosture == ZombiePosture.Crawling);
+        }
+
         if (playScreamOnSpawn && !_hasScreamed)
         {
             _spawnScreamCoroutine = StartCoroutine(SpawnScreamRoutine());
@@ -396,12 +420,31 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         {
             SafeSetBool(_isStandingHash, true);
             SafeSetBool(_isCrawlingHash, false);
+            ApplyPostureColliders(false);
         }
         else if (curr == ZombiePosture.Crawling)
         {
             SafeSetBool(_isStandingHash, false);
             SafeSetBool(_isCrawlingHash, true);
             SafeCrossFade(_stateRunningCrawl, "Running Crawl", 0.2f);
+            ApplyPostureColliders(true);
+        }
+    }
+
+    private void ApplyPostureColliders(bool isCrawling)
+    {
+        if (monsterType != MonsterType.Zombie) return;
+
+        if (_agent != null)
+        {
+            _agent.baseOffset = isCrawling ? crawlBaseOffset : _defaultBaseOffset;
+            _agent.height = isCrawling ? crawlColliderHeight : _defaultControllerHeight;
+        }
+
+        if (_characterController != null)
+        {
+            _characterController.height = isCrawling ? crawlColliderHeight : _defaultControllerHeight;
+            _characterController.center = isCrawling ? new Vector3(0f, crawlColliderHeight * 0.5f, 0f) : _defaultControllerCenter;
         }
     }
 
@@ -1161,6 +1204,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         SafeSetBool(_isStandingHash, true);
         SafeSetBool(_isCrawlingHash, false);
+        ApplyPostureColliders(false);
 
         if (_agent != null && _agent.enabled && _agent.isOnNavMesh)
         {
@@ -1188,6 +1232,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         SafeSetBool(_isStandingHash, false);
         SafeSetBool(_isCrawlingHash, true);
         SafeCrossFade(_stateRunningCrawl, "Running Crawl", 0.2f);
+        ApplyPostureColliders(true);
     }
 
     [ClientRpc]

@@ -475,7 +475,10 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         }
 
         if (activeStats.fireSound != null)
-            _audioSource.PlayOneShot(activeStats.fireSound);
+        {
+            float vol = Mathf.Clamp01(activeStats.fireSoundVolume);
+            _audioSource.PlayOneShot(activeStats.fireSound, vol);
+        }
     }
 
     private bool _hasWarnedMonsterDealWeapon = false;
@@ -513,7 +516,8 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                 // Audio feedback on successful melee contact
                 if (stats.impactSound != null && _audioSource != null)
                 {
-                    _audioSource.PlayOneShot(stats.impactSound);
+                    float impactVol = Mathf.Clamp01(stats.impactSoundVolume);
+                    _audioSource.PlayOneShot(stats.impactSound, impactVol);
                 }
 
                 // Log monster kill for Miner / weapon holder bonus
