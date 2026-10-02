@@ -89,16 +89,6 @@ public class LobbyPlayerStatusPanel : MonoBehaviour
         if (statusHeaderText != null)
         {
             statusHeaderText.richText = true;
-            if (statusHeaderText.rectTransform != null)
-            {
-                // Ensure sufficient width so rich text and counts never wrap/truncate
-                Vector2 size = statusHeaderText.rectTransform.sizeDelta;
-                if (size.x < 420f)
-                {
-                    size.x = 450f;
-                    statusHeaderText.rectTransform.sizeDelta = size;
-                }
-            }
         }
     }
 

@@ -554,12 +554,17 @@ public class GirlDealUI : MonoBehaviour
         sm.mainSlider.wholeNumbers = true;
 
         var si = sm.GetComponentInChildren<SliderInput>(true);
-        if (si != null) si.decimals = 0;
+        if (si != null)
+        {
+            si.decimals = 0;
+            si.enabled = false; // Prevents any miswired SliderInput in inspector from hijacking valueText
+        }
 
         var inputField = sm.GetComponentInChildren<TMP_InputField>(true);
         if (inputField != null)
         {
             inputField.readOnly = true;
+            inputField.interactable = false;
         }
 
         sm.UpdateUI();
