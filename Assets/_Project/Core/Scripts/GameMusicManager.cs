@@ -56,7 +56,7 @@ public class GameMusicManager : MonoBehaviour
     public float crossfadeDuration = 1.5f;
 
     [Header("Playback Behavior")]
-    [Tooltip("If true, background music will NOT play during normal gameplay, letting the mine environmental ambience play cleanly. Music will only play while the game is paused in the pause menu.")]
+    [Tooltip("If true, background music will pause during normal match gameplay in the mine, letting environmental ambience play, and only resume while paused in the pause menu.")]
     public bool onlyPlayWhenPaused = true;
 
     // -------------------------------------------------------------------------
@@ -86,27 +86,97 @@ public class GameMusicManager : MonoBehaviour
         if (Instance != null && Instance != this) { Destroy(gameObject); return; }
         Instance = this;
         DontDestroyOnLoad(gameObject);
+
+        EnsureAudioListener();
+        ValidateAudioSources();
+
+        string currentScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+        if (IsMenuOrLoadingScene(currentScene) || !onlyPlayWhenPaused)
+        {
+            StartBackgroundLoop();
+        }
+    }
+
+    void OnEnable()
+    {
+        UnityEngine.SceneManagement.SceneManager.sceneLoaded += OnSceneLoaded;
+    }
+
+    void OnDisable()
+    {
+        UnityEngine.SceneManagement.SceneManager.sceneLoaded -= OnSceneLoaded;
     }
 
     void Start()
     {
-        // Auto-assign the intense clip to its AudioSource if provided
-        if (intenseAudioSource != null && intenseTrack != null)
-            intenseAudioSource.clip = intenseTrack;
-
+        EnsureAudioListener();
         ValidateAudioSources();
 
-        if (!onlyPlayWhenPaused)
+        string currentScene = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+        HandleSceneMusic(currentScene);
+    }
+
+    private void OnSceneLoaded(UnityEngine.SceneManagement.Scene scene, UnityEngine.SceneManagement.LoadSceneMode mode)
+    {
+        EnsureAudioListener();
+        HandleSceneMusic(scene.name);
+    }
+
+    private void HandleSceneMusic(string sceneName)
+    {
+        bool isMenuOrLoading = IsMenuOrLoadingScene(sceneName);
+
+        if (isMenuOrLoading || !onlyPlayWhenPaused)
         {
             StartBackgroundLoop();
         }
         else
         {
-            // Keep silent at start so environmental mine ambient audio plays cleanly
-            if (bgAudioSource != null)
+            // In gameplay match with onlyPlayWhenPaused enabled: mute for environmental ambience
+            if (bgAudioSource != null && bgAudioSource.isPlaying)
             {
+                if (_bgLoopCoroutine != null) StopCoroutine(_bgLoopCoroutine);
+                _bgLoopCoroutine = null;
                 bgAudioSource.Stop();
                 bgAudioSource.volume = 0f;
+            }
+        }
+    }
+
+    private bool IsMenuOrLoadingScene(string sceneName)
+    {
+        if (string.IsNullOrEmpty(sceneName)) return true;
+        string lower = sceneName.ToLowerInvariant();
+        return lower.Contains("load") || lower.Contains("boot") || lower.Contains("lobby") || lower.Contains("menu");
+    }
+
+    private void EnsureAudioListener()
+    {
+        AudioListener.pause = false;
+        if (AudioListener.volume <= 0.01f)
+        {
+            AudioListener.volume = 1f;
+        }
+
+        AudioListener[] listeners = UnityEngine.Object.FindObjectsByType<AudioListener>(FindObjectsSortMode.None);
+        if (listeners == null || listeners.Length == 0)
+        {
+            Camera cam = Camera.main != null ? Camera.main : UnityEngine.Object.FindFirstObjectByType<Camera>();
+            if (cam != null)
+            {
+                cam.gameObject.AddComponent<AudioListener>();
+            }
+            else
+            {
+                gameObject.AddComponent<AudioListener>();
+            }
+        }
+        else if (listeners.Length > 1)
+        {
+            AudioListener ourListener = GetComponent<AudioListener>();
+            if (ourListener != null)
+            {
+                Destroy(ourListener);
             }
         }
     }
@@ -134,6 +204,7 @@ public class GameMusicManager : MonoBehaviour
     public void StopAll()
     {
         if (_bgLoopCoroutine != null) StopCoroutine(_bgLoopCoroutine);
+        _bgLoopCoroutine = null;
         if (_fadeCoroutine   != null) StopCoroutine(_fadeCoroutine);
 
         if (bgAudioSource     != null) bgAudioSource.Stop();
@@ -141,10 +212,16 @@ public class GameMusicManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Restarts the background loop (e.g. after returning to lobby).
+    /// Restarts the background loop (e.g. after returning to lobby or on boot).
     /// </summary>
     public void StartBackgroundLoop()
     {
+        if (bgAudioSource != null && bgAudioSource.isPlaying && _bgLoopCoroutine != null)
+        {
+            // Already running smoothly, don't interrupt track
+            return;
+        }
+
         if (_bgLoopCoroutine != null) StopCoroutine(_bgLoopCoroutine);
         _bgLoopCoroutine = StartCoroutine(BackgroundLoopRoutine());
     }
@@ -154,6 +231,9 @@ public class GameMusicManager : MonoBehaviour
     /// </summary>
     public void SetPauseMusicState(bool isPaused)
     {
+        string sceneName = UnityEngine.SceneManagement.SceneManager.GetActiveScene().name;
+        if (IsMenuOrLoadingScene(sceneName)) return; // Always keep playing in menus/loading
+
         if (!onlyPlayWhenPaused) return;
 
         if (isPaused)
@@ -182,10 +262,6 @@ public class GameMusicManager : MonoBehaviour
             yield break;
         }
 
-        // Fade bg in from silence at game start
-        bgAudioSource.volume = 0f;
-        bgAudioSource.Play();
-
         while (true)
         {
             // Build / rebuild shuffle list when exhausted
@@ -199,13 +275,15 @@ public class GameMusicManager : MonoBehaviour
             if (clip == null) continue;
 
             bgAudioSource.clip = clip;
+            float targetVol = _isIntenseActive ? bgMaxVolume * 0.3f : bgMaxVolume;
+
+            // Start playing immediately at target volume so music is heard right away from frame 0
+            bgAudioSource.volume = targetVol;
             bgAudioSource.Play();
 
-            float targetVol = _isIntenseActive ? bgMaxVolume * 0.3f : bgMaxVolume;
-            yield return StartCoroutine(FadeVolume(bgAudioSource, bgAudioSource.volume, targetVol, 1.5f));
-
-            // Wait for the track to finish
-            yield return new WaitForSeconds(clip.length - 1.5f);
+            // Wait for the track to finish (minus fade duration)
+            float waitDuration = Mathf.Max(0f, clip.length - 1.5f);
+            yield return new WaitForSecondsRealtime(waitDuration);
 
             // Fade out before switching
             yield return StartCoroutine(FadeVolume(bgAudioSource, bgAudioSource.volume, 0f, 1.5f));
@@ -213,7 +291,7 @@ public class GameMusicManager : MonoBehaviour
 
             // Gap between tracks
             if (timeBetweenTracks > 0f)
-                yield return new WaitForSeconds(timeBetweenTracks);
+                yield return new WaitForSecondsRealtime(timeBetweenTracks);
         }
     }
 
@@ -281,7 +359,7 @@ public class GameMusicManager : MonoBehaviour
         float elapsed = 0f;
         while (elapsed < duration)
         {
-            elapsed       += Time.deltaTime;
+            elapsed       += Time.unscaledDeltaTime;
             source.volume  = Mathf.Lerp(from, to, elapsed / duration);
             yield return null;
         }
@@ -293,8 +371,53 @@ public class GameMusicManager : MonoBehaviour
     // =========================================================================
     private void ValidateAudioSources()
     {
+        if (bgMaxVolume <= 0.05f) bgMaxVolume = 0.6f;
+
+        var sources = GetComponents<AudioSource>();
+        if (sources.Length == 0)
+        {
+            bgAudioSource = gameObject.AddComponent<AudioSource>();
+            intenseAudioSource = gameObject.AddComponent<AudioSource>();
+        }
+        else if (sources.Length == 1)
+        {
+            bgAudioSource = sources[0];
+            intenseAudioSource = gameObject.AddComponent<AudioSource>();
+        }
+        else
+        {
+            if (bgAudioSource == null && intenseAudioSource == null)
+            {
+                bgAudioSource = sources[0];
+                intenseAudioSource = sources[1];
+            }
+            else if (bgAudioSource == intenseAudioSource || bgAudioSource == null || intenseAudioSource == null)
+            {
+                bgAudioSource = sources[0];
+                intenseAudioSource = sources[1];
+            }
+        }
+
+        if (bgAudioSource != null)
+        {
+            bgAudioSource.loop = false;
+            bgAudioSource.playOnAwake = false;
+            bgAudioSource.spatialBlend = 0f; // Pure 2D global background
+            bgAudioSource.mute = false;
+        }
+
+        if (intenseAudioSource != null)
+        {
+            intenseAudioSource.loop = true;
+            intenseAudioSource.playOnAwake = false;
+            intenseAudioSource.spatialBlend = 0f; // Pure 2D global audio
+            intenseAudioSource.mute = false;
+            if (intenseTrack != null)
+                intenseAudioSource.clip = intenseTrack;
+        }
+
         if (bgAudioSource == null)
-            Debug.LogWarning("[GameMusicManager] 'bgAudioSource' is not assigned in the Inspector!");
+            Debug.LogWarning("[GameMusicManager] 'bgAudioSource' is not assigned or created!");
 
         if (intenseAudioSource == null)
             Debug.LogWarning("[GameMusicManager] 'intenseAudioSource' is not assigned. Intense mode will be skipped.");

@@ -549,6 +549,17 @@ public class GirlRevealManager : NetworkBehaviour
             {
                 netObj = NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
             }
+            else if (NetworkManager.Singleton.SpawnManager != null && NetworkManager.Singleton.SpawnManager.SpawnedObjects != null)
+            {
+                foreach (var sObj in NetworkManager.Singleton.SpawnManager.SpawnedObjects.Values)
+                {
+                    if (sObj != null && sObj.OwnerClientId == clientId)
+                    {
+                        netObj = sObj;
+                        break;
+                    }
+                }
+            }
         }
 
         if (netObj != null)

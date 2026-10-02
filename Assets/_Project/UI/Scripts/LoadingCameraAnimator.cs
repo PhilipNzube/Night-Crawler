@@ -65,6 +65,11 @@ public class LoadingCameraAnimator : MonoBehaviour
 
     void Awake()
     {
+        if (GetComponent<AudioListener>() == null && UnityEngine.Object.FindFirstObjectByType<AudioListener>() == null)
+        {
+            gameObject.AddComponent<AudioListener>();
+        }
+
         _currentYaw      = initialYaw;
         _timeAccumulator = 0f;
         // Drive the CinemachineCamera transform if assigned; otherwise drive this Camera

@@ -86,15 +86,34 @@ public static class PlayerNameManager
             return registered;
         }
 
-        if (Unity.Netcode.NetworkManager.Singleton != null && 
-            Unity.Netcode.NetworkManager.Singleton.ConnectedClients.TryGetValue(clientId, out var client))
+        if (Unity.Netcode.NetworkManager.Singleton != null)
         {
-            if (client.PlayerObject != null)
+            if (Unity.Netcode.NetworkManager.Singleton.IsServer &&
+                Unity.Netcode.NetworkManager.Singleton.ConnectedClients != null &&
+                Unity.Netcode.NetworkManager.Singleton.ConnectedClients.TryGetValue(clientId, out var client))
             {
-                var netName = client.PlayerObject.GetComponent<NetworkPlayerName>();
-                if (netName != null && !string.IsNullOrEmpty(netName.playerName.Value.ToString()))
+                if (client.PlayerObject != null)
                 {
-                    return netName.playerName.Value.ToString();
+                    var netName = client.PlayerObject.GetComponent<NetworkPlayerName>();
+                    if (netName != null && !string.IsNullOrEmpty(netName.playerName.Value.ToString()))
+                    {
+                        return netName.playerName.Value.ToString();
+                    }
+                }
+            }
+            else if (Unity.Netcode.NetworkManager.Singleton.SpawnManager != null &&
+                     Unity.Netcode.NetworkManager.Singleton.SpawnManager.SpawnedObjects != null)
+            {
+                foreach (var netObj in Unity.Netcode.NetworkManager.Singleton.SpawnManager.SpawnedObjects.Values)
+                {
+                    if (netObj != null && netObj.OwnerClientId == clientId)
+                    {
+                        var netName = netObj.GetComponent<NetworkPlayerName>();
+                        if (netName != null && !string.IsNullOrEmpty(netName.playerName.Value.ToString()))
+                        {
+                            return netName.playerName.Value.ToString();
+                        }
+                    }
                 }
             }
         }

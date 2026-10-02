@@ -283,14 +283,14 @@ namespace NightCrawler.Economy
         }
 
         /// <summary>
-        /// Applies stake penalty to an investigator who failed their accepted pact/deal in time.
+        /// Applies stake penalty to an investigator who failed their accepted deal in time.
         /// Deducts penalty directly from their stake.
         /// </summary>
-        public void ApplyPactFailurePenalty(ulong traitorClientId, int penaltyAmount)
+        public void ApplyDealFailurePenalty(ulong traitorClientId, int penaltyAmount)
         {
             if (!IsServer)
             {
-                ApplyPactFailurePenaltyServerRpc(traitorClientId, penaltyAmount);
+                ApplyDealFailurePenaltyServerRpc(traitorClientId, penaltyAmount);
                 return;
             }
 
@@ -298,66 +298,80 @@ namespace NightCrawler.Economy
             {
                 int penalty = Mathf.Min(record.stakedCredits, penaltyAmount);
                 record.stakedCredits = Mathf.Max(0, record.stakedCredits - penalty);
-                Debug.Log($"[MatchEconomyManager] Applied pact failure penalty to {record.playerName}: -{penalty} {CurrencyConfig.CurrencyName}. Remaining stake: {record.stakedCredits}");
+                record.pactFailed = true;
+                record.pactPenaltiesIncurred += penalty;
+                Debug.Log($"[MatchEconomyManager] Applied deal failure penalty to {record.playerName}: -{penalty} {CurrencyConfig.CurrencyName}. Remaining stake: {record.stakedCredits}");
 
                 RecalculateTotalPot();
-                NotifyPactPenaltyClientRpc(traitorClientId, penalty);
+                NotifyDealPenaltyClientRpc(traitorClientId, penalty);
             }
         }
 
+        public void ApplyPactFailurePenalty(ulong traitorClientId, int penaltyAmount) => ApplyDealFailurePenalty(traitorClientId, penaltyAmount);
+
         [Rpc(SendTo.Server)]
-        public void ApplyPactFailurePenaltyServerRpc(ulong traitorClientId, int penaltyAmount)
+        public void ApplyDealFailurePenaltyServerRpc(ulong traitorClientId, int penaltyAmount)
         {
-            ApplyPactFailurePenalty(traitorClientId, penaltyAmount);
+            ApplyDealFailurePenalty(traitorClientId, penaltyAmount);
         }
 
+        [Rpc(SendTo.Server)]
+        public void ApplyPactFailurePenaltyServerRpc(ulong traitorClientId, int penaltyAmount) => ApplyDealFailurePenalty(traitorClientId, penaltyAmount);
+
         /// <summary>
-        /// Applies reward credits to an investigator who successfully fulfilled their accepted pact/deal.
+        /// Applies reward credits to an investigator who successfully fulfilled their accepted deal.
         /// </summary>
-        public void ApplyPactSuccessReward(ulong traitorClientId, int rewardAmount)
+        public void ApplyDealSuccessReward(ulong traitorClientId, int rewardAmount)
         {
             if (!IsServer)
             {
-                ApplyPactSuccessRewardServerRpc(traitorClientId, rewardAmount);
+                ApplyDealSuccessRewardServerRpc(traitorClientId, rewardAmount);
                 return;
             }
 
             if (_playerRecords.TryGetValue(traitorClientId, out var record))
             {
                 record.stakedCredits += rewardAmount;
-                Debug.Log($"[MatchEconomyManager] Applied pact success reward to {record.playerName}: +{rewardAmount} {CurrencyConfig.CurrencyName}. Total stake: {record.stakedCredits}");
+                record.pactCompleted = true;
+                record.pactNetCreditsEarned += rewardAmount;
+                Debug.Log($"[MatchEconomyManager] Applied deal success reward to {record.playerName}: +{rewardAmount} {CurrencyConfig.CurrencyName}. Total stake: {record.stakedCredits}");
 
                 RecalculateTotalPot();
-                NotifyPactRewardClientRpc(traitorClientId, rewardAmount);
+                NotifyDealRewardClientRpc(traitorClientId, rewardAmount);
             }
         }
 
+        public void ApplyPactSuccessReward(ulong traitorClientId, int rewardAmount) => ApplyDealSuccessReward(traitorClientId, rewardAmount);
+
         [Rpc(SendTo.Server)]
-        public void ApplyPactSuccessRewardServerRpc(ulong traitorClientId, int rewardAmount)
+        public void ApplyDealSuccessRewardServerRpc(ulong traitorClientId, int rewardAmount)
         {
-            ApplyPactSuccessReward(traitorClientId, rewardAmount);
+            ApplyDealSuccessReward(traitorClientId, rewardAmount);
         }
 
+        [Rpc(SendTo.Server)]
+        public void ApplyPactSuccessRewardServerRpc(ulong traitorClientId, int rewardAmount) => ApplyDealSuccessReward(traitorClientId, rewardAmount);
+
         [ClientRpc]
-        private void NotifyPactPenaltyClientRpc(ulong targetClientId, int penalty)
+        private void NotifyDealPenaltyClientRpc(ulong targetClientId, int penalty)
         {
             if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == targetClientId)
             {
                 if (NotificationManager.Instance != null)
                 {
-                    NotificationManager.Instance.ShowNotification($"PACT EXPIRED: Failed pact in time! {penalty} {CurrencyConfig.CurrencySymbol} deducted from your stake.", 4.5f);
+                    NotificationManager.Instance.ShowNotification($"DEAL EXPIRED: Failed deal in time! {penalty} {CurrencyConfig.CurrencySymbol} deducted from your stake.", 4.5f);
                 }
             }
         }
 
         [ClientRpc]
-        private void NotifyPactRewardClientRpc(ulong targetClientId, int reward)
+        private void NotifyDealRewardClientRpc(ulong targetClientId, int reward)
         {
             if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == targetClientId)
             {
                 if (NotificationManager.Instance != null)
                 {
-                    NotificationManager.Instance.ShowNotification($"PACT REWARD SECURED: +{reward} {CurrencyConfig.CurrencySymbol} credited to your match stake!", 4.5f);
+                    NotificationManager.Instance.ShowNotification($"DEAL REWARD SECURED: +{reward} {CurrencyConfig.CurrencySymbol} credited to your match stake!", 4.5f);
                 }
             }
         }
@@ -577,6 +591,8 @@ namespace NightCrawler.Economy
             if (r.healsPerformed > 0) parts.Add($"Heals x{r.healsPerformed} (+{r.healsPerformed * 4})");
             if (r.mapCluesRevealed > 0) parts.Add($"Clues x{r.mapCluesRevealed} (+{r.mapCluesRevealed * 5})");
             if (r.monstersKilled > 0) parts.Add($"Monster Kills x{r.monstersKilled} (+{r.monstersKilled * 6})");
+            if (r.pactCompleted && r.pactNetCreditsEarned > 0) parts.Add($"Dark Deal Fulfilled (+{r.pactNetCreditsEarned})");
+            if (r.pactFailed && r.pactPenaltiesIncurred > 0) parts.Add($"Dark Deal Forfeited (-{r.pactPenaltiesIncurred})");
 
             if (parts.Count == 0) return "Flat Base Win";
             return string.Join(" | ", parts);

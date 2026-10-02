@@ -318,7 +318,7 @@ public class MatchResultOverlay : MonoBehaviour
                 else if (trimmed.IndexOf("Slain", System.StringComparison.OrdinalIgnoreCase) >= 0 || trimmed.IndexOf("Wiped", System.StringComparison.OrdinalIgnoreCase) >= 0)
                     aTitle = "Apex Predator";
                 else if (trimmed.IndexOf("Traitor", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                    aTitle = "Dark Pact";
+                    aTitle = "Dark Deal";
                 else if (trimmed.IndexOf("Abandon", System.StringComparison.OrdinalIgnoreCase) >= 0)
                     aTitle = "MIA";
 

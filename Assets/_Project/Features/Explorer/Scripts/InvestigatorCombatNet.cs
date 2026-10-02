@@ -499,7 +499,7 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                     _hasWarnedMonsterDealWeapon = true;
                     if (NotificationManager.Instance != null)
                     {
-                        NotificationManager.Instance.ShowNotification("Pact weapon cannot harm cave monsters!", 3.5f);
+                        NotificationManager.Instance.ShowNotification("Deal weapon cannot harm cave monsters!", 3.5f);
                     }
                 }
                 continue;
@@ -556,7 +556,7 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                     _hasWarnedMonsterDealWeapon = true;
                     if (NotificationManager.Instance != null)
                     {
-                        NotificationManager.Instance.ShowNotification("Pact weapon cannot harm cave monsters!", 3.5f);
+                        NotificationManager.Instance.ShowNotification("Deal weapon cannot harm cave monsters!", 3.5f);
                     }
                 }
                 return;

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using Unity.Netcode;
 using Unity.Collections;
@@ -47,6 +48,12 @@ public class DealSystemNet : MonoBehaviour
 
     private AudioSource _audioSource;
     private bool _isRegistered = false;
+    private readonly HashSet<ulong> _pendingTargetClientIds = new HashSet<ulong>();
+
+    public bool HasPendingOffer(ulong clientId)
+    {
+        return _pendingTargetClientIds.Contains(clientId);
+    }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
     private static void AutoInit()
@@ -139,6 +146,8 @@ public class DealSystemNet : MonoBehaviour
         ulong localId = NetworkManager.Singleton.LocalClientId;
         Debug.Log($"[DealSystemNet] Sending deal '{title}' to client {targetClientId} (time={timeLimitSeconds}s, penalty={penaltyCredits})");
 
+        _pendingTargetClientIds.Add(targetClientId);
+
         if (NetworkManager.Singleton.IsServer)
         {
             // Server (Host) sends offer directly
@@ -166,14 +175,37 @@ public class DealSystemNet : MonoBehaviour
         NetworkObject targetObj = null;
         if (NetworkManager.Singleton != null)
         {
-            if (NetworkManager.Singleton.IsServer && NetworkManager.Singleton.ConnectedClients != null &&
-                NetworkManager.Singleton.ConnectedClients.TryGetValue(targetClientId, out var client))
+            if (NetworkManager.Singleton.IsServer)
             {
-                targetObj = client.PlayerObject;
+                if (NetworkManager.Singleton.ConnectedClients != null &&
+                    NetworkManager.Singleton.ConnectedClients.TryGetValue(targetClientId, out var client))
+                {
+                    targetObj = client.PlayerObject;
+                }
+                if (targetObj == null && NetworkManager.Singleton.SpawnManager != null)
+                {
+                    targetObj = NetworkManager.Singleton.SpawnManager.GetPlayerNetworkObject(targetClientId);
+                }
             }
-            if (targetObj == null && NetworkManager.Singleton.SpawnManager != null)
+            else
             {
-                targetObj = NetworkManager.Singleton.SpawnManager.GetPlayerNetworkObject(targetClientId);
+                if (targetClientId == NetworkManager.Singleton.LocalClientId && NetworkManager.Singleton.SpawnManager != null)
+                {
+                    targetObj = NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
+                }
+            }
+
+            if (targetObj == null && NetworkManager.Singleton.SpawnManager != null && NetworkManager.Singleton.SpawnManager.SpawnedObjects != null)
+            {
+                foreach (var netObj in NetworkManager.Singleton.SpawnManager.SpawnedObjects.Values)
+                {
+                    if (netObj != null && netObj.OwnerClientId == targetClientId &&
+                        (netObj.IsPlayerObject || netObj.GetComponent<NetworkPlayerName>() != null || netObj.CompareTag("Player")))
+                    {
+                        targetObj = netObj;
+                        break;
+                    }
+                }
             }
         }
 
@@ -294,6 +326,8 @@ public class DealSystemNet : MonoBehaviour
 
     private void HandleDealResponseOnServer(ulong responderId, ulong girlClientId, bool accepted, bool grantWeapon)
     {
+        _pendingTargetClientIds.Remove(responderId);
+
         string responderName = PlayerNameManager.GetPlayerName(responderId);
         if (string.IsNullOrEmpty(responderName)) responderName = $"Player {responderId}";
 
@@ -333,13 +367,14 @@ public class DealSystemNet : MonoBehaviour
             // 3. Notify Girl client
             if (girlClientId == NetworkManager.Singleton.LocalClientId)
             {
-                NotifyGirlDealResult(responderName, true);
+                NotifyGirlDealResult(responderName, true, responderId);
             }
             else if (NetworkManager.Singleton.ConnectedClients.ContainsKey(girlClientId))
             {
                 using var notifyWriter = new FastBufferWriter(256, Allocator.Temp);
                 notifyWriter.WriteValueSafe(responderName);
                 notifyWriter.WriteValueSafe(true);
+                notifyWriter.WriteValueSafe(responderId);
                 NetworkManager.Singleton.CustomMessagingManager.SendNamedMessage(MSG_NOTIFY_GIRL, girlClientId, notifyWriter);
             }
         }
@@ -348,13 +383,14 @@ public class DealSystemNet : MonoBehaviour
             // Notify Girl client of refusal
             if (girlClientId == NetworkManager.Singleton.LocalClientId)
             {
-                NotifyGirlDealResult(responderName, false);
+                NotifyGirlDealResult(responderName, false, responderId);
             }
             else if (NetworkManager.Singleton.ConnectedClients.ContainsKey(girlClientId))
             {
                 using var notifyWriter = new FastBufferWriter(256, Allocator.Temp);
                 notifyWriter.WriteValueSafe(responderName);
                 notifyWriter.WriteValueSafe(false);
+                notifyWriter.WriteValueSafe(responderId);
                 NetworkManager.Singleton.CustomMessagingManager.SendNamedMessage(MSG_NOTIFY_GIRL, girlClientId, notifyWriter);
             }
         }
@@ -394,12 +430,22 @@ public class DealSystemNet : MonoBehaviour
     {
         reader.ReadValueSafe(out string responderName);
         reader.ReadValueSafe(out bool accepted);
+        ulong respId = 0;
+        if (reader.Length > reader.Position)
+        {
+            reader.ReadValueSafe(out respId);
+            _pendingTargetClientIds.Remove(respId);
+        }
 
-        NotifyGirlDealResult(responderName, accepted);
+        NotifyGirlDealResult(responderName, accepted, respId);
     }
 
-    private void NotifyGirlDealResult(string responderName, bool accepted)
+    private void NotifyGirlDealResult(string responderName, bool accepted, ulong responderId = 0)
     {
+        if (responderId != 0)
+        {
+            _pendingTargetClientIds.Remove(responderId);
+        }
         Debug.Log($"[DealSystemNet] Pact response from {responderName}: accepted={accepted}");
         string msg = accepted 
             ? $"{responderName} accepted your dark pact!" 

@@ -345,11 +345,17 @@ public class PlayerReadyTracker : NetworkBehaviour
             if (netObj != null)
             {
                 var nameComp = netObj.GetComponent<NetworkPlayerName>();
-                if (nameComp != null) return nameComp.playerName.Value.ToString();
+                if (nameComp != null && !string.IsNullOrEmpty(nameComp.playerName.Value.ToString()))
+                    return nameComp.playerName.Value.ToString();
             }
         }
         if (clientId == NetworkManager.Singleton.LocalClientId)
             return PlayerNameManager.GetPlayerName();
+
+        string nameFallback = PlayerNameManager.GetPlayerName(clientId);
+        if (!string.IsNullOrEmpty(nameFallback) && !nameFallback.StartsWith("Player "))
+            return nameFallback;
+
         return $"Player {clientId % 1000}";
     }
 }

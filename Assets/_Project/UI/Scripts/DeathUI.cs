@@ -214,6 +214,24 @@ public class DeathUI : MonoBehaviour
         if (deathPanel != null) deathPanel.SetActive(true);
         if (titleText != null) titleText.text = title;
 
+        // Immediately hide any active deal tracker HUD or deal notification prompts
+        if (NightCrawler.UI.ActiveDealMissionHUD.Instance != null)
+        {
+            NightCrawler.UI.ActiveDealMissionHUD.Instance.Hide();
+        }
+        if (DealNotificationUI.Instance != null)
+        {
+            DealNotificationUI.Instance.Hide();
+        }
+        if (NightCrawler.UI.DealCompletionModalUI.Instance != null)
+        {
+            NightCrawler.UI.DealCompletionModalUI.Instance.Hide();
+        }
+        if (NightCrawler.UI.DealFailureModalUI.Instance != null)
+        {
+            NightCrawler.UI.DealFailureModalUI.Instance.Hide();
+        }
+
 
 
         // ── Determine whether there are survivors left to spectate ──────────
@@ -471,8 +489,8 @@ public class DeathUI : MonoBehaviour
     public void PostDealResponse(string playerName, bool accepted)
     {
         string msg = accepted
-            ? $"{playerName} accepted your dark pact!"
-            : $"{playerName} rejected your dark pact.";
+            ? $"{playerName} accepted your dark deal!"
+            : $"{playerName} rejected your dark deal.";
 
         if (NotificationManager.Instance != null)
         {

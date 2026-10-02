@@ -81,7 +81,7 @@ public class GirlDealUI : MonoBehaviour
     public Key toggleKey = Key.B;
 
     private readonly List<ulong> _livingPlayerIds = new List<ulong>();
-    private string _currentCardTitle = "DEAL PACT";
+    private string _currentCardTitle = "DARK DEAL";
     private string _currentCardDesc = "";
     private bool _isOpen = false;
     private bool _isGirl = false;
@@ -360,6 +360,11 @@ public class GirlDealUI : MonoBehaviour
         var shopButtons = container.GetComponentsInChildren<ShopButtonManager>(true);
         foreach (var card in shopButtons)
         {
+            // Ensure Michsky Heat localization does not overwrite card title/description with sample keys
+            card.useLocalization = false;
+            card.titleLocalizationKey = string.Empty;
+            card.descriptionLocalizationKey = string.Empty;
+
             string title = ResolveCardTitle(card.gameObject, card);
             string desc = ResolveCardDesc(card.gameObject, card);
 
@@ -450,7 +455,7 @@ public class GirlDealUI : MonoBehaviour
         string objName = cardObj.name.Replace("(Clone)", "").Trim();
         if (!IsGenericButtonLabel(objName)) return objName;
 
-        return "DARK PACT";
+        return "DARK DEAL";
     }
 
     private string ResolveCardDesc(GameObject cardObj, ShopButtonManager shopBtn)
@@ -670,14 +675,38 @@ public class GirlDealUI : MonoBehaviour
         foreach (ulong id in candidateIds)
         {
             NetworkObject clientObj = null;
-            if (NetworkManager.Singleton.IsServer && NetworkManager.Singleton.ConnectedClients != null &&
-                NetworkManager.Singleton.ConnectedClients.TryGetValue(id, out var client))
+            if (NetworkManager.Singleton.IsServer)
             {
-                clientObj = client.PlayerObject;
+                if (NetworkManager.Singleton.ConnectedClients != null &&
+                    NetworkManager.Singleton.ConnectedClients.TryGetValue(id, out var client))
+                {
+                    clientObj = client.PlayerObject;
+                }
+                if (clientObj == null && NetworkManager.Singleton.SpawnManager != null)
+                {
+                    clientObj = NetworkManager.Singleton.SpawnManager.GetPlayerNetworkObject(id);
+                }
             }
-            if (clientObj == null && NetworkManager.Singleton.SpawnManager != null)
+            else
             {
-                clientObj = NetworkManager.Singleton.SpawnManager.GetPlayerNetworkObject(id);
+                if (id == NetworkManager.Singleton.LocalClientId && NetworkManager.Singleton.SpawnManager != null)
+                {
+                    clientObj = NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
+                }
+            }
+
+            // Fallback for both server and client: inspect replicated SpawnedObjects
+            if (clientObj == null && NetworkManager.Singleton.SpawnManager != null && NetworkManager.Singleton.SpawnManager.SpawnedObjects != null)
+            {
+                foreach (var netObj in NetworkManager.Singleton.SpawnManager.SpawnedObjects.Values)
+                {
+                    if (netObj != null && netObj.OwnerClientId == id &&
+                        (netObj.IsPlayerObject || netObj.GetComponent<NetworkPlayerName>() != null || netObj.CompareTag("Player")))
+                    {
+                        clientObj = netObj;
+                        break;
+                    }
+                }
             }
 
             if (clientObj != null)
@@ -689,6 +718,14 @@ public class GirlDealUI : MonoBehaviour
             }
 
             string pName = PlayerNameManager.GetPlayerName(id);
+            if ((string.IsNullOrEmpty(pName) || pName.StartsWith("Player ") || pName.StartsWith("Investigator ")) && clientObj != null)
+            {
+                var netName = clientObj.GetComponent<NetworkPlayerName>();
+                if (netName != null && !string.IsNullOrEmpty(netName.playerName.Value.ToString()))
+                {
+                    pName = netName.playerName.Value.ToString();
+                }
+            }
             if (string.IsNullOrEmpty(pName)) pName = $"Investigator {id}";
 
             _livingPlayerIds.Add(id);
@@ -715,7 +752,7 @@ public class GirlDealUI : MonoBehaviour
 
         if (_livingPlayerIds.Count == 0)
         {
-            ShowError("NO INVESTIGATORS", "There are no living investigators available to receive a dark pact.");
+            ShowError("NO INVESTIGATORS", "There are no living investigators available to receive a dark deal.");
             return;
         }
 
@@ -730,6 +767,13 @@ public class GirlDealUI : MonoBehaviour
         string targetPlayerName = playerSelector != null && playerSelector.items.Count > selectedIdx
             ? playerSelector.items[selectedIdx].itemTitle
             : $"Investigator {targetRecipientId}";
+
+        // Rule: If target player already has a pending offer, block sending until they accept or decline
+        if (DealSystemNet.Instance != null && DealSystemNet.Instance.HasPendingOffer(targetRecipientId))
+        {
+            ShowError("OFFER PENDING", $"{targetPlayerName} has not accepted or declined your previous offer yet.\n\nPlease wait for their response before offering another deal.");
+            return;
+        }
 
         // 1. Read input values
         int rewardAmount = rewardSlider != null && rewardSlider.mainSlider != null
@@ -779,12 +823,12 @@ public class GirlDealUI : MonoBehaviour
         if (remainingSlots <= 0 && !debugInfiniteDeals)
         {
             ShowError("DEAL CAPACITY REACHED", 
-                $"You have exhausted all {maxDeals} dark deal slots for this match.\n\nUpgrade Deal Capacity in the store to offer more pacts per match.");
+                $"You have exhausted all {maxDeals} dark deal slots for this match.\n\nUpgrade Deal Capacity in the store to offer more deals per match.");
             return;
         }
 
         // All constraints passed! Dispatch deal
-        string dealTitle = !string.IsNullOrEmpty(_currentCardTitle) ? _currentCardTitle : "DARK PACT";
+        string dealTitle = !string.IsNullOrEmpty(_currentCardTitle) ? _currentCardTitle : "DARK DEAL";
         string dealTerms = !string.IsNullOrEmpty(_currentCardDesc) 
             ? _currentCardDesc 
             : $"Complete the objective to claim your reward.\nReward: {rewardAmount} Credits.";
@@ -805,7 +849,7 @@ public class GirlDealUI : MonoBehaviour
 
         if (NotificationManager.Instance != null)
         {
-            NotificationManager.Instance.ShowNotification($"Dark Pact dispatched to {targetPlayerName} ({completionTime}s timer, {rewardAmount}cr reward)!", 3.5f);
+            NotificationManager.Instance.ShowNotification($"Dark Deal dispatched to {targetPlayerName} ({completionTime}s timer, {rewardAmount}cr reward)!", 3.5f);
         }
 
         // Close modals and panel
@@ -829,17 +873,26 @@ public class GirlDealUI : MonoBehaviour
             return;
         }
 
-        // Automatically pass the exact error title and description into ErrorModal
-        errorModal.titleText = title.ToUpper();
+        // Automatically pass the exact title and description into ErrorModal
+        string cleanTitle = title.ToUpper();
+        errorModal.titleText = cleanTitle;
         errorModal.descriptionText = message;
         errorModal.useLocalization = false;
-        errorModal.UpdateUI();
+        errorModal.titleKey = string.Empty;
+        errorModal.descriptionKey = string.Empty;
 
-        if (errorModal.windowTitle != null) errorModal.windowTitle.text = title.ToUpper();
+        if (errorModal.windowTitle != null) errorModal.windowTitle.text = cleanTitle;
         if (errorModal.windowDescription != null) errorModal.windowDescription.text = message;
 
+        try { errorModal.UpdateUI(); } catch { }
+
         errorModal.OpenWindow();
+
+        // Re-enforce windowTitle after OpenWindow to prevent any animator/localization reverts
+        if (errorModal.windowTitle != null) errorModal.windowTitle.text = cleanTitle;
     }
+
+    public void ShowWarningModal(string title, string message) => ShowError(title, message);
 
     private int GetGirlTotalCredits()
     {

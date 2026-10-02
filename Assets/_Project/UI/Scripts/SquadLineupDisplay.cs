@@ -548,6 +548,17 @@ public class SquadLineupDisplay : MonoBehaviour
             {
                 netObj = NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
             }
+            else if (NetworkManager.Singleton.SpawnManager.SpawnedObjects != null)
+            {
+                foreach (var sObj in NetworkManager.Singleton.SpawnManager.SpawnedObjects.Values)
+                {
+                    if (sObj != null && sObj.OwnerClientId == clientId)
+                    {
+                        netObj = sObj;
+                        break;
+                    }
+                }
+            }
         }
 
         if (netObj != null)
@@ -557,9 +568,16 @@ public class SquadLineupDisplay : MonoBehaviour
                 return nameComp.playerName.Value.ToString();
         }
 
+        string managedName = PlayerNameManager.GetPlayerName(clientId);
+        if (!string.IsNullOrEmpty(managedName) && !managedName.StartsWith("Player ") && !managedName.StartsWith("Investigator_"))
+            return managedName;
+
         // Local player fallback
-        string savedName = PlayerNameManager.GetPlayerName();
-        if (!string.IsNullOrEmpty(savedName)) return savedName;
+        if (NetworkManager.Singleton != null && clientId == NetworkManager.Singleton.LocalClientId)
+        {
+            string savedName = PlayerNameManager.GetPlayerName();
+            if (!string.IsNullOrEmpty(savedName)) return savedName;
+        }
 
         return $"Investigator_{clientId % 1000}";
     }

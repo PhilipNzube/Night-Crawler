@@ -23,6 +23,12 @@ namespace NightCrawler.Economy
         public int monstersKilled = 0;
         public int mapCluesRevealed = 0;
 
+        // Pact outcome tracking for match settlement
+        public bool pactCompleted = false;
+        public bool pactFailed = false;
+        public int pactNetCreditsEarned = 0;
+        public int pactPenaltiesIncurred = 0;
+
         // Backward-compatible property alias
         public int monstersKilledBeforeExorcism => monstersKilled;
 

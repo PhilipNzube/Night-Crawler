@@ -55,11 +55,12 @@ public class DealNotificationUI : MonoBehaviour
     private ulong _currentGirlSenderId;
     private bool _grantWeapon;
     private bool _isActive = false;
+    private bool _isOutcomeMode = false;
 
     private int _currentTimeLimitSeconds = 120;
     private int _currentPenaltyCredits = 15;
     private int _currentRewardCredits = 30;
-    private string _currentTitle = "DARK PACT";
+    private string _currentTitle = "DARK DEAL";
     private string _currentTerms = "";
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
@@ -298,6 +299,13 @@ public class DealNotificationUI : MonoBehaviour
         _currentTitle = title;
         _currentTerms = terms;
         _timer = timeoutSeconds;
+        _isOutcomeMode = false;
+
+        // Restore normal accept/decline buttons for proposal mode
+        if (declineButton != null) declineButton.gameObject.SetActive(true);
+        if (heatModalWindow != null && heatModalWindow.cancelButton != null) heatModalWindow.cancelButton.gameObject.SetActive(true);
+        if (acceptButton != null) acceptButton.buttonText = "ACCEPT";
+        if (heatModalWindow != null && heatModalWindow.confirmButton != null) heatModalWindow.confirmButton.buttonText = "ACCEPT";
 
         int parsedReward = 30;
         if (!string.IsNullOrEmpty(reward))
@@ -312,7 +320,7 @@ public class DealNotificationUI : MonoBehaviour
 
         string cleanTitle = !string.IsNullOrWhiteSpace(title) && !title.Equals("select", System.StringComparison.OrdinalIgnoreCase)
             ? title.ToUpper()
-            : "DARK PACT";
+            : "DARK DEAL";
 
         // Filter out any penalty text so the receiver never sees the penalty
         string cleanTerms = terms ?? "";
@@ -322,44 +330,38 @@ public class DealNotificationUI : MonoBehaviour
             cleanTerms = cleanTerms.Substring(0, penaltyIdx).TrimEnd();
         }
 
-        string displayTerms = !string.IsNullOrWhiteSpace(cleanTerms)
-            ? $"{cleanTerms}\n\nReward: {reward}"
-            : $"Reward: {reward}";
+        // Only show the deal name and the reward offered
+        if (dealNameText != null) dealNameText.text = cleanTitle;
+        if (rewardText != null)
+        {
+            rewardText.text = _currentRewardCredits > 0 ? $"{_currentRewardCredits}" : reward;
+        }
 
-        // If headerTitleText was assigned to windowDescription in the scene, avoid overwriting description with title
+        if (termsDescriptionText != null)
+        {
+            termsDescriptionText.text = cleanTerms;
+        }
+
         if (headerTitleText != null && (heatModalWindow == null || headerTitleText != heatModalWindow.windowDescription))
         {
             headerTitleText.text = cleanTitle;
         }
 
-        if (dealNameText != null) dealNameText.text = cleanTitle;
-        if (rewardText != null) rewardText.text = $"REWARD: {reward}";
-
-        if (termsDescriptionText != null)
-        {
-            termsDescriptionText.text = displayTerms;
-        }
-        else if (headerTitleText != null && heatModalWindow != null && headerTitleText == heatModalWindow.windowDescription)
-        {
-            // headerTitleText in scene points to windowDescription
-            headerTitleText.text = displayTerms;
-        }
-
         if (heatModalWindow != null)
         {
             heatModalWindow.titleText = cleanTitle;
-            heatModalWindow.descriptionText = displayTerms;
+            heatModalWindow.descriptionText = "";
             heatModalWindow.useLocalization = false;
             heatModalWindow.titleKey = string.Empty;
             heatModalWindow.descriptionKey = string.Empty;
             if (heatModalWindow.windowTitle != null) heatModalWindow.windowTitle.text = cleanTitle;
-            if (heatModalWindow.windowDescription != null) heatModalWindow.windowDescription.text = displayTerms;
+            if (heatModalWindow.windowDescription != null) heatModalWindow.windowDescription.text = "";
             try { heatModalWindow.UpdateUI(); } catch { }
         }
 
         gameObject.SetActive(true);
         SetVisible(true, modifyCursor: true);
-        Debug.Log($"[DealNotificationUI] Displaying deal '{cleanTitle}' from {senderId} to local player! (grantWeapon={grantWeapon})");
+        Debug.Log($"[DealNotificationUI] Displaying deal '{cleanTitle}' (reward={reward}) from {senderId} to local player! (grantWeapon={grantWeapon})");
     }
 
     private void Update()
@@ -371,9 +373,21 @@ public class DealNotificationUI : MonoBehaviour
         if (!Cursor.visible) Cursor.visible = true;
         SetPlayerLookInputs(false);
 
-        // Hotkeys [Y] Accept / [N] Decline
+        // Hotkeys [Y] Accept / [N] Decline, or [Space / Enter / Esc] for Outcome modal
         if (Keyboard.current != null)
         {
+            if (_isOutcomeMode)
+            {
+                if (Keyboard.current.enterKey.wasPressedThisFrame ||
+                    Keyboard.current.spaceKey.wasPressedThisFrame ||
+                    Keyboard.current.escapeKey.wasPressedThisFrame)
+                {
+                    OnAcceptClicked();
+                    return;
+                }
+                return;
+            }
+
             if (Keyboard.current.yKey.wasPressedThisFrame)
             {
                 OnAcceptClicked();
@@ -390,6 +404,15 @@ public class DealNotificationUI : MonoBehaviour
     public void OnAcceptClicked()
     {
         if (!_isActive) return;
+
+        if (_isOutcomeMode)
+        {
+            _isOutcomeMode = false;
+            _isActive = false;
+            SetVisible(false, modifyCursor: true);
+            return;
+        }
+
         _isActive = false;
 
         Debug.Log($"[DealNotificationUI] Local player ACCEPTED deal from Girl {_currentGirlSenderId} (grantWeapon={_grantWeapon})");
@@ -420,7 +443,7 @@ public class DealNotificationUI : MonoBehaviour
 
                 if (NotificationManager.Instance != null)
                 {
-                    NotificationManager.Instance.ShowNotification("Pact Sealed: Weapon granted!", 4.5f);
+                    NotificationManager.Instance.ShowNotification("Deal Sealed: Weapon granted!", 4.5f);
                 }
             }
         }
@@ -451,6 +474,31 @@ public class DealNotificationUI : MonoBehaviour
         }
 
         SetVisible(false, modifyCursor: true);
+    }
+
+    public void Hide()
+    {
+        _isActive = false;
+        _isOutcomeMode = false;
+        SetVisible(false, modifyCursor: false);
+    }
+
+    public void ShowPactOutcomeModal(bool success, string pactTitle, int rewardCredits, int penaltyCredits)
+    {
+        if (success)
+        {
+            if (DealCompletionModalUI.Instance != null)
+            {
+                DealCompletionModalUI.Instance.Show(pactTitle, rewardCredits);
+            }
+        }
+        else
+        {
+            if (DealFailureModalUI.Instance != null)
+            {
+                DealFailureModalUI.Instance.Show(pactTitle, penaltyCredits);
+            }
+        }
     }
 
     private static void SanitizeModal(ModalWindowManager modal)

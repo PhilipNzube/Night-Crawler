@@ -91,6 +91,21 @@ namespace NightCrawler.UI
         {
             if (!_isMissionActive || PauseManager.IsGamePaused) return;
 
+            // If the local player is dead, immediately hide and dismiss the pact HUD
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null)
+            {
+                var localPlayerObj = NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
+                if (localPlayerObj != null)
+                {
+                    if ((localPlayerObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) ||
+                        (localPlayerObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead))
+                    {
+                        Hide();
+                        return;
+                    }
+                }
+            }
+
             _timeRemaining -= Time.deltaTime;
 
             if (missionTimerText != null)
@@ -104,6 +119,14 @@ namespace NightCrawler.UI
             {
                 FailMission();
             }
+        }
+
+        public void Hide()
+        {
+            _isMissionActive = false;
+            SetVisible(false);
+            if (DealCompletionModalUI.Instance != null) DealCompletionModalUI.Instance.Hide();
+            if (DealFailureModalUI.Instance != null) DealFailureModalUI.Instance.Hide();
         }
 
         public void StartMission(string title, string terms, int durationSeconds, int penaltyAmount, int rewardAmount = 30)
@@ -120,13 +143,14 @@ namespace NightCrawler.UI
             _rewardAmount = rewardAmount;
             _isMissionActive = true;
 
+            // Only show the mission of the deal at the top, no extra nonsense texts
             if (missionTitleText != null)
             {
-                missionTitleText.text = $"<b>PACT OBJECTIVE:</b> {title}";
+                missionTitleText.text = !string.IsNullOrWhiteSpace(title) ? title.ToUpper() : "DARK DEAL";
             }
 
             SetVisible(true);
-            Debug.Log($"[ActiveDealMissionHUD] Started pact mission '{title}' with {durationSeconds}s timer, {penaltyAmount} penalty, and {rewardAmount} reward.");
+            Debug.Log($"[ActiveDealMissionHUD] Started deal mission '{title}' with {durationSeconds}s timer, {penaltyAmount} penalty, and {rewardAmount} reward.");
         }
 
         /// <summary>
@@ -137,7 +161,7 @@ namespace NightCrawler.UI
             if (!_isMissionActive) return;
             if (IsLootMission)
             {
-                Debug.Log("[ActiveDealMissionHUD] Corpse successfully looted! Completing Loot Body pact.");
+                Debug.Log("[ActiveDealMissionHUD] Corpse successfully looted! Completing Loot Body deal.");
                 CompleteMission();
             }
         }
@@ -150,7 +174,7 @@ namespace NightCrawler.UI
             if (!_isMissionActive) return;
             if (IsKillMission)
             {
-                Debug.Log("[ActiveDealMissionHUD] Target player eliminated! Completing Kill Player pact.");
+                Debug.Log("[ActiveDealMissionHUD] Target player eliminated! Completing Kill Player deal.");
                 CompleteMission();
             }
         }
@@ -160,25 +184,33 @@ namespace NightCrawler.UI
             if (!_isMissionActive) return;
             _isMissionActive = false;
 
+            int netGain = Mathf.Max(0, _rewardAmount - _penaltyAmount);
+
             // Credit the promised reward to the player's match economy
             if (MatchEconomyManager.Instance != null && NetworkManager.Singleton != null)
             {
-                MatchEconomyManager.Instance.ApplyPactSuccessReward(NetworkManager.Singleton.LocalClientId, _rewardAmount);
+                MatchEconomyManager.Instance.ApplyDealSuccessReward(NetworkManager.Singleton.LocalClientId, netGain);
             }
 
             if (missionTitleText != null)
             {
-                missionTitleText.text = "<b>PACT FULFILLED!</b>";
+                missionTitleText.text = !string.IsNullOrWhiteSpace(_activeMissionTitle) ? _activeMissionTitle.ToUpper() : "DARK DEAL";
+            }
+
+            // Show dedicated deal completion modal
+            if (DealCompletionModalUI.Instance != null)
+            {
+                DealCompletionModalUI.Instance.Show(_activeMissionTitle, _rewardAmount);
             }
 
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification($"PACT FULFILLED! Dark pact completed. +{_rewardAmount} credits secured.", 4f);
+                NotificationManager.Instance.ShowNotification($"DEAL COMPLETED! Dark deal finished. +{netGain} credits gained.", 4f);
             }
 
             if (gameObject.activeInHierarchy)
             {
-                StartCoroutine(HideAfterDelay(3.5f));
+                StartCoroutine(HideAfterDelay(2.5f));
             }
             else
             {
@@ -191,22 +223,33 @@ namespace NightCrawler.UI
             if (!_isMissionActive) return;
             _isMissionActive = false;
 
-            Debug.LogWarning($"[ActiveDealMissionHUD] Pact timer expired for '{_activeMissionTitle}'! Applying {_penaltyAmount} penalty.");
+            Debug.LogWarning($"[ActiveDealMissionHUD] Deal timer expired for '{_activeMissionTitle}'! Applying {_penaltyAmount} penalty.");
 
             // Deduct penalty from stake
             if (MatchEconomyManager.Instance != null && NetworkManager.Singleton != null)
             {
-                MatchEconomyManager.Instance.ApplyPactFailurePenalty(NetworkManager.Singleton.LocalClientId, _penaltyAmount);
+                MatchEconomyManager.Instance.ApplyDealFailurePenalty(NetworkManager.Singleton.LocalClientId, _penaltyAmount);
             }
 
             if (missionTitleText != null)
             {
-                missionTitleText.text = "<b>PACT FAILED — TIME EXPIRED</b>";
+                missionTitleText.text = !string.IsNullOrWhiteSpace(_activeMissionTitle) ? _activeMissionTitle.ToUpper() : "DARK DEAL";
+            }
+
+            // Show dedicated deal failure modal
+            if (DealFailureModalUI.Instance != null)
+            {
+                DealFailureModalUI.Instance.Show(_activeMissionTitle, _penaltyAmount);
+            }
+
+            if (NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification($"DEAL FAILED! Time expired. -{_penaltyAmount} credits deducted from stake.", 4.5f);
             }
 
             if (gameObject.activeInHierarchy)
             {
-                StartCoroutine(HideAfterDelay(4.5f));
+                StartCoroutine(HideAfterDelay(2.5f));
             }
             else
             {
