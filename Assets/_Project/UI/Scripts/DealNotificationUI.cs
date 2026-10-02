@@ -55,6 +55,7 @@ public class DealNotificationUI : MonoBehaviour
     private ulong _currentGirlSenderId;
     private bool _grantWeapon;
     private bool _isActive = false;
+    public bool IsOpen => _isActive;
     private bool _isOutcomeMode = false;
 
     private int _currentTimeLimitSeconds = 120;

@@ -192,6 +192,9 @@ public class CharacterAnimationController : MonoBehaviour
     public float gestureDuration  = 2.5f;
     public float gestureBlendTime = 0.3f;
 
+    [Tooltip("If true, gestures in the Squad Screen will smoothly loop continuously using programmatic seamless cross-fading, without modifying the .anim asset on disk!")]
+    public bool continuousSquadGestureLoop = true;
+
     // =========================================================================
     //  CINEMATIC SETTINGS
     //  Used when startupMode == Cinematic
@@ -487,10 +490,21 @@ public class CharacterAnimationController : MonoBehaviour
                 AnimSequenceStep step = typedGestures[Random.Range(0, typedGestures.Count)];
                 if (step == null || string.IsNullOrEmpty(step.stateName)) continue;
 
-                CrossFadeTo(step.stateName, step.blendTime > 0f ? step.blendTime : gestureBlendTime);
-                yield return StartCoroutine(WaitStepHoldTime(step));
-                CrossFadeTo(idleName, gestureBlendTime);
-                yield return new WaitForSecondsRealtime(0.4f);
+                float blend = step.blendTime > 0f ? step.blendTime : gestureBlendTime;
+                float holdTime = step.holdTime > 0.1f ? step.holdTime : gestureDuration;
+
+                if (continuousSquadGestureLoop || step.loop)
+                {
+                    // Programmatically loop this gesture continuously using seamless cross-fading
+                    yield return StartCoroutine(PlayProgrammaticAnimationLoop(step.stateName, holdTime > 0.1f ? holdTime : 30f, blend));
+                }
+                else
+                {
+                    CrossFadeTo(step.stateName, blend);
+                    yield return StartCoroutine(WaitStepHoldTime(step));
+                    CrossFadeTo(idleName, gestureBlendTime);
+                    yield return new WaitForSecondsRealtime(0.4f);
+                }
             }
         }
         else
@@ -514,12 +528,49 @@ public class CharacterAnimationController : MonoBehaviour
                 string gesture = simpleGestures[Random.Range(0, simpleGestures.Count)];
                 if (!string.IsNullOrEmpty(gesture))
                 {
-                    CrossFadeTo(gesture, gestureBlendTime);
-                    yield return new WaitForSecondsRealtime(gestureDuration);
-                    CrossFadeTo(idleName, gestureBlendTime);
-                    yield return new WaitForSecondsRealtime(0.5f);
+                    if (continuousSquadGestureLoop)
+                    {
+                        // Programmatically loop this gesture continuously using seamless cross-fading
+                        yield return StartCoroutine(PlayProgrammaticAnimationLoop(gesture, 30f, gestureBlendTime));
+                    }
+                    else
+                    {
+                        CrossFadeTo(gesture, gestureBlendTime);
+                        yield return new WaitForSecondsRealtime(gestureDuration);
+                        CrossFadeTo(idleName, gestureBlendTime);
+                        yield return new WaitForSecondsRealtime(0.5f);
+                    }
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Programmatically loops ANY animation clip in code by cross-fading back to normalizedTime 0
+    /// right before it finishes, eliminating the need to set 'Loop Time' on the .anim asset on disk.
+    /// This allows the animation to loop here in the Squad Screen while remaining non-looping elsewhere!
+    /// </summary>
+    public IEnumerator PlayProgrammaticAnimationLoop(string stateName, float duration, float blendTime = 0.25f)
+    {
+        if (_animator == null || string.IsNullOrEmpty(stateName)) yield break;
+
+        CrossFadeTo(stateName, blendTime);
+        float elapsed = 0f;
+        yield return new WaitForSecondsRealtime(0.12f);
+
+        while (elapsed < duration)
+        {
+            elapsed += Time.unscaledDeltaTime;
+            AnimatorStateInfo info = _animator.GetCurrentAnimatorStateInfo(0);
+
+            // When clip nears completion (>=88%), smoothly crossfade back to frame 0.0 with seamless blending!
+            if (info.IsName(stateName) && (info.normalizedTime % 1f) >= 0.88f)
+            {
+                _animator.CrossFadeInFixedTime(stateName, blendTime, 0, 0f);
+                yield return new WaitForSecondsRealtime(blendTime + 0.08f);
+            }
+
+            yield return null;
         }
     }
 
