@@ -26,9 +26,9 @@ public class SquadLineupDisplay : MonoBehaviour
     public static SquadLineupDisplay Instance { get; private set; }
 
     /// <summary>
-    /// Returns true only when the squad lineup showcase is actively running.
+    /// Returns true only when the squad lineup showcase or squad environment is actively running.
     /// </summary>
-    public bool IsShowingLineup => _showcaseRoutine != null;
+    public bool IsShowingLineup => _showcaseRoutine != null || (SquadSceneController.Instance != null && SquadSceneController.Instance.IsSquadEnvironmentActive);
 
     // -------------------------------------------------------------------------
     //  Inspector — 3D Scene
@@ -126,6 +126,16 @@ public class SquadLineupDisplay : MonoBehaviour
         // Strictly prevent any ESC presses or pause/exit modals from opening during squad screen showcase
         if (IsShowingLineup)
         {
+            // Guarantee exit hotkeys remain hidden during showcase if anything tried to re-enable them
+            if (CharacterSelectUI.Instance != null && CharacterSelectUI.Instance.exitHotkey != null && CharacterSelectUI.Instance.exitHotkey.gameObject.activeSelf)
+            {
+                CharacterSelectUI.Instance.exitHotkey.gameObject.SetActive(false);
+            }
+            if (GirlPlayerScreen.Instance != null && GirlPlayerScreen.Instance.exitHotkey != null && GirlPlayerScreen.Instance.exitHotkey.gameObject.activeSelf)
+            {
+                GirlPlayerScreen.Instance.exitHotkey.gameObject.SetActive(false);
+            }
+
             if (UnityEngine.InputSystem.Keyboard.current != null && UnityEngine.InputSystem.Keyboard.current.escapeKey.wasPressedThisFrame)
             {
                 // Consumed / inactive
@@ -148,18 +158,85 @@ public class SquadLineupDisplay : MonoBehaviour
         if (SquadSceneController.Instance != null)
             SquadSceneController.Instance.EnableSquadEnvironment();
 
-        // Deactivate all HotkeyEvent components inside lineup UI to ensure ESC / hotkeys remain inactive
-        if (lineupUIPanel != null)
-        {
-            var hotkeys = lineupUIPanel.GetComponentsInChildren<Michsky.UI.Heat.HotkeyEvent>(true);
-            foreach (var hk in hotkeys)
-            {
-                if (hk != null) hk.gameObject.SetActive(false);
-            }
-        }
+        // Deactivate all HotkeyEvent components inside lineup UI and parent canvas / scene to ensure ESC / hotkeys remain inactive
+        DeactivateAllEscapeAndExitHotkeys();
 
         if (_showcaseRoutine != null) StopCoroutine(_showcaseRoutine);
         _showcaseRoutine = StartCoroutine(RunShowcase(onComplete));
+    }
+
+    /// <summary>
+    /// Deactivates any ExitHotKey GameObject or HotkeyEvents mapped to Escape/Exit
+    /// across the lobby canvas and active scene so no ESC button is visible during squad showcase.
+    /// </summary>
+    public void DeactivateAllEscapeAndExitHotkeys()
+    {
+        // 1. Direct references from CharacterSelectUI and GirlPlayerScreen
+        if (CharacterSelectUI.Instance != null && CharacterSelectUI.Instance.exitHotkey != null)
+        {
+            CharacterSelectUI.Instance.exitHotkey.gameObject.SetActive(false);
+            CharacterSelectUI.Instance.exitHotkey.enabled = false;
+        }
+
+        if (GirlPlayerScreen.Instance != null && GirlPlayerScreen.Instance.exitHotkey != null)
+        {
+            GirlPlayerScreen.Instance.exitHotkey.gameObject.SetActive(false);
+            GirlPlayerScreen.Instance.exitHotkey.enabled = false;
+        }
+
+        // 2. Search lineup panel itself
+        if (lineupUIPanel != null)
+        {
+            var panelHotkeys = lineupUIPanel.GetComponentsInChildren<Michsky.UI.Heat.HotkeyEvent>(true);
+            foreach (var hk in panelHotkeys)
+            {
+                if (hk != null)
+                {
+                    hk.gameObject.SetActive(false);
+                    hk.enabled = false;
+                }
+            }
+        }
+
+        // 3. Search the parent Canvas hierarchy
+        var canvas = GetComponentInParent<Canvas>(true);
+        if (canvas != null)
+        {
+            var canvasHotkeys = canvas.GetComponentsInChildren<Michsky.UI.Heat.HotkeyEvent>(true);
+            foreach (var hk in canvasHotkeys)
+            {
+                if (hk == null) continue;
+                string hName = hk.gameObject.name.ToLower();
+                string hLabel = hk.hotkeyLabel != null ? hk.hotkeyLabel.ToLower() : "";
+                if (hName.Contains("exit") || hName.Contains("back") || hLabel.Contains("esc") || hLabel.Contains("exit") || hLabel.Contains("back"))
+                {
+                    hk.gameObject.SetActive(false);
+                    hk.enabled = false;
+                }
+            }
+        }
+
+        // 4. Scan root GameObjects in the scene to catch sibling canvas elements (like ExitHotKey)
+        if (gameObject.scene.isLoaded)
+        {
+            var roots = gameObject.scene.GetRootGameObjects();
+            foreach (var root in roots)
+            {
+                if (root == null) continue;
+                var hotkeys = root.GetComponentsInChildren<Michsky.UI.Heat.HotkeyEvent>(true);
+                foreach (var hk in hotkeys)
+                {
+                    if (hk == null) continue;
+                    string hName = hk.gameObject.name.ToLower();
+                    string hLabel = hk.hotkeyLabel != null ? hk.hotkeyLabel.ToLower() : "";
+                    if (hName.Contains("exit") || hName.Contains("back") || hLabel.Contains("esc") || hLabel.Contains("exit") || hLabel.Contains("back"))
+                    {
+                        hk.gameObject.SetActive(false);
+                        hk.enabled = false;
+                    }
+                }
+            }
+        }
     }
 
     /// <summary>Immediately hides and clears the lineup.</summary>

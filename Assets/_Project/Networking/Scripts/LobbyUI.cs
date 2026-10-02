@@ -382,6 +382,7 @@ public class LobbyUI : MonoBehaviour
     /// </summary>
     public void HandleLobbyEscape()
     {
+        if (SquadLineupDisplay.Instance != null && SquadLineupDisplay.Instance.IsShowingLineup) return;
         if (Time.frameCount == _lastEscapeFrame) return;
         _lastEscapeFrame = Time.frameCount;
 

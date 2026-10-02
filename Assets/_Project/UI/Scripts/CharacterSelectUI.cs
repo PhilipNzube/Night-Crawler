@@ -206,6 +206,9 @@ public class CharacterSelectUI : MonoBehaviour
         if (SquadLineupDisplay.Instance != null && SquadLineupDisplay.Instance.IsShowingLineup)
             return true;
 
+        if (SquadSceneController.Instance != null && SquadSceneController.Instance.IsSquadEnvironmentActive)
+            return true;
+
         // 2. All connected players are confirmed ready (green wait texts showing / countdown active)
         if (_isAllPlayersReady)
             return true;
@@ -416,6 +419,12 @@ public class CharacterSelectUI : MonoBehaviour
 
     void OnDisable()
     {
+        if (exitHotkey != null && IsTransitionOrDescentLocked())
+        {
+            exitHotkey.gameObject.SetActive(false);
+            exitHotkey.enabled = false;
+        }
+
         if (CharacterSceneController.Instance != null)
             CharacterSceneController.Instance.DisableCharacterSelectEnvironment();
 
@@ -1621,6 +1630,17 @@ public class CharacterSelectUI : MonoBehaviour
     private void GoToSquadScreen()
     {
         _isAllPlayersReady = true;
+
+        if (exitHotkey != null)
+        {
+            exitHotkey.gameObject.SetActive(false);
+            exitHotkey.enabled = false;
+        }
+
+        if (exitConfirmModal != null && exitConfirmModal.isOn)
+        {
+            exitConfirmModal.CloseWindow();
+        }
 
         if (PlayerReadyTracker.Instance != null)
         {

@@ -23,6 +23,7 @@ using NightCrawler.UI;
 /// </summary>
 public class GirlPlayerScreen : MonoBehaviour
 {
+    public static GirlPlayerScreen Instance { get; private set; }
     // -------------------------------------------------------------------------
     //  Inspector — Environment
     // -------------------------------------------------------------------------
@@ -124,11 +125,26 @@ public class GirlPlayerScreen : MonoBehaviour
 
     void Awake()
     {
+        if (Instance != null && Instance != this)
+        {
+            Destroy(gameObject);
+            return;
+        }
+        Instance = this;
+
         if (girlScreenPanel == null)
             girlScreenPanel = gameObject;
 
         MichskyUIBridge.BindButton(null, heatReadyButton, OnReadyButtonClicked);
         InitExitBindings();
+    }
+
+    void OnDestroy()
+    {
+        if (Instance == this)
+        {
+            Instance = null;
+        }
     }
 
     private bool _isAllPlayersReady = false;
@@ -142,6 +158,9 @@ public class GirlPlayerScreen : MonoBehaviour
     {
         // 1. Squad scene showcase is actively running
         if (SquadLineupDisplay.Instance != null && SquadLineupDisplay.Instance.IsShowingLineup)
+            return true;
+
+        if (SquadSceneController.Instance != null && SquadSceneController.Instance.IsSquadEnvironmentActive)
             return true;
 
         // 2. All players ready / departure countdown active / green wait text showing
@@ -340,6 +359,12 @@ public class GirlPlayerScreen : MonoBehaviour
             PlayerReadyTracker.Instance.OnReadyStatesUpdated -= HandleReadyStatesUpdated;
             PlayerReadyTracker.Instance.OnPlayerLobbyStatesUpdated -= HandlePlayerLobbyStatesUpdated;
             PlayerReadyTracker.Instance.OnAllPlayersReady -= HandleAllPlayersReady;
+        }
+
+        if (exitHotkey != null)
+        {
+            exitHotkey.gameObject.SetActive(false);
+            exitHotkey.enabled = false;
         }
 
         DestroyModel();
@@ -592,6 +617,18 @@ public class GirlPlayerScreen : MonoBehaviour
     private void HandleAllPlayersReady()
     {
         _isAllPlayersReady = true;
+
+        if (exitHotkey != null)
+        {
+            exitHotkey.gameObject.SetActive(false);
+            exitHotkey.enabled = false;
+        }
+
+        if (exitConfirmModal != null && exitConfirmModal.isOn)
+        {
+            exitConfirmModal.CloseWindow();
+        }
+
         if (_departureCountdownRoutine != null) return;
         _departureCountdownRoutine = StartCoroutine(RunDepartureCountdown());
     }

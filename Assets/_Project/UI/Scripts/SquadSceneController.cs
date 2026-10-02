@@ -21,6 +21,9 @@ public class SquadSceneController : MonoBehaviour
 {
     public static SquadSceneController Instance { get; private set; }
 
+    /// <summary>Returns true if the 3D squad world environment root is currently active in the scene.</summary>
+    public bool IsSquadEnvironmentActive => squadWorldRoot != null && squadWorldRoot.activeSelf;
+
     // -------------------------------------------------------------------------
     //  Inspector
     // -------------------------------------------------------------------------

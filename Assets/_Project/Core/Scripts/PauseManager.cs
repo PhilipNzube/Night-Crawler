@@ -177,6 +177,7 @@ public class PauseManager : MonoBehaviour
     /// </summary>
     public void HandleEscapePress()
     {
+        if (SquadLineupDisplay.Instance != null && SquadLineupDisplay.Instance.IsShowingLineup) return;
         if (Time.unscaledTime - _lastToggleTime < ToggleCooldown) return;
         _lastToggleTime = Time.unscaledTime;
 
