@@ -26,8 +26,10 @@ namespace NightCrawler.UI
         [Tooltip("The TextMeshProUGUI showing the penalty deducted.")]
         public TextMeshProUGUI penaltyText;
 
+        [Tooltip("Optional description text (similar to deal notification prompt).")]
+        public TextMeshProUGUI descriptionText;
+
         [Header("Buttons")]
-        [Tooltip("Continue/Confirm button to dismiss modal.")]
         public ButtonManager continueButton;
 
         private bool _isOpen = false;
@@ -83,7 +85,7 @@ namespace NightCrawler.UI
             }
         }
 
-        public void Show(string dealName, int penaltyCredits)
+        public void Show(string dealName, int penaltyCredits, string description = "")
         {
             // If local player is dead, suppress showing
             if (IsLocalPlayerDead()) return;
@@ -101,12 +103,22 @@ namespace NightCrawler.UI
                 penaltyText.text = $"{penaltyCredits}";
             }
 
+            string cleanDesc = !string.IsNullOrWhiteSpace(description) ? description : "You failed to uphold the terms in time. The spirit claims its tribute from your stake.";
+            if (descriptionText != null)
+            {
+                descriptionText.text = cleanDesc;
+            }
+
             if (modalWindow != null)
             {
                 modalWindow.useLocalization = false;
                 modalWindow.titleKey = string.Empty;
                 modalWindow.descriptionKey = string.Empty;
                 if (modalWindow.windowTitle != null) modalWindow.windowTitle.text = "pay up!!";
+                if (modalWindow.windowDescription != null && string.IsNullOrEmpty(modalWindow.windowDescription.text))
+                {
+                    modalWindow.windowDescription.text = cleanDesc;
+                }
                 try { modalWindow.UpdateUI(); } catch { }
             }
 

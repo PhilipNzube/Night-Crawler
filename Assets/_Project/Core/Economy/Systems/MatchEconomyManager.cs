@@ -648,5 +648,17 @@ namespace NightCrawler.Economy
             Debug.Log($"[MatchEconomyManager] Local payout applied: Won={summary.won}, Net={summary.netPayout} {CurrencyConfig.CurrencyName}, New Balance={summary.newBalance}");
             OnLocalPayoutReceived?.Invoke(summary);
         }
+
+        /// <summary>
+        /// Retrieves the current match stake for a specific player (or fallback minimum stake).
+        /// </summary>
+        public int GetPlayerStake(ulong clientId)
+        {
+            if (_playerRecords != null && _playerRecords.TryGetValue(clientId, out var record))
+            {
+                return record.stakedCredits;
+            }
+            return CurrencyConfig.MinimumStake;
+        }
     }
 }

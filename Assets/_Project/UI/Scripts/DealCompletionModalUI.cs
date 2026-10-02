@@ -26,8 +26,16 @@ namespace NightCrawler.UI
         [Tooltip("The TextMeshProUGUI showing the reward earned.")]
         public TextMeshProUGUI rewardText;
 
+        [Tooltip("The TextMeshProUGUI showing the penalty (if configured in CompletedDealModal).")]
+        public TextMeshProUGUI penaltyText;
+
+        [Tooltip("The TextMeshProUGUI showing remaining reward / stake balance.")]
+        public TextMeshProUGUI rewardLeftText;
+
+        [Tooltip("Optional description text (similar to deal notification prompt).")]
+        public TextMeshProUGUI descriptionText;
+
         [Header("Buttons")]
-        [Tooltip("Continue/Confirm button to dismiss modal.")]
         public ButtonManager continueButton;
 
         private bool _isOpen = false;
@@ -83,7 +91,7 @@ namespace NightCrawler.UI
             }
         }
 
-        public void Show(string dealName, int rewardCredits)
+        public void Show(string dealName, int rewardCredits, int penaltyCredits = 0, int rewardLeft = 0, string description = "")
         {
             // If local player is dead, suppress showing
             if (IsLocalPlayerDead()) return;
@@ -101,12 +109,34 @@ namespace NightCrawler.UI
                 rewardText.text = $"{rewardCredits}";
             }
 
+            if (penaltyText != null)
+            {
+                penaltyText.text = $"{penaltyCredits}";
+            }
+
+            if (rewardLeftText != null)
+            {
+                // If rewardLeft is not passed (0), display the earned reward or the player's stake
+                int displayLeft = rewardLeft > 0 ? rewardLeft : rewardCredits;
+                rewardLeftText.text = $"{displayLeft}";
+            }
+
+            string cleanDesc = !string.IsNullOrWhiteSpace(description) ? description : "The terms of this dark deal have been fulfilled. The promised bounty is yours.";
+            if (descriptionText != null)
+            {
+                descriptionText.text = cleanDesc;
+            }
+
             if (modalWindow != null)
             {
                 modalWindow.useLocalization = false;
                 modalWindow.titleKey = string.Empty;
                 modalWindow.descriptionKey = string.Empty;
                 if (modalWindow.windowTitle != null) modalWindow.windowTitle.text = "its a done deal";
+                if (modalWindow.windowDescription != null && string.IsNullOrEmpty(modalWindow.windowDescription.text))
+                {
+                    modalWindow.windowDescription.text = cleanDesc;
+                }
                 try { modalWindow.UpdateUI(); } catch { }
             }
 

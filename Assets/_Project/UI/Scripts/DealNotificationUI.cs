@@ -451,7 +451,7 @@ public class DealNotificationUI : MonoBehaviour
         // Start active deal timer HUD
         if (ActiveDealMissionHUD.Instance != null)
         {
-            ActiveDealMissionHUD.Instance.StartMission(_currentTitle, _currentTerms, _currentTimeLimitSeconds, _currentPenaltyCredits, _currentRewardCredits);
+            ActiveDealMissionHUD.Instance.StartMission(_currentTitle, _currentTerms, _currentTimeLimitSeconds, _currentPenaltyCredits, _currentRewardCredits, _currentGirlSenderId);
         }
 
         if (DealSystemNet.Instance != null)

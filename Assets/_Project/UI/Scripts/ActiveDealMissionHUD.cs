@@ -29,6 +29,7 @@ namespace NightCrawler.UI
         private float _totalDuration = 0f;
         private int _penaltyAmount = 15;
         private int _rewardAmount = 30;
+        private ulong _girlSenderClientId = 0;
         private bool _isMissionActive = false;
         private string _activeMissionTitle = string.Empty;
         private AudioSource _audioSource;
@@ -129,7 +130,7 @@ namespace NightCrawler.UI
             if (DealFailureModalUI.Instance != null) DealFailureModalUI.Instance.Hide();
         }
 
-        public void StartMission(string title, string terms, int durationSeconds, int penaltyAmount, int rewardAmount = 30)
+        public void StartMission(string title, string terms, int durationSeconds, int penaltyAmount, int rewardAmount = 30, ulong girlClientId = 0)
         {
             if (!gameObject.activeSelf)
             {
@@ -141,6 +142,7 @@ namespace NightCrawler.UI
             _timeRemaining = _totalDuration;
             _penaltyAmount = penaltyAmount;
             _rewardAmount = rewardAmount;
+            _girlSenderClientId = girlClientId;
             _isMissionActive = true;
 
             // Only show the mission of the deal at the top, no extra nonsense texts
@@ -197,10 +199,17 @@ namespace NightCrawler.UI
                 missionTitleText.text = !string.IsNullOrWhiteSpace(_activeMissionTitle) ? _activeMissionTitle.ToUpper() : "DARK DEAL";
             }
 
+            // Report completion outcome across the network to the Girl
+            if (DealSystemNet.Instance != null)
+            {
+                DealSystemNet.Instance.ReportDealOutcome(_girlSenderClientId, true, _activeMissionTitle, _rewardAmount);
+            }
+
             // Show dedicated deal completion modal
             if (DealCompletionModalUI.Instance != null)
             {
-                DealCompletionModalUI.Instance.Show(_activeMissionTitle, _rewardAmount);
+                int currentStake = MatchEconomyManager.Instance != null ? MatchEconomyManager.Instance.GetPlayerStake(NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0) : _rewardAmount;
+                DealCompletionModalUI.Instance.Show(_activeMissionTitle, _rewardAmount, _penaltyAmount, currentStake, "The dark deal was successfully executed. The promised bounty is yours.");
             }
 
             if (NotificationManager.Instance != null)
@@ -236,10 +245,16 @@ namespace NightCrawler.UI
                 missionTitleText.text = !string.IsNullOrWhiteSpace(_activeMissionTitle) ? _activeMissionTitle.ToUpper() : "DARK DEAL";
             }
 
+            // Report failure outcome across the network to the Girl
+            if (DealSystemNet.Instance != null)
+            {
+                DealSystemNet.Instance.ReportDealOutcome(_girlSenderClientId, false, _activeMissionTitle, _penaltyAmount);
+            }
+
             // Show dedicated deal failure modal
             if (DealFailureModalUI.Instance != null)
             {
-                DealFailureModalUI.Instance.Show(_activeMissionTitle, _penaltyAmount);
+                DealFailureModalUI.Instance.Show(_activeMissionTitle, _penaltyAmount, "You failed to uphold the terms before the timer expired. The spirit claims its tribute from your stake.");
             }
 
             if (NotificationManager.Instance != null)

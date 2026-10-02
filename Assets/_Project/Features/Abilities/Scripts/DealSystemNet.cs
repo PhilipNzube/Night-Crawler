@@ -22,6 +22,7 @@ public class DealSystemNet : MonoBehaviour
     private const string MSG_RESPOND = "NC_Deal_Respond";
     private const string MSG_PLAY_LAUGH = "NC_Deal_PlayLaugh";
     private const string MSG_NOTIFY_GIRL = "NC_Deal_NotifyGirl";
+    private const string MSG_NOTIFY_OUTCOME = "NC_Deal_NotifyOutcome";
 
     private static DealSystemNet _instance;
     public static DealSystemNet Instance
@@ -107,6 +108,7 @@ public class DealSystemNet : MonoBehaviour
         cm.RegisterNamedMessageHandler(MSG_RESPOND, OnServerReceivedRespond);
         cm.RegisterNamedMessageHandler(MSG_PLAY_LAUGH, OnClientReceivedPlayLaugh);
         cm.RegisterNamedMessageHandler(MSG_NOTIFY_GIRL, OnClientReceivedNotifyGirl);
+        cm.RegisterNamedMessageHandler(MSG_NOTIFY_OUTCOME, OnClientReceivedNotifyOutcome);
 
         _isRegistered = true;
         Debug.Log("[DealSystemNet] Registered CustomMessagingManager deal handlers successfully.");
@@ -122,6 +124,7 @@ public class DealSystemNet : MonoBehaviour
         cm.UnregisterNamedMessageHandler(MSG_RESPOND);
         cm.UnregisterNamedMessageHandler(MSG_PLAY_LAUGH);
         cm.UnregisterNamedMessageHandler(MSG_NOTIFY_GIRL);
+        cm.UnregisterNamedMessageHandler(MSG_NOTIFY_OUTCOME);
 
         _isRegistered = false;
     }
@@ -446,10 +449,10 @@ public class DealSystemNet : MonoBehaviour
         {
             _pendingTargetClientIds.Remove(responderId);
         }
-        Debug.Log($"[DealSystemNet] Pact response from {responderName}: accepted={accepted}");
+        Debug.Log($"[DealSystemNet] Deal response from {responderName}: accepted={accepted}");
         string msg = accepted 
-            ? $"{responderName} accepted your dark pact!" 
-            : $"{responderName} rejected your dark pact.";
+            ? $"{responderName} accepted your dark deal!" 
+            : $"{responderName} rejected your dark deal.";
 
         if (NotificationManager.Instance != null)
         {
@@ -458,6 +461,96 @@ public class DealSystemNet : MonoBehaviour
         else if (DeathUI.Instance != null)
         {
             DeathUI.Instance.PostDealResponse(responderName, accepted);
+        }
+    }
+
+    /// <summary>
+    /// Broadcasts deal completion or failure outcome to the Girl who dispatched it.
+    /// </summary>
+    public void ReportDealOutcome(ulong girlClientId, bool success, string dealTitle, int amount)
+    {
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening) return;
+
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+        string playerName = PlayerNameManager.GetPlayerName(localId);
+        if (string.IsNullOrEmpty(playerName)) playerName = $"Investigator {localId}";
+
+        if (girlClientId == localId)
+        {
+            HandleDealOutcomeOnGirl(playerName, success, dealTitle, amount);
+            return;
+        }
+
+        if (NetworkManager.Singleton.IsServer)
+        {
+            if (NetworkManager.Singleton.ConnectedClients.ContainsKey(girlClientId))
+            {
+                using var writer = new FastBufferWriter(256, Allocator.Temp);
+                writer.WriteValueSafe(playerName);
+                writer.WriteValueSafe(success);
+                writer.WriteValueSafe(dealTitle ?? "");
+                writer.WriteValueSafe(amount);
+                NetworkManager.Singleton.CustomMessagingManager.SendNamedMessage(MSG_NOTIFY_OUTCOME, girlClientId, writer);
+            }
+        }
+        else
+        {
+            // Route through server to girlClientId
+            using var writer = new FastBufferWriter(256, Allocator.Temp);
+            writer.WriteValueSafe(playerName);
+            writer.WriteValueSafe(success);
+            writer.WriteValueSafe(dealTitle ?? "");
+            writer.WriteValueSafe(amount);
+            writer.WriteValueSafe(girlClientId);
+            NetworkManager.Singleton.CustomMessagingManager.SendNamedMessage(MSG_NOTIFY_OUTCOME, NetworkManager.ServerClientId, writer);
+        }
+    }
+
+    private void OnClientReceivedNotifyOutcome(ulong senderClientId, FastBufferReader reader)
+    {
+        reader.ReadValueSafe(out string playerName);
+        reader.ReadValueSafe(out bool success);
+        reader.ReadValueSafe(out string dealTitle);
+        reader.ReadValueSafe(out int amount);
+
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer && reader.Length > reader.Position)
+        {
+            reader.ReadValueSafe(out ulong targetGirlId);
+            if (targetGirlId != NetworkManager.Singleton.LocalClientId)
+            {
+                // Relay to Girl
+                if (NetworkManager.Singleton.ConnectedClients.ContainsKey(targetGirlId))
+                {
+                    using var forward = new FastBufferWriter(256, Allocator.Temp);
+                    forward.WriteValueSafe(playerName);
+                    forward.WriteValueSafe(success);
+                    forward.WriteValueSafe(dealTitle);
+                    forward.WriteValueSafe(amount);
+                    NetworkManager.Singleton.CustomMessagingManager.SendNamedMessage(MSG_NOTIFY_OUTCOME, targetGirlId, forward);
+                }
+                return;
+            }
+        }
+
+        HandleDealOutcomeOnGirl(playerName, success, dealTitle, amount);
+    }
+
+    private void HandleDealOutcomeOnGirl(string playerName, bool success, string dealTitle, int amount)
+    {
+        string status = success ? "COMPLETED" : "FAILED";
+        string msg = success
+            ? $"DEAL {status}: {playerName} fulfilled '{dealTitle}'!"
+            : $"DEAL {status}: {playerName} failed '{dealTitle}'. Penalty collected: {amount} credits.";
+
+        Debug.Log($"[DealSystemNet] Girl notified of deal outcome: {msg}");
+
+        if (NotificationManager.Instance != null)
+        {
+            NotificationManager.Instance.ShowNotification(msg, 4.5f);
+        }
+        else if (DeathUI.Instance != null)
+        {
+            DeathUI.Instance.PostDealResponse(playerName, success);
         }
     }
 }
