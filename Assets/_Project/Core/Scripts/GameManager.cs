@@ -158,11 +158,6 @@ public class GameManager : NetworkBehaviour
             if (clientId == NetworkManager.Singleton.LocalClientId || clientId == NetworkManager.ServerClientId)
             {
                 Debug.Log($"[GameManager] Remote client detected host disconnect (clientId={clientId})");
-                if (NotificationManager.Instance != null)
-                {
-                    string reason = GetFriendlyNetworkDisconnectReason();
-                    NotificationManager.Instance.ShowNotification($"Connection Lost: {reason}", 4.5f);
-                }
                 if (HostDisconnectUI.Instance != null)
                 {
                     HostDisconnectUI.Instance.TriggerHostDisconnect();

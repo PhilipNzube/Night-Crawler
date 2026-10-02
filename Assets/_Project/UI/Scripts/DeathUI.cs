@@ -470,13 +470,13 @@ public class DeathUI : MonoBehaviour
 
     public void PostDealResponse(string playerName, bool accepted)
     {
-        if (accepted)
+        string msg = accepted
+            ? $"{playerName} accepted your dark pact!"
+            : $"{playerName} rejected your dark pact.";
+
+        if (NotificationManager.Instance != null)
         {
-            AddAllyAlertEntry($"{playerName} accepted your dark pact!", new Color(0.2f, 0.9f, 0.4f, 1f));
-        }
-        else
-        {
-            AddAllyAlertEntry($"{playerName} rejected your dark pact.", new Color(0.95f, 0.35f, 0.2f, 1f));
+            NotificationManager.Instance.ShowNotification(msg, 4f);
         }
     }
 

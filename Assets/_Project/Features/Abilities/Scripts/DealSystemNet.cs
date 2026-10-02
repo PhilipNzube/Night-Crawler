@@ -401,7 +401,15 @@ public class DealSystemNet : MonoBehaviour
     private void NotifyGirlDealResult(string responderName, bool accepted)
     {
         Debug.Log($"[DealSystemNet] Pact response from {responderName}: accepted={accepted}");
-        if (DeathUI.Instance != null)
+        string msg = accepted 
+            ? $"{responderName} accepted your dark pact!" 
+            : $"{responderName} rejected your dark pact.";
+
+        if (NotificationManager.Instance != null)
+        {
+            NotificationManager.Instance.ShowNotification(msg, 4f);
+        }
+        else if (DeathUI.Instance != null)
         {
             DeathUI.Instance.PostDealResponse(responderName, accepted);
         }
