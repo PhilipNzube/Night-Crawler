@@ -193,21 +193,25 @@ public class CharacterSelectUI : MonoBehaviour
         InitExitBindings();
     }
 
+    private bool _isAllPlayersReady = false;
+
     /// <summary>
-    /// Returns true once the squad scene has loaded, all players are ready,
-    /// departure countdown / green wait text is active, or the loading screen is transitioning.
+    /// Returns true once the squad scene has loaded, all players are confirmed ready,
+    /// or the loading screen is transitioning.
     /// In this state, players cannot press ESC to exit and hotkey indicators are hidden.
     /// </summary>
     public bool IsTransitionOrDescentLocked()
     {
-        // 1. Squad scene is active
-        if (SquadLineupDisplay.Instance != null && SquadLineupDisplay.Instance.gameObject.activeInHierarchy)
+        // 1. Squad scene is actively showing
+        if (SquadLineupDisplay.Instance != null && SquadLineupDisplay.Instance.IsShowingLineup)
             return true;
-        if (SquadSceneController.Instance != null && SquadSceneController.Instance.squadWorldRoot != null && SquadSceneController.Instance.squadWorldRoot.activeInHierarchy)
+        if (SquadSceneController.Instance != null && SquadSceneController.Instance.squadCamera != null && SquadSceneController.Instance.squadCamera.enabled)
             return true;
 
-        // 2. All players ready
-        if (PlayerReadyTracker.Instance != null && PlayerReadyTracker.Instance.AllPlayersReady)
+        // 2. All connected players are confirmed ready
+        if (_isAllPlayersReady)
+            return true;
+        if (PlayerReadyTracker.Instance != null && PlayerReadyTracker.Instance.TotalCount > 0 && PlayerReadyTracker.Instance.AllPlayersReady)
             return true;
 
         // 3. Loading screen active
@@ -341,6 +345,11 @@ public class CharacterSelectUI : MonoBehaviour
     {
         InitExitBindings();
         _localConfirmed = false;
+        _isAllPlayersReady = false;
+        if (exitHotkey != null)
+        {
+            exitHotkey.gameObject.SetActive(true);
+        }
         if (playerStatusPanel != null) playerStatusPanel.SetActive(false);
 
         // This screen is strictly for investigator character selection.
@@ -1569,6 +1578,8 @@ public class CharacterSelectUI : MonoBehaviour
 
     private void GoToSquadScreen()
     {
+        _isAllPlayersReady = true;
+
         if (PlayerReadyTracker.Instance != null)
         {
             PlayerReadyTracker.Instance.OnReadyStatesUpdated -= HandleReadyStatesUpdated;

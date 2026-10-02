@@ -25,6 +25,11 @@ public class SquadLineupDisplay : MonoBehaviour
 {
     public static SquadLineupDisplay Instance { get; private set; }
 
+    /// <summary>
+    /// Returns true only when the squad lineup showcase is actively running.
+    /// </summary>
+    public bool IsShowingLineup => _showcaseRoutine != null || (lineupUIPanel != null && lineupUIPanel.activeSelf);
+
     // -------------------------------------------------------------------------
     //  Inspector — 3D Scene
     // -------------------------------------------------------------------------

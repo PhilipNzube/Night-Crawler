@@ -131,6 +131,8 @@ public class GirlPlayerScreen : MonoBehaviour
         InitExitBindings();
     }
 
+    private bool _isAllPlayersReady = false;
+
     /// <summary>
     /// Returns true once the squad scene has loaded, all players are ready,
     /// departure countdown / green wait text is active, or the loading screen is transitioning.
@@ -138,16 +140,16 @@ public class GirlPlayerScreen : MonoBehaviour
     /// </summary>
     public bool IsTransitionOrDescentLocked()
     {
-        // 1. Squad scene is active
-        if (SquadLineupDisplay.Instance != null && SquadLineupDisplay.Instance.gameObject.activeInHierarchy)
+        // 1. Squad scene is actively showing
+        if (SquadLineupDisplay.Instance != null && SquadLineupDisplay.Instance.IsShowingLineup)
             return true;
-        if (SquadSceneController.Instance != null && SquadSceneController.Instance.squadWorldRoot != null && SquadSceneController.Instance.squadWorldRoot.activeInHierarchy)
+        if (SquadSceneController.Instance != null && SquadSceneController.Instance.squadCamera != null && SquadSceneController.Instance.squadCamera.enabled)
             return true;
 
-        // 2. All players ready / departure countdown active
-        if (_departureCountdownRoutine != null)
+        // 2. All players ready / departure countdown active / green wait text showing
+        if (_isAllPlayersReady || _departureCountdownRoutine != null)
             return true;
-        if (PlayerReadyTracker.Instance != null && PlayerReadyTracker.Instance.AllPlayersReady)
+        if (PlayerReadyTracker.Instance != null && PlayerReadyTracker.Instance.TotalCount > 0 && PlayerReadyTracker.Instance.AllPlayersReady)
             return true;
 
         // 3. Loading screen active
@@ -284,7 +286,13 @@ public class GirlPlayerScreen : MonoBehaviour
     public void Show()
     {
         _readySent = false;
+        _isAllPlayersReady = false;
         PersistentCharacterSelection.SetIsVengefulSpirit(true);
+
+        if (exitHotkey != null)
+        {
+            exitHotkey.gameObject.SetActive(true);
+        }
 
         // Ensure CharacterSelectUI and white room are disabled
         CharacterSelectUI selectUI = FindFirstObjectByType<CharacterSelectUI>(FindObjectsInactive.Include);
@@ -587,6 +595,7 @@ public class GirlPlayerScreen : MonoBehaviour
 
     private void HandleAllPlayersReady()
     {
+        _isAllPlayersReady = true;
         if (_departureCountdownRoutine != null) return;
         _departureCountdownRoutine = StartCoroutine(RunDepartureCountdown());
     }
