@@ -24,10 +24,11 @@ public class ZombieAI : MonsterAI
     protected override void ConfigureMonsterDefaults()
     {
         monsterType = MonsterType.Zombie;
-        if (crawlSpeed <= 0f) crawlSpeed = 6.8f;
-        if (standRunSpeed <= 0f) standRunSpeed = 5.6f;
-        if (walkSpeed <= 0f) walkSpeed = 2.6f;
-        if (runSpeed < 5.0f) runSpeed = standRunSpeed;
+        crawlSpeed = 2.8f;
+        standRunSpeed = 2.6f;
+        walkSpeed = 0.95f;
+        runSpeed = crawlSpeed;
+        runAcceleration = 8.0f;
         if (attackDamage < 25f) attackDamage = 35f;
         if (attackRange <= 0f) attackRange = 2.0f;
         if (screamDuration <= 0f) screamDuration = 2.2f;

@@ -53,9 +53,10 @@ public class BerserkerAI : MonsterAI
     protected override void ConfigureMonsterDefaults()
     {
         monsterType = MonsterType.Berserker;
-        if (runSpeed < 5.0f || runSpeed > 7.0f) runSpeed = 5.8f;
-        if (standRunSpeed < 5.0f || standRunSpeed > 7.0f) standRunSpeed = runSpeed;
-        if (walkSpeed < 2.0f || walkSpeed > 4.0f) walkSpeed = 2.8f;
+        runSpeed = 3.4f;
+        standRunSpeed = 3.4f;
+        walkSpeed = 1.4f;
+        runAcceleration = 8.5f;
         if (attackDamage < 50f) attackDamage = 65f;
         if (attackRange < 2.0f) attackRange = 2.2f;
         if (screamDuration <= 0f) screamDuration = 2.6f;
@@ -85,7 +86,6 @@ public class BerserkerAI : MonsterAI
 
     public void PlayBerserkerRunLocomotion(float speed)
     {
-        SetLocomotionAnimSpeed(1.15f);
         SafeSetFloat(_speedHash, speed);
         SafeSetBool(_isRunningHash, true);
         SafeSetBool(_isWalkingHash, false);
@@ -96,7 +96,6 @@ public class BerserkerAI : MonsterAI
 
     public void PlayBerserkerWalkLocomotion(float speed)
     {
-        SetLocomotionAnimSpeed(1.0f);
         SafeSetFloat(_speedHash, speed);
         SafeSetBool(_isRunningHash, false);
         SafeSetBool(_isWalkingHash, true);
@@ -310,6 +309,9 @@ public class BerserkerAI : MonsterAI
         _agent.isStopped = false;
         _agent.speed = patrolSpeed;
         PlayBerserkerWalkLocomotion(patrolSpeed);
-        _agent.SetDestination(_roamDestination);
+        if (!_agent.hasPath && _roamDestination != Vector3.zero)
+        {
+            _agent.SetDestination(_roamDestination);
+        }
     }
 }

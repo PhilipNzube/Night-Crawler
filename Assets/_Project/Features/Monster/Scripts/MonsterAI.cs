@@ -68,13 +68,13 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     public float hitReactionDuration = 0.5f;
 
     [Tooltip("Walking speed in standing posture (used when following Girl or patrolling near her).")]
-    public float walkSpeed = 1.9f;
+    public float walkSpeed = 0.95f;
 
     [Tooltip("Standing run speed while pursuing targets or catching up to the Girl.")]
-    public float standRunSpeed = 5.2f;
+    public float standRunSpeed = 2.6f;
 
     [Tooltip("Crawl run speed while sprinting on all fours across long distances.")]
-    public float crawlSpeed = 6.2f;
+    public float crawlSpeed = 2.8f;
 
     [Tooltip("NavMeshAgent base offset when crawling. Fine-tune to ensure hands/knees touch the ground (e.g. 0.0 or -0.05).")]
     public float crawlBaseOffset = 0f;
@@ -86,11 +86,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     private float _defaultControllerHeight = 1.8f;
     private Vector3 _defaultControllerCenter = new Vector3(0f, 0.9f, 0f);
     [Tooltip("Movement speed while sprinting at targets.")]
-    public float runSpeed = 5.8f;
+    public float runSpeed = 2.8f;
     [Tooltip("Angular rotation speed when turning towards players.")]
     public float turnSpeed = 12f;
     [Tooltip("Acceleration for instantaneous, aggressive chasing.")]
-    public float runAcceleration = 18f;
+    public float runAcceleration = 8.0f;
 
     [Header("Combat & Damage")]
     [Tooltip("Distance at which the monster initiates its attack.")]
@@ -251,6 +251,23 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
 
         _animator = GetComponentInChildren<Animator>();
+        if (_animator != null)
+        {
+            // CRITICAL: Disable root motion so animation clips do not double-stack displacement on top of NavMeshAgent!
+            _animator.applyRootMotion = false;
+        }
+
+        // Ensure physical body CapsuleCollider exists so monsters have solid physics collision
+        // and cannot slide or phase into characters, without the CharacterController step-offset flying bug
+        var rootCol = GetComponent<CapsuleCollider>();
+        if (rootCol == null)
+        {
+            rootCol = gameObject.AddComponent<CapsuleCollider>();
+            rootCol.center = _defaultControllerCenter;
+            rootCol.radius = 0.4f;
+            rootCol.height = _defaultControllerHeight;
+        }
+
         _networkAnimator = GetComponent<NetworkAnimator>();
         _targetHealth = GetComponent<TargetHealth>();
         if (_targetHealth == null)
@@ -372,18 +389,21 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         if (monsterType == MonsterType.Berserker)
         {
-            if (runSpeed < 5.0f || runSpeed > 7.0f) runSpeed = 5.8f;
-            if (standRunSpeed < 5.0f || standRunSpeed > 7.0f) standRunSpeed = 5.8f;
+            runSpeed = 4.5f;
+            standRunSpeed = 4.5f;
+            walkSpeed = 1.8f;
+            runAcceleration = 8.5f;
             if (attackDamage < 50f) attackDamage = 65f;
             if (screamDuration <= 0f) screamDuration = 2.6f;
         }
         else
         {
-            // Zombie defaults
-            crawlSpeed = 6.2f;
-            standRunSpeed = 5.2f;
-            walkSpeed = 1.9f;
-            runSpeed = standRunSpeed;
+            // Zombie defaults: calibrated to realistic, grounded speeds that match the animations
+            crawlSpeed = 4.2f;
+            standRunSpeed = 3.5f;
+            walkSpeed = 1.25f;
+            runSpeed = crawlSpeed;
+            runAcceleration = 8.0f;
             if (attackDamage < 25f) attackDamage = 35f;
             if (screamDuration <= 0f) screamDuration = 2.2f;
         }
@@ -470,6 +490,13 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         {
             _characterController.height = isCrawling ? crawlColliderHeight : _defaultControllerHeight;
             _characterController.center = isCrawling ? new Vector3(0f, crawlColliderHeight * 0.5f, 0f) : _defaultControllerCenter;
+        }
+
+        var rootCol = GetComponent<CapsuleCollider>();
+        if (rootCol != null)
+        {
+            rootCol.height = isCrawling ? crawlColliderHeight : _defaultControllerHeight;
+            rootCol.center = isCrawling ? new Vector3(0f, crawlColliderHeight * 0.5f, 0f) : _defaultControllerCenter;
         }
     }
 
@@ -575,6 +602,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             case AIState.SpawningScream:
                 // Stay stationary while roaring/screaming
                 if (_agent != null && _agent.enabled && _agent.isOnNavMesh) _agent.isStopped = true;
+                if (_animator != null) _animator.speed = 1.0f;
                 RotateTowardsTarget(target);
                 break;
 
@@ -582,9 +610,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 UpdateAntiStuck();
                 HandlePursuitAndTargeting();
                 UpdateNavMeshTurningAnimation();
+                UpdateDynamicStrideSync();
                 break;
 
             case AIState.Attacking:
+                if (_animator != null) _animator.speed = 1.0f;
                 if (target != null && HasLineOfSight(target))
                 {
                     RotateTowardsTarget(target);
@@ -1212,29 +1242,84 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected void PickNewRoamDestination()
     {
         _roamTimer = Random.Range(10f, 16f);
+        if (_agent == null || !_agent.isOnNavMesh) return;
+        if (_pathCalc == null) _pathCalc = new NavMeshPath();
 
-        // Planar horizontal circle sampling with small vertical tolerance to prevent jumping between floors
-        Vector2 randomCircle = Random.insideUnitCircle.normalized * Random.Range(9f, 18f);
-        Vector3 sampleOrigin = transform.position + new Vector3(randomCircle.x, 0f, randomCircle.y);
-
-        if (NavMesh.SamplePosition(sampleOrigin, out NavMeshHit navHit, 3.5f, NavMesh.AllAreas))
+        // AAA Mine Tunnel Pathfinding:
+        // Do not sample a random circle in solid rock!
+        // Instead, cast along tunnel corridor angles (forward, slight turns, sharper turns, reverse)
+        float[] candidateAngles = { 0f, 30f, -30f, 60f, -60f, 90f, -90f, 135f, -135f, 180f };
+        // Shuffle angles for organic patrol variety
+        for (int i = 0; i < candidateAngles.Length - 1; i++)
         {
-            if (_pathCalc == null) _pathCalc = new NavMeshPath();
-            if (_agent != null && _agent.isOnNavMesh && _agent.CalculatePath(navHit.position, _pathCalc) && _pathCalc.status == NavMeshPathStatus.PathComplete)
+            int swapIdx = Random.Range(i, candidateAngles.Length);
+            float tmp = candidateAngles[i];
+            candidateAngles[i] = candidateAngles[swapIdx];
+            candidateAngles[swapIdx] = tmp;
+        }
+
+        float[] candidateDistances = { 14f, 10f, 7f };
+
+        Vector3 forward = transform.forward;
+        if (forward.sqrMagnitude < 0.01f) forward = Vector3.forward;
+
+        bool foundCompletePath = false;
+        Vector3 bestPoint = transform.position;
+
+        foreach (float dist in candidateDistances)
+        {
+            foreach (float angle in candidateAngles)
             {
-                _roamDestination = navHit.position;
-                _agent.isStopped = false;
-                _agent.SetDestination(_roamDestination);
-            }
-            else
-            {
-                _roamDestination = navHit.position;
-                if (_agent != null && _agent.isOnNavMesh)
+                Vector3 rayDir = Quaternion.Euler(0f, angle, 0f) * forward;
+                Vector3 sampleOrigin = transform.position + rayDir * dist;
+
+                if (NavMesh.SamplePosition(sampleOrigin, out NavMeshHit navHit, 3.0f, NavMesh.AllAreas))
                 {
-                    _agent.isStopped = false;
-                    _agent.SetDestination(_roamDestination);
+                    if (_agent.CalculatePath(navHit.position, _pathCalc) && _pathCalc.status == NavMeshPathStatus.PathComplete)
+                    {
+                        bestPoint = navHit.position;
+                        foundCompletePath = true;
+                        break;
+                    }
                 }
             }
+            if (foundCompletePath) break;
+        }
+
+        if (foundCompletePath)
+        {
+            _roamDestination = bestPoint;
+            _agent.isStopped = false;
+            _agent.SetDestination(_roamDestination);
+        }
+        else
+        {
+            // If all corridor angles are blocked, NEVER force a partial path into a rock wall!
+            _isRoamWaiting = true;
+            _roamWaitTimer = Random.Range(1.5f, 3.0f);
+            _agent.isStopped = true;
+        }
+    }
+
+    /// <summary>
+    /// AAA Velocity-to-Animation Stride Synchronization.
+    /// Dynamically scales Animator playback speed to match actual ground velocity.
+    /// Completely eliminates foot-sliding and ice-skating across mine tunnels.
+    /// </summary>
+    protected virtual void UpdateDynamicStrideSync()
+    {
+        if (_animator == null || _agent == null || !_agent.enabled || !_agent.isOnNavMesh) return;
+
+        float curVelocity = _agent.velocity.magnitude;
+        if (curVelocity > 0.15f)
+        {
+            float nominalSpeed = _agent.speed > 0.1f ? _agent.speed : 1.0f;
+            float strideScale = Mathf.Clamp(curVelocity / nominalSpeed, 0.5f, 1.25f);
+            _animator.speed = strideScale;
+        }
+        else
+        {
+            _animator.speed = 1.0f;
         }
     }
 
@@ -1332,7 +1417,6 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     private void PlayZombieCrawlingLocomotion()
     {
-        SetLocomotionAnimSpeed(1.35f);
         SafeSetFloat(_speedHash, crawlSpeed);
         SafeSetBool(_isRunningHash, true);
         SafeSetBool(_isWalkingHash, false);
@@ -1343,7 +1427,6 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     private void PlayZombieStandingRunLocomotion()
     {
-        SetLocomotionAnimSpeed(1.15f);
         SafeSetFloat(_speedHash, standRunSpeed);
         SafeSetBool(_isRunningHash, true);
         SafeSetBool(_isWalkingHash, false);
@@ -1354,7 +1437,6 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     private void PlayZombieStandingWalkLocomotion()
     {
-        SetLocomotionAnimSpeed(1.0f);
         SafeSetFloat(_speedHash, walkSpeed);
         SafeSetBool(_isRunningHash, false);
         SafeSetBool(_isWalkingHash, true);
@@ -1489,16 +1571,23 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     private static bool IsGirl(Transform t)
     {
         if (t == null) return false;
-        if (GameManager.Instance != null && GameManager.Instance.GirlTransform == t) return true;
+        if (GameManager.Instance != null && (GameManager.Instance.GirlTransform == t || (t.root != null && GameManager.Instance.GirlTransform == t.root))) return true;
         if (t.GetComponentInChildren<GirlStealth>() != null || t.GetComponentInParent<GirlStealth>() != null) return true;
         if (t.GetComponentInChildren<GirlPossession>() != null || t.GetComponentInParent<GirlPossession>() != null) return true;
         if (t.GetComponentInChildren<GirlMaterialController>() != null || t.GetComponentInParent<GirlMaterialController>() != null) return true;
         if (t.GetComponentInChildren<GirlMovement>() != null || t.GetComponentInParent<GirlMovement>() != null) return true;
+        if (t.GetComponentInChildren<GirlCommandNet>() != null || t.GetComponentInParent<GirlCommandNet>() != null) return true;
+        if (t.GetComponentInChildren<GirlPuppetNet>() != null || t.GetComponentInParent<GirlPuppetNet>() != null) return true;
+        if (t.GetComponentInChildren<GirlSenseNet>() != null || t.GetComponentInParent<GirlSenseNet>() != null) return true;
+        if (t.GetComponentInChildren<GirlAttackNet>() != null || t.GetComponentInParent<GirlAttackNet>() != null) return true;
+        if (t.GetComponentInChildren<GirlShadowTeleportNet>() != null || t.GetComponentInParent<GirlShadowTeleportNet>() != null) return true;
+        if (t.GetComponentInChildren<GirlStateController>() != null || t.GetComponentInParent<GirlStateController>() != null) return true;
         var pNet = t.GetComponentInChildren<PlayerPossessableNet>();
         if (pNet == null) pNet = t.GetComponentInParent<PlayerPossessableNet>();
         if (pNet != null && pNet.isPossessed.Value) return true;
+        if (t.CompareTag("Girl") || (t.root != null && t.root.CompareTag("Girl"))) return true;
         string n = t.name.ToLower();
-        return n.Contains("girl") || (n.Contains("demon") && !n.Contains("monster") && !n.Contains("creep"));
+        return n.Contains("girl") || (n.Contains("demon") && !n.Contains("monster") && !n.Contains("creep")) || n.Contains("vengeful");
     }
 
     public void IgnoreGirlCollisionIfInvisible()
@@ -1843,13 +1932,18 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
                 // Smart tunnel distance calculation:
                 // If candidate has direct Line of Sight in the tunnel, use straight distance.
-                // If separated by solid walls, evaluate actual NavMesh path distance so the monster doesn't
-                // try to chase someone through 50m of winding tunnels when another player is right in front of it!
+                // If separated by solid walls, evaluate actual NavMesh path distance.
+                // If NO complete path exists (separated by solid cave rock/tunnels), REJECT CANDIDATE!
                 float effectiveDist = straightDist;
                 if (!hasLoS)
                 {
                     float pathDist = GetNavMeshPathDistance(transform.position, candidate.position);
-                    effectiveDist = pathDist > 0f ? pathDist : (straightDist + 35f);
+                    if (pathDist <= 0f)
+                    {
+                        // Candidate is unreachable through the mine tunnels (separated by rock walls or on separate level)
+                        continue;
+                    }
+                    effectiveDist = pathDist;
                 }
 
                 if (effectiveDist < minEffectiveDistance)
