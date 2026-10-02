@@ -91,6 +91,56 @@ public class PauseUI : MonoBehaviour
             _canvasGroup = pauseCanvas.AddComponent<CanvasGroup>();
     }
 
+    private bool _allowQuit = false;
+    private bool _isExternalQuitPending = false;
+
+    private void OnEnable()
+    {
+        Application.wantsToQuit += OnApplicationWantsToQuit;
+    }
+
+    private void OnDisable()
+    {
+        Application.wantsToQuit -= OnApplicationWantsToQuit;
+    }
+
+    /// <summary>
+    /// Intercepts external termination attempts (window close button 'X', taskbar close, Alt+F4).
+    /// If the match is still active, cancels termination, opens the Pause Menu, and displays the
+    /// exit confirmation modal with the stake loss warning.
+    /// If the match has already concluded, permits immediate termination.
+    /// </summary>
+    private bool OnApplicationWantsToQuit()
+    {
+        if (_allowQuit) return true;
+
+        if (IsMatchConcluded()) return true;
+
+        _isExternalQuitPending = true;
+
+        if (_pauseManager != null)
+        {
+            _pauseManager.SetPaused(true);
+        }
+        else
+        {
+            ShowPauseMenu();
+        }
+
+        OnExitPressed();
+        return false;
+    }
+
+    /// <summary>
+    /// Checks whether the current game match has officially concluded.
+    /// </summary>
+    public static bool IsMatchConcluded()
+    {
+        if (GameManager.Instance != null && GameManager.Instance.gameEnded.Value) return true;
+        if (NightCrawler.Economy.MatchEconomyManager.Instance != null && NightCrawler.Economy.MatchEconomyManager.Instance.isMatchResolved.Value) return true;
+        return false;
+    }
+
     private void Start()
     {
         _pauseManager = FindFirstObjectByType<PauseManager>();
@@ -248,6 +298,7 @@ public class PauseUI : MonoBehaviour
 
     public void CloseExitDialog()
     {
+        _isExternalQuitPending = false;
         if (exitModal != null && exitModal.isOn) exitModal.CloseWindow();
         UpdateEscapeHotkeyVisuals();
     }
@@ -323,10 +374,42 @@ public class PauseUI : MonoBehaviour
     public void OnExitPressed()
     {
         if (exitModal != null)
+        {
+            UpdateExitModalContent();
             exitModal.OpenWindow();
+        }
         else
+        {
             ConfirmDisconnect();
+        }
         UpdateEscapeHotkeyVisuals();
+    }
+
+    private void UpdateExitModalContent()
+    {
+        if (exitModal == null) return;
+
+        exitModal.useLocalization = false;
+        exitModal.titleKey = string.Empty;
+        exitModal.descriptionKey = string.Empty;
+
+        if (IsMatchConcluded())
+        {
+            string desc = "The match has concluded. Are you sure you want to return to the main menu?";
+            exitModal.descriptionText = desc;
+            if (exitModal.windowDescription != null) exitModal.windowDescription.text = desc;
+        }
+        else
+        {
+            int stake = PersistentCharacterSelection.GetSavedMatchStake();
+            if (stake <= 0) stake = NightCrawler.Economy.CurrencyConfig.MinimumStake;
+
+            string desc = $"Are you sure you want to abandon the match?\n\n<color=#FF5555><b>WARNING:</b> If you quit now, you will lose what you staked (<b>{stake:N0} Credits</b>)!</color>";
+            exitModal.descriptionText = desc;
+            if (exitModal.windowDescription != null) exitModal.windowDescription.text = desc;
+        }
+
+        try { exitModal.UpdateUI(); } catch { }
     }
 
     public void ConfirmDisconnect()
@@ -337,15 +420,22 @@ public class PauseUI : MonoBehaviour
 
         if (GameManager.Instance != null && GameManager.Instance.gameObject.activeInHierarchy)
         {
-            GameManager.Instance.StartCoroutine(DisconnectRoutine());
+            GameManager.Instance.StartCoroutine(_isExternalQuitPending ? QuitAfterDisconnectRoutine() : DisconnectRoutine(true));
         }
         else
         {
-            StartCoroutine(DisconnectRoutine());
+            StartCoroutine(_isExternalQuitPending ? QuitAfterDisconnectRoutine() : DisconnectRoutine(true));
         }
     }
 
-    private IEnumerator DisconnectRoutine()
+    private IEnumerator QuitAfterDisconnectRoutine()
+    {
+        yield return StartCoroutine(DisconnectRoutine(loadLobbyScene: false));
+        _allowQuit = true;
+        Application.Quit();
+    }
+
+    private IEnumerator DisconnectRoutine(bool loadLobbyScene = true)
     {
         if (panelManager != null) panelManager.HideCurrentPanel();
 
@@ -378,13 +468,16 @@ public class PauseUI : MonoBehaviour
 
         yield return new WaitForSecondsRealtime(0.05f);
 
-        if (LoadingScreen.Instance != null)
+        if (loadLobbyScene)
         {
-            LoadingScreen.Instance.LoadScene("LobbyScene");
-        }
-        else
-        {
-            UnityEngine.SceneManagement.SceneManager.LoadScene("LobbyScene");
+            if (LoadingScreen.Instance != null)
+            {
+                LoadingScreen.Instance.LoadScene("LobbyScene");
+            }
+            else
+            {
+                UnityEngine.SceneManagement.SceneManager.LoadScene("LobbyScene");
+            }
         }
     }
 

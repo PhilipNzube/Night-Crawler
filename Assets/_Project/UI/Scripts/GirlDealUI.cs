@@ -455,7 +455,14 @@ public class GirlDealUI : MonoBehaviour
         string objName = cardObj.name.Replace("(Clone)", "").Trim();
         if (!IsGenericButtonLabel(objName)) return objName;
 
-        return "DARK DEAL";
+        // 6. Intelligent Fallback by sibling index or card hints
+        int siblingIdx = cardObj.transform.GetSiblingIndex();
+        if (siblingIdx == 1 || objName.IndexOf("loot", System.StringComparison.OrdinalIgnoreCase) >= 0)
+        {
+            return "LOOT CORPSE";
+        }
+
+        return "ELIMINATE INVESTIGATOR";
     }
 
     private string ResolveCardDesc(GameObject cardObj, ShopButtonManager shopBtn)
@@ -477,7 +484,15 @@ public class GirlDealUI : MonoBehaviour
             }
         }
 
-        return "";
+        // Intelligent Fallback by sibling index or card name
+        int siblingIdx = cardObj.transform.GetSiblingIndex();
+        string objName = cardObj.name.ToLowerInvariant();
+        if (siblingIdx == 1 || objName.Contains("loot") || objName.Contains("corpse"))
+        {
+            return "Locate and loot a fallen investigator's corpse to claim your bounty.";
+        }
+
+        return "Eliminate an investigator to claim your reward.";
     }
 
     private static bool IsGenericButtonLabel(string s)
@@ -827,17 +842,23 @@ public class GirlDealUI : MonoBehaviour
             return;
         }
 
-        // All constraints passed! Dispatch deal
-        string dealTitle = !string.IsNullOrEmpty(_currentCardTitle) ? _currentCardTitle : "DARK DEAL";
-        string dealTerms = !string.IsNullOrEmpty(_currentCardDesc) 
-            ? _currentCardDesc 
-            : $"Complete the objective to claim your reward.\nReward: {rewardAmount} Credits.";
-        string rewardStr = $"{rewardAmount} Credits";
-
         // CRITICAL: Loot Body deal must NOT grant any weapon abilities! Only assassination/kill deals grant weapons.
         bool isLootDeal = (!string.IsNullOrEmpty(_currentCardTitle) && _currentCardTitle.ToLower().Contains("loot"))
             || (!string.IsNullOrEmpty(_currentCardDesc) && _currentCardDesc.ToLower().Contains("loot"));
         bool grantWeapon = !isLootDeal;
+
+        // All constraints passed! Dispatch deal
+        string dealTitle = !string.IsNullOrWhiteSpace(_currentCardTitle) 
+            ? _currentCardTitle 
+            : (isLootDeal ? "LOOT CORPSE" : "ELIMINATE INVESTIGATOR");
+
+        string dealTerms = !string.IsNullOrWhiteSpace(_currentCardDesc) 
+            ? _currentCardDesc 
+            : (isLootDeal 
+                ? "Locate and loot a fallen investigator's corpse to claim your bounty." 
+                : "Eliminate an investigator to claim your reward.");
+
+        string rewardStr = $"{rewardAmount} Credits";
 
         if (DealSystemNet.Instance != null)
         {

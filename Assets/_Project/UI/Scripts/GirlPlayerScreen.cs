@@ -131,8 +131,58 @@ public class GirlPlayerScreen : MonoBehaviour
         InitExitBindings();
     }
 
+    /// <summary>
+    /// Returns true once the squad scene has loaded, all players are ready,
+    /// departure countdown / green wait text is active, or the loading screen is transitioning.
+    /// In this state, players cannot press ESC to exit and hotkey indicators are hidden.
+    /// </summary>
+    public bool IsTransitionOrDescentLocked()
+    {
+        // 1. Squad scene is active
+        if (SquadLineupDisplay.Instance != null && SquadLineupDisplay.Instance.gameObject.activeInHierarchy)
+            return true;
+        if (SquadSceneController.Instance != null && SquadSceneController.Instance.squadWorldRoot != null && SquadSceneController.Instance.squadWorldRoot.activeInHierarchy)
+            return true;
+
+        // 2. All players ready / departure countdown active
+        if (_departureCountdownRoutine != null)
+            return true;
+        if (PlayerReadyTracker.Instance != null && PlayerReadyTracker.Instance.AllPlayersReady)
+            return true;
+
+        // 3. Loading screen active
+        if (LoadingScreen.Instance != null && LoadingScreen.Instance.IsLoadingScreenActive)
+            return true;
+
+        return false;
+    }
+
     void Update()
     {
+        bool isLocked = IsTransitionOrDescentLocked();
+
+        // Control visibility of the exit hotkey indicator
+        if (exitHotkey != null)
+        {
+            if (isLocked && exitHotkey.gameObject.activeSelf)
+            {
+                exitHotkey.gameObject.SetActive(false);
+            }
+            else if (!isLocked && !exitHotkey.gameObject.activeSelf && gameObject.activeInHierarchy)
+            {
+                exitHotkey.gameObject.SetActive(true);
+            }
+        }
+
+        if (isLocked)
+        {
+            if (exitConfirmModal != null && exitConfirmModal.isOn)
+            {
+                exitConfirmModal.CloseWindow();
+            }
+            return;
+        }
+
         if (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame)
         {
             HandleExitHotkey();
@@ -166,6 +216,7 @@ public class GirlPlayerScreen : MonoBehaviour
     /// </summary>
     public void HandleExitHotkey()
     {
+        if (IsTransitionOrDescentLocked()) return;
         if (Time.frameCount == _lastEscapeFrame) return;
         _lastEscapeFrame = Time.frameCount;
 

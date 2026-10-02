@@ -184,9 +184,29 @@ public class DealNotificationUI : MonoBehaviour
                 if (es != null) UnityEngine.EventSystems.EventSystem.current = es;
             }
 
+            transform.localScale = Vector3.one;
+
+            // Ensure parent Canvas is enabled
+            var parentCanvas = GetComponentInParent<Canvas>();
+            if (parentCanvas != null && !parentCanvas.enabled) parentCanvas.enabled = true;
+
+            // Guarantee alpha remains 1f across all child CanvasGroups
+            var childCanvasGroups = GetComponentsInChildren<CanvasGroup>(true);
+            foreach (var cg in childCanvasGroups)
+            {
+                if (cg != null)
+                {
+                    cg.alpha = 1f;
+                    cg.interactable = true;
+                    cg.blocksRaycasts = true;
+                }
+            }
+
             if (heatModalWindow != null)
             {
-                heatModalWindow.isOn = false;
+                heatModalWindow.gameObject.SetActive(true);
+                heatModalWindow.transform.localScale = Vector3.one;
+                heatModalWindow.isOn = true;
                 try
                 {
                     heatModalWindow.OpenWindow();
@@ -195,14 +215,6 @@ public class DealNotificationUI : MonoBehaviour
                 {
                     Debug.LogWarning($"[DealNotificationUI] Heat Modal OpenWindow suppressed exception: {ex.Message}");
                 }
-            }
-
-            // Guarantee alpha remains 1f even if animator did not fire or was disabled
-            if (canvasGroup != null)
-            {
-                canvasGroup.alpha = 1f;
-                canvasGroup.interactable = true;
-                canvasGroup.blocksRaycasts = true;
             }
 
             if (modifyCursor)
@@ -214,11 +226,15 @@ public class DealNotificationUI : MonoBehaviour
         }
         else
         {
-            if (canvasGroup != null)
+            var childCanvasGroups = GetComponentsInChildren<CanvasGroup>(true);
+            foreach (var cg in childCanvasGroups)
             {
-                canvasGroup.alpha = 0f;
-                canvasGroup.interactable = false;
-                canvasGroup.blocksRaycasts = false;
+                if (cg != null)
+                {
+                    cg.alpha = 0f;
+                    cg.interactable = false;
+                    cg.blocksRaycasts = false;
+                }
             }
 
             if (heatModalWindow != null)
@@ -350,12 +366,12 @@ public class DealNotificationUI : MonoBehaviour
         if (heatModalWindow != null)
         {
             heatModalWindow.titleText = cleanTitle;
-            heatModalWindow.descriptionText = "";
+            heatModalWindow.descriptionText = cleanTerms;
             heatModalWindow.useLocalization = false;
             heatModalWindow.titleKey = string.Empty;
             heatModalWindow.descriptionKey = string.Empty;
             if (heatModalWindow.windowTitle != null) heatModalWindow.windowTitle.text = cleanTitle;
-            if (heatModalWindow.windowDescription != null) heatModalWindow.windowDescription.text = "";
+            if (heatModalWindow.windowDescription != null) heatModalWindow.windowDescription.text = cleanTerms;
             try { heatModalWindow.UpdateUI(); } catch { }
         }
 

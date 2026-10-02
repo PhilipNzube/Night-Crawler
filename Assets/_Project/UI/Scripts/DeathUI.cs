@@ -608,13 +608,30 @@ public class DeathUI : MonoBehaviour
                     textRt.offsetMax = new Vector2(-12f, -2f); // Right padding
                 }
 
-                // Professional overflow protection: auto-fit font size, disable wrap, truncate with ellipsis
-                txt.enableAutoSizing = true;
-                txt.fontSizeMin = 10f;
-                txt.fontSizeMax = 15f;
+                // Professional single-line truncation with Ellipsis
+                txt.enableAutoSizing = false;
+                txt.fontSize = 13.5f;
                 txt.enableWordWrapping = false;
                 txt.overflowMode = TextOverflowModes.Ellipsis;
                 txt.alignment = TextAlignmentOptions.MidlineLeft;
+            }
+
+            // Ensure viewport / scroll rect has a RectMask2D and does not extend beyond screen bounds
+            if (allyAlertScrollRect != null)
+            {
+                var mask = allyAlertScrollRect.GetComponent<RectMask2D>();
+                if (mask == null && allyAlertScrollRect.viewport != null)
+                    mask = allyAlertScrollRect.viewport.GetComponent<RectMask2D>();
+                if (mask == null)
+                {
+                    mask = allyAlertScrollRect.gameObject.AddComponent<RectMask2D>();
+                }
+
+                var srRt = allyAlertScrollRect.GetComponent<RectTransform>();
+                if (srRt != null && srRt.offsetMax.x > 0f)
+                {
+                    srRt.offsetMax = new Vector2(0f, srRt.offsetMax.y);
+                }
             }
 
             if (accentColor.HasValue)
@@ -677,11 +694,11 @@ public class DeathUI : MonoBehaviour
 
         var tmp = textObj.GetComponent<TextMeshProUGUI>();
         tmp.text = message;
-        tmp.fontSize = 14f;
+        tmp.fontSize = 13.5f;
         tmp.fontStyle = FontStyles.Bold;
         tmp.color = new Color(0.95f, 0.96f, 0.98f, 1f);
         tmp.alignment = TextAlignmentOptions.MidlineLeft;
-        tmp.enableWordWrapping = true;
+        tmp.enableWordWrapping = false;
         tmp.overflowMode = TextOverflowModes.Ellipsis;
 
         return card;
