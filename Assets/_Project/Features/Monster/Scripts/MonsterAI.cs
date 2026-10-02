@@ -278,6 +278,23 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         ConfigureMonsterDefaults();
         SetRagdollState(false);
 
+        // Ensure all child SkinnedMeshRenderers do not get culled when the spectator camera looks at them
+        var smrs = GetComponentsInChildren<SkinnedMeshRenderer>(true);
+        foreach (var smr in smrs)
+        {
+            if (smr != null)
+            {
+                smr.updateWhenOffscreen = true;
+            }
+        }
+
+        // Ensure the active camera rendering the scene includes the Monster layer in its culling mask
+        int monsterLayer = LayerMask.NameToLayer("Monster");
+        if (monsterLayer >= 0 && Camera.main != null)
+        {
+            Camera.main.cullingMask |= (1 << monsterLayer);
+        }
+
         if (wallObstacleMask.value == 0)
         {
             int excluded = LayerMask.GetMask("Ignore Raycast", "UI", "Monster", "Player", "Explorer", "Minimap", "Fog");

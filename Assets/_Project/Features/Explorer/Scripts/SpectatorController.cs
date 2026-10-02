@@ -390,6 +390,16 @@ public class SpectatorController : MonoBehaviour
         // Cache local player's gameplay camera & target before entering spectator mode
         CacheLocalGameplayCamera();
 
+        // Ensure Camera.main includes the Monster layer when spectating monsters
+        if (modeType == SpectatorModeType.Monsters)
+        {
+            int monsterLayer = LayerMask.NameToLayer("Monster");
+            if (monsterLayer >= 0 && Camera.main != null)
+            {
+                Camera.main.cullingMask |= (1 << monsterLayer);
+            }
+        }
+
         // Lock cursor for smooth mouse look
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
@@ -1233,8 +1243,8 @@ public class SpectatorController : MonoBehaviour
 
                 // Align camera directly in front of the monster facing its snarling face when it spawns/roars!
                 _yaw = _currentTarget.transform.eulerAngles.y + 180f;
-                _pitch = isBerserker ? 8f : 12f; // Eye/chest level, looking directly into its face
-                float targetDist = isBerserker ? 4.2f : 2.5f;
+                _pitch = isBerserker ? 6f : 12f; // Eye/chest level, looking directly into its face
+                float targetDist = isBerserker ? 2.85f : 2.5f;
                 _currentDistance = targetDist;
                 _collisionDistance = targetDist;
             }
@@ -1486,7 +1496,9 @@ public class SpectatorController : MonoBehaviour
                     }
                 }
 
-                float targetCollisionDist = obstacleHit ? Mathf.Max(0.35f, nearestDist - 0.08f) : targetDist;
+                bool isBerserkerTarget = _currentTarget != null && (_currentTarget.name.ToLower().Contains("berserker") || _currentTarget.GetComponent<BerserkerAI>() != null || (_currentTarget.TryGetComponent<MonsterAI>(out var bmai) && bmai.monsterType == MonsterAI.MonsterType.Berserker));
+                float minCollisionDist = isBerserkerTarget ? 1.25f : 0.35f;
+                float targetCollisionDist = obstacleHit ? Mathf.Max(minCollisionDist, nearestDist - 0.08f) : targetDist;
 
                 // Smooth collision response:
                 // Instantly pull in to prevent clipping inside walls/ceiling
@@ -1554,7 +1566,9 @@ public class SpectatorController : MonoBehaviour
                     }
                 }
 
-                float targetCollisionDist = obstacleHit ? Mathf.Max(0.35f, nearestDist - 0.08f) : targetDist;
+                bool isBerserkerFallback = _currentTarget != null && (_currentTarget.name.ToLower().Contains("berserker") || _currentTarget.GetComponent<BerserkerAI>() != null || (_currentTarget.TryGetComponent<MonsterAI>(out var bmai2) && bmai2.monsterType == MonsterAI.MonsterType.Berserker));
+                float minCollisionDistFb = isBerserkerFallback ? 1.25f : 0.35f;
+                float targetCollisionDist = obstacleHit ? Mathf.Max(minCollisionDistFb, nearestDist - 0.08f) : targetDist;
 
                 if (targetCollisionDist < _collisionDistance)
                 {
@@ -1593,7 +1607,8 @@ public class SpectatorController : MonoBehaviour
             }
 
             // Berserker is 3.5m tall; Undead is ~1.75m tall
-            float focusHeight = isBerserker ? 2.3f : 1.45f;
+            // Use chest/torso focus height (1.65m) for Berserker to prevent camera clipping into subterranean tunnel ceilings
+            float focusHeight = isBerserker ? 1.65f : 1.45f;
             return target.transform.position + Vector3.up * focusHeight;
         }
 
@@ -1637,6 +1652,12 @@ public class SpectatorController : MonoBehaviour
             if (brain != null)
             {
                 brain.ActiveBlend = null;
+            }
+
+            int monsterLayer = LayerMask.NameToLayer("Monster");
+            if (monsterLayer >= 0 && Camera.main != null)
+            {
+                Camera.main.cullingMask |= (1 << monsterLayer);
             }
 
             Vector3 backwardOffset = _spectatorAnchor.rotation * new Vector3(0f, 0.35f, -_currentDistance);
