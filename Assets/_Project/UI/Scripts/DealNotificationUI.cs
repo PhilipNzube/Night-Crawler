@@ -162,21 +162,24 @@ public class DealNotificationUI : MonoBehaviour
 
     public bool IsActive => _isActive;
 
+    private Coroutine _ensureVisibleRoutine;
+
     private void SetVisible(bool visible, bool modifyCursor = true)
     {
         _isActive = visible;
+
+        if (_ensureVisibleRoutine != null)
+        {
+            StopCoroutine(_ensureVisibleRoutine);
+            _ensureVisibleRoutine = null;
+        }
 
         if (visible)
         {
             gameObject.SetActive(true);
             transform.SetAsLastSibling();
 
-            if (canvasGroup != null)
-            {
-                canvasGroup.alpha = 1f;
-                canvasGroup.interactable = true;
-                canvasGroup.blocksRaycasts = true;
-            }
+            ForceModalAlphaOpaque();
 
             // Ensure EventSystem.current is valid before Heat UI OpenWindow touches it
             if (UnityEngine.EventSystems.EventSystem.current == null)
@@ -191,24 +194,11 @@ public class DealNotificationUI : MonoBehaviour
             var parentCanvas = GetComponentInParent<Canvas>();
             if (parentCanvas != null && !parentCanvas.enabled) parentCanvas.enabled = true;
 
-            // Guarantee alpha remains 1f across all child CanvasGroups
-            var childCanvasGroups = GetComponentsInChildren<CanvasGroup>(true);
-            foreach (var cg in childCanvasGroups)
-            {
-                if (cg != null)
-                {
-                    cg.alpha = 1f;
-                    cg.interactable = true;
-                    cg.blocksRaycasts = true;
-                }
-            }
-
             if (heatModalWindow != null)
             {
                 heatModalWindow.gameObject.SetActive(true);
                 heatModalWindow.transform.localScale = Vector3.one;
                 // Heat ModalWindowManager.OpenWindow() returns immediately if isOn is true.
-                // We must ensure isOn is false before calling OpenWindow so its animator and open routines execute properly.
                 heatModalWindow.isOn = false;
                 try
                 {
@@ -219,6 +209,9 @@ public class DealNotificationUI : MonoBehaviour
                     Debug.LogWarning($"[DealNotificationUI] Heat Modal OpenWindow suppressed exception: {ex.Message}");
                 }
             }
+
+            // Continuously force alpha = 1 across upcoming frames to override any animator zeroing
+            _ensureVisibleRoutine = StartCoroutine(EnsureModalVisibleRoutine());
 
             if (modifyCursor)
             {
@@ -249,6 +242,18 @@ public class DealNotificationUI : MonoBehaviour
                 catch { }
             }
 
+            gameObject.SetActive(false);
+
+            // If possessed, mirror dismissal to possessing Girl
+            if (Unity.Netcode.NetworkManager.Singleton != null && Unity.Netcode.NetworkManager.Singleton.SpawnManager != null)
+            {
+                var localObj = Unity.Netcode.NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
+                if (localObj != null && localObj.TryGetComponent<PlayerPossessableNet>(out var pNet) && pNet.isPossessed.Value)
+                {
+                    pNet.RequestMirrorModalDismissedServerRpc(2);
+                }
+            }
+
             if (modifyCursor)
             {
                 Cursor.lockState = CursorLockMode.Locked;
@@ -256,6 +261,51 @@ public class DealNotificationUI : MonoBehaviour
                 SetPlayerLookInputs(true);
             }
         }
+    }
+
+    private void ForceModalAlphaOpaque()
+    {
+        if (canvasGroup == null)
+        {
+            canvasGroup = GetComponent<CanvasGroup>();
+            if (canvasGroup == null) canvasGroup = GetComponentInChildren<CanvasGroup>(true);
+            if (canvasGroup == null) canvasGroup = gameObject.AddComponent<CanvasGroup>();
+        }
+
+        if (canvasGroup != null)
+        {
+            canvasGroup.alpha = 1f;
+            canvasGroup.interactable = true;
+            canvasGroup.blocksRaycasts = true;
+        }
+
+        var childCanvasGroups = GetComponentsInChildren<CanvasGroup>(true);
+        foreach (var cg in childCanvasGroups)
+        {
+            if (cg != null)
+            {
+                cg.alpha = 1f;
+                cg.interactable = true;
+                cg.blocksRaycasts = true;
+            }
+        }
+
+        Transform contentT = transform.Find("Content");
+        if (contentT != null)
+        {
+            contentT.localScale = Vector3.one;
+        }
+    }
+
+    private System.Collections.IEnumerator EnsureModalVisibleRoutine()
+    {
+        for (int i = 0; i < 20; i++)
+        {
+            if (!_isActive) yield break;
+            ForceModalAlphaOpaque();
+            yield return null;
+        }
+        _ensureVisibleRoutine = null;
     }
 
     private void SetPlayerLookInputs(bool allowLookAndLock)
@@ -282,6 +332,11 @@ public class DealNotificationUI : MonoBehaviour
                 inputs.cursorInputForLook = allowLookAndLock;
             }
         }
+    }
+
+    public void Show(ulong senderId, string title, string terms, string reward, bool grantWeapon, int timeLimitSeconds = 120, int penaltyCredits = 15)
+    {
+        DisplayDealOffer(senderId, title, terms, reward, grantWeapon, timeLimitSeconds, penaltyCredits);
     }
 
     public void DisplayDealOffer(ulong senderId, string title, string terms, string reward, bool grantWeapon, int timeLimitSeconds = 120, int penaltyCredits = 15)
@@ -380,12 +435,26 @@ public class DealNotificationUI : MonoBehaviour
 
         gameObject.SetActive(true);
         SetVisible(true, modifyCursor: true);
+
+        // If possessed, mirror deal offer to possessing Girl
+        if (Unity.Netcode.NetworkManager.Singleton != null && Unity.Netcode.NetworkManager.Singleton.SpawnManager != null)
+        {
+            var myNetObj = Unity.Netcode.NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
+            if (myNetObj != null && myNetObj.TryGetComponent<PlayerPossessableNet>(out var pNet) && pNet.isPossessed.Value)
+            {
+                pNet.RequestMirrorDealOfferServerRpc(senderId, cleanTitle, cleanTerms, reward, grantWeapon, timeLimitSeconds, penaltyCredits);
+            }
+        }
+
         Debug.Log($"[DealNotificationUI] Displaying deal '{cleanTitle}' (reward={reward}) from {senderId} to local player! (grantWeapon={grantWeapon})");
     }
 
     private void Update()
     {
         if (!_isActive || PauseManager.IsGamePaused) return;
+
+        // Continuous enforcement: guarantee modal is never made invisible by background animators or state changes
+        ForceModalAlphaOpaque();
 
         // Maintain cursor free
         if (Cursor.lockState != CursorLockMode.None) Cursor.lockState = CursorLockMode.None;

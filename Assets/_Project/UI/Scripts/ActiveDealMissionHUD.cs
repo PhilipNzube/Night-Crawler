@@ -118,13 +118,58 @@ namespace NightCrawler.UI
 
             if (_timeRemaining <= 0f)
             {
-                FailMission();
+                if (!_isMirroredPossession)
+                {
+                    FailMission();
+                }
             }
+        }
+
+        private bool _isMirroredPossession = false;
+        public bool IsMirroredPossession => _isMirroredPossession;
+        public float TimeRemaining => _timeRemaining;
+
+        private PlayerPossessableNet GetLocalPossessable()
+        {
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null)
+            {
+                var localObj = NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
+                if (localObj != null)
+                {
+                    return localObj.GetComponent<PlayerPossessableNet>();
+                }
+            }
+            return null;
+        }
+
+        public void StartPossessedMirror(string title, string terms, float durationSeconds, int penaltyAmount, int rewardAmount, float timeRemaining)
+        {
+            if (!gameObject.activeSelf)
+            {
+                gameObject.SetActive(true);
+            }
+
+            _activeMissionTitle = title;
+            _totalDuration = Mathf.Max(1f, durationSeconds);
+            _timeRemaining = Mathf.Max(0f, timeRemaining);
+            _penaltyAmount = penaltyAmount;
+            _rewardAmount = rewardAmount;
+            _isMissionActive = true;
+            _isMirroredPossession = true;
+
+            if (missionTitleText != null)
+            {
+                missionTitleText.text = !string.IsNullOrWhiteSpace(title) ? title.ToUpper() : "DARK DEAL";
+            }
+
+            SetVisible(true);
+            Debug.Log($"[ActiveDealMissionHUD] Mirrored possessed player's deal mission '{title}' ({_timeRemaining:0}s remaining).");
         }
 
         public void Hide()
         {
             _isMissionActive = false;
+            _isMirroredPossession = false;
             SetVisible(false);
             if (DealCompletionModalUI.Instance != null) DealCompletionModalUI.Instance.Hide();
             if (DealFailureModalUI.Instance != null) DealFailureModalUI.Instance.Hide();
@@ -144,11 +189,19 @@ namespace NightCrawler.UI
             _rewardAmount = rewardAmount;
             _girlSenderClientId = girlClientId;
             _isMissionActive = true;
+            _isMirroredPossession = false;
 
             // Only show the mission of the deal at the top, no extra nonsense texts
             if (missionTitleText != null)
             {
                 missionTitleText.text = !string.IsNullOrWhiteSpace(title) ? title.ToUpper() : "DARK DEAL";
+            }
+
+            // Sync active deal state onto local player's PlayerPossessableNet
+            var localPlayer = GetLocalPossessable();
+            if (localPlayer != null)
+            {
+                localPlayer.SetActiveDealServerRpc(title, terms, _totalDuration, rewardAmount, penaltyAmount);
             }
 
             SetVisible(true);
@@ -206,10 +259,18 @@ namespace NightCrawler.UI
             }
 
             // Show dedicated deal completion modal
+            int currentStake = MatchEconomyManager.Instance != null ? MatchEconomyManager.Instance.GetPlayerStake(NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0) : _rewardAmount;
             if (DealCompletionModalUI.Instance != null)
             {
-                int currentStake = MatchEconomyManager.Instance != null ? MatchEconomyManager.Instance.GetPlayerStake(NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0) : _rewardAmount;
                 DealCompletionModalUI.Instance.Show(_activeMissionTitle, _rewardAmount, _penaltyAmount, currentStake, "The dark deal was successfully executed. The promised bounty is yours.");
+            }
+
+            // If possessed, mirror outcome to the possessing Girl
+            var localPoss = GetLocalPossessable();
+            if (localPoss != null)
+            {
+                localPoss.RequestMirrorDealCompletionServerRpc(_activeMissionTitle, _rewardAmount, _penaltyAmount, currentStake, "The dark deal was successfully executed. The promised bounty is yours.");
+                localPoss.ClearActiveDealServerRpc();
             }
 
             if (NotificationManager.Instance != null)
@@ -255,6 +316,14 @@ namespace NightCrawler.UI
             if (DealFailureModalUI.Instance != null)
             {
                 DealFailureModalUI.Instance.Show(_activeMissionTitle, _penaltyAmount, "You failed to uphold the terms before the timer expired. The spirit claims its tribute from your stake.");
+            }
+
+            // If possessed, mirror failure to the possessing Girl
+            var localPoss = GetLocalPossessable();
+            if (localPoss != null)
+            {
+                localPoss.RequestMirrorDealFailureServerRpc(_activeMissionTitle, _penaltyAmount, "You failed to uphold the terms before the timer expired. The spirit claims its tribute from your stake.");
+                localPoss.ClearActiveDealServerRpc();
             }
 
             if (NotificationManager.Instance != null)

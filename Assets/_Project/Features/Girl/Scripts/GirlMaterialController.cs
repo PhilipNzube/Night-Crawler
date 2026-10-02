@@ -192,12 +192,45 @@ public class GirlMaterialController : NetworkBehaviour
         if (_characterController == null) _characterController = GetComponent<CharacterController>();
         if (_characterController == null) return;
 
+        var myColliders = GetComponentsInChildren<Collider>();
+
+        // 1. Pass through other players
         var allPlayers = FindObjectsByType<CharacterController>(FindObjectsSortMode.None);
         foreach (var otherCc in allPlayers)
         {
-            if (otherCc != _characterController)
+            if (otherCc != null && otherCc != _characterController)
             {
                 Physics.IgnoreCollision(_characterController, otherCc, enablePassThrough);
+                foreach (var myCol in myColliders)
+                {
+                    if (myCol != null && myCol.enabled && otherCc.enabled)
+                    {
+                        Physics.IgnoreCollision(myCol, otherCc, enablePassThrough);
+                    }
+                }
+            }
+        }
+
+        // 2. Pass through monsters (Zombie, Berserker, etc.)
+        var allMonsters = FindObjectsByType<MonsterAI>(FindObjectsSortMode.None);
+        foreach (var monster in allMonsters)
+        {
+            if (monster == null) continue;
+            var monsterColliders = monster.GetComponentsInChildren<Collider>();
+            foreach (var mCol in monsterColliders)
+            {
+                if (mCol == null) continue;
+                if (_characterController.enabled && mCol.enabled)
+                {
+                    Physics.IgnoreCollision(_characterController, mCol, enablePassThrough);
+                }
+                foreach (var myCol in myColliders)
+                {
+                    if (myCol != null && myCol.enabled && mCol.enabled)
+                    {
+                        Physics.IgnoreCollision(myCol, mCol, enablePassThrough);
+                    }
+                }
             }
         }
     }

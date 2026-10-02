@@ -20,6 +20,28 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
     public NetworkVariable<ulong> possessingClientId = new NetworkVariable<ulong>(
         0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
+    [Header("Active Deal Mirroring (Synced to Possessing Girl)")]
+    public NetworkVariable<bool> hasActiveDeal = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    public NetworkVariable<Unity.Collections.FixedString64Bytes> activeDealTitle = new NetworkVariable<Unity.Collections.FixedString64Bytes>(
+        default, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    public NetworkVariable<Unity.Collections.FixedString128Bytes> activeDealTerms = new NetworkVariable<Unity.Collections.FixedString128Bytes>(
+        default, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    public NetworkVariable<float> activeDealDuration = new NetworkVariable<float>(
+        0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    public NetworkVariable<float> activeDealTimeRemaining = new NetworkVariable<float>(
+        0f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    public NetworkVariable<int> activeDealReward = new NetworkVariable<int>(
+        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    public NetworkVariable<int> activeDealPenalty = new NetworkVariable<int>(
+        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
     [Header("Priest Possession Struggle Settings")]
     [Tooltip("Maximum duration in seconds for the Priest's button-mash struggle QTE.")]
     public float priestResistWindowDuration = 5.0f;
@@ -52,6 +74,7 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
     public override void OnNetworkSpawn()
     {
         isPossessed.OnValueChanged += HandlePossessionChanged;
+        hasActiveDeal.OnValueChanged += HandleActiveDealChanged;
         if (IsServer && originalOwnerClientId.Value == ulong.MaxValue)
         {
             originalOwnerClientId.Value = OwnerClientId;
@@ -66,6 +89,7 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
     public override void OnNetworkDespawn()
     {
         isPossessed.OnValueChanged -= HandlePossessionChanged;
+        hasActiveDeal.OnValueChanged -= HandleActiveDealChanged;
         if (_healthSystem != null)
         {
             _healthSystem.OnDied -= HandlePossessedTargetDied;
@@ -922,6 +946,155 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         }
 
         return result;
+    }
+
+    private void HandleActiveDealChanged(bool previous, bool current)
+    {
+        if (NetworkManager.Singleton == null) return;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+        bool isPossessingGirl = isPossessed.Value && possessingClientId.Value == localId;
+
+        if (isPossessingGirl)
+        {
+            if (current)
+            {
+                if (NightCrawler.UI.ActiveDealMissionHUD.Instance != null)
+                {
+                    NightCrawler.UI.ActiveDealMissionHUD.Instance.StartPossessedMirror(
+                        activeDealTitle.Value.ToString(),
+                        activeDealTerms.Value.ToString(),
+                        activeDealDuration.Value,
+                        activeDealPenalty.Value,
+                        activeDealReward.Value,
+                        activeDealTimeRemaining.Value
+                    );
+                }
+            }
+            else
+            {
+                if (NightCrawler.UI.ActiveDealMissionHUD.Instance != null && NightCrawler.UI.ActiveDealMissionHUD.Instance.IsMirroredPossession)
+                {
+                    NightCrawler.UI.ActiveDealMissionHUD.Instance.Hide();
+                }
+            }
+        }
+    }
+
+    private void Update()
+    {
+        if (IsServer && hasActiveDeal.Value)
+        {
+            if (activeDealTimeRemaining.Value > 0f)
+            {
+                activeDealTimeRemaining.Value = Mathf.Max(0f, activeDealTimeRemaining.Value - Time.deltaTime);
+            }
+        }
+    }
+
+    [Rpc(SendTo.Server)]
+    public void SetActiveDealServerRpc(string title, string terms, float duration, int reward, int penalty)
+    {
+        hasActiveDeal.Value = true;
+        activeDealTitle.Value = !string.IsNullOrEmpty(title) ? title : "DARK DEAL";
+        activeDealTerms.Value = !string.IsNullOrEmpty(terms) ? terms : "";
+        activeDealDuration.Value = duration;
+        activeDealTimeRemaining.Value = duration;
+        activeDealReward.Value = reward;
+        activeDealPenalty.Value = penalty;
+    }
+
+    [Rpc(SendTo.Server)]
+    public void ClearActiveDealServerRpc()
+    {
+        hasActiveDeal.Value = false;
+        activeDealTitle.Value = default;
+        activeDealTerms.Value = default;
+        activeDealDuration.Value = 0f;
+        activeDealTimeRemaining.Value = 0f;
+        activeDealReward.Value = 0;
+        activeDealPenalty.Value = 0;
+    }
+
+    [Rpc(SendTo.Server)]
+    public void RequestMirrorDealCompletionServerRpc(string title, int reward, int penalty, int currentStake, string desc)
+    {
+        MirrorDealCompletionToPossessorClientRpc(title, reward, penalty, currentStake, desc);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void MirrorDealCompletionToPossessorClientRpc(string title, int reward, int penalty, int currentStake, string desc)
+    {
+        if (NetworkManager.Singleton == null) return;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+        if (isPossessed.Value && possessingClientId.Value == localId)
+        {
+            if (NightCrawler.UI.DealCompletionModalUI.Instance != null)
+            {
+                NightCrawler.UI.DealCompletionModalUI.Instance.Show(title, reward, penalty, currentStake, desc);
+            }
+        }
+    }
+
+    [Rpc(SendTo.Server)]
+    public void RequestMirrorDealFailureServerRpc(string title, int penalty, string desc)
+    {
+        MirrorDealFailureToPossessorClientRpc(title, penalty, desc);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void MirrorDealFailureToPossessorClientRpc(string title, int penalty, string desc)
+    {
+        if (NetworkManager.Singleton == null) return;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+        if (isPossessed.Value && possessingClientId.Value == localId)
+        {
+            if (NightCrawler.UI.DealFailureModalUI.Instance != null)
+            {
+                NightCrawler.UI.DealFailureModalUI.Instance.Show(title, penalty, desc);
+            }
+        }
+    }
+
+    [Rpc(SendTo.Server)]
+    public void RequestMirrorDealOfferServerRpc(ulong senderId, string title, string terms, string reward, bool grantWeapon, int timeLimit, int penalty)
+    {
+        MirrorDealOfferToPossessorClientRpc(senderId, title, terms, reward, grantWeapon, timeLimit, penalty);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void MirrorDealOfferToPossessorClientRpc(ulong senderId, string title, string terms, string reward, bool grantWeapon, int timeLimit, int penalty)
+    {
+        if (NetworkManager.Singleton == null) return;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+        if (isPossessed.Value && possessingClientId.Value == localId)
+        {
+            if (DealNotificationUI.Instance != null)
+            {
+                DealNotificationUI.Instance.DisplayDealOffer(senderId, title, terms, reward, grantWeapon, timeLimit, penalty);
+            }
+        }
+    }
+
+    [Rpc(SendTo.Server)]
+    public void RequestMirrorModalDismissedServerRpc(int modalType)
+    {
+        MirrorModalDismissedToPossessorClientRpc(modalType);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void MirrorModalDismissedToPossessorClientRpc(int modalType)
+    {
+        if (NetworkManager.Singleton == null) return;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+        if (isPossessed.Value && possessingClientId.Value == localId)
+        {
+            if (modalType == 0 && NightCrawler.UI.DealCompletionModalUI.Instance != null)
+                NightCrawler.UI.DealCompletionModalUI.Instance.Hide();
+            else if (modalType == 1 && NightCrawler.UI.DealFailureModalUI.Instance != null)
+                NightCrawler.UI.DealFailureModalUI.Instance.Hide();
+            else if (modalType == 2 && DealNotificationUI.Instance != null)
+                DealNotificationUI.Instance.Hide();
+        }
     }
 
     /// <summary>

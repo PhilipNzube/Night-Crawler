@@ -786,6 +786,19 @@ namespace NightCrawler.Monsters
 
             UpdateChargesDisplay();
 
+            // Track existing monsters before spawn so fallback routine ignores them and only spectates the latest one
+            _previouslyExistingMonsterInstanceIds.Clear();
+            var existingControllers = FindObjectsByType<MonsterController>(FindObjectsSortMode.None);
+            if (existingControllers != null)
+            {
+                foreach (var ec in existingControllers) if (ec != null) _previouslyExistingMonsterInstanceIds.Add(ec.GetInstanceID());
+            }
+            var existingAIs = FindObjectsByType<MonsterAI>(FindObjectsSortMode.None);
+            if (existingAIs != null)
+            {
+                foreach (var ea in existingAIs) if (ea != null) _previouslyExistingMonsterInstanceIds.Add(ea.GetInstanceID());
+            }
+
             var spawnMgr = DeadSpawnManager.Instance != null ? DeadSpawnManager.Instance : FindFirstObjectByType<DeadSpawnManager>();
             if (spawnMgr != null && NetworkManager.Singleton != null)
             {
@@ -805,6 +818,7 @@ namespace NightCrawler.Monsters
             _activeSpectateRoutine = StartCoroutine(SpectateSpawnedMonsterRoutine());
         }
 
+        private readonly HashSet<int> _previouslyExistingMonsterInstanceIds = new HashSet<int>();
         private Coroutine _activeSpectateRoutine;
 
         public void CancelPendingSpectateRoutine()
@@ -816,13 +830,72 @@ namespace NightCrawler.Monsters
             }
         }
 
+        /// <summary>
+        /// Called directly by DeadSpawnManager ClientRpc when the server spawns the requested monster.
+        /// Immediately binds to and spectates the specific NetworkObjectId of the newest monster.
+        /// </summary>
+        public void SpectateSpecificMonster(ulong monsterNetworkObjectId)
+        {
+            if (_activeSpectateRoutine != null) StopCoroutine(_activeSpectateRoutine);
+            _activeSpectateRoutine = StartCoroutine(SpectateSpecificMonsterRoutine(monsterNetworkObjectId));
+        }
+
+        private System.Collections.IEnumerator SpectateSpecificMonsterRoutine(ulong monsterNetworkObjectId)
+        {
+            CloseHUD();
+
+            float timeout = 4.0f;
+            float elapsed = 0f;
+            TargetHealth targetHealth = null;
+            MonsterController targetMonster = null;
+
+            while (elapsed < timeout)
+            {
+                if (NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null &&
+                    NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(monsterNetworkObjectId, out var netObj))
+                {
+                    if (netObj != null && netObj.gameObject != null)
+                    {
+                        targetMonster = netObj.GetComponent<MonsterController>();
+                        targetHealth = netObj.GetComponent<TargetHealth>() ?? netObj.GetComponentInChildren<TargetHealth>();
+                        if (targetHealth != null) break;
+                    }
+                }
+
+                yield return new WaitForSeconds(0.1f);
+                elapsed += 0.1f;
+            }
+
+            if (targetHealth != null)
+            {
+                var spec = SpectatorController.MonsterInstance != null 
+                    ? SpectatorController.MonsterInstance 
+                    : SpectatorController.Instance;
+
+                if (spec != null)
+                {
+                    spec.TryOpenMonsterSpectator(null, targetHealth);
+                }
+                else if (monsterSpawnVirtualCamera != null && targetMonster != null)
+                {
+                    Transform camTarget = targetMonster.GetCameraTarget() ?? targetMonster.transform;
+                    monsterSpawnVirtualCamera.gameObject.SetActive(true);
+                    monsterSpawnVirtualCamera.enabled = true;
+                    monsterSpawnVirtualCamera.Follow = camTarget;
+                    monsterSpawnVirtualCamera.LookAt = camTarget;
+                    monsterSpawnVirtualCamera.Priority = 99999;
+                }
+            }
+            _activeSpectateRoutine = null;
+        }
+
         private System.Collections.IEnumerator SpectateSpawnedMonsterRoutine()
         {
             // Close HUD first so the UI doesn't block the view
             CloseHUD();
 
             // Wait briefly for the monster to be spawned and replicated over the network
-            float timeout = 3.0f;
+            float timeout = 3.5f;
             float elapsed = 0f;
             MonsterController targetMonster = null;
             TargetHealth targetHealth = null;
@@ -837,6 +910,9 @@ namespace NightCrawler.Monsters
                         var m = monsters[i];
                         if (m != null && m.gameObject != null)
                         {
+                            // Strictly ignore monsters that existed before the spawn was clicked!
+                            if (_previouslyExistingMonsterInstanceIds.Contains(m.GetInstanceID())) continue;
+
                             if (m.TryGetComponent<TargetHealth>(out var th) && !th.isCorpse.Value && th.CurrentHealth > 0)
                             {
                                 targetMonster = m;
@@ -863,6 +939,9 @@ namespace NightCrawler.Monsters
                         var ai = ais[i];
                         if (ai != null && ai.gameObject != null && ai.currentState != MonsterAI.AIState.Dead)
                         {
+                            // Strictly ignore monsters that existed before the spawn was clicked!
+                            if (_previouslyExistingMonsterInstanceIds.Contains(ai.GetInstanceID())) continue;
+
                             targetHealth = ai.GetComponent<TargetHealth>() ?? ai.GetComponentInChildren<TargetHealth>();
                             if (targetHealth != null && !targetHealth.isCorpse.Value && targetHealth.CurrentHealth > 0)
                             {

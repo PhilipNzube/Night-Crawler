@@ -139,6 +139,7 @@ namespace NightCrawler.Monsters
             if (spawnedObj.TryGetComponent<NetworkObject>(out var netObj))
             {
                 netObj.Spawn(true);
+                NotifyMonsterSpawnedForSummonerClientRpc(summonerClientId, netObj.NetworkObjectId);
             }
             else
             {
@@ -150,6 +151,18 @@ namespace NightCrawler.Monsters
 
             // Broadcast sound and notification to all clients
             BroadcastMonsterSummonedClientRpc(monsterIndex, monsterName);
+        }
+
+        [Rpc(SendTo.ClientsAndHost)]
+        private void NotifyMonsterSpawnedForSummonerClientRpc(ulong summonerClientId, ulong monsterNetworkObjectId)
+        {
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == summonerClientId)
+            {
+                if (GirlMonsterSummonHUD.Instance != null)
+                {
+                    GirlMonsterSummonHUD.Instance.SpectateSpecificMonster(monsterNetworkObjectId);
+                }
+            }
         }
 
         [ClientRpc]

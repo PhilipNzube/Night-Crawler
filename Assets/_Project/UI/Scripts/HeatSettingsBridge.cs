@@ -1656,6 +1656,13 @@ public class HeatSettingsBridge : MonoBehaviour
             var seen = new HashSet<string>();
             foreach (var r in allRes)
             {
+                // Discard archaic sub-720p resolutions (e.g. 640x480, 800x600, 1024x768)
+                if (r.width < 1280 || r.height < 720) continue;
+
+                // Only allow modern widescreen aspect ratios (16:9, 16:10, 21:9)
+                float aspect = (float)r.width / (float)r.height;
+                if (aspect < 1.55f || aspect > 2.45f) continue;
+
                 string key = $"{r.width}x{r.height}";
                 if (!seen.Contains(key))
                 {
@@ -1663,8 +1670,12 @@ public class HeatSettingsBridge : MonoBehaviour
                     _availableResolutions.Add(r);
                 }
             }
+
+            // Order ascending by resolution pixel count
+            _availableResolutions.Sort((a, b) => (a.width * a.height).CompareTo(b.width * b.height));
         }
-        else
+
+        if (_availableResolutions.Count == 0)
         {
             _availableResolutions.Add(new Resolution { width = 1280, height = 720 });
             _availableResolutions.Add(new Resolution { width = 1600, height = 900 });

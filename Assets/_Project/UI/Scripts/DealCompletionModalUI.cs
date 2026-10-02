@@ -165,6 +165,16 @@ namespace NightCrawler.UI
 
             gameObject.SetActive(false);
 
+            // If possessed, mirror dismissal to possessing Girl
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null)
+            {
+                var localObj = NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
+                if (localObj != null && localObj.TryGetComponent<PlayerPossessableNet>(out var pNet) && pNet.isPossessed.Value)
+                {
+                    pNet.RequestMirrorModalDismissedServerRpc(0);
+                }
+            }
+
             // Re-lock cursor back to gameplay
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;

@@ -201,6 +201,22 @@ public class PlayerHUD : MonoBehaviour
             bloodScreenOverlay.BindToTarget(targetObj);
         }
 
+        // Mirror possessed investigator's active deal HUD if they have an active deal
+        if (targetObj.TryGetComponent<PlayerPossessableNet>(out var possessable) && possessable.hasActiveDeal.Value)
+        {
+            if (NightCrawler.UI.ActiveDealMissionHUD.Instance != null)
+            {
+                NightCrawler.UI.ActiveDealMissionHUD.Instance.StartPossessedMirror(
+                    possessable.activeDealTitle.Value.ToString(),
+                    possessable.activeDealTerms.Value.ToString(),
+                    possessable.activeDealDuration.Value,
+                    possessable.activeDealPenalty.Value,
+                    possessable.activeDealReward.Value,
+                    possessable.activeDealTimeRemaining.Value
+                );
+            }
+        }
+
         _isBound = true;
         RefreshHealth();
     }
@@ -218,6 +234,24 @@ public class PlayerHUD : MonoBehaviour
 
         if (healthSlider != null) healthSlider.gameObject.SetActive(true);
         if (vialCountGO != null) vialCountGO.SetActive(false);
+
+        // Dismiss mirrored deal HUD and modals
+        if (NightCrawler.UI.ActiveDealMissionHUD.Instance != null && NightCrawler.UI.ActiveDealMissionHUD.Instance.IsMirroredPossession)
+        {
+            NightCrawler.UI.ActiveDealMissionHUD.Instance.Hide();
+        }
+        if (NightCrawler.UI.DealCompletionModalUI.Instance != null && NightCrawler.UI.DealCompletionModalUI.Instance.IsOpen)
+        {
+            NightCrawler.UI.DealCompletionModalUI.Instance.Hide();
+        }
+        if (NightCrawler.UI.DealFailureModalUI.Instance != null && NightCrawler.UI.DealFailureModalUI.Instance.IsOpen)
+        {
+            NightCrawler.UI.DealFailureModalUI.Instance.Hide();
+        }
+        if (DealNotificationUI.Instance != null && DealNotificationUI.Instance.IsOpen)
+        {
+            DealNotificationUI.Instance.Hide();
+        }
 
         UnsubscribeHealthEvents();
         AdventurerMinimapSetup.OnPossessionChanged(null, false);

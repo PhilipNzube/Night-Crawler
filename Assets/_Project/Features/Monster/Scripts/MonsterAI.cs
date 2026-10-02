@@ -68,13 +68,13 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     public float hitReactionDuration = 0.5f;
 
     [Tooltip("Walking speed in standing posture (used when following Girl or patrolling near her).")]
-    public float walkSpeed = 2.6f;
+    public float walkSpeed = 1.9f;
 
     [Tooltip("Standing run speed while pursuing targets or catching up to the Girl.")]
-    public float standRunSpeed = 5.6f;
+    public float standRunSpeed = 5.2f;
 
     [Tooltip("Crawl run speed while sprinting on all fours across long distances.")]
-    public float crawlSpeed = 6.8f;
+    public float crawlSpeed = 6.2f;
 
     [Tooltip("NavMeshAgent base offset when crawling. Fine-tune to ensure hands/knees touch the ground (e.g. 0.0 or -0.05).")]
     public float crawlBaseOffset = 0f;
@@ -86,7 +86,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     private float _defaultControllerHeight = 1.8f;
     private Vector3 _defaultControllerCenter = new Vector3(0f, 0.9f, 0f);
     [Tooltip("Movement speed while sprinting at targets.")]
-    public float runSpeed = 6.5f;
+    public float runSpeed = 5.8f;
     [Tooltip("Angular rotation speed when turning towards players.")]
     public float turnSpeed = 12f;
     [Tooltip("Acceleration for instantaneous, aggressive chasing.")]
@@ -120,7 +120,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     [Tooltip("Current target being pursued.")]
     public Transform target;
     [Tooltip("Maximum detection radius for finding investigators.")]
-    public float searchRadius = 60f;
+    public float searchRadius = 20f;
     [Tooltip("If another living player gets this much closer than the current target, switch aggro!")]
     public float targetSwitchThreshold = 5f;
     [Tooltip("Switch aggro to an investigator who strikes the monster with an axe.")]
@@ -335,6 +335,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             ApplyPostureColliders(currentPosture == ZombiePosture.Crawling);
         }
 
+        IgnoreGirlCollisionIfInvisible();
+
         if (playScreamOnSpawn && !_hasScreamed)
         {
             _spawnScreamCoroutine = StartCoroutine(SpawnScreamRoutine());
@@ -370,17 +372,18 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         if (monsterType == MonsterType.Berserker)
         {
-            if (runSpeed < 7.0f) runSpeed = 7.5f;
+            if (runSpeed < 5.0f || runSpeed > 7.0f) runSpeed = 5.8f;
+            if (standRunSpeed < 5.0f || standRunSpeed > 7.0f) standRunSpeed = 5.8f;
             if (attackDamage < 50f) attackDamage = 65f;
             if (screamDuration <= 0f) screamDuration = 2.6f;
         }
         else
         {
             // Zombie defaults
-            if (crawlSpeed <= 0f) crawlSpeed = 6.8f;
-            if (standRunSpeed <= 0f) standRunSpeed = 5.6f;
-            if (walkSpeed <= 0f) walkSpeed = 2.6f;
-            if (runSpeed < 5.0f) runSpeed = standRunSpeed;
+            crawlSpeed = 6.2f;
+            standRunSpeed = 5.2f;
+            walkSpeed = 1.9f;
+            runSpeed = standRunSpeed;
             if (attackDamage < 25f) attackDamage = 35f;
             if (screamDuration <= 0f) screamDuration = 2.2f;
         }
@@ -647,6 +650,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         // Animation Scream Trigger
         TriggerScreamAnimation();
 
+        SetLocomotionAnimSpeed(1.0f);
         SafeSetFloat(_speedHash, 0f);
         SafeSetBool(_isRunningHash, false);
 
@@ -1069,6 +1073,14 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 _agent.SetDestination(threat.position);
                 PlayZombieCrawlingLocomotion();
             }
+            else if (distToThreat <= standTransitionDistance)
+            {
+                // When close, zombie stands and walks menacingly towards the target!
+                _agent.isStopped = false;
+                _agent.speed = walkSpeed;
+                _agent.SetDestination(threat.position);
+                PlayZombieStandingWalkLocomotion();
+            }
             else
             {
                 _agent.isStopped = false;
@@ -1104,6 +1116,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             if (distance <= attackRange && hasLoS)
             {
                 _agent.isStopped = true;
+                SetLocomotionAnimSpeed(1.0f);
                 SafeSetFloat(_speedHash, 0f);
                 SafeSetBool(_isRunningHash, false);
                 RotateTowardsTarget(target);
@@ -1119,6 +1132,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 _agent.speed = runSpeed;
                 _agent.SetDestination(target.position);
 
+                SetLocomotionAnimSpeed(1.15f);
                 SafeSetFloat(_speedHash, runSpeed);
                 SafeSetBool(_isRunningHash, true);
             }
@@ -1228,6 +1242,14 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     //  Zombie Posture & Locomotion Animation Helpers
     // =========================================================================
 
+    protected void SetLocomotionAnimSpeed(float speed)
+    {
+        if (_animator != null)
+        {
+            _animator.speed = speed;
+        }
+    }
+
     public void StartStandUp()
     {
         if (currentPosture != ZombiePosture.Crawling) return;
@@ -1248,6 +1270,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             _agent.isStopped = true;
         }
 
+        SetLocomotionAnimSpeed(1.0f);
         SafeSetTrigger(_standUpHash);
         SafeCrossFade(_stateStandUp, "Zombie Stand Up", 0.12f);
 
@@ -1291,6 +1314,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             netPosture.Value = ZombiePosture.Crawling;
         }
 
+        SetLocomotionAnimSpeed(1.0f);
         SafeSetBool(_isStandingHash, false);
         SafeSetBool(_isCrawlingHash, true);
         SafeCrossFade(_stateRunningCrawl, "Running Crawl", 0.2f);
@@ -1301,12 +1325,14 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     private void PlayStandUpClientRpc()
     {
         if (IsServer) return;
+        SetLocomotionAnimSpeed(1.0f);
         SafeSetTrigger(_standUpHash);
         SafeCrossFade(_stateStandUp, "Zombie Stand Up", 0.12f);
     }
 
     private void PlayZombieCrawlingLocomotion()
     {
+        SetLocomotionAnimSpeed(1.35f);
         SafeSetFloat(_speedHash, crawlSpeed);
         SafeSetBool(_isRunningHash, true);
         SafeSetBool(_isWalkingHash, false);
@@ -1317,6 +1343,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     private void PlayZombieStandingRunLocomotion()
     {
+        SetLocomotionAnimSpeed(1.15f);
         SafeSetFloat(_speedHash, standRunSpeed);
         SafeSetBool(_isRunningHash, true);
         SafeSetBool(_isWalkingHash, false);
@@ -1327,6 +1354,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     private void PlayZombieStandingWalkLocomotion()
     {
+        SetLocomotionAnimSpeed(1.0f);
         SafeSetFloat(_speedHash, walkSpeed);
         SafeSetBool(_isRunningHash, false);
         SafeSetBool(_isWalkingHash, true);
@@ -1337,6 +1365,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     private void PlayZombieIdleLocomotion()
     {
+        SetLocomotionAnimSpeed(1.0f);
         SafeSetFloat(_speedHash, 0f);
         SafeSetBool(_isRunningHash, false);
         SafeSetBool(_isWalkingHash, false);
@@ -1355,6 +1384,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             _agent.isStopped = true;
         }
 
+        SetLocomotionAnimSpeed(1.0f);
         SafeSetFloat(_speedHash, 0f);
         SafeSetBool(_isRunningHash, false);
         SafeSetTrigger(_attackHash);
@@ -1462,8 +1492,32 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (GameManager.Instance != null && GameManager.Instance.GirlTransform == t) return true;
         if (t.GetComponentInChildren<GirlStealth>() != null || t.GetComponentInParent<GirlStealth>() != null) return true;
         if (t.GetComponentInChildren<GirlPossession>() != null || t.GetComponentInParent<GirlPossession>() != null) return true;
+        if (t.GetComponentInChildren<GirlMaterialController>() != null || t.GetComponentInParent<GirlMaterialController>() != null) return true;
+        if (t.GetComponentInChildren<GirlMovement>() != null || t.GetComponentInParent<GirlMovement>() != null) return true;
+        var pNet = t.GetComponentInChildren<PlayerPossessableNet>();
+        if (pNet == null) pNet = t.GetComponentInParent<PlayerPossessableNet>();
+        if (pNet != null && pNet.isPossessed.Value) return true;
         string n = t.name.ToLower();
         return n.Contains("girl") || (n.Contains("demon") && !n.Contains("monster") && !n.Contains("creep"));
+    }
+
+    public void IgnoreGirlCollisionIfInvisible()
+    {
+        var girlMaterial = FindAnyObjectByType<GirlMaterialController>();
+        if (girlMaterial != null)
+        {
+            bool invisible = !girlMaterial.isManifested.Value;
+            var girlCc = girlMaterial.GetComponent<CharacterController>();
+            var myColliders = GetComponentsInChildren<Collider>();
+            foreach (var col in myColliders)
+            {
+                if (col == null || !col.enabled) continue;
+                if (girlCc != null && girlCc.enabled)
+                {
+                    Physics.IgnoreCollision(col, girlCc, invisible);
+                }
+            }
+        }
     }
 
     private static bool IsMonster(GameObject go)
