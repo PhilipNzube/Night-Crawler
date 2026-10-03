@@ -269,19 +269,19 @@ public class HeatSettingsBridge : MonoBehaviour
 
     [Header("Descriptions — General")]
     [Tooltip("Inspector-editable descriptions for settings in the GENERAL tab. Each entry controls the row title and the side-panel preview card when hovered.")]
-    public List<SettingDescriptionEntry> generalDescriptions = new List<SettingDescriptionEntry>();
+    public List<SettingDescriptionEntry> generalDescriptions = DefaultGeneral();
 
     [Header("Descriptions — Controls")]
     [Tooltip("Inspector-editable descriptions for settings in the CONTROLS tab (sensitivity, sprint mode, keybindings).")]
-    public List<SettingDescriptionEntry> controlsDescriptions = new List<SettingDescriptionEntry>();
+    public List<SettingDescriptionEntry> controlsDescriptions = DefaultControls();
 
     [Header("Descriptions — Audio")]
     [Tooltip("Inspector-editable descriptions for settings in the AUDIO tab (master, music, SFX, UI volumes).")]
-    public List<SettingDescriptionEntry> audioDescriptions = new List<SettingDescriptionEntry>();
+    public List<SettingDescriptionEntry> audioDescriptions = DefaultAudio();
 
     [Header("Descriptions — Visuals")]
     [Tooltip("Inspector-editable descriptions for settings in the VISUALS tab (resolution, frame rate, texture quality, etc.).")]
-    public List<SettingDescriptionEntry> visualsDescriptions = new List<SettingDescriptionEntry>();
+    public List<SettingDescriptionEntry> visualsDescriptions = DefaultVisuals();
 
     /// <summary>Runtime merge of all four categorised description lists.</summary>
     private List<SettingDescriptionEntry> settingDescriptions
@@ -394,9 +394,9 @@ public class HeatSettingsBridge : MonoBehaviour
             {
                 var e = list[i];
                 if (e == null) continue;
-                if (e.elementName.Equals(oldName, StringComparison.OrdinalIgnoreCase))
+                if (!string.IsNullOrEmpty(e.elementName) && e.elementName.Equals(oldName, StringComparison.OrdinalIgnoreCase))
                 {
-                    if (!settingDescriptions.Exists(x => x != null && x.elementName.Equals(newName, StringComparison.OrdinalIgnoreCase)))
+                    if (!settingDescriptions.Exists(x => x != null && !string.IsNullOrEmpty(x.elementName) && x.elementName.Equals(newName, StringComparison.OrdinalIgnoreCase)))
                     {
                         e.elementName   = newName;
                         e.displayTitle  = newTitle;
@@ -435,28 +435,8 @@ public class HeatSettingsBridge : MonoBehaviour
 
         if (removed > 0) changed = true;
 
-        // Ensure Render Scale entry exists in visualsDescriptions
-        var renderScaleEntry = visualsDescriptions.Find(e => e != null &&
-            (e.elementName.Equals("Render Scale", StringComparison.OrdinalIgnoreCase) ||
-             e.displayTitle.Equals("3D Resolution Scaling", StringComparison.OrdinalIgnoreCase)));
-        if (renderScaleEntry == null)
-        {
-            visualsDescriptions.Add(new SettingDescriptionEntry
-            {
-                elementName  = "Render Scale",
-                displayTitle = "3D Resolution Scaling",
-                description  = "Scales internal 3D scene rendering resolution (50% to 100%) to drastically boost framerate while keeping the HUD, biometric vitals, and fonts 100% crisp.",
-                coverImage   = null
-            });
-            changed = true;
-        }
-        else if (string.IsNullOrEmpty(renderScaleEntry.description))
-        {
-            renderScaleEntry.elementName  = "Render Scale";
-            renderScaleEntry.displayTitle = "3D Resolution Scaling";
-            renderScaleEntry.description  = "Scales internal 3D scene rendering resolution (50% to 100%) to drastically boost framerate while keeping the HUD, biometric vitals, and fonts 100% crisp.";
-            changed = true;
-        }
+        // Merge every built-in default that is missing (never overwrites edited entries)
+        if (EnsureDefaultDescriptions()) changed = true;
 
 #if UNITY_EDITOR
         if (changed && !Application.isPlaying)
@@ -548,10 +528,8 @@ public class HeatSettingsBridge : MonoBehaviour
     // =========================================================================
     //  Default Subterranean-Horror Description Presets
     // =========================================================================
-    public void PopulateDefaultDescriptions()
-    {
-        // ── GENERAL ──────────────────────────────────────────────────────────
-        generalDescriptions = new List<SettingDescriptionEntry>()
+    // ── GENERAL ──────────────────────────────────────────────────────────────
+    private static List<SettingDescriptionEntry> DefaultGeneral() => new List<SettingDescriptionEntry>()
         {
             new SettingDescriptionEntry
             {
@@ -583,8 +561,8 @@ public class HeatSettingsBridge : MonoBehaviour
             },
         };
 
-        // ── CONTROLS ─────────────────────────────────────────────────────────
-        controlsDescriptions = new List<SettingDescriptionEntry>()
+    // ── CONTROLS ─────────────────────────────────────────────────────────────
+    private static List<SettingDescriptionEntry> DefaultControls() => new List<SettingDescriptionEntry>()
         {
             new SettingDescriptionEntry
             {
@@ -819,8 +797,8 @@ public class HeatSettingsBridge : MonoBehaviour
             },
         };
 
-        // ── AUDIO ─────────────────────────────────────────────────────────────
-        audioDescriptions = new List<SettingDescriptionEntry>()
+    // ── AUDIO ────────────────────────────────────────────────────────────────
+    private static List<SettingDescriptionEntry> DefaultAudio() => new List<SettingDescriptionEntry>()
         {
             new SettingDescriptionEntry
             {
@@ -852,8 +830,8 @@ public class HeatSettingsBridge : MonoBehaviour
             },
         };
 
-        // ── VISUALS ───────────────────────────────────────────────────────────
-        visualsDescriptions = new List<SettingDescriptionEntry>()
+    // ── VISUALS ──────────────────────────────────────────────────────────────
+    private static List<SettingDescriptionEntry> DefaultVisuals() => new List<SettingDescriptionEntry>()
         {
             new SettingDescriptionEntry
             {
@@ -905,6 +883,59 @@ public class HeatSettingsBridge : MonoBehaviour
                 coverImage   = null
             },
         };
+
+    /// <summary>Overwrites all four lists with the built-in defaults (used by Reset).</summary>
+    public void PopulateDefaultDescriptions()
+    {
+        generalDescriptions  = DefaultGeneral();
+        controlsDescriptions = DefaultControls();
+        audioDescriptions    = DefaultAudio();
+        visualsDescriptions  = DefaultVisuals();
+    }
+
+    /// <summary>
+    /// Adds any built-in entry that is missing from the serialized lists and fills blank
+    /// titles/descriptions. Entries you have already edited are never overwritten.
+    /// </summary>
+    private bool EnsureDefaultDescriptions()
+    {
+        bool changed = false;
+        var existing = settingDescriptions;
+
+        bool Merge(List<SettingDescriptionEntry> target, List<SettingDescriptionEntry> defaults)
+        {
+            bool any = false;
+            foreach (var d in defaults)
+            {
+                var match = existing.Find(e => e != null && !string.IsNullOrEmpty(e.elementName) &&
+                    e.elementName.Equals(d.elementName, StringComparison.OrdinalIgnoreCase));
+
+                if (match == null)
+                {
+                    var copy = new SettingDescriptionEntry
+                    {
+                        elementName  = d.elementName,
+                        displayTitle = d.displayTitle,
+                        description  = d.description,
+                        coverImage   = null
+                    };
+                    target.Add(copy);
+                    existing.Add(copy);
+                    any = true;
+                    continue;
+                }
+
+                if (string.IsNullOrWhiteSpace(match.displayTitle)) { match.displayTitle = d.displayTitle; any = true; }
+                if (string.IsNullOrWhiteSpace(match.description))  { match.description  = d.description;  any = true; }
+            }
+            return any;
+        }
+
+        if (Merge(generalDescriptions,  DefaultGeneral()))  changed = true;
+        if (Merge(controlsDescriptions, DefaultControls())) changed = true;
+        if (Merge(audioDescriptions,    DefaultAudio()))    changed = true;
+        if (Merge(visualsDescriptions,  DefaultVisuals()))  changed = true;
+        return changed;
     }
 
     // =========================================================================
@@ -1808,9 +1839,9 @@ public class HeatSettingsBridge : MonoBehaviour
     {
         var found = settingDescriptions.Find(e => 
             e != null && (
-            e.elementName.Equals(key, StringComparison.OrdinalIgnoreCase) ||
-            e.displayTitle.Equals(key, StringComparison.OrdinalIgnoreCase) ||
-            e.displayTitle.Equals(fallbackTitle, StringComparison.OrdinalIgnoreCase)));
+            string.Equals(e.elementName, key, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(e.displayTitle, key, StringComparison.OrdinalIgnoreCase) ||
+            string.Equals(e.displayTitle, fallbackTitle, StringComparison.OrdinalIgnoreCase)));
 
         if (found != null && !string.IsNullOrEmpty(found.description)) return found;
 

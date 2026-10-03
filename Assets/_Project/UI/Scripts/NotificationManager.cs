@@ -162,6 +162,23 @@ public class NotificationManager : MonoBehaviour
     }
 
     /// <summary>
+    /// Standard notification with a header title. Keep the title out of the body text —
+    /// the header row displays it.
+    /// </summary>
+    public void ShowNotification(string header, string message, float duration = 4f)
+    {
+        ShowStyledWarning(header, message, new Color(0.3f, 0.8f, 1f, 1f), duration, notificationSound, isPulsing: false);
+    }
+
+    /// <summary>
+    /// Standard notification with a header title and custom accent colour.
+    /// </summary>
+    public void ShowNotification(string header, string message, Color accentColor, float duration = 4f)
+    {
+        ShowStyledWarning(header, message, accentColor, duration, notificationSound, isPulsing: false);
+    }
+
+    /// <summary>
     /// Enqueues and displays a styled warning. If it is the exact same notification as the one
     /// currently displaying or already in queue, it will NOT trigger a re-animation or duplicate queue buildup.
     /// Only after the notification has animated out can the same notification animate in again.

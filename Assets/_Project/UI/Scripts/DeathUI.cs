@@ -91,6 +91,8 @@ public class DeathUI : MonoBehaviour
 
         if (heatSpectateHotkey != null)
         {
+            // Replace the scene-authored InputAction (was hard-wired to Space) with the player's binding
+            KeybindingManager.BindHotkeyEvent(heatSpectateHotkey, "SpectatePlayer");
             heatSpectateHotkey.onHotkeyPress.AddListener(RequestSkipToSpectator);
         }
 
@@ -384,7 +386,7 @@ public class DeathUI : MonoBehaviour
                 th.GetComponent<MonsterController>() != null ||
                 th.GetComponentInChildren<MonsterAI>() != null ||
                 th.GetComponentInChildren<MonsterController>() != null ||
-                th.CompareTag("Monster") ||
+                th.gameObject.tag == "Monster" ||
                 th.name.ToLower().Contains("monster") ||
                 th.name.ToLower().Contains("zombie") ||
                 th.name.ToLower().Contains("crawler") ||
@@ -516,7 +518,7 @@ public class DeathUI : MonoBehaviour
         {
             holdTimer -= Time.deltaTime;
             if (_skipRequested) break;
-            if (UnityEngine.InputSystem.Keyboard.current != null && UnityEngine.InputSystem.Keyboard.current.anyKey.wasPressedThisFrame) break;
+            // Only the bound Spectate Survivors input (handled in Update / HotkeyEvent) may skip the hold
             yield return null;
         }
 

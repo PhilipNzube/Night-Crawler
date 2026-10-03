@@ -66,7 +66,16 @@ public class KeybindingManager : MonoBehaviour
     public static event Action OnBindingsChanged;
     public static event Action<bool> OnDeviceTypeChanged; // bool isGamepad
 
-    public const int CURRENT_BINDING_VERSION = 2;
+    public const int CURRENT_BINDING_VERSION = 3;
+
+    /// <summary>Keys the game uses for fixed functions (movement / pause / UI confirm). They can never be bound to an action.</summary>
+    public static readonly Key[] ReservedKeys = { Key.W, Key.A, Key.S, Key.D, Key.Escape, Key.Enter, Key.NumpadEnter };
+
+    /// <summary>Gamepad controls reserved for fixed functions (pause menu).</summary>
+    public static readonly string[] ReservedGamepadControls = { "start" };
+
+    // HotkeyEvents that mirror an action binding (re-pointed whenever bindings change)
+    private static readonly Dictionary<Michsky.UI.Heat.HotkeyEvent, string> _boundHotkeys = new Dictionary<Michsky.UI.Heat.HotkeyEvent, string>();
 
     [System.Serializable]
     public class ActionBinding
@@ -405,7 +414,7 @@ public class KeybindingManager : MonoBehaviour
                 context = ActionContext.Spectator,
                 defaultKey = Key.Tab,
                 defaultMouseButton = -1,
-                defaultGamepadControl = "leftStickPress" // L3
+                defaultGamepadControl = "buttonWest" // X / Square
             },
             new ActionBinding
             {
@@ -435,7 +444,7 @@ public class KeybindingManager : MonoBehaviour
                 context = ActionContext.Spectator,
                 defaultKey = Key.M,
                 defaultMouseButton = -1,
-                defaultGamepadControl = "buttonSouth" // A / Cross
+                defaultGamepadControl = "dpadUp"
             },
             new ActionBinding
             {
@@ -445,7 +454,7 @@ public class KeybindingManager : MonoBehaviour
                 context = ActionContext.Spectator,
                 defaultKey = Key.LeftAlt,
                 defaultMouseButton = -1,
-                defaultGamepadControl = "rightStickPress" // R3
+                defaultGamepadControl = "dpadDown"
             },
             new ActionBinding
             {
@@ -463,9 +472,9 @@ public class KeybindingManager : MonoBehaviour
                 displayName = "Spectate Survivors",
                 tacticalDescription = "Enter spectator mode from the death screen to follow surviving teammates through the mine. This key is shown on the YOU DIED screen prompt.",
                 context = ActionContext.Spectator,
-                defaultKey = Key.Space,
+                defaultKey = Key.O,
                 defaultMouseButton = -1,
-                defaultGamepadControl = "buttonSouth" // A / Cross
+                defaultGamepadControl = "buttonEast" // B / Circle
             },
             new ActionBinding
             {
@@ -473,9 +482,9 @@ public class KeybindingManager : MonoBehaviour
                 displayName = "Spectate Monsters",
                 tacticalDescription = "Enter monster spectator mode from the Summon HUD to watch your summoned zombies and berserkers hunt. This key is shown on the Monster Summoning prompt.",
                 context = ActionContext.Spirit,
-                defaultKey = Key.Space,
+                defaultKey = Key.U,
                 defaultMouseButton = -1,
-                defaultGamepadControl = "buttonSouth" // A / Cross
+                defaultGamepadControl = "buttonEast" // B / Circle
             },
             new ActionBinding
             {
@@ -530,6 +539,97 @@ public class KeybindingManager : MonoBehaviour
             // 3. Gamepad Control
             act.currentGamepadControl = PlayerPrefs.GetString($"NC_Bind_Pad_{act.actionId}", act.defaultGamepadControl);
         }
+
+        if (ResolveDuplicateBindings())
+        {
+            SaveBindings();
+        }
+    }
+
+    // =========================================================================
+    //  Duplicate Resolution
+    // =========================================================================
+    private static readonly Key[] FallbackKeyPool =
+    {
+        Key.J, Key.L, Key.I, Key.Y, Key.Comma, Key.Period, Key.Slash, Key.Semicolon, Key.Quote,
+        Key.LeftBracket, Key.RightBracket, Key.Digit5, Key.Digit6, Key.Digit7, Key.Digit8, Key.Digit9, Key.Digit0,
+        Key.F1, Key.F2, Key.F3, Key.F4, Key.F5, Key.F6, Key.F7, Key.F8, Key.UpArrow, Key.DownArrow,
+        Key.RightAlt, Key.RightCtrl, Key.RightShift, Key.Backquote, Key.Minus, Key.Equals
+    };
+
+    private static readonly string[] FallbackPadPool =
+    {
+        "buttonSouth", "buttonEast", "buttonWest", "buttonNorth", "leftShoulder", "rightShoulder",
+        "leftTrigger", "rightTrigger", "dpadUp", "dpadDown", "dpadLeft", "dpadRight",
+        "leftStickPress", "rightStickPress", "select"
+    };
+
+    private static bool SameKeyboardMouseInput(ActionBinding a, ActionBinding b)
+    {
+        if (a.currentMouseButton >= 0 || b.currentMouseButton >= 0)
+            return a.currentMouseButton >= 0 && a.currentMouseButton == b.currentMouseButton;
+        return a.currentKey != Key.None && a.currentKey == b.currentKey;
+    }
+
+    private static bool SamePadInput(ActionBinding a, ActionBinding b) =>
+        !string.IsNullOrEmpty(a.currentGamepadControl) &&
+        string.Equals(a.currentGamepadControl, b.currentGamepadControl, StringComparison.OrdinalIgnoreCase);
+
+    private bool IsKeyboardMouseTaken(ActionBinding self)
+    {
+        if (self.currentMouseButton < 0 && Array.IndexOf(ReservedKeys, self.currentKey) >= 0) return true;
+        return actions.Exists(o => o != self && SameKeyboardMouseInput(self, o));
+    }
+
+    private bool IsPadTaken(ActionBinding self)
+    {
+        if (Array.Exists(ReservedGamepadControls, r => r.Equals(self.currentGamepadControl, StringComparison.OrdinalIgnoreCase))) return true;
+        return actions.Exists(o => o != self && CanConflict(self, o) && SamePadInput(self, o));
+    }
+
+    /// <summary>
+    /// Guarantees no two actions share a keyboard key or mouse button (globally), and no two actions that
+    /// can be active at the same time share a gamepad button. The later duplicate is moved back to its
+    /// default, or to the first free input if its default is also taken. Returns true if anything changed.
+    /// </summary>
+    public bool ResolveDuplicateBindings()
+    {
+        bool changed = false;
+        foreach (var act in actions)
+        {
+            if (IsKeyboardMouseTaken(act))
+            {
+                act.currentMouseButton = act.defaultMouseButton;
+                act.currentKey = act.defaultKey;
+                if (IsKeyboardMouseTaken(act))
+                {
+                    act.currentMouseButton = -1;
+                    foreach (var k in FallbackKeyPool)
+                    {
+                        act.currentKey = k;
+                        if (!IsKeyboardMouseTaken(act)) break;
+                    }
+                }
+                changed = true;
+            }
+
+            if (IsPadTaken(act))
+            {
+                act.currentGamepadControl = act.defaultGamepadControl;
+                if (IsPadTaken(act))
+                {
+                    string free = null;
+                    foreach (var p in FallbackPadPool)
+                    {
+                        act.currentGamepadControl = p;
+                        if (!IsPadTaken(act)) { free = p; break; }
+                    }
+                    act.currentGamepadControl = free; // null = unbound if the pad is fully saturated for this role
+                }
+                changed = true;
+            }
+        }
+        return changed;
     }
 
     public void SaveBindings()
@@ -543,7 +643,71 @@ public class KeybindingManager : MonoBehaviour
         PlayerPrefs.SetInt("NC_Bind_Version", CURRENT_BINDING_VERSION);
         PlayerPrefs.Save();
         ApplyToAllPlayerInputs();
+        RefreshBoundHotkeys();
         OnBindingsChanged?.Invoke();
+    }
+
+    // =========================================================================
+    //  Heat HotkeyEvent Mirroring
+    // =========================================================================
+    /// <summary>
+    /// Builds a fresh InputAction containing ONLY the user's current keyboard/mouse and gamepad binding for an action.
+    /// </summary>
+    public static InputAction CreateInputActionFor(string actionId)
+    {
+        var ia = new InputAction($"NC_{actionId}", InputActionType.Button);
+        if (Instance == null) return ia;
+        var act = Instance.actions.Find(a => a.actionId.Equals(actionId, StringComparison.OrdinalIgnoreCase));
+        if (act == null) return ia;
+
+        if (act.currentMouseButton >= 0) ia.AddBinding(GetInputControlPathForMouse(act.currentMouseButton));
+        else if (act.currentKey != Key.None) ia.AddBinding(GetInputControlPath(act.currentKey));
+
+        if (!string.IsNullOrEmpty(act.currentGamepadControl)) ia.AddBinding($"<Gamepad>/{act.currentGamepadControl}");
+        return ia;
+    }
+
+    /// <summary>
+    /// Replaces a Heat HotkeyEvent's scene-authored InputAction with one that follows the given action binding.
+    /// The old InputAction is disabled and disposed so its original key (e.g. Space) stops firing.
+    /// The HotkeyEvent is kept in sync automatically whenever the player rebinds.
+    /// </summary>
+    public static void BindHotkeyEvent(Michsky.UI.Heat.HotkeyEvent hotkeyEvent, string actionId)
+    {
+        if (hotkeyEvent == null || string.IsNullOrEmpty(actionId)) return;
+        _boundHotkeys[hotkeyEvent] = actionId;
+        RepointHotkey(hotkeyEvent, actionId);
+    }
+
+    /// <summary>Stops mirroring an action on a HotkeyEvent (the current InputAction is left as is).</summary>
+    public static void UnbindHotkeyEvent(Michsky.UI.Heat.HotkeyEvent hotkeyEvent)
+    {
+        if (hotkeyEvent != null) _boundHotkeys.Remove(hotkeyEvent);
+    }
+
+    private static void RepointHotkey(Michsky.UI.Heat.HotkeyEvent he, string actionId)
+    {
+        var old = he.hotkey;
+        bool wasEnabled = old != null && old.enabled;
+        if (old != null)
+        {
+            old.Disable();
+            try { old.Dispose(); } catch { }
+        }
+
+        he.hotkey = CreateInputActionFor(actionId);
+        if (wasEnabled) he.hotkey.Enable();
+    }
+
+    private static void RefreshBoundHotkeys()
+    {
+        var dead = new List<Michsky.UI.Heat.HotkeyEvent>();
+        foreach (var kv in _boundHotkeys)
+        {
+            if (kv.Key == null) { dead.Add(kv.Key); continue; }
+            RepointHotkey(kv.Key, kv.Value);
+        }
+        foreach (var d in dead) _boundHotkeys.Remove(d);
     }
 
     public void ResetAllBindings()
@@ -620,12 +784,12 @@ public class KeybindingManager : MonoBehaviour
 
             if (detectedMouseBtn >= 0)
             {
-                // Check for duplicate mouse button conflict within conflicting contexts
-                ActionBinding conflict = actions.Find(other => other != act && CanConflict(act, other) && other.currentMouseButton == detectedMouseBtn);
+                // Mouse buttons must be unique across every action (keyboard/mouse is never shared)
+                ActionBinding conflict = actions.Find(other => other != act && other.currentMouseButton == detectedMouseBtn);
                 if (conflict != null)
                 {
                     string btnName = FormatMouseButtonName(detectedMouseBtn);
-                    ShowConflictError("Binding Conflict", $"Mouse button '{btnName}' is already mapped to '{conflict.displayName}'!\nPlease choose an unassigned input or rebind that command first.");
+                    ShowConflictError("Binding Conflict", $"{btnName} is already assigned to {conflict.displayName}. Choose a free input or rebind that action first.");
                     onComplete?.Invoke(FormatActionInput(act));
                     _rebindCoroutine = null;
                     yield break;
@@ -647,12 +811,20 @@ public class KeybindingManager : MonoBehaviour
                         Key newKey = keyControl.keyCode;
                         if (newKey == Key.None || newKey == Key.Escape) break;
 
-                        // Check for duplicate key conflict within conflicting contexts
-                        ActionBinding conflict = actions.Find(other => other != act && CanConflict(act, other) && other.currentMouseButton < 0 && other.currentKey == newKey && other.currentKey != Key.None);
+                        if (Array.IndexOf(ReservedKeys, newKey) >= 0)
+                        {
+                            ShowConflictError("Reserved Key", $"{FormatKeyName(newKey)} is reserved for movement or menus and can't be assigned.");
+                            onComplete?.Invoke(FormatActionInput(act));
+                            _rebindCoroutine = null;
+                            yield break;
+                        }
+
+                        // Keyboard keys must be unique across every action
+                        ActionBinding conflict = actions.Find(other => other != act && other.currentMouseButton < 0 && other.currentKey == newKey && other.currentKey != Key.None);
                         if (conflict != null)
                         {
                             string keyName = FormatKeyName(newKey);
-                            ShowConflictError("Key Conflict", $"Key '{keyName}' is already mapped to '{conflict.displayName}'!\nPlease choose an unassigned key or rebind that command first.");
+                            ShowConflictError("Key Conflict", $"{keyName} is already assigned to {conflict.displayName}. Choose a free key or rebind that action first.");
                             onComplete?.Invoke(FormatActionInput(act));
                             _rebindCoroutine = null;
                             yield break;
@@ -699,12 +871,20 @@ public class KeybindingManager : MonoBehaviour
                         string newControl = btnControl.name;
                         if (string.IsNullOrEmpty(newControl)) break;
 
-                        // Check for duplicate gamepad button conflict within conflicting contexts
+                        if (Array.Exists(ReservedGamepadControls, r => r.Equals(newControl, StringComparison.OrdinalIgnoreCase)))
+                        {
+                            ShowConflictError("Reserved Button", $"{FormatGamepadName(newControl, IsPlayStationActive())} opens the pause menu and can't be assigned.");
+                            onComplete?.Invoke(FormatGamepadName(act.currentGamepadControl, IsPlayStationActive()));
+                            _rebindCoroutine = null;
+                            yield break;
+                        }
+
+                        // Gamepad buttons must be unique among actions that can be active at the same time
                         ActionBinding conflict = actions.Find(other => other != act && CanConflict(act, other) && !string.IsNullOrEmpty(other.currentGamepadControl) && other.currentGamepadControl.Equals(newControl, StringComparison.OrdinalIgnoreCase));
                         if (conflict != null)
                         {
                             string btnName = FormatGamepadName(newControl, IsPlayStationActive());
-                            ShowConflictError("Button Conflict", $"Button '{btnName}' is already mapped to '{conflict.displayName}'!\nPlease choose an unassigned button or rebind that command first.");
+                            ShowConflictError("Button Conflict", $"{btnName} is already assigned to {conflict.displayName}. Choose a free button or rebind that action first.");
                             onComplete?.Invoke(FormatGamepadName(act.currentGamepadControl, IsPlayStationActive()));
                             _rebindCoroutine = null;
                             yield break;
@@ -744,7 +924,7 @@ public class KeybindingManager : MonoBehaviour
 
         if (NotificationManager.Instance != null)
         {
-            NotificationManager.Instance.ShowNotification($"{title}: {description}", 4.5f);
+            NotificationManager.Instance.ShowNotification(title, description, 4.5f);
         }
     }
 
