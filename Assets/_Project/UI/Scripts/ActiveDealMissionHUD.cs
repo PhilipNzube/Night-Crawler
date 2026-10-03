@@ -35,8 +35,11 @@ namespace NightCrawler.UI
         private AudioSource _audioSource;
 
         public bool IsMissionActive => _isMissionActive;
-        public bool IsLootMission => !string.IsNullOrEmpty(_activeMissionTitle) && _activeMissionTitle.ToLower().Contains("loot");
-        public bool IsKillMission => !string.IsNullOrEmpty(_activeMissionTitle) && _activeMissionTitle.ToLower().Contains("kill");
+        public bool IsLootMission => !string.IsNullOrEmpty(_activeMissionTitle) && 
+            (_activeMissionTitle.IndexOf("loot", StringComparison.OrdinalIgnoreCase) >= 0 || 
+             _activeMissionTitle.IndexOf("corpse", StringComparison.OrdinalIgnoreCase) >= 0 || 
+             _activeMissionTitle.IndexOf("body", StringComparison.OrdinalIgnoreCase) >= 0);
+        public bool IsKillMission => !IsLootMission;
 
         private void Awake()
         {
@@ -260,9 +263,11 @@ namespace NightCrawler.UI
 
             // Show dedicated deal completion modal
             int currentStake = MatchEconomyManager.Instance != null ? MatchEconomyManager.Instance.GetPlayerStake(NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0) : _rewardAmount;
-            if (DealCompletionModalUI.Instance != null)
+            var completionModal = DealCompletionModalUI.Instance ?? FindFirstObjectByType<DealCompletionModalUI>(FindObjectsInactive.Include);
+            if (completionModal != null)
             {
-                DealCompletionModalUI.Instance.Show(_activeMissionTitle, _rewardAmount, _penaltyAmount, currentStake, "The dark deal was successfully executed. The promised bounty is yours.");
+                completionModal.gameObject.SetActive(true);
+                completionModal.Show(_activeMissionTitle, _rewardAmount, _penaltyAmount, currentStake, "The dark deal was successfully executed. The promised bounty is yours.");
             }
 
             // If possessed, mirror outcome to the possessing Girl
@@ -313,9 +318,11 @@ namespace NightCrawler.UI
             }
 
             // Show dedicated deal failure modal
-            if (DealFailureModalUI.Instance != null)
+            var failureModal = DealFailureModalUI.Instance ?? FindFirstObjectByType<DealFailureModalUI>(FindObjectsInactive.Include);
+            if (failureModal != null)
             {
-                DealFailureModalUI.Instance.Show(_activeMissionTitle, _penaltyAmount, "You failed to uphold the terms before the timer expired. The spirit claims its tribute from your stake.");
+                failureModal.gameObject.SetActive(true);
+                failureModal.Show(_activeMissionTitle, _penaltyAmount, "You failed to uphold the terms before the timer expired. The spirit claims its tribute from your stake.");
             }
 
             // If possessed, mirror failure to the possessing Girl

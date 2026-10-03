@@ -790,6 +790,13 @@ public class GirlDealUI : MonoBehaviour
             return;
         }
 
+        // Rule: If target player already has an active deal in progress, block sending another deal
+        if (DealSystemNet.Instance != null && DealSystemNet.Instance.HasActiveDeal(targetRecipientId))
+        {
+            ShowError("DEAL IN PROGRESS", $"{targetPlayerName} already has an active dark deal in progress.\n\nYou cannot offer another deal to this investigator until their current deal is completed or expires.");
+            return;
+        }
+
         // 1. Read input values
         int rewardAmount = rewardSlider != null && rewardSlider.mainSlider != null
             ? Mathf.RoundToInt(rewardSlider.mainSlider.value)

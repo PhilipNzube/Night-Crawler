@@ -508,7 +508,8 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                 continue;
             }
 
-            if (hit.TryGetComponent<IDamageReceiver>(out var receiver))
+            var receiver = hit.GetComponentInParent<IDamageReceiver>();
+            if (receiver != null)
             {
                 float finalDamage = CombatEconomyFilter.CalculateEffectiveDamage(stats.damage, attackerWpnLvl, 0, true);
                 receiver.TakeDamage(finalDamage);
@@ -529,7 +530,11 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                 else if (IsOwner)
                 {
                     // Check if player eliminated another investigator to fulfill Kill Player pact
-                    if (hit.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= finalDamage))
+                    var th = hit.GetComponentInParent<TargetHealth>();
+                    var hs = hit.GetComponentInParent<HealthSystem>();
+                    bool isVictimDying = (th != null && (th.isCorpse.Value || th.CurrentHealth <= finalDamage))
+                                      || (hs != null && (hs.IsDead || hs.CurrentHealth <= finalDamage));
+                    if (isVictimDying)
                     {
                         if (NightCrawler.UI.ActiveDealMissionHUD.Instance != null && NightCrawler.UI.ActiveDealMissionHUD.Instance.IsMissionActive)
                         {
@@ -566,7 +571,8 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                 return;
             }
 
-            if (hit.collider.TryGetComponent<IDamageReceiver>(out var receiver))
+            var receiver = hit.collider.GetComponentInParent<IDamageReceiver>();
+            if (receiver != null)
             {
                 float finalDamage = CombatEconomyFilter.CalculateEffectiveDamage(stats.damage, attackerWpnLvl, 0, true);
                 receiver.TakeDamage(finalDamage);
@@ -585,7 +591,11 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                 else if (IsOwner)
                 {
                     // Check if player eliminated another investigator to fulfill Kill Player pact
-                    if (hit.collider.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= finalDamage))
+                    var th = hit.collider.GetComponentInParent<TargetHealth>();
+                    var hs = hit.collider.GetComponentInParent<HealthSystem>();
+                    bool isVictimDying = (th != null && (th.isCorpse.Value || th.CurrentHealth <= finalDamage))
+                                      || (hs != null && (hs.IsDead || hs.CurrentHealth <= finalDamage));
+                    if (isVictimDying)
                     {
                         if (NightCrawler.UI.ActiveDealMissionHUD.Instance != null && NightCrawler.UI.ActiveDealMissionHUD.Instance.IsMissionActive)
                         {

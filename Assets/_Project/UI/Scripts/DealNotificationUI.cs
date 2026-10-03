@@ -30,6 +30,9 @@ public class DealNotificationUI : MonoBehaviour
     [Tooltip("The ModalWindowManager on DealNotificationPromptModal.")]
     public ModalWindowManager heatModalWindow;
 
+    [Tooltip("Optional explicit root GameObject for the modal window. If null, uses heatModalWindow.gameObject or this.gameObject.")]
+    public GameObject modalRootObject;
+
     [Tooltip("CanvasGroup controlling prompt visibility and input interception.")]
     public CanvasGroup canvasGroup;
 
@@ -80,12 +83,32 @@ public class DealNotificationUI : MonoBehaviour
         if (found != null)
         {
             _instance = found;
+
+            // Activate parent hierarchy immediately
+            Transform cur = found.transform.parent;
+            while (cur != null)
+            {
+                if (!cur.gameObject.activeSelf) cur.gameObject.SetActive(true);
+                cur = cur.parent;
+            }
+
+            found.gameObject.SetActive(true);
+
             if (found.heatModalWindow != null)
             {
                 SanitizeModal(found.heatModalWindow);
+                found.heatModalWindow.gameObject.SetActive(true);
+                found.heatModalWindow.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
+                found.heatModalWindow.enabled = false;
                 found.heatModalWindow.StopAllCoroutines();
                 found.heatModalWindow.isOn = false;
             }
+
+            if (found.modalRootObject != null)
+            {
+                found.modalRootObject.SetActive(true);
+            }
+
             found.SetVisible(false, modifyCursor: false);
             Debug.Log($"[DealNotificationUI] Discovered and initialized prompt: {found.gameObject.name}");
         }
@@ -157,6 +180,16 @@ public class DealNotificationUI : MonoBehaviour
             }
         }
 
+        if (heatModalWindow != null)
+        {
+            SanitizeModal(heatModalWindow);
+            heatModalWindow.enabled = false;
+        }
+
+        var anim = GetComponent<Animator>();
+        if (anim != null) anim.enabled = false;
+
+        gameObject.SetActive(true);
         SetVisible(false, modifyCursor: false);
     }
 
@@ -179,33 +212,47 @@ public class DealNotificationUI : MonoBehaviour
             _ensureVisibleRoutine = null;
         }
 
+        // Activate any inactive parents up the chain up to Canvas/Root
+        Transform cur = transform.parent;
+        while (cur != null)
+        {
+            if (!cur.gameObject.activeSelf)
+            {
+                cur.gameObject.SetActive(true);
+            }
+            cur = cur.parent;
+        }
+
+        // Guarantee root GameObject itself is ALWAYS active in hierarchy
+        if (!gameObject.activeSelf)
+        {
+            gameObject.SetActive(true);
+        }
+
+        if (heatModalWindow != null)
+        {
+            if (!heatModalWindow.gameObject.activeSelf)
+            {
+                heatModalWindow.gameObject.SetActive(true);
+            }
+            heatModalWindow.StopAllCoroutines();
+            heatModalWindow.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
+            heatModalWindow.enabled = false;
+            heatModalWindow.isOn = visible;
+        }
+
+        if (modalRootObject != null && !modalRootObject.activeSelf)
+        {
+            modalRootObject.SetActive(true);
+        }
+
+        var anim = GetComponent<Animator>();
+        if (anim != null) anim.enabled = false;
+
         if (visible)
         {
-            // Activate any inactive parents up the chain up to Canvas/Root
-            Transform cur = transform.parent;
-            while (cur != null)
-            {
-                if (!cur.gameObject.activeSelf)
-                {
-                    cur.gameObject.SetActive(true);
-                }
-                cur = cur.parent;
-            }
-
-            gameObject.SetActive(true);
             transform.SetAsLastSibling();
-
-            if (heatModalWindow != null)
-            {
-                heatModalWindow.StopAllCoroutines();
-                heatModalWindow.isOn = true;
-                heatModalWindow.gameObject.SetActive(true);
-                heatModalWindow.transform.localScale = Vector3.one;
-            }
-
-            // Disable Animator on root modal so its clips cannot zero CanvasGroup.alpha
-            var anim = GetComponent<Animator>();
-            if (anim != null) anim.enabled = false;
+            transform.localScale = Vector3.one;
 
             ForceModalAlphaOpaque();
 
@@ -215,8 +262,6 @@ public class DealNotificationUI : MonoBehaviour
                 var es = FindFirstObjectByType<UnityEngine.EventSystems.EventSystem>();
                 if (es != null) UnityEngine.EventSystems.EventSystem.current = es;
             }
-
-            transform.localScale = Vector3.one;
 
             // Ensure parent Canvas is enabled
             var parentCanvas = GetComponentInParent<Canvas>();
@@ -234,24 +279,7 @@ public class DealNotificationUI : MonoBehaviour
         }
         else
         {
-            if (heatModalWindow != null)
-            {
-                heatModalWindow.StopAllCoroutines();
-                heatModalWindow.isOn = false;
-            }
-
-            var childCanvasGroups = GetComponentsInChildren<CanvasGroup>(true);
-            foreach (var cg in childCanvasGroups)
-            {
-                if (cg != null)
-                {
-                    cg.alpha = 0f;
-                    cg.interactable = false;
-                    cg.blocksRaycasts = false;
-                }
-            }
-
-            gameObject.SetActive(false);
+            ForceModalAlphaHidden();
 
             // If possessed, mirror dismissal to possessing Girl
             if (Unity.Netcode.NetworkManager.Singleton != null && Unity.Netcode.NetworkManager.Singleton.SpawnManager != null)
@@ -303,6 +331,33 @@ public class DealNotificationUI : MonoBehaviour
         if (contentT != null)
         {
             contentT.localScale = Vector3.one;
+        }
+    }
+
+    private void ForceModalAlphaHidden()
+    {
+        if (canvasGroup == null)
+        {
+            canvasGroup = GetComponent<CanvasGroup>();
+            if (canvasGroup == null) canvasGroup = GetComponentInChildren<CanvasGroup>(true);
+        }
+
+        if (canvasGroup != null)
+        {
+            canvasGroup.alpha = 0f;
+            canvasGroup.interactable = false;
+            canvasGroup.blocksRaycasts = false;
+        }
+
+        var childCanvasGroups = GetComponentsInChildren<CanvasGroup>(true);
+        foreach (var cg in childCanvasGroups)
+        {
+            if (cg != null)
+            {
+                cg.alpha = 0f;
+                cg.interactable = false;
+                cg.blocksRaycasts = false;
+            }
         }
     }
 
@@ -500,24 +555,42 @@ public class DealNotificationUI : MonoBehaviour
 
     private void LateUpdate()
     {
-        if (!_isActive) return;
-
-        // Guarantee root modal stays active
+        // Guarantee root modal stays active in hierarchy
         if (!gameObject.activeSelf)
         {
             gameObject.SetActive(true);
         }
 
-        // Guarantee canvas alpha is 100% opaque after any Animators run
-        ForceModalAlphaOpaque();
-
-        if (Cursor.lockState != CursorLockMode.None)
+        if (heatModalWindow != null && !heatModalWindow.gameObject.activeSelf)
         {
-            Cursor.lockState = CursorLockMode.None;
+            heatModalWindow.gameObject.SetActive(true);
         }
-        if (!Cursor.visible)
+
+        if (modalRootObject != null && !modalRootObject.activeSelf)
         {
-            Cursor.visible = true;
+            modalRootObject.SetActive(true);
+        }
+
+        if (_isActive)
+        {
+            // Guarantee canvas alpha is 100% opaque after any Animators run
+            ForceModalAlphaOpaque();
+
+            if (Cursor.lockState != CursorLockMode.None)
+            {
+                Cursor.lockState = CursorLockMode.None;
+            }
+            if (!Cursor.visible)
+            {
+                Cursor.visible = true;
+            }
+        }
+        else
+        {
+            if (canvasGroup != null && canvasGroup.alpha > 0f)
+            {
+                ForceModalAlphaHidden();
+            }
         }
     }
 
@@ -629,7 +702,7 @@ public class DealNotificationUI : MonoBehaviour
         modal.descriptionKey = string.Empty;
         modal.closeOnCancel = false;
         modal.closeOnConfirm = false;
-        modal.startBehaviour = ModalWindowManager.StartBehaviour.Disable;
+        modal.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
         modal.onConfirm.RemoveAllListeners();
         modal.onCancel.RemoveAllListeners();
         modal.onOpen.RemoveAllListeners();

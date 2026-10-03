@@ -1,3 +1,4 @@
+using System.Collections;
 using UnityEngine;
 using TMPro;
 using Michsky.UI.Heat;
@@ -13,11 +14,29 @@ namespace NightCrawler.UI
     /// </summary>
     public class DealCompletionModalUI : MonoBehaviour
     {
-        public static DealCompletionModalUI Instance { get; private set; }
+        private static DealCompletionModalUI _instance;
+        public static DealCompletionModalUI Instance
+        {
+            get
+            {
+                if (_instance == null)
+                {
+                    _instance = FindFirstObjectByType<DealCompletionModalUI>(FindObjectsInactive.Include);
+                }
+                return _instance;
+            }
+            private set => _instance = value;
+        }
 
         [Header("Heat UI Modal Window")]
         [Tooltip("The ModalWindowManager component on this CompletedDealModal.")]
         public ModalWindowManager modalWindow;
+
+        [Tooltip("Optional explicit root GameObject for the modal window. If null, uses modalWindow.gameObject or this.gameObject.")]
+        public GameObject modalRootObject;
+
+        [Tooltip("CanvasGroup controlling completion modal visibility and input interception.")]
+        public CanvasGroup canvasGroup;
 
         [Header("UI Text Displays")]
         [Tooltip("The TextMeshProUGUI showing the deal/mission name.")]
@@ -40,15 +59,16 @@ namespace NightCrawler.UI
 
         private bool _isOpen = false;
         public bool IsOpen => _isOpen;
+        private Coroutine _ensureVisibleRoutine;
 
         private void Awake()
         {
-            if (Instance != null && Instance != this)
+            if (_instance != null && _instance != this)
             {
                 Destroy(gameObject);
                 return;
             }
-            Instance = this;
+            _instance = this;
 
             AutoWireReferences();
             SanitizeModal();
@@ -65,18 +85,23 @@ namespace NightCrawler.UI
                 modalWindow.confirmButton.onClick.AddListener(Hide);
             }
 
-            // Initially ensure hidden
-            gameObject.SetActive(false);
+            // Initially hidden
+            SetVisible(false, modifyCursor: false);
         }
 
         private void OnDestroy()
         {
-            if (Instance == this) Instance = null;
+            if (_instance == this) Instance = null;
         }
 
         private void Update()
         {
             if (!_isOpen) return;
+
+            // Maintain cursor free while open
+            if (Cursor.lockState != CursorLockMode.None) Cursor.lockState = CursorLockMode.None;
+            if (!Cursor.visible) Cursor.visible = true;
+            SetPlayerLookInputs(false);
 
             // Allow Enter, Space, or Escape to dismiss
             if (UnityEngine.InputSystem.Keyboard.current != null)
@@ -91,12 +116,36 @@ namespace NightCrawler.UI
             }
         }
 
+        private void LateUpdate()
+        {
+            if (!_isOpen) return;
+
+            // Guarantee root modal stays active in hierarchy while open
+            if (!gameObject.activeSelf)
+            {
+                gameObject.SetActive(true);
+            }
+
+            if (modalWindow != null && !modalWindow.gameObject.activeSelf)
+            {
+                modalWindow.gameObject.SetActive(true);
+            }
+
+            if (modalRootObject != null && !modalRootObject.activeSelf)
+            {
+                modalRootObject.SetActive(true);
+            }
+
+            ForceAlphaOpaque();
+        }
+
         public void Show(string dealName, int rewardCredits, int penaltyCredits = 0, int rewardLeft = 0, string description = "")
         {
             // If local player is dead, suppress showing
             if (IsLocalPlayerDead()) return;
 
             AutoWireReferences();
+            SanitizeModal();
 
             string cleanName = !string.IsNullOrWhiteSpace(dealName) ? dealName.ToUpper() : "DARK DEAL";
             if (dealNameText != null)
@@ -116,7 +165,6 @@ namespace NightCrawler.UI
 
             if (rewardLeftText != null)
             {
-                // If rewardLeft is not passed (0), display the earned reward or the player's stake
                 int displayLeft = rewardLeft > 0 ? rewardLeft : rewardCredits;
                 rewardLeftText.text = $"{displayLeft}";
             }
@@ -140,30 +188,13 @@ namespace NightCrawler.UI
                 try { modalWindow.UpdateUI(); } catch { }
             }
 
-            _isOpen = true;
-            gameObject.SetActive(true);
-
-            // Unlock cursor for interacting with modal
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
-            SetPlayerLookInputs(false);
-
-            if (modalWindow != null)
-            {
-                try { modalWindow.OpenWindow(); } catch { }
-            }
+            SetVisible(true, modifyCursor: true);
+            Debug.Log($"[DealCompletionModalUI] Displayed completion modal for '{cleanName}' (reward={rewardCredits})");
         }
 
         public void Hide()
         {
-            _isOpen = false;
-
-            if (modalWindow != null)
-            {
-                try { modalWindow.CloseWindow(); } catch { }
-            }
-
-            gameObject.SetActive(false);
+            SetVisible(false, modifyCursor: true);
 
             // If possessed, mirror dismissal to possessing Girl
             if (NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null)
@@ -174,11 +205,127 @@ namespace NightCrawler.UI
                     pNet.RequestMirrorModalDismissedServerRpc(0);
                 }
             }
+        }
 
-            // Re-lock cursor back to gameplay
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
-            SetPlayerLookInputs(true);
+        private void SetVisible(bool visible, bool modifyCursor = true)
+        {
+            _isOpen = visible;
+
+            if (_ensureVisibleRoutine != null)
+            {
+                StopCoroutine(_ensureVisibleRoutine);
+                _ensureVisibleRoutine = null;
+            }
+
+            if (visible)
+            {
+                // Activate parent hierarchy up to Canvas
+                Transform cur = transform.parent;
+                while (cur != null)
+                {
+                    if (!cur.gameObject.activeSelf) cur.gameObject.SetActive(true);
+                    cur = cur.parent;
+                }
+
+                if (!gameObject.activeSelf) gameObject.SetActive(true);
+                if (modalWindow != null && !modalWindow.gameObject.activeSelf) modalWindow.gameObject.SetActive(true);
+                if (modalRootObject != null && !modalRootObject.activeSelf) modalRootObject.SetActive(true);
+
+                transform.SetAsLastSibling();
+                transform.localScale = Vector3.one;
+
+                ForceAlphaOpaque();
+
+                // Ensure parent Canvas is enabled
+                var parentCanvas = GetComponentInParent<Canvas>();
+                if (parentCanvas != null && !parentCanvas.enabled) parentCanvas.enabled = true;
+
+                _ensureVisibleRoutine = StartCoroutine(EnsureVisibleRoutine());
+
+                if (modifyCursor)
+                {
+                    Cursor.lockState = CursorLockMode.None;
+                    Cursor.visible = true;
+                    SetPlayerLookInputs(false);
+                }
+            }
+            else
+            {
+                ForceAlphaHidden();
+
+                if (modifyCursor)
+                {
+                    Cursor.lockState = CursorLockMode.Locked;
+                    Cursor.visible = false;
+                    SetPlayerLookInputs(true);
+                }
+            }
+        }
+
+        private void ForceAlphaOpaque()
+        {
+            if (canvasGroup == null)
+            {
+                canvasGroup = GetComponent<CanvasGroup>();
+                if (canvasGroup == null) canvasGroup = GetComponentInChildren<CanvasGroup>(true);
+                if (canvasGroup == null) canvasGroup = gameObject.AddComponent<CanvasGroup>();
+            }
+
+            if (canvasGroup != null)
+            {
+                canvasGroup.alpha = 1f;
+                canvasGroup.interactable = true;
+                canvasGroup.blocksRaycasts = true;
+            }
+
+            var childCanvasGroups = GetComponentsInChildren<CanvasGroup>(true);
+            foreach (var cg in childCanvasGroups)
+            {
+                if (cg != null)
+                {
+                    cg.alpha = 1f;
+                    cg.interactable = true;
+                    cg.blocksRaycasts = true;
+                }
+            }
+        }
+
+        private void ForceAlphaHidden()
+        {
+            if (canvasGroup == null)
+            {
+                canvasGroup = GetComponent<CanvasGroup>();
+                if (canvasGroup == null) canvasGroup = GetComponentInChildren<CanvasGroup>(true);
+            }
+
+            if (canvasGroup != null)
+            {
+                canvasGroup.alpha = 0f;
+                canvasGroup.interactable = false;
+                canvasGroup.blocksRaycasts = false;
+            }
+
+            var childCanvasGroups = GetComponentsInChildren<CanvasGroup>(true);
+            foreach (var cg in childCanvasGroups)
+            {
+                if (cg != null)
+                {
+                    cg.alpha = 0f;
+                    cg.interactable = false;
+                    cg.blocksRaycasts = false;
+                }
+            }
+        }
+
+        private IEnumerator EnsureVisibleRoutine()
+        {
+            for (int i = 0; i < 20; i++)
+            {
+                if (!_isOpen) yield break;
+                ForceAlphaOpaque();
+                yield return null;
+            }
+            _ensureVisibleRoutine = null;
         }
 
         private void AutoWireReferences()
@@ -188,18 +335,32 @@ namespace NightCrawler.UI
             {
                 continueButton = modalWindow.confirmButton;
             }
+            if (canvasGroup == null)
+            {
+                canvasGroup = GetComponent<CanvasGroup>();
+                if (canvasGroup == null) canvasGroup = GetComponentInChildren<CanvasGroup>(true);
+            }
         }
 
         private void SanitizeModal()
         {
             if (modalWindow == null) return;
             modalWindow.useLocalization = false;
+            modalWindow.titleKey = string.Empty;
+            modalWindow.descriptionKey = string.Empty;
             modalWindow.closeOnCancel = true;
             modalWindow.closeOnConfirm = true;
             modalWindow.showCancelButton = false;
             modalWindow.showConfirmButton = true;
+            modalWindow.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
+            modalWindow.enabled = false;
+            modalWindow.isOn = true;
+
             if (modalWindow.cancelButton != null) modalWindow.cancelButton.gameObject.SetActive(false);
             if (modalWindow.confirmButton != null) modalWindow.confirmButton.buttonText = "CONTINUE";
+
+            var anim = GetComponent<Animator>();
+            if (anim != null) anim.enabled = false;
 
             var locObj = modalWindow.GetComponent("LocalizedObject") as Behaviour;
             if (locObj != null) locObj.enabled = false;

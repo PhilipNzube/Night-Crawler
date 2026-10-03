@@ -50,10 +50,54 @@ public class DealSystemNet : MonoBehaviour
     private AudioSource _audioSource;
     private bool _isRegistered = false;
     private readonly HashSet<ulong> _pendingTargetClientIds = new HashSet<ulong>();
+    private readonly HashSet<ulong> _activeDealClientIds = new HashSet<ulong>();
 
     public bool HasPendingOffer(ulong clientId)
     {
         return _pendingTargetClientIds.Contains(clientId);
+    }
+
+    public bool HasActiveDeal(ulong clientId)
+    {
+        if (_activeDealClientIds.Contains(clientId)) return true;
+
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null)
+        {
+            var pNet = NetworkManager.Singleton.SpawnManager.GetPlayerNetworkObject(clientId);
+            if (pNet == null && NetworkManager.Singleton.ConnectedClients != null &&
+                NetworkManager.Singleton.ConnectedClients.TryGetValue(clientId, out var client))
+            {
+                pNet = client.PlayerObject;
+            }
+            if (pNet == null && NetworkManager.Singleton.SpawnManager.SpawnedObjects != null)
+            {
+                foreach (var netObj in NetworkManager.Singleton.SpawnManager.SpawnedObjects.Values)
+                {
+                    if (netObj != null && netObj.OwnerClientId == clientId &&
+                        (netObj.IsPlayerObject || netObj.GetComponent<NetworkPlayerName>() != null || netObj.CompareTag("Player")))
+                    {
+                        pNet = netObj;
+                        break;
+                    }
+                }
+            }
+
+            if (pNet != null && pNet.TryGetComponent<PlayerPossessableNet>(out var possessable) && possessable.hasActiveDeal.Value)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    public void RegisterActiveDeal(ulong clientId)
+    {
+        _activeDealClientIds.Add(clientId);
+    }
+
+    public void ClearActiveDeal(ulong clientId)
+    {
+        _activeDealClientIds.Remove(clientId);
     }
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.AfterSceneLoad)]
@@ -336,6 +380,8 @@ public class DealSystemNet : MonoBehaviour
 
         if (accepted)
         {
+            _activeDealClientIds.Add(responderId);
+
             // 1. Grant weapon if applicable (flagged as DealGranted so it cannot harm monsters)
             if (grantWeapon && NetworkManager.Singleton.ConnectedClients.TryGetValue(responderId, out var client))
             {
@@ -448,6 +494,10 @@ public class DealSystemNet : MonoBehaviour
         if (responderId != 0)
         {
             _pendingTargetClientIds.Remove(responderId);
+            if (accepted)
+            {
+                _activeDealClientIds.Add(responderId);
+            }
         }
         Debug.Log($"[DealSystemNet] Deal response from {responderName}: accepted={accepted}");
         string msg = accepted 
@@ -472,12 +522,14 @@ public class DealSystemNet : MonoBehaviour
         if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsListening) return;
 
         ulong localId = NetworkManager.Singleton.LocalClientId;
+        _activeDealClientIds.Remove(localId);
+
         string playerName = PlayerNameManager.GetPlayerName(localId);
         if (string.IsNullOrEmpty(playerName)) playerName = $"Investigator {localId}";
 
         if (girlClientId == localId)
         {
-            HandleDealOutcomeOnGirl(playerName, success, dealTitle, amount);
+            HandleDealOutcomeOnGirl(playerName, success, dealTitle, amount, localId);
             return;
         }
 
@@ -490,6 +542,7 @@ public class DealSystemNet : MonoBehaviour
                 writer.WriteValueSafe(success);
                 writer.WriteValueSafe(dealTitle ?? "");
                 writer.WriteValueSafe(amount);
+                writer.WriteValueSafe(localId);
                 NetworkManager.Singleton.CustomMessagingManager.SendNamedMessage(MSG_NOTIFY_OUTCOME, girlClientId, writer);
             }
         }
@@ -502,6 +555,7 @@ public class DealSystemNet : MonoBehaviour
             writer.WriteValueSafe(dealTitle ?? "");
             writer.WriteValueSafe(amount);
             writer.WriteValueSafe(girlClientId);
+            writer.WriteValueSafe(localId);
             NetworkManager.Singleton.CustomMessagingManager.SendNamedMessage(MSG_NOTIFY_OUTCOME, NetworkManager.ServerClientId, writer);
         }
     }
@@ -513,9 +567,15 @@ public class DealSystemNet : MonoBehaviour
         reader.ReadValueSafe(out string dealTitle);
         reader.ReadValueSafe(out int amount);
 
+        ulong responderClientId = 0;
+
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer && reader.Length > reader.Position)
         {
             reader.ReadValueSafe(out ulong targetGirlId);
+            if (reader.Length > reader.Position)
+            {
+                reader.ReadValueSafe(out responderClientId);
+            }
             if (targetGirlId != NetworkManager.Singleton.LocalClientId)
             {
                 // Relay to Girl
@@ -526,17 +586,27 @@ public class DealSystemNet : MonoBehaviour
                     forward.WriteValueSafe(success);
                     forward.WriteValueSafe(dealTitle);
                     forward.WriteValueSafe(amount);
+                    forward.WriteValueSafe(responderClientId);
                     NetworkManager.Singleton.CustomMessagingManager.SendNamedMessage(MSG_NOTIFY_OUTCOME, targetGirlId, forward);
                 }
                 return;
             }
         }
+        else if (reader.Length > reader.Position)
+        {
+            reader.ReadValueSafe(out responderClientId);
+        }
 
-        HandleDealOutcomeOnGirl(playerName, success, dealTitle, amount);
+        HandleDealOutcomeOnGirl(playerName, success, dealTitle, amount, responderClientId);
     }
 
-    private void HandleDealOutcomeOnGirl(string playerName, bool success, string dealTitle, int amount)
+    private void HandleDealOutcomeOnGirl(string playerName, bool success, string dealTitle, int amount, ulong responderClientId = 0)
     {
+        if (responderClientId != 0)
+        {
+            _activeDealClientIds.Remove(responderClientId);
+        }
+
         string status = success ? "COMPLETED" : "FAILED";
         string msg = success
             ? $"DEAL {status}: {playerName} fulfilled '{dealTitle}'!"
