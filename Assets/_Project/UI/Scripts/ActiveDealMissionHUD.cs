@@ -110,7 +110,28 @@ namespace NightCrawler.UI
                 }
             }
 
-            _timeRemaining -= Time.deltaTime;
+            if (_isMirroredPossession)
+            {
+                var possessedNet = PlayerPossessableNet.GetPossessedByLocalClient();
+                if (possessedNet != null && possessedNet.hasActiveDeal.Value)
+                {
+                    _timeRemaining = possessedNet.activeDealTimeRemaining.Value;
+                    if (_timeRemaining <= 0f)
+                    {
+                        Hide();
+                        return;
+                    }
+                }
+                else
+                {
+                    Hide();
+                    return;
+                }
+            }
+            else
+            {
+                _timeRemaining -= Time.deltaTime;
+            }
 
             if (missionTimerText != null)
             {

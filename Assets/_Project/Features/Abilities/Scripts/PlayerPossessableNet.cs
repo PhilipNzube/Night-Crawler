@@ -42,6 +42,46 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
     public NetworkVariable<int> activeDealPenalty = new NetworkVariable<int>(
         0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
+    [Header("Open Modals State (Synced to Possessing Girl)")]
+    public NetworkVariable<bool> isDealPromptOpen = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<ulong> dealPromptSenderId = new NetworkVariable<ulong>(
+        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<Unity.Collections.FixedString64Bytes> dealPromptTitle = new NetworkVariable<Unity.Collections.FixedString64Bytes>(
+        default, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<Unity.Collections.FixedString128Bytes> dealPromptTerms = new NetworkVariable<Unity.Collections.FixedString128Bytes>(
+        default, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<Unity.Collections.FixedString32Bytes> dealPromptReward = new NetworkVariable<Unity.Collections.FixedString32Bytes>(
+        default, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<bool> dealPromptGrantWeapon = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<int> dealPromptTimeLimit = new NetworkVariable<int>(
+        120, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<int> dealPromptPenalty = new NetworkVariable<int>(
+        15, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    public NetworkVariable<bool> isCompletionModalOpen = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<Unity.Collections.FixedString64Bytes> completionDealTitle = new NetworkVariable<Unity.Collections.FixedString64Bytes>(
+        default, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<int> completionReward = new NetworkVariable<int>(
+        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<int> completionPenalty = new NetworkVariable<int>(
+        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<int> completionRewardLeft = new NetworkVariable<int>(
+        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<Unity.Collections.FixedString128Bytes> completionDesc = new NetworkVariable<Unity.Collections.FixedString128Bytes>(
+        default, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    public NetworkVariable<bool> isFailureModalOpen = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<Unity.Collections.FixedString64Bytes> failureDealTitle = new NetworkVariable<Unity.Collections.FixedString64Bytes>(
+        default, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<int> failurePenalty = new NetworkVariable<int>(
+        0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+    public NetworkVariable<Unity.Collections.FixedString128Bytes> failureDesc = new NetworkVariable<Unity.Collections.FixedString128Bytes>(
+        default, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
     [Header("Priest Possession Struggle Settings")]
     [Tooltip("Maximum duration in seconds for the Priest's button-mash struggle QTE.")]
     public float priestResistWindowDuration = 5.0f;
@@ -75,6 +115,10 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
     {
         isPossessed.OnValueChanged += HandlePossessionChanged;
         hasActiveDeal.OnValueChanged += HandleActiveDealChanged;
+        isDealPromptOpen.OnValueChanged += HandleDealPromptChanged;
+        isCompletionModalOpen.OnValueChanged += HandleCompletionModalChanged;
+        isFailureModalOpen.OnValueChanged += HandleFailureModalChanged;
+
         if (IsServer && originalOwnerClientId.Value == ulong.MaxValue)
         {
             originalOwnerClientId.Value = OwnerClientId;
@@ -90,6 +134,10 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
     {
         isPossessed.OnValueChanged -= HandlePossessionChanged;
         hasActiveDeal.OnValueChanged -= HandleActiveDealChanged;
+        isDealPromptOpen.OnValueChanged -= HandleDealPromptChanged;
+        isCompletionModalOpen.OnValueChanged -= HandleCompletionModalChanged;
+        isFailureModalOpen.OnValueChanged -= HandleFailureModalChanged;
+
         if (_healthSystem != null)
         {
             _healthSystem.OnDied -= HandlePossessedTargetDied;
@@ -99,19 +147,174 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
     private Coroutine _priestRejectionCoroutine;
     private Coroutine _priestServerTimerCoroutine;
 
+    public static PlayerPossessableNet GetPossessedByLocalClient()
+    {
+        if (NetworkManager.Singleton == null) return null;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+        var all = Object.FindObjectsByType<PlayerPossessableNet>(FindObjectsSortMode.None);
+        foreach (var p in all)
+        {
+            if (p != null && p.isPossessed.Value && p.possessingClientId.Value == localId)
+            {
+                return p;
+            }
+        }
+        return null;
+    }
+
     private void HandlePossessionChanged(bool previous, bool current)
     {
-        if (!current)
+        if (NetworkManager.Singleton == null) return;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+        bool isPossessingGirl = current && (possessingClientId.Value == localId);
+
+        if (isPossessingGirl)
         {
+            // If the possessed investigator currently has DealNotificationPromptModal open, mirror it!
+            if (isDealPromptOpen.Value && DealNotificationUI.Instance != null)
+            {
+                DealNotificationUI.Instance.DisplayDealOffer(
+                    dealPromptSenderId.Value,
+                    dealPromptTitle.Value.ToString(),
+                    dealPromptTerms.Value.ToString(),
+                    dealPromptReward.Value.ToString(),
+                    dealPromptGrantWeapon.Value,
+                    dealPromptTimeLimit.Value,
+                    dealPromptPenalty.Value
+                );
+            }
+
+            // If the possessed investigator currently has DealCompletionModalUI open, mirror it!
+            if (isCompletionModalOpen.Value && NightCrawler.UI.DealCompletionModalUI.Instance != null)
+            {
+                NightCrawler.UI.DealCompletionModalUI.Instance.Show(
+                    completionDealTitle.Value.ToString(),
+                    completionReward.Value,
+                    completionPenalty.Value,
+                    completionRewardLeft.Value,
+                    completionDesc.Value.ToString()
+                );
+            }
+
+            // If the possessed investigator currently has DealFailureModalUI open, mirror it!
+            if (isFailureModalOpen.Value && NightCrawler.UI.DealFailureModalUI.Instance != null)
+            {
+                NightCrawler.UI.DealFailureModalUI.Instance.Show(
+                    failureDealTitle.Value.ToString(),
+                    failurePenalty.Value,
+                    failureDesc.Value.ToString()
+                );
+            }
+
+            // If the possessed investigator has an active deal, mirror the ActiveDealMissionHUD!
+            if (hasActiveDeal.Value && NightCrawler.UI.ActiveDealMissionHUD.Instance != null)
+            {
+                NightCrawler.UI.ActiveDealMissionHUD.Instance.StartPossessedMirror(
+                    activeDealTitle.Value.ToString(),
+                    activeDealTerms.Value.ToString(),
+                    activeDealDuration.Value,
+                    activeDealPenalty.Value,
+                    activeDealReward.Value,
+                    activeDealTimeRemaining.Value
+                );
+            }
+        }
+        else if (!current)
+        {
+            // Possession ended: dismiss mirrored modals on the Girl's screen
+            bool localIsGirl = NetworkManager.Singleton.LocalClient != null && 
+                               NetworkManager.Singleton.LocalClient.PlayerObject != null && 
+                               (NetworkManager.Singleton.LocalClient.PlayerObject.GetComponent<GirlPossession>() != null || 
+                                NetworkManager.Singleton.LocalClient.PlayerObject.name.ToLower().Contains("girl"));
+
+            if (possessingClientId.Value == localId || localIsGirl)
+            {
+                if (DealNotificationUI.Instance != null) DealNotificationUI.Instance.Hide();
+                if (NightCrawler.UI.DealCompletionModalUI.Instance != null) NightCrawler.UI.DealCompletionModalUI.Instance.Hide();
+                if (NightCrawler.UI.DealFailureModalUI.Instance != null) NightCrawler.UI.DealFailureModalUI.Instance.Hide();
+                if (NightCrawler.UI.ActiveDealMissionHUD.Instance != null && NightCrawler.UI.ActiveDealMissionHUD.Instance.IsMirroredPossession)
+                {
+                    NightCrawler.UI.ActiveDealMissionHUD.Instance.Hide();
+                }
+            }
+
             // Safeguard: whenever isPossessed becomes false, any non-girl client MUST hide the blackout overlay
-            if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null)
+            if (NetworkManager.Singleton.LocalClient != null)
             {
                 var localObj = NetworkManager.Singleton.LocalClient.PlayerObject;
-                bool isGirl = localObj != null && (localObj.GetComponent<GirlPossession>() != null || localObj.name.ToLower().Contains("girl"));
-                if (!isGirl && PossessionBlackoutOverlay.Instance != null)
+                if (!localIsGirl && PossessionBlackoutOverlay.Instance != null)
                 {
                     PossessionBlackoutOverlay.Instance.SetBlackout(false);
                 }
+            }
+        }
+    }
+
+    private void HandleDealPromptChanged(bool previous, bool current)
+    {
+        if (NetworkManager.Singleton == null) return;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+        if (isPossessed.Value && possessingClientId.Value == localId)
+        {
+            if (current && DealNotificationUI.Instance != null)
+            {
+                DealNotificationUI.Instance.DisplayDealOffer(
+                    dealPromptSenderId.Value,
+                    dealPromptTitle.Value.ToString(),
+                    dealPromptTerms.Value.ToString(),
+                    dealPromptReward.Value.ToString(),
+                    dealPromptGrantWeapon.Value,
+                    dealPromptTimeLimit.Value,
+                    dealPromptPenalty.Value
+                );
+            }
+            else if (!current && DealNotificationUI.Instance != null)
+            {
+                DealNotificationUI.Instance.Hide();
+            }
+        }
+    }
+
+    private void HandleCompletionModalChanged(bool previous, bool current)
+    {
+        if (NetworkManager.Singleton == null) return;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+        if (isPossessed.Value && possessingClientId.Value == localId)
+        {
+            if (current && NightCrawler.UI.DealCompletionModalUI.Instance != null)
+            {
+                NightCrawler.UI.DealCompletionModalUI.Instance.Show(
+                    completionDealTitle.Value.ToString(),
+                    completionReward.Value,
+                    completionPenalty.Value,
+                    completionRewardLeft.Value,
+                    completionDesc.Value.ToString()
+                );
+            }
+            else if (!current && NightCrawler.UI.DealCompletionModalUI.Instance != null)
+            {
+                NightCrawler.UI.DealCompletionModalUI.Instance.Hide();
+            }
+        }
+    }
+
+    private void HandleFailureModalChanged(bool previous, bool current)
+    {
+        if (NetworkManager.Singleton == null) return;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+        if (isPossessed.Value && possessingClientId.Value == localId)
+        {
+            if (current && NightCrawler.UI.DealFailureModalUI.Instance != null)
+            {
+                NightCrawler.UI.DealFailureModalUI.Instance.Show(
+                    failureDealTitle.Value.ToString(),
+                    failurePenalty.Value,
+                    failureDesc.Value.ToString()
+                );
+            }
+            else if (!current && NightCrawler.UI.DealFailureModalUI.Instance != null)
+            {
+                NightCrawler.UI.DealFailureModalUI.Instance.Hide();
             }
         }
     }
@@ -1095,6 +1298,39 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             else if (modalType == 2 && DealNotificationUI.Instance != null)
                 DealNotificationUI.Instance.Hide();
         }
+    }
+
+    [Rpc(SendTo.Server)]
+    public void SetDealPromptStateServerRpc(bool isOpen, ulong senderId, string title, string terms, string reward, bool grantWeapon, int timeLimit, int penalty)
+    {
+        isDealPromptOpen.Value = isOpen;
+        dealPromptSenderId.Value = senderId;
+        dealPromptTitle.Value = !string.IsNullOrEmpty(title) ? title : "";
+        dealPromptTerms.Value = !string.IsNullOrEmpty(terms) ? terms : "";
+        dealPromptReward.Value = !string.IsNullOrEmpty(reward) ? reward : "";
+        dealPromptGrantWeapon.Value = grantWeapon;
+        dealPromptTimeLimit.Value = timeLimit;
+        dealPromptPenalty.Value = penalty;
+    }
+
+    [Rpc(SendTo.Server)]
+    public void SetCompletionModalStateServerRpc(bool isOpen, string title, int reward, int penalty, int rewardLeft, string desc)
+    {
+        isCompletionModalOpen.Value = isOpen;
+        completionDealTitle.Value = !string.IsNullOrEmpty(title) ? title : "";
+        completionReward.Value = reward;
+        completionPenalty.Value = penalty;
+        completionRewardLeft.Value = rewardLeft;
+        completionDesc.Value = !string.IsNullOrEmpty(desc) ? desc : "";
+    }
+
+    [Rpc(SendTo.Server)]
+    public void SetFailureModalStateServerRpc(bool isOpen, string title, int penalty, string desc)
+    {
+        isFailureModalOpen.Value = isOpen;
+        failureDealTitle.Value = !string.IsNullOrEmpty(title) ? title : "";
+        failurePenalty.Value = penalty;
+        failureDesc.Value = !string.IsNullOrEmpty(desc) ? desc : "";
     }
 
     /// <summary>

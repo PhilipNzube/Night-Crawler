@@ -92,6 +92,47 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     [Tooltip("Acceleration for instantaneous, aggressive chasing.")]
     public float runAcceleration = 8.0f;
 
+    [Header("Locomotion Friction (anti-glide)")]
+    [Tooltip("Max body turn rate (deg/sec) for a standing Zombie. Lower = heavier, more sluggish turns.")]
+    public float zombieTurnRate = 150f;
+    [Tooltip("Max body turn rate (deg/sec) for a crawling Zombie.")]
+    public float zombieCrawlTurnRate = 220f;
+    [Tooltip("Max body turn rate (deg/sec) for a Berserker.")]
+    public float berserkerTurnRate = 260f;
+    [Tooltip("Fraction of forward speed kept when the body faces away from the path. Near 0 = monster stops and pivots before moving on (no sideways gliding).")]
+    [Range(0f, 1f)] public float minTurnSpeedFactor = 0.08f;
+    [Tooltip("How strongly a standing Zombie's speed stalls between steps (leg drag). 0 = smooth glide, 0.7 = heavy limping drag.")]
+    [Range(0f, 0.9f)] public float zombieDragStrength = 0.6f;
+    [Tooltip("Number of footsteps per loop of the Zombie walk/run clip (usually 2).")]
+    public float zombieStepsPerCycle = 2f;
+    [Tooltip("How quickly the monster brakes to a halt when stopped (m/s per sec). Higher = less sliding when stopping.")]
+    public float stopFriction = 18f;
+
+    [Header("Ground Snapping (anti-float)")]
+    [Tooltip("Raycast-based grounding that keeps the monster's feet on real cave geometry every frame.")]
+    public bool enableGroundSnap = true;
+    [Tooltip("Layers counted as walkable ground. Leave as 'Nothing' to auto-use everything except Monster/Player/Explorer/UI/Ignore Raycast.")]
+    public LayerMask groundMask = 0;
+    [Tooltip("Ray starts this far above the pivot (lets it detect ground when slightly sunk).")]
+    public float groundProbeUp = 0.6f;
+    [Tooltip("Max distance below the pivot to search for ground and snap down to.")]
+    public float groundProbeDown = 1.5f;
+    [Tooltip("Additional pivot offset above the ground hit (normally 0).")]
+    public float groundFootOffset = 0f;
+    [Tooltip("Also check humanoid foot bones and pull the model down if both feet hover above the ground (fixes animation-induced floating).")]
+    public bool enableFootGrounding = true;
+    [Tooltip("Height of the ankle bone above the sole. Increase if feet sink into the floor, decrease if they still hover.")]
+    public float footSoleHeight = 0.09f;
+    [Tooltip("Maximum visual downward correction applied to the model (metres).")]
+    public float maxFootCorrection = 0.35f;
+
+    private float _nominalAgentSpeed = -1f;
+    private float _smoothedStrideScale = 1f;
+    private float _footCorrection = 0f;
+    private Vector3 _modelBaseLocalPos;
+    private bool _modelBaseCached = false;
+    private static readonly RaycastHit[] _groundHits = new RaycastHit[8];
+
     [Header("Combat & Damage")]
     [Tooltip("Distance at which the monster initiates its attack.")]
     public float attackRange = 2.0f;
@@ -340,6 +381,15 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             _agent.acceleration = runAcceleration;
             _agent.stoppingDistance = Mathf.Max(0.5f, attackRange * 0.8f);
             _agent.autoBraking = true;
+            // Body rotation is driven manually in ApplyLocomotionFriction so the monster
+            // turns its body into corners instead of spinning on the spot while sliding.
+            _agent.updateRotation = false;
+        }
+
+        if (groundMask.value == 0)
+        {
+            int excludedGround = LayerMask.GetMask("Ignore Raycast", "UI", "Monster", "Player", "Explorer", "Minimap", "Fog");
+            groundMask = ~excludedGround;
         }
 
         currentState = playScreamOnSpawn ? AIState.SpawningScream : AIState.Running;
@@ -518,6 +568,41 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     private void Update()
     {
+        // Restore the unscaled speed so the brain (and anything reading _agent.speed) sees the
+        // nominal value, then re-apply friction scaling afterwards. Prevents speed compounding.
+        if (_agent != null && _agent.enabled && _nominalAgentSpeed >= 0f)
+        {
+            _agent.speed = _nominalAgentSpeed;
+        }
+
+        UpdateBrain();
+
+        if (HasAuthority && currentState != AIState.Dead && _hasLanded && !isBeingPossessed)
+        {
+            ApplyLocomotionFriction();
+        }
+    }
+
+    private void LateUpdate()
+    {
+        if (currentState == AIState.Dead || isBeingPossessed) return;
+
+        // Root snapping runs on every peer: the server's result is replicated, and clients re-snap
+        // the interpolated position locally so they never render a floating monster.
+        if (_hasLanded && enableGroundSnap)
+        {
+            EnforceGrounding();
+        }
+
+        // Foot correction is purely visual, so every client applies it locally
+        if (enableFootGrounding)
+        {
+            ApplyFootGrounding();
+        }
+    }
+
+    private void UpdateBrain()
+    {
         if (!HasAuthority || currentState == AIState.Dead) return;
 
         // 1. Initial fall / landing
@@ -534,23 +619,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             return;
         }
 
-        // Ground clamping & CharacterController suppression: eliminate vertical height drift ("flying" bug)
+        // CharacterController suppression (ground snapping itself now happens in LateUpdate)
         if (_agent != null && _agent.enabled && _agent.isOnNavMesh)
         {
             if (_characterController != null && _characterController.enabled)
             {
                 _characterController.enabled = false;
-            }
-
-            Vector3 pos = transform.position;
-            if (NavMesh.SamplePosition(pos, out NavMeshHit gHit, 2.5f, NavMesh.AllAreas))
-            {
-                float targetY = gHit.position.y + _agent.baseOffset;
-                if (pos.y > targetY + 0.18f)
-                {
-                    pos.y = Mathf.MoveTowards(pos.y, targetY, Time.deltaTime * 7.0f);
-                    transform.position = pos;
-                }
             }
         }
 
@@ -1311,16 +1385,155 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (_animator == null || _agent == null || !_agent.enabled || !_agent.isOnNavMesh) return;
 
         float curVelocity = _agent.velocity.magnitude;
+        float targetScale = 1.0f;
         if (curVelocity > 0.15f)
         {
             float nominalSpeed = _agent.speed > 0.1f ? _agent.speed : 1.0f;
-            float strideScale = Mathf.Clamp(curVelocity / nominalSpeed, 0.5f, 1.25f);
-            _animator.speed = strideScale;
+            targetScale = Mathf.Clamp(curVelocity / nominalSpeed, 0.5f, 1.25f);
         }
-        else
+
+        // Smoothed so the zombie drag-gait speed pulses don't make the animation stutter
+        _smoothedStrideScale = Mathf.Lerp(_smoothedStrideScale, targetScale, Time.deltaTime * 3f);
+        _animator.speed = _smoothedStrideScale;
+    }
+
+    // =========================================================================
+    //  Locomotion Friction & Ground Snapping
+    // =========================================================================
+
+    /// <summary>
+    /// Gives the monster weight: the body turns at a capped rate, forward speed drops when
+    /// the body isn't facing the path (so it pivots instead of sliding sideways like a
+    /// spinning globe), standing zombies stall between steps (leg drag) and all monsters
+    /// brake quickly when stopped.
+    /// </summary>
+    protected virtual void ApplyLocomotionFriction()
+    {
+        if (_agent == null || !_agent.enabled || !_agent.isOnNavMesh) return;
+
+        _nominalAgentSpeed = _agent.speed;
+
+        // Brake hard when stopped instead of coasting
+        if (_agent.isStopped)
         {
-            _animator.speed = 1.0f;
+            _agent.velocity = Vector3.MoveTowards(_agent.velocity, Vector3.zero, stopFriction * Time.deltaTime);
+            return;
         }
+
+        // Attack / scream facing is handled by RotateTowardsTarget
+        if (currentState == AIState.Attacking || currentState == AIState.SpawningScream) return;
+
+        Vector3 desired = _agent.desiredVelocity;
+        desired.y = 0f;
+        if (desired.sqrMagnitude < 0.01f) return;
+
+        Vector3 dir = desired.normalized;
+
+        float turnRate;
+        if (monsterType == MonsterType.Berserker) turnRate = berserkerTurnRate;
+        else turnRate = currentPosture == ZombiePosture.Crawling ? zombieCrawlTurnRate : zombieTurnRate;
+
+        transform.rotation = Quaternion.RotateTowards(transform.rotation, Quaternion.LookRotation(dir), turnRate * Time.deltaTime);
+
+        float align = Vector3.Dot(transform.forward, dir);
+        float turnFactor = Mathf.Lerp(minTurnSpeedFactor, 1f, Mathf.InverseLerp(0.3f, 0.95f, align));
+
+        float gait = 1f;
+        if (monsterType == MonsterType.Zombie && currentPosture == ZombiePosture.Standing && _animator != null && zombieDragStrength > 0f)
+        {
+            float phase = _animator.GetCurrentAnimatorStateInfo(0).normalizedTime % 1f;
+            float stepPulse = Mathf.Abs(Mathf.Sin(phase * Mathf.PI * Mathf.Max(1f, zombieStepsPerCycle)));
+            gait = Mathf.Lerp(1f - zombieDragStrength, 1f, stepPulse);
+        }
+
+        _agent.speed = _nominalAgentSpeed * turnFactor * gait;
+
+        // Kill any leftover sideways drift when the body is badly misaligned
+        if (align < 0.3f)
+        {
+            _agent.velocity = Vector3.MoveTowards(_agent.velocity, Vector3.zero, stopFriction * Time.deltaTime);
+        }
+    }
+
+    /// <summary>
+    /// Raycasts down onto real collision geometry and pins the pivot to it, so the monster never
+    /// hovers above uneven mine floors (NavMesh height is only an approximation of the floor).
+    /// </summary>
+    protected virtual void EnforceGrounding()
+    {
+        if (!TryGetGroundHeight(transform.position, out float groundY)) return;
+
+        float baseOffset = (_agent != null) ? _agent.baseOffset : 0f;
+        float targetY = groundY + baseOffset + groundFootOffset;
+
+        Vector3 pos = transform.position;
+        if (Mathf.Abs(pos.y - targetY) > 0.005f)
+        {
+            pos.y = targetY;
+            transform.position = pos;
+        }
+    }
+
+    protected bool TryGetGroundHeight(Vector3 pivot, out float groundY)
+    {
+        groundY = 0f;
+        Vector3 origin = pivot + Vector3.up * groundProbeUp;
+        int count = Physics.RaycastNonAlloc(origin, Vector3.down, _groundHits, groundProbeUp + groundProbeDown, groundMask, QueryTriggerInteraction.Ignore);
+
+        float bestDist = float.MaxValue;
+        bool found = false;
+        for (int i = 0; i < count; i++)
+        {
+            var h = _groundHits[i];
+            if (h.collider == null || h.collider.transform.IsChildOf(transform)) continue;
+            if (h.distance < bestDist)
+            {
+                bestDist = h.distance;
+                groundY = h.point.y;
+                found = true;
+            }
+        }
+        return found;
+    }
+
+    /// <summary>
+    /// If both humanoid feet hover above the floor (animation lift, pivot mismatch), lowers the
+    /// model child so the lowest foot touches the ground. Visual only; never raises the model.
+    /// </summary>
+    protected virtual void ApplyFootGrounding()
+    {
+        if (_animator == null || !_animator.isHuman || _animator.transform == transform) return;
+
+        Transform model = _animator.transform;
+        if (!_modelBaseCached)
+        {
+            _modelBaseLocalPos = model.localPosition;
+            _modelBaseCached = true;
+        }
+
+        // Crawl / stand-up poses legitimately lift the feet; relax the correction back to zero
+        bool eligible = currentPosture == ZombiePosture.Standing || monsterType == MonsterType.Berserker;
+
+        float desiredCorrection = 0f;
+        if (eligible)
+        {
+            Transform lf = _animator.GetBoneTransform(HumanBodyBones.LeftFoot);
+            Transform rf = _animator.GetBoneTransform(HumanBodyBones.RightFoot);
+            if (lf != null && rf != null && TryGetGroundHeight(transform.position, out float groundY))
+            {
+                // Measure without the current correction so we don't chase our own offset
+                float lowestFoot = Mathf.Min(lf.position.y, rf.position.y) - _footCorrection - footSoleHeight;
+                float gap = lowestFoot - groundY;
+                if (gap > 0.02f)
+                {
+                    desiredCorrection = -Mathf.Min(gap, maxFootCorrection);
+                }
+            }
+        }
+
+        _footCorrection = Mathf.MoveTowards(_footCorrection, desiredCorrection, Time.deltaTime * 1.5f);
+        Transform space = model.parent != null ? model.parent : transform;
+        model.localPosition = _modelBaseLocalPos + space.InverseTransformVector(Vector3.up * _footCorrection);
     }
 
     // =========================================================================

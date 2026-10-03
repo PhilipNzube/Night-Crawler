@@ -321,8 +321,8 @@ namespace NightCrawler.Monsters
                 {
                     CloseHUD();
                 }
-                else if ((Keyboard.current != null && (Keyboard.current.spaceKey.wasPressedThisFrame || Keyboard.current[spectateKey].wasPressedThisFrame))
-                         || KeybindingManager.IsActionTriggered("SpectateMonsters"))
+                else if (KeybindingManager.IsActionTriggered("SpectateMonster")
+                         || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current[spectateKey].wasPressedThisFrame))
                 {
                     OnSpectateMonstersClicked();
                 }

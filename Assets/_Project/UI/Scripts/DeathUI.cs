@@ -250,7 +250,7 @@ public class DeathUI : MonoBehaviour
             if (hasSurvivors)
             {
                 spectatePromptText.gameObject.SetActive(true);
-                spectatePromptText.text = $"<b>[{spectateKeyStr} / CLICK]</b> TO SPECTATE PLAYERS";
+                spectatePromptText.text = $"<b>[{spectateKeyStr}]</b> TO SPECTATE PLAYERS";
             }
             else
             {
@@ -260,7 +260,7 @@ public class DeathUI : MonoBehaviour
         else if (subtitleText != null)
         {
             subtitleText.text = hasSurvivors
-                ? $"{subtitle}\n\n<size=85%><b>Press [{spectateKeyStr}] or [CLICK] to Spectate Players</b></size>"
+                ? $"{subtitle}\n\n<size=85%><b>Press [{spectateKeyStr}] to Spectate Players</b></size>"
                 : subtitle;
         }
 
@@ -334,7 +334,7 @@ public class DeathUI : MonoBehaviour
             spectatePromptText.gameObject.SetActive(hasSurvivors);
             if (hasSurvivors)
             {
-                spectatePromptText.text = $"<b>[{spectateKeyStr} / CLICK]</b> TO SPECTATE PLAYERS";
+                spectatePromptText.text = $"<b>[{spectateKeyStr}]</b> TO SPECTATE PLAYERS";
             }
         }
         if (heatSpectateHotkey != null)
@@ -473,12 +473,11 @@ public class DeathUI : MonoBehaviour
             return;
         }
 
-        // Only allow manual key/click trigger if death screen has finished fading in
+        // Only allow hotkey trigger once the death screen has finished fading in
         if (deathCanvasGroup != null && deathCanvasGroup.alpha >= 0.9f)
         {
             bool triggerSpectate = KeybindingManager.IsActionTriggered("SpectatePlayer")
-                || (UnityEngine.InputSystem.Keyboard.current != null && UnityEngine.InputSystem.Keyboard.current.spaceKey.wasPressedThisFrame)
-                || (UnityEngine.InputSystem.Mouse.current != null && UnityEngine.InputSystem.Mouse.current.leftButton.wasPressedThisFrame);
+                || (KeybindingManager.Instance == null && UnityEngine.InputSystem.Keyboard.current != null && UnityEngine.InputSystem.Keyboard.current.spaceKey.wasPressedThisFrame);
 
             if (triggerSpectate)
             {
@@ -511,14 +510,13 @@ public class DeathUI : MonoBehaviour
             yield break;
         }
 
-        // 3. Hold death screen for emotional weight (or allow player to skip immediately with Space/Click/Button)
+        // 3. Hold death screen for emotional weight (or allow player to skip immediately with a key press)
         float holdTimer = 2.5f;
         while (holdTimer > 0f)
         {
             holdTimer -= Time.deltaTime;
             if (_skipRequested) break;
             if (UnityEngine.InputSystem.Keyboard.current != null && UnityEngine.InputSystem.Keyboard.current.anyKey.wasPressedThisFrame) break;
-            if (UnityEngine.InputSystem.Mouse.current != null && UnityEngine.InputSystem.Mouse.current.leftButton.wasPressedThisFrame) break;
             yield return null;
         }
 

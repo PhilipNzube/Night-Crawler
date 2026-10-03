@@ -145,18 +145,23 @@ namespace NightCrawler.UI
             if (dealNameText != null)
             {
                 dealNameText.text = cleanName;
+                EnsureHierarchyAndContainersActive(dealNameText);
             }
 
             if (penaltyText != null)
             {
                 penaltyText.text = $"{penaltyCredits}";
+                EnsureHierarchyAndContainersActive(penaltyText);
             }
 
             string cleanDesc = !string.IsNullOrWhiteSpace(description) ? description : "You failed to uphold the terms in time. The spirit claims its tribute from your stake.";
             if (descriptionText != null)
             {
                 descriptionText.text = cleanDesc;
+                EnsureHierarchyAndContainersActive(descriptionText);
             }
+
+            ActivateAllCustomStatContainers();
 
             if (modalWindow != null)
             {
@@ -172,6 +177,17 @@ namespace NightCrawler.UI
             }
 
             SetVisible(true, modifyCursor: true);
+
+            // Sync with PlayerPossessableNet for mirroring to possessing Girl
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null)
+            {
+                var localObj = NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
+                if (localObj != null && localObj.TryGetComponent<PlayerPossessableNet>(out var pNet))
+                {
+                    pNet.SetFailureModalStateServerRpc(true, cleanName, penaltyCredits, cleanDesc);
+                }
+            }
+
             Debug.Log($"[DealFailureModalUI] Displayed failure modal for '{cleanName}' (penalty={penaltyCredits})");
         }
 
@@ -179,13 +195,17 @@ namespace NightCrawler.UI
         {
             SetVisible(false, modifyCursor: true);
 
-            // If possessed, mirror dismissal to possessing Girl
+            // Clear state on PlayerPossessableNet
             if (NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null)
             {
                 var localObj = NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
-                if (localObj != null && localObj.TryGetComponent<PlayerPossessableNet>(out var pNet) && pNet.isPossessed.Value)
+                if (localObj != null && localObj.TryGetComponent<PlayerPossessableNet>(out var pNet))
                 {
-                    pNet.RequestMirrorModalDismissedServerRpc(1);
+                    pNet.SetFailureModalStateServerRpc(false, "", 0, "");
+                    if (pNet.isPossessed.Value)
+                    {
+                        pNet.RequestMirrorModalDismissedServerRpc(1);
+                    }
                 }
             }
         }
@@ -378,6 +398,50 @@ namespace NightCrawler.UI
                     {
                         inputs.cursorLocked = allowLookAndLock;
                         inputs.cursorInputForLook = allowLookAndLock;
+                    }
+                }
+            }
+        }
+        private void EnsureHierarchyAndContainersActive(Component target)
+        {
+            if (target == null) return;
+            Transform cur = target.transform;
+            while (cur != null && cur != transform.parent)
+            {
+                if (!cur.gameObject.activeSelf) cur.gameObject.SetActive(true);
+                var cg = cur.GetComponent<CanvasGroup>();
+                if (cg != null)
+                {
+                    cg.alpha = 1f;
+                    cg.interactable = true;
+                    cg.blocksRaycasts = true;
+                }
+                cur = cur.parent;
+            }
+        }
+
+        private void ActivateAllCustomStatContainers()
+        {
+            var allTransforms = GetComponentsInChildren<Transform>(true);
+            foreach (var t in allTransforms)
+            {
+                if (t == null) continue;
+                string lower = t.name.ToLower();
+                if (lower.Contains("reward") || lower.Contains("penalty") || lower.Contains("left") || 
+                    lower.Contains("initial") || lower.Contains("stake") || lower.Contains("coin") || 
+                    lower.Contains("icon") || lower.Contains("badge") || lower.Contains("stat") || 
+                    lower.Contains("row") || lower.Contains("container") || lower.Contains("content"))
+                {
+                    if (!t.gameObject.activeSelf)
+                    {
+                        t.gameObject.SetActive(true);
+                    }
+                    var cg = t.GetComponent<CanvasGroup>();
+                    if (cg != null)
+                    {
+                        cg.alpha = 1f;
+                        cg.interactable = true;
+                        cg.blocksRaycasts = true;
                     }
                 }
             }

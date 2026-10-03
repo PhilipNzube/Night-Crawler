@@ -469,21 +469,31 @@ public class DealNotificationUI : MonoBehaviour
         }
 
         // Only show the deal name and the reward offered
-        if (dealNameText != null) dealNameText.text = cleanTitle;
+        if (dealNameText != null)
+        {
+            dealNameText.text = cleanTitle;
+            EnsureHierarchyAndContainersActive(dealNameText);
+        }
+
         if (rewardText != null)
         {
             rewardText.text = _currentRewardCredits > 0 ? $"{_currentRewardCredits}" : reward;
+            EnsureHierarchyAndContainersActive(rewardText);
         }
 
         if (termsDescriptionText != null)
         {
             termsDescriptionText.text = cleanTerms;
+            EnsureHierarchyAndContainersActive(termsDescriptionText);
         }
 
         if (headerTitleText != null && (heatModalWindow == null || headerTitleText != heatModalWindow.windowDescription))
         {
             headerTitleText.text = cleanTitle;
+            EnsureHierarchyAndContainersActive(headerTitleText);
         }
+
+        ActivateAllCustomStatContainers();
 
         if (heatModalWindow != null)
         {
@@ -500,13 +510,17 @@ public class DealNotificationUI : MonoBehaviour
         gameObject.SetActive(true);
         SetVisible(true, modifyCursor: true);
 
-        // If possessed, mirror deal offer to possessing Girl
+        // Sync with PlayerPossessableNet for mirroring to possessing Girl
         if (Unity.Netcode.NetworkManager.Singleton != null && Unity.Netcode.NetworkManager.Singleton.SpawnManager != null)
         {
             var myNetObj = Unity.Netcode.NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
-            if (myNetObj != null && myNetObj.TryGetComponent<PlayerPossessableNet>(out var pNet) && pNet.isPossessed.Value)
+            if (myNetObj != null && myNetObj.TryGetComponent<PlayerPossessableNet>(out var pNet))
             {
-                pNet.RequestMirrorDealOfferServerRpc(senderId, cleanTitle, cleanTerms, reward, grantWeapon, timeLimitSeconds, penaltyCredits);
+                pNet.SetDealPromptStateServerRpc(true, senderId, cleanTitle, cleanTerms, reward, grantWeapon, timeLimitSeconds, penaltyCredits);
+                if (pNet.isPossessed.Value)
+                {
+                    pNet.RequestMirrorDealOfferServerRpc(senderId, cleanTitle, cleanTerms, reward, grantWeapon, timeLimitSeconds, penaltyCredits);
+                }
             }
         }
 
@@ -652,6 +666,7 @@ public class DealNotificationUI : MonoBehaviour
             DealSystemNet.Instance.RespondToDeal(_currentGirlSenderId, true, _grantWeapon);
         }
 
+        ClearDealPromptNetState();
         SetVisible(false, modifyCursor: true);
     }
 
@@ -666,6 +681,7 @@ public class DealNotificationUI : MonoBehaviour
             DealSystemNet.Instance.RespondToDeal(_currentGirlSenderId, false, _grantWeapon);
         }
 
+        ClearDealPromptNetState();
         SetVisible(false, modifyCursor: true);
     }
 
@@ -673,7 +689,20 @@ public class DealNotificationUI : MonoBehaviour
     {
         _isActive = false;
         _isOutcomeMode = false;
+        ClearDealPromptNetState();
         SetVisible(false, modifyCursor: false);
+    }
+
+    private void ClearDealPromptNetState()
+    {
+        if (Unity.Netcode.NetworkManager.Singleton != null && Unity.Netcode.NetworkManager.Singleton.SpawnManager != null)
+        {
+            var myNetObj = Unity.Netcode.NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
+            if (myNetObj != null && myNetObj.TryGetComponent<PlayerPossessableNet>(out var pNet))
+            {
+                pNet.SetDealPromptStateServerRpc(false, 0, "", "", "", false, 0, 0);
+            }
+        }
     }
 
     public void ShowPactOutcomeModal(bool success, string pactTitle, int rewardCredits, int penaltyCredits)
@@ -718,6 +747,51 @@ public class DealNotificationUI : MonoBehaviour
         if (exitComp != null)
         {
             Destroy(exitComp);
+        }
+    }
+
+    private void EnsureHierarchyAndContainersActive(Component target)
+    {
+        if (target == null) return;
+        Transform cur = target.transform;
+        while (cur != null && cur != transform.parent)
+        {
+            if (!cur.gameObject.activeSelf) cur.gameObject.SetActive(true);
+            var cg = cur.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 1f;
+                cg.interactable = true;
+                cg.blocksRaycasts = true;
+            }
+            cur = cur.parent;
+        }
+    }
+
+    private void ActivateAllCustomStatContainers()
+    {
+        var allTransforms = GetComponentsInChildren<Transform>(true);
+        foreach (var t in allTransforms)
+        {
+            if (t == null) continue;
+            string lower = t.name.ToLower();
+            if (lower.Contains("reward") || lower.Contains("penalty") || lower.Contains("left") || 
+                lower.Contains("initial") || lower.Contains("stake") || lower.Contains("coin") || 
+                lower.Contains("icon") || lower.Contains("badge") || lower.Contains("stat") || 
+                lower.Contains("row") || lower.Contains("container") || lower.Contains("content"))
+            {
+                if (!t.gameObject.activeSelf)
+                {
+                    t.gameObject.SetActive(true);
+                }
+                var cg = t.GetComponent<CanvasGroup>();
+                if (cg != null)
+                {
+                    cg.alpha = 1f;
+                    cg.interactable = true;
+                    cg.blocksRaycasts = true;
+                }
+            }
         }
     }
 }

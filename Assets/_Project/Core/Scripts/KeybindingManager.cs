@@ -461,7 +461,7 @@ public class KeybindingManager : MonoBehaviour
             {
                 actionId = "SpectatePlayer",
                 displayName = "Spectate Survivors",
-                tacticalDescription = "Enter spectator mode when fallen to track surviving teammates in the mine.",
+                tacticalDescription = "Enter spectator mode from the death screen to follow surviving teammates through the mine. This key is shown on the YOU DIED screen prompt.",
                 context = ActionContext.Spectator,
                 defaultKey = Key.Space,
                 defaultMouseButton = -1,
@@ -471,7 +471,7 @@ public class KeybindingManager : MonoBehaviour
             {
                 actionId = "SpectateMonster",
                 displayName = "Spectate Monsters",
-                tacticalDescription = "Switch camera perspective to summoned undead and berserker abominations.",
+                tacticalDescription = "Enter monster spectator mode from the Summon HUD to watch your summoned zombies and berserkers hunt. This key is shown on the Monster Summoning prompt.",
                 context = ActionContext.Spirit,
                 defaultKey = Key.Space,
                 defaultMouseButton = -1,

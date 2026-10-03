@@ -267,9 +267,35 @@ public class HeatSettingsBridge : MonoBehaviour
     [Tooltip("Optional ModalWindowManager used to display keybinding conflict errors.")]
     public ModalWindowManager errorModal;
 
-    [Header("Inspector Editable Descriptions & Preview Images")]
-    [Tooltip("Modify any setting's Title, Description, and Cover Image here. Changes apply immediately to both the row text and the side preview card!")]
-    public List<SettingDescriptionEntry> settingDescriptions = new List<SettingDescriptionEntry>();
+    [Header("Descriptions — General")]
+    [Tooltip("Inspector-editable descriptions for settings in the GENERAL tab. Each entry controls the row title and the side-panel preview card when hovered.")]
+    public List<SettingDescriptionEntry> generalDescriptions = new List<SettingDescriptionEntry>();
+
+    [Header("Descriptions — Controls")]
+    [Tooltip("Inspector-editable descriptions for settings in the CONTROLS tab (sensitivity, sprint mode, keybindings).")]
+    public List<SettingDescriptionEntry> controlsDescriptions = new List<SettingDescriptionEntry>();
+
+    [Header("Descriptions — Audio")]
+    [Tooltip("Inspector-editable descriptions for settings in the AUDIO tab (master, music, SFX, UI volumes).")]
+    public List<SettingDescriptionEntry> audioDescriptions = new List<SettingDescriptionEntry>();
+
+    [Header("Descriptions — Visuals")]
+    [Tooltip("Inspector-editable descriptions for settings in the VISUALS tab (resolution, frame rate, texture quality, etc.).")]
+    public List<SettingDescriptionEntry> visualsDescriptions = new List<SettingDescriptionEntry>();
+
+    /// <summary>Runtime merge of all four categorised description lists.</summary>
+    private List<SettingDescriptionEntry> settingDescriptions
+    {
+        get
+        {
+            var merged = new List<SettingDescriptionEntry>();
+            if (generalDescriptions  != null) merged.AddRange(generalDescriptions);
+            if (controlsDescriptions != null) merged.AddRange(controlsDescriptions);
+            if (audioDescriptions    != null) merged.AddRange(audioDescriptions);
+            if (visualsDescriptions  != null) merged.AddRange(visualsDescriptions);
+            return merged;
+        }
+    }
 
     private bool _isInitializing = false;
     private List<Resolution> _availableResolutions = new List<Resolution>();
@@ -353,84 +379,82 @@ public class HeatSettingsBridge : MonoBehaviour
 
     public void CleanupOldDescriptions()
     {
-        if (settingDescriptions == null) return;
+        // Ensure all four lists exist
+        if (generalDescriptions  == null) generalDescriptions  = new List<SettingDescriptionEntry>();
+        if (controlsDescriptions == null) controlsDescriptions = new List<SettingDescriptionEntry>();
+        if (audioDescriptions    == null) audioDescriptions    = new List<SettingDescriptionEntry>();
+        if (visualsDescriptions  == null) visualsDescriptions  = new List<SettingDescriptionEntry>();
 
         bool changed = false;
 
-        // 1. Migrate legacy elements to their active canonical names if not already present
-        for (int i = 0; i < settingDescriptions.Count; i++)
+        // Helper to migrate/remove from any sub-list
+        void MigrateEntry(List<SettingDescriptionEntry> list, string oldName, string newName, string newTitle, string newDesc)
         {
-            var e = settingDescriptions[i];
-            if (e == null) continue;
-
-            if (e.elementName.Equals("Enable Subtitles", StringComparison.OrdinalIgnoreCase))
+            for (int i = 0; i < list.Count; i++)
             {
-                if (!settingDescriptions.Exists(x => x != null && x.elementName.Equals("Camera Shake", StringComparison.OrdinalIgnoreCase)))
+                var e = list[i];
+                if (e == null) continue;
+                if (e.elementName.Equals(oldName, StringComparison.OrdinalIgnoreCase))
                 {
-                    e.elementName = "Camera Shake";
-                    e.displayTitle = "Camera Shockwave & Shake";
-                    e.description = "Simulates visceral head trauma, demonic screams, seismic tremors, and proximity blast waves. Disable to lock camera shudder for motion sensitivity.";
+                    if (!settingDescriptions.Exists(x => x != null && x.elementName.Equals(newName, StringComparison.OrdinalIgnoreCase)))
+                    {
+                        e.elementName   = newName;
+                        e.displayTitle  = newTitle;
+                        e.description   = newDesc;
+                    }
+                    else
+                    {
+                        e.elementName = string.Empty;
+                    }
+                    changed = true;
                 }
-                else
-                {
-                    e.elementName = string.Empty; // mark for removal
-                }
-                changed = true;
-            }
-            else if (e.elementName.Equals("Subtitle Scale", StringComparison.OrdinalIgnoreCase))
-            {
-                if (!settingDescriptions.Exists(x => x != null && x.elementName.Equals("Struggle Mode", StringComparison.OrdinalIgnoreCase)))
-                {
-                    e.elementName = "Struggle Mode";
-                    e.displayTitle = "Possession Resist Mode";
-                    e.description = "Defines how you fight demonic host intrusions. Select 'Rapid Mash' for raw survival intensity, or 'Hold Key' for steady resistance without repetitive strain.";
-                }
-                else
-                {
-                    e.elementName = string.Empty; // mark for removal
-                }
-                changed = true;
             }
         }
 
-        // 2. Remove all legacy / obsolete entries
-        int removedCount = settingDescriptions.RemoveAll(e =>
-            e == null ||
-            string.IsNullOrEmpty(e.elementName) ||
-            e.elementName.Equals("Enable Subtitles", StringComparison.OrdinalIgnoreCase) ||
-            e.elementName.Equals("Subtitle Scale", StringComparison.OrdinalIgnoreCase) ||
-            e.elementName.Equals("Language", StringComparison.OrdinalIgnoreCase) ||
-            e.elementName.Equals("Enable Hints", StringComparison.OrdinalIgnoreCase) ||
-            e.elementName.Equals("Show Network & FPS", StringComparison.OrdinalIgnoreCase) ||
-            e.elementName.Equals("Interact", StringComparison.OrdinalIgnoreCase) ||
-            e.elementName.Equals("Interaction", StringComparison.OrdinalIgnoreCase) ||
-            e.elementName.Equals("Interact / Possess", StringComparison.OrdinalIgnoreCase) ||
-            e.elementName.Equals("Pause", StringComparison.OrdinalIgnoreCase) ||
-            e.elementName.Equals("Tactical Menu / Pause", StringComparison.OrdinalIgnoreCase));
+        MigrateEntry(generalDescriptions, "Enable Subtitles", "Camera Shake",
+            "Camera Shockwave & Shake",
+            "Simulates visceral head trauma, demonic screams, seismic tremors, and proximity blast waves. Disable to lock camera shudder for motion sensitivity.");
 
-        if (removedCount > 0)
-        {
-            changed = true;
-        }
+        MigrateEntry(generalDescriptions, "Subtitle Scale", "Struggle Mode",
+            "Possession Resist Mode",
+            "Defines how you fight demonic host intrusions. Select 'Rapid Mash' for raw survival intensity, or 'Hold Key' for steady resistance without repetitive strain.");
 
-        // 3. Ensure Render Scale entry exists with complete atmospheric description
-        var renderScaleEntry = settingDescriptions.Find(e => e != null && (e.elementName.Equals("Render Scale", StringComparison.OrdinalIgnoreCase) || e.displayTitle.Equals("3D Resolution Scaling", StringComparison.OrdinalIgnoreCase)));
+        // Remove obsolete / empty entries from every sub-list
+        string[] obsolete = { "Enable Subtitles", "Subtitle Scale", "Language", "Enable Hints",
+                               "Show Network & FPS", "Interact", "Interaction",
+                               "Interact / Possess", "Pause", "Tactical Menu / Pause" };
+
+        int RemoveObsolete(List<SettingDescriptionEntry> list) =>
+            list.RemoveAll(e => e == null || string.IsNullOrEmpty(e.elementName) ||
+                System.Array.Exists(obsolete, o => o.Equals(e.elementName, StringComparison.OrdinalIgnoreCase)));
+
+        int removed = RemoveObsolete(generalDescriptions)
+                    + RemoveObsolete(controlsDescriptions)
+                    + RemoveObsolete(audioDescriptions)
+                    + RemoveObsolete(visualsDescriptions);
+
+        if (removed > 0) changed = true;
+
+        // Ensure Render Scale entry exists in visualsDescriptions
+        var renderScaleEntry = visualsDescriptions.Find(e => e != null &&
+            (e.elementName.Equals("Render Scale", StringComparison.OrdinalIgnoreCase) ||
+             e.displayTitle.Equals("3D Resolution Scaling", StringComparison.OrdinalIgnoreCase)));
         if (renderScaleEntry == null)
         {
-            settingDescriptions.Add(new SettingDescriptionEntry
+            visualsDescriptions.Add(new SettingDescriptionEntry
             {
-                elementName = "Render Scale",
+                elementName  = "Render Scale",
                 displayTitle = "3D Resolution Scaling",
-                description = "Scales internal 3D scene rendering resolution (50% to 100%) to drastically boost framerate while keeping the HUD, biometric vitals, and fonts 100% crisp.",
-                coverImage = null
+                description  = "Scales internal 3D scene rendering resolution (50% to 100%) to drastically boost framerate while keeping the HUD, biometric vitals, and fonts 100% crisp.",
+                coverImage   = null
             });
             changed = true;
         }
         else if (string.IsNullOrEmpty(renderScaleEntry.description))
         {
-            renderScaleEntry.elementName = "Render Scale";
+            renderScaleEntry.elementName  = "Render Scale";
             renderScaleEntry.displayTitle = "3D Resolution Scaling";
-            renderScaleEntry.description = "Scales internal 3D scene rendering resolution (50% to 100%) to drastically boost framerate while keeping the HUD, biometric vitals, and fonts 100% crisp.";
+            renderScaleEntry.description  = "Scales internal 3D scene rendering resolution (50% to 100%) to drastically boost framerate while keeping the HUD, biometric vitals, and fonts 100% crisp.";
             changed = true;
         }
 
@@ -526,351 +550,360 @@ public class HeatSettingsBridge : MonoBehaviour
     // =========================================================================
     public void PopulateDefaultDescriptions()
     {
-        settingDescriptions = new List<SettingDescriptionEntry>()
+        // ── GENERAL ──────────────────────────────────────────────────────────
+        generalDescriptions = new List<SettingDescriptionEntry>()
         {
-            // --- GENERAL TAB ---
             new SettingDescriptionEntry
             {
-                elementName = "Show FPS & Ping",
+                elementName  = "Show FPS & Ping",
                 displayTitle = "Performance & Ping Overlay",
-                description = "Renders real-time frame rates and server round-trip latency (RTT) in the HUD. Essential for monitoring subterranean connection stability and stutter.",
-                coverImage = null
+                description  = "Renders real-time frame rates and server round-trip latency (RTT) in the HUD. Essential for monitoring subterranean connection stability and stutter.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Camera Shake",
+                elementName  = "Camera Shake",
                 displayTitle = "Camera Shockwave & Shake",
-                description = "Simulates visceral head trauma, demonic screams, seismic tremors, and proximity blast waves. Disable to lock camera shudder for motion sensitivity.",
-                coverImage = null
+                description  = "Simulates visceral head trauma, demonic screams, seismic tremors, and proximity blast waves. Disable to lock camera shudder for motion sensitivity.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Struggle Mode",
+                elementName  = "Struggle Mode",
                 displayTitle = "Possession Resist Mode",
-                description = "Defines how you fight demonic host intrusions. Select 'Rapid Mash' for raw survival intensity, or 'Hold Key' for steady resistance without repetitive strain.",
-                coverImage = null
+                description  = "Defines how you fight demonic host intrusions. Select 'Rapid Mash' for raw survival intensity, or 'Hold Key' for steady resistance without repetitive strain.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "UI Scale",
+                elementName  = "UI Scale",
                 displayTitle = "Interface Scaling",
-                description = "Adjust the overall display scale of the HUD, biometric vitals, and inventory readouts for optimal legibility at high resolutions.",
-                coverImage = null
+                description  = "Adjust the overall display scale of the HUD, biometric vitals, and inventory readouts for optimal legibility at high resolutions.",
+                coverImage   = null
             },
+        };
 
-            // --- CONTROLS TAB (8 Canonical Game Actions) ---
+        // ── CONTROLS ─────────────────────────────────────────────────────────
+        controlsDescriptions = new List<SettingDescriptionEntry>()
+        {
             new SettingDescriptionEntry
             {
-                elementName = "Camera Sensitivity",
+                elementName  = "Camera Sensitivity",
                 displayTitle = "Look Sensitivity",
-                description = "Controls turning and aiming responsiveness in the depths. Higher values allow rapid threat acquisition when stalked from behind.",
-                coverImage = null
+                description  = "Controls turning and aiming responsiveness in the depths. Higher values allow rapid threat acquisition when stalked from behind.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Reverse Look",
+                elementName  = "Reverse Look",
                 displayTitle = "Invert Pitch Axis",
-                description = "Inverts vertical pitch controls for flight-sim instincts. Pushing forward pitches the camera downward.",
-                coverImage = null
+                description  = "Inverts vertical pitch controls for flight-sim instincts. Pushing forward pitches the camera downward.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Sprint Mode",
+                elementName  = "Sprint Mode",
                 displayTitle = "Sprint Activation",
-                description = "Choose whether sustaining your sprint requires continuously holding the sprint key or toggling it with a single tap.",
-                coverImage = null
+                description  = "Choose whether sustaining your sprint requires continuously holding the sprint key or toggling it with a single tap.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Key Bindings",
+                elementName  = "Key Bindings",
                 displayTitle = "Tactical Key Bindings",
-                description = "Rebind controls for Keyboard, Mouse, and Gamepad controllers. Click any slot to assign a new key or controller button.",
-                coverImage = null
+                description  = "Rebind controls for Keyboard, Mouse, and Gamepad controllers. Click any slot to assign a new key or controller button.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Sprint / Tactical Rush",
+                elementName  = "Sprint / Tactical Rush",
                 displayTitle = "Sprint / Tactical Rush",
-                description = "Accelerate traversal across open mining caverns. Depletes stamina; increases acoustic profile.",
-                coverImage = null
+                description  = "Accelerate traversal across open mining caverns. Depletes stamina; increases acoustic profile.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Jump / Vault Obstacles",
+                elementName  = "Jump / Vault Obstacles",
                 displayTitle = "Jump / Vault Obstacles",
-                description = "Leap over collapsed mine rails, low pipes, and treacherous rock fissures.",
-                coverImage = null
+                description  = "Leap over collapsed mine rails, low pipes, and treacherous rock fissures.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Physical Manifestation",
+                elementName  = "Physical Manifestation",
                 displayTitle = "Physical Manifestation",
-                description = "Shift from incorporeal spirit form into physical reality to execute lethal strikes and hunt explorers. Consumes manifestation charges.",
-                coverImage = null
+                description  = "Shift from incorporeal spirit form into physical reality to execute lethal strikes and hunt explorers. Consumes manifestation charges.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Holy Exorcism Rite",
+                elementName  = "Holy Exorcism Rite",
                 displayTitle = "Holy Exorcism Rite",
-                description = "Channel sanctified rite against possessed companions to purge the invading demon and heavily drain her possession reserves.",
-                coverImage = null
+                description  = "Channel sanctified rite against possessed companions to purge the invading demon and heavily drain her possession reserves.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Administer Medical Vial",
+                elementName  = "Administer Medical Vial",
                 displayTitle = "Administer Medical Vial",
-                description = "Inject coagulant from your medical vial supply to rapidly stabilize critical trauma and restore vital health points.",
-                coverImage = null
+                description  = "Inject coagulant from your medical vial supply to rapidly stabilize critical trauma and restore vital health points.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Resist Possession",
+                elementName  = "Resist Possession",
                 displayTitle = "Resist Possession",
-                description = "Fight back against demonic host intrusion and reclaim somatic motor control during struggle.",
-                coverImage = null
+                description  = "Fight back against demonic host intrusion and reclaim somatic motor control during struggle.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Deal Activations",
+                elementName  = "Deal Activations",
                 displayTitle = "Deal Activations",
-                description = "Initiate and negotiate forbidden subterranean deals and demonic blood pacts with the Vengeful Spirit.",
-                coverImage = null
+                description  = "Initiate and negotiate forbidden subterranean deals and demonic blood pacts with the Vengeful Spirit.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Exit Possession",
+                elementName  = "Exit Possession",
                 displayTitle = "Exit Possession",
-                description = "Voluntarily terminate host possession to preserve ethereal essence and revert to incorporeal ghost form.",
-                coverImage = null
+                description  = "Voluntarily terminate host possession to preserve ethereal essence and revert to incorporeal ghost form.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Loot Bodies & Containers",
+                elementName  = "Loot Bodies & Containers",
                 displayTitle = "Loot Bodies & Containers",
-                description = "Scavenge fallen explorer corpses, extraction batteries, supply crates, and medical vials.",
-                coverImage = null
+                description  = "Scavenge fallen explorer corpses, extraction batteries, supply crates, and medical vials.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Spectate Cycle Target",
+                elementName  = "Spectate Cycle Target",
                 displayTitle = "Spectate Cycle Target",
-                description = "Cycle camera view between surviving explorers or stalking demonic entities during spectator observation.",
-                coverImage = null
+                description  = "Cycle camera view between surviving explorers or stalking demonic entities during spectator observation.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Spectate Previous Target",
+                elementName  = "Spectate Previous Target",
                 displayTitle = "Spectate Previous Target",
-                description = "Cycle camera to the previous living survivor or summoned monster.",
-                coverImage = null
+                description  = "Cycle camera to the previous living survivor or summoned monster.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Spectate Next Target",
+                elementName  = "Spectate Next Target",
                 displayTitle = "Spectate Next Target",
-                description = "Cycle camera to the next living survivor or summoned monster.",
-                coverImage = null
+                description  = "Cycle camera to the next living survivor or summoned monster.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Spectate View Mode",
+                elementName  = "Spectate View Mode",
                 displayTitle = "Spectate View Mode",
-                description = "Toggle between tactical free-orbit mouse look and follow over-the-shoulder camera.",
-                coverImage = null
+                description  = "Toggle between tactical free-orbit mouse look and follow over-the-shoulder camera.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Spectate Cursor Lock",
+                elementName  = "Spectate Cursor Lock",
                 displayTitle = "Spectate Cursor Lock",
-                description = "Lock or release mouse cursor while spectating.",
-                coverImage = null
+                description  = "Lock or release mouse cursor while spectating.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Spectate Switch Category",
+                elementName  = "Spectate Switch Category",
                 displayTitle = "Spectate Switch Category",
-                description = "Switch spectator observation between living human survivors and summoned monsters.",
-                coverImage = null
+                description  = "Switch spectator observation between living human survivors and summoned monsters.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Spectate Survivors",
+                elementName  = "Spectate Survivors",
                 displayTitle = "Spectate Survivors",
-                description = "Enter spectator mode when fallen to track surviving teammates in the mine.",
-                coverImage = null
+                description  = "Enter spectator mode from the death screen to follow surviving teammates through the mine. The YOU DIED screen prompt always shows this key.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Spectate Monsters",
+                elementName  = "Spectate Monsters",
                 displayTitle = "Spectate Monsters",
-                description = "Switch camera perspective to summoned undead and berserker abominations.",
-                coverImage = null
+                description  = "As the Vengeful Spirit, enter monster spectator mode from the Summon HUD to watch your zombies and berserkers hunt. The Monster Summoning prompt always shows this key.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Exit Spectator Mode",
+                elementName  = "Exit Spectator Mode",
                 displayTitle = "Exit Spectator Mode",
-                description = "Exit spectator observation mode and return to player view or death screen.",
-                coverImage = null
+                description  = "Exit spectator observation mode and return to player view or death screen.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Command: Go Hunt",
+                elementName  = "Command: Go Hunt",
                 displayTitle = "Command: Go Hunt",
-                description = "Command all summoned monsters to roam and hunt down surviving investigators.",
-                coverImage = null
+                description  = "Command all summoned monsters to roam and hunt down surviving investigators.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Command: To My Side",
+                elementName  = "Command: To My Side",
                 displayTitle = "Command: To My Side",
-                description = "Command all summoned monsters to return and stand guard beside the Vengeful Spirit.",
-                coverImage = null
+                description  = "Command all summoned monsters to return and stand guard beside the Vengeful Spirit.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Monster Summon Rite",
+                elementName  = "Monster Summon Rite",
                 displayTitle = "Monster Summon Rite",
-                description = "Open the necrotic summon rites menu to raise Undead and Berserker abominations in the subterranean mines.",
-                coverImage = null
+                description  = "Open the necrotic summon rites menu to raise Undead and Berserker abominations in the subterranean mines.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Possession Selection Menu",
+                elementName  = "Possession Selection Menu",
                 displayTitle = "Possession Selection Menu",
-                description = "Open the possession target selection modal to choose an investigator host to inhabit.",
-                coverImage = null
+                description  = "Open the possession target selection modal to choose an investigator host to inhabit.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Attack / Fire Weapon",
+                elementName  = "Attack / Fire Weapon",
                 displayTitle = "Attack / Fire Weapon",
-                description = "Execute tactical melee strikes with pickaxe or fire equipped firearms.",
-                coverImage = null
+                description  = "Execute tactical melee strikes with pickaxe or fire equipped firearms.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Reload Firearm",
+                elementName  = "Reload Firearm",
                 displayTitle = "Reload Firearm",
-                description = "Chamber fresh ammunition into your equipped firearm.",
-                coverImage = null
+                description  = "Chamber fresh ammunition into your equipped firearm.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Holster / Stow Weapon",
+                elementName  = "Holster / Stow Weapon",
                 displayTitle = "Holster / Stow Weapon",
-                description = "Conceal equipped weaponry to maintain low acoustic and visual profile.",
-                coverImage = null
+                description  = "Conceal equipped weaponry to maintain low acoustic and visual profile.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Equip Primary Weapon",
+                elementName  = "Equip Primary Weapon",
                 displayTitle = "Equip Primary Weapon",
-                description = "Draw primary tactical pickaxe or melee tool.",
-                coverImage = null
+                description  = "Draw primary tactical pickaxe or melee tool.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Equip Secondary Weapon",
+                elementName  = "Equip Secondary Weapon",
                 displayTitle = "Equip Secondary Weapon",
-                description = "Draw secondary firearm if acquired from fallen miners or supply caches.",
-                coverImage = null
+                description  = "Draw secondary firearm if acquired from fallen miners or supply caches.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Push-to-Talk (Radio)",
+                elementName  = "Push-to-Talk (Radio)",
                 displayTitle = "Push-to-Talk (Radio)",
-                description = "Transmit tactical radio communication across the subterranean network.",
-                coverImage = null
+                description  = "Transmit tactical radio communication across the subterranean network.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Shadow Teleport",
+                elementName  = "Shadow Teleport",
                 displayTitle = "Shadow Teleport",
-                description = "Vanish and remanifest instantaneously behind unsuspecting explorers.",
-                coverImage = null
+                description  = "Vanish and remanifest instantaneously behind unsuspecting explorers.",
+                coverImage   = null
             },
+        };
 
-            // --- AUDIO TAB ---
+        // ── AUDIO ─────────────────────────────────────────────────────────────
+        audioDescriptions = new List<SettingDescriptionEntry>()
+        {
             new SettingDescriptionEntry
             {
-                elementName = "Master Volume",
+                elementName  = "Master Volume",
                 displayTitle = "Master Acoustics",
-                description = "Controls master audio gain for all acoustic output. Keep balanced to ensure distant entity footsteps and warning claxons remain discernible.",
-                coverImage = null
+                description  = "Controls master audio gain for all acoustic output. Keep balanced to ensure distant entity footsteps and warning claxons remain discernible.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Music Volume",
+                elementName  = "Music Volume",
                 displayTitle = "Atmospheric Score",
-                description = "Adjusts volume for ambient tension drones, ritualistic chanting, and dynamic confrontation music.",
-                coverImage = null
+                description  = "Adjusts volume for ambient tension drones, ritualistic chanting, and dynamic confrontation music.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "SFX Volume",
+                elementName  = "SFX Volume",
                 displayTitle = "Environmental SFX",
-                description = "Controls the loudness of weapon discharges, metallic vent squeaks, beast snarls, and mechanical mine shafts.",
-                coverImage = null
+                description  = "Controls the loudness of weapon discharges, metallic vent squeaks, beast snarls, and mechanical mine shafts.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "UI Volume",
+                elementName  = "UI Volume",
                 displayTitle = "Tactical Radio & UI",
-                description = "Regulates volume for menu feedback, notification clicks, terminal chimes, and tactical radio prompts.",
-                coverImage = null
+                description  = "Regulates volume for menu feedback, notification clicks, terminal chimes, and tactical radio prompts.",
+                coverImage   = null
             },
+        };
 
-            // --- VISUALS TAB ---
+        // ── VISUALS ───────────────────────────────────────────────────────────
+        visualsDescriptions = new List<SettingDescriptionEntry>()
+        {
             new SettingDescriptionEntry
             {
-                elementName = "Window Mode",
+                elementName  = "Window Mode",
                 displayTitle = "Display Mode",
-                description = "Select your display presentation. Exclusive Fullscreen yields minimal input latency; Borderless permits seamless multi-monitor navigation.",
-                coverImage = null
+                description  = "Select your display presentation. Exclusive Fullscreen yields minimal input latency; Borderless permits seamless multi-monitor navigation.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Resolution",
+                elementName  = "Resolution",
                 displayTitle = "Display Resolution",
-                description = "Adjust the native screen pixel grid. Higher resolutions maximize subterranean clarity and edge contrast against lurking silhouettes.",
-                coverImage = null
+                description  = "Adjust the native screen pixel grid. Higher resolutions maximize subterranean clarity and edge contrast against lurking silhouettes.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Render Scale",
+                elementName  = "Render Scale",
                 displayTitle = "3D Resolution Scaling",
-                description = "Scales internal 3D scene rendering resolution (50% to 100%) to drastically boost framerate while keeping the HUD, biometric vitals, and fonts 100% crisp.",
-                coverImage = null
+                description  = "Scales internal 3D scene rendering resolution (50% to 100%) to drastically boost framerate while keeping the HUD, biometric vitals, and fonts 100% crisp.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Frame Rate",
+                elementName  = "Frame Rate",
                 displayTitle = "Frame Rate Ceiling",
-                description = "Caps maximum rendering frequency to prevent GPU overheating during extended mining excursions or reduce frame time variance.",
-                coverImage = null
+                description  = "Caps maximum rendering frequency to prevent GPU overheating during extended mining excursions or reduce frame time variance.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "VSync",
+                elementName  = "VSync",
                 displayTitle = "Vertical Sync (VSync)",
-                description = "Locks rendering to the monitor refresh cycle to eliminate screen tearing during frantic camera turns. Adds minor input lag.",
-                coverImage = null
+                description  = "Locks rendering to the monitor refresh cycle to eliminate screen tearing during frantic camera turns. Adds minor input lag.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Texture Quality",
+                elementName  = "Texture Quality",
                 displayTitle = "Texture Fidelity",
-                description = "Dictates rock surface, rust, and monster skin texture resolution. Higher quality requires greater VRAM allocation.",
-                coverImage = null
+                description  = "Dictates rock surface, rust, and monster skin texture resolution. Higher quality requires greater VRAM allocation.",
+                coverImage   = null
             },
             new SettingDescriptionEntry
             {
-                elementName = "Anisotropic Filtering",
+                elementName  = "Anisotropic Filtering",
                 displayTitle = "Surface Angle Filtering",
-                description = "Enhances texture sharpness along tunnel floors and walls receding into the distance at sharp oblique viewing angles.",
-                coverImage = null
-            }
+                description  = "Enhances texture sharpness along tunnel floors and walls receding into the distance at sharp oblique viewing angles.",
+                coverImage   = null
+            },
         };
     }
 
@@ -1756,10 +1789,12 @@ public class HeatSettingsBridge : MonoBehaviour
     // =========================================================================
     public void ApplyAllDescriptions()
     {
-        if (settingDescriptions == null) return;
+        var all = settingDescriptions; // uses the computed property
+        if (all == null || all.Count == 0) return;
 
-        foreach (var entry in settingDescriptions)
+        foreach (var entry in all)
         {
+            if (entry == null || string.IsNullOrEmpty(entry.elementName)) continue;
             Transform target = FindChildRecursive(transform, entry.elementName);
             if (target != null)
             {
