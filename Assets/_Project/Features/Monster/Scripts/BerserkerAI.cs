@@ -50,6 +50,14 @@ public class BerserkerAI : MonsterAI
         }
     }
 
+    [Header("Roar Synchronization (Double Roar)")]
+    [Tooltip("If true, the Berserker plays the roar animation twice to rhyme with the double-roar audio clip. If false, cuts the audio after the first roar.")]
+    public bool doubleRoarSequence = true;
+    [Tooltip("Time in seconds before triggering the second roar animation to rhyme with the second roar in the audio.")]
+    public float secondRoarDelay = 2.6f;
+    [Tooltip("Total duration of the entire double-roar spawn sequence before running.")]
+    public float totalRoarDuration = 5.4f;
+
     protected override void ConfigureMonsterDefaults()
     {
         monsterType = MonsterType.Berserker;
@@ -59,7 +67,15 @@ public class BerserkerAI : MonsterAI
         runAcceleration = 8.5f;
         if (attackDamage < 50f) attackDamage = 65f;
         if (attackRange < 2.0f) attackRange = 2.2f;
-        if (screamDuration <= 0f) screamDuration = 2.6f;
+
+        if (doubleRoarSequence)
+        {
+            screamDuration = totalRoarDuration;
+        }
+        else if (screamDuration <= 0f)
+        {
+            screamDuration = 2.6f;
+        }
 
         // ScriptableObject stats override if present
         if (stats != null)
@@ -115,10 +131,94 @@ public class BerserkerAI : MonsterAI
         SafeCrossFade(_stateBerserkerIdle, "Berserker Idle", 0.25f);
     }
 
+    protected override IEnumerator SpawnScreamRoutine()
+    {
+        _hasScreamed = true;
+        currentState = AIState.SpawningScream;
+
+        if (_agent != null && _agent.enabled)
+        {
+            _agent.isStopped = true;
+        }
+
+        // Find initial closest player to look at while roaring
+        target = FindBestTarget();
+        if (target != null)
+        {
+            RotateTowardsTarget(target);
+        }
+
+        // 1. Play 3D audio roar
+        Play3DScream();
+
+        // 2. Trigger first roar animation
+        TriggerScreamAnimation();
+
+        SetLocomotionAnimSpeed(1.0f);
+        SafeSetFloat(_speedHash, 0f);
+        SafeSetBool(_isRunningHash, false);
+
+        if (doubleRoarSequence)
+        {
+            // Wait for first roar animation and audio to complete
+            yield return new WaitForSeconds(secondRoarDelay);
+
+            // Re-aim at target if moved
+            target = FindBestTarget();
+            if (target != null)
+            {
+                RotateTowardsTarget(target);
+            }
+
+            // Trigger second roar animation to rhyme with second audio roar
+            TriggerSecondRoar();
+
+            float remaining = Mathf.Max(0.5f, totalRoarDuration - secondRoarDelay);
+            yield return new WaitForSeconds(remaining);
+        }
+        else
+        {
+            // Single roar mode: wait for first roar to finish, then cleanly cut audio
+            float singleDuration = secondRoarDelay > 0f ? secondRoarDelay : screamDuration;
+            yield return new WaitForSeconds(singleDuration);
+
+            if (audioSource != null && audioSource.isPlaying)
+            {
+                audioSource.Stop();
+            }
+        }
+
+        // Transition directly to relentless pursuit
+        currentState = AIState.Running;
+        if (_agent != null && _agent.enabled)
+        {
+            _agent.isStopped = false;
+        }
+    }
+
     protected override void TriggerScreamAnimation()
     {
         SafeSetTrigger(_roarHash);
         SafeCrossFade(_stateMutantRoar, "Mutant Roaring", 0.15f, true);
+    }
+
+    private void TriggerSecondRoar()
+    {
+        SafeSetTrigger(_roarHash);
+        SafeCrossFade(_stateMutantRoar, "Mutant Roaring", 0.12f, true);
+
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            PlaySecondRoarClientRpc();
+        }
+    }
+
+    [ClientRpc]
+    private void PlaySecondRoarClientRpc()
+    {
+        if (IsServer) return;
+        SafeSetTrigger(_roarHash);
+        SafeCrossFade(_stateMutantRoar, "Mutant Roaring", 0.12f, true);
     }
 
     public override void PlayHitReaction()

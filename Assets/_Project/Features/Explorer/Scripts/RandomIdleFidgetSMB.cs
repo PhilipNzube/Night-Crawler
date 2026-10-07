@@ -8,7 +8,8 @@ using UnityEngine;
 ///
 /// RULES:
 /// 1. Never plays on the Girl character (Vengeful Spirit).
-/// 2. Never plays while characters are moving (normally or with weapons) or in any non-idle state (jumping, falling, attacking).
+/// 2. Plays ONLY when the player is in the state of holding a weapon (armed).
+/// 3. Never plays while characters are moving (normally or with weapons) or in any non-idle state (jumping, falling, attacking).
 /// </summary>
 public class RandomIdleFidgetSMB : StateMachineBehaviour
 {
@@ -47,6 +48,8 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
     private int _jumpHash;
     private int _freeFallHash;
     private int _comboStepHash;
+    private int _hasWeaponHash;
+    private int _weaponIdHash;
 
     private bool _hasSpeedParam;
     private bool _hasMotionSpeedParam;
@@ -54,6 +57,8 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
     private bool _hasJumpParam;
     private bool _hasFreeFallParam;
     private bool _hasComboStepParam;
+    private bool _hasHasWeaponParam;
+    private bool _hasWeaponIdParam;
     private bool _paramsInitialized;
 
     public override void OnStateEnter(Animator animator, AnimatorStateInfo stateInfo, int layerIndex)
@@ -62,7 +67,7 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
         InitParameters(animator);
         int animId = animator.GetInstanceID();
 
-        if (IsGirl(animator, animId))
+        if (IsGirl(animator, animId) || !IsHoldingWeapon(animator))
         {
             animator.ResetTrigger(_triggerHash);
             return;
@@ -90,7 +95,15 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
             return;
         }
 
-        // 2. RULE: While moving (normally or with weapons) or in any non-idle state, do NOT play fidget
+        // 2. RULE: Idle fidget animation should happen ONLY when holding a weapon
+        if (!IsHoldingWeapon(animator))
+        {
+            _timers[animId] = Random.Range(minIdleTime, maxIdleTime);
+            animator.ResetTrigger(_triggerHash);
+            return;
+        }
+
+        // 3. RULE: While moving (normally or with weapons) or in any non-idle state, do NOT play fidget
         if (!IsCharacterIdle(animator))
         {
             // Reset the countdown timer so the fidget countdown only begins when the character is standing completely idle
@@ -101,7 +114,7 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
             return;
         }
 
-        // 3. Count down only while continuously in the Idle state
+        // 4. Count down only while continuously in the armed idle state
         if (!_timers.TryGetValue(animId, out float t))
         {
             t = Random.Range(minIdleTime, maxIdleTime);
@@ -112,8 +125,8 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
         {
             t = Random.Range(minIdleTime, maxIdleTime);
 
-            // Re-verify that the character is still strictly idle right now before triggering
-            if (IsCharacterIdle(animator))
+            // Re-verify that the character is still strictly idle and holding a weapon right now before triggering
+            if (IsHoldingWeapon(animator) && IsCharacterIdle(animator))
             {
                 if (totalFidgetVariations > 1)
                 {
@@ -141,6 +154,8 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
         _jumpHash = Animator.StringToHash("Jump");
         _freeFallHash = Animator.StringToHash("FreeFall");
         _comboStepHash = Animator.StringToHash("ComboStep");
+        _hasWeaponHash = Animator.StringToHash("HasWeapon");
+        _weaponIdHash = Animator.StringToHash("WeaponID");
 
         if (animator != null)
         {
@@ -152,8 +167,35 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
                 else if (p.nameHash == _jumpHash) _hasJumpParam = true;
                 else if (p.nameHash == _freeFallHash) _hasFreeFallParam = true;
                 else if (p.nameHash == _comboStepHash) _hasComboStepParam = true;
+                else if (p.nameHash == _hasWeaponHash) _hasHasWeaponParam = true;
+                else if (p.nameHash == _weaponIdHash) _hasWeaponIdParam = true;
             }
         }
+    }
+
+    private bool IsHoldingWeapon(Animator animator)
+    {
+        if (animator == null) return false;
+        InitParameters(animator);
+
+        // 1. Animator boolean HasWeapon
+        if (_hasHasWeaponParam && animator.GetBool(_hasWeaponHash))
+            return true;
+
+        // 2. Animator integer WeaponID (0=axe, 1=gun, -1=unarmed)
+        if (_hasWeaponIdParam && animator.GetInteger(_weaponIdHash) >= 0)
+            return true;
+
+        // 3. Current active state is Armed_Locomotion
+        if (animator.GetCurrentAnimatorStateInfo(0).IsName("Armed_Locomotion"))
+            return true;
+
+        // 4. InvestigatorCombatNet state
+        var combat = animator.GetComponentInParent<InvestigatorCombatNet>();
+        if (combat != null && combat.HasWeapon)
+            return true;
+
+        return false;
     }
 
     private bool IsCharacterIdle(Animator animator)
@@ -169,10 +211,14 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
         if (_hasMotionSpeedParam && animator.GetFloat(_motionSpeedHash) > speedThreshold)
             return false;
 
-        // C. Physical velocity: If CharacterController is moving, not idle
+        // C. Physical velocity: Check only planar horizontal velocity (ignore -2m/s gravity on grounded character controller)
         var cc = animator.GetComponentInParent<CharacterController>();
-        if (cc != null && cc.velocity.sqrMagnitude > (speedThreshold * speedThreshold))
-            return false;
+        if (cc != null)
+        {
+            float horizontalSqrMag = (cc.velocity.x * cc.velocity.x) + (cc.velocity.z * cc.velocity.z);
+            if (horizontalSqrMag > (speedThreshold * speedThreshold))
+                return false;
+        }
 
         // D. Airborne / Jumping / Free Fall: Must be grounded and not jumping/falling
         if (_hasGroundedParam && !animator.GetBool(_groundedHash))

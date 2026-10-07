@@ -55,6 +55,16 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
     [Tooltip("Time delay before weapon visual vanishes when playEquipAnimations is true.")]
     public float disarmAnimDelay = 0.35f;
 
+    [Header("Melee Swing Timing & Sync")]
+    [Tooltip("Delay in seconds for combo strike 1 (Downward chop) before playing swing sound and registering hit.")]
+    public float meleeStrikeDelayStep0 = 0.22f;
+    [Tooltip("Delay in seconds for combo strike 2 (Return slash) before playing swing sound and registering hit.")]
+    public float meleeStrikeDelayStep1 = 0.18f;
+    [Tooltip("Delay in seconds for combo strike 3 (Finisher horizontal) before playing swing sound and registering hit.")]
+    public float meleeStrikeDelayStep2 = 0.24f;
+
+    private Coroutine _meleeStrikeRoutine;
+
     private readonly int _weaponIdHash     = Animator.StringToHash("WeaponID");
     private readonly int _hasWeaponHash    = Animator.StringToHash("HasWeapon");
     private readonly int _switchWeaponHash = Animator.StringToHash("SwitchWeapon");
@@ -108,6 +118,11 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
     private void OnDisable()
     {
         GameSettingsManager.OnSFXVolumeChanged -= HandleSFXVolumeChanged;
+        if (_meleeStrikeRoutine != null)
+        {
+            StopCoroutine(_meleeStrikeRoutine);
+            _meleeStrikeRoutine = null;
+        }
     }
 
     private void HandleSFXVolumeChanged(float vol)
@@ -397,6 +412,12 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
             _weaponEquipRoutine = null;
         }
 
+        if (_meleeStrikeRoutine != null)
+        {
+            StopCoroutine(_meleeStrikeRoutine);
+            _meleeStrikeRoutine = null;
+        }
+
         currentWeaponIndex.Value = index;
 
         if (playEquipAnimations)
@@ -480,7 +501,12 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
 
             SafeSetInteger(_comboStepHash, _currentComboStep);
             SafeSetTrigger(_attackHash);
-            PerformMeleeHit(activeStats);
+
+            if (_meleeStrikeRoutine != null)
+            {
+                StopCoroutine(_meleeStrikeRoutine);
+            }
+            _meleeStrikeRoutine = StartCoroutine(DelayedMeleeStrikeRoutine(activeStats, _currentComboStep));
         }
         else
         {
@@ -488,13 +514,43 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
             _currentComboStep = 0;
             SafeSetTrigger(_attackHash);
             PerformRangedShot(activeStats);
+
+            if (activeStats.fireSound != null)
+            {
+                float vol = Mathf.Clamp01(activeStats.fireSoundVolume);
+                _audioSource.PlayOneShot(activeStats.fireSound, vol);
+            }
+        }
+    }
+
+    private IEnumerator DelayedMeleeStrikeRoutine(WeaponStats stats, int comboStep)
+    {
+        float delay = comboStep switch
+        {
+            0 => meleeStrikeDelayStep0,
+            1 => meleeStrikeDelayStep1,
+            _ => meleeStrikeDelayStep2
+        };
+
+        if (delay > 0f)
+        {
+            yield return new WaitForSeconds(delay);
         }
 
-        if (activeStats.fireSound != null)
+        // 1. Play the crisp swing whoosh audio right as the axe blade chops downward through the air
+        if (stats != null && stats.fireSound != null && _audioSource != null)
         {
-            float vol = Mathf.Clamp01(activeStats.fireSoundVolume);
-            _audioSource.PlayOneShot(activeStats.fireSound, vol);
+            float vol = Mathf.Clamp01(stats.fireSoundVolume);
+            _audioSource.PlayOneShot(stats.fireSound, vol);
         }
+
+        // 2. Perform the physical melee hit detection right at the strike apex
+        if (stats != null)
+        {
+            PerformMeleeHit(stats);
+        }
+
+        _meleeStrikeRoutine = null;
     }
 
     private bool _hasWarnedMonsterDealWeapon = false;

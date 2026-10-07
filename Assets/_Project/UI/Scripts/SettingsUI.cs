@@ -482,9 +482,14 @@ public class SettingsUI : MonoBehaviour
             gsm.musicVolume = v;
             gsm.ApplySettings();
             PlayerPrefs.SetFloat("MusicVolume", v);
+            UpdateSliderValueDisplay(musicSlider, heatMusicSlider, v, 0f, 1f);
         };
         if (musicSlider != null) musicSlider.onValueChanged.AddListener(v => onMusic(v));
-        if (heatMusicSlider != null) heatMusicSlider.onValueChanged.AddListener(v => onMusic(v));
+        if (heatMusicSlider != null)
+        {
+            heatMusicSlider.onValueChanged.AddListener(v => onMusic(v));
+            if (heatMusicSlider.mainSlider != null) heatMusicSlider.mainSlider.onValueChanged.AddListener(v => onMusic(v));
+        }
 
         // SFX Volume (only if you added the slider — safe to leave empty)
         System.Action<float> onSfx = v =>
@@ -494,9 +499,14 @@ public class SettingsUI : MonoBehaviour
             gsm.sfxVolume = v;
             gsm.ApplySettings();
             PlayerPrefs.SetFloat("SFXVolume", v);
+            UpdateSliderValueDisplay(sfxVolumeSlider, heatSfxVolumeSlider, v, 0f, 1f);
         };
         if (sfxVolumeSlider != null) sfxVolumeSlider.onValueChanged.AddListener(v => onSfx(v));
-        if (heatSfxVolumeSlider != null) heatSfxVolumeSlider.onValueChanged.AddListener(v => onSfx(v));
+        if (heatSfxVolumeSlider != null)
+        {
+            heatSfxVolumeSlider.onValueChanged.AddListener(v => onSfx(v));
+            if (heatSfxVolumeSlider.mainSlider != null) heatSfxVolumeSlider.mainSlider.onValueChanged.AddListener(v => onSfx(v));
+        }
 
         // Master Volume (only if you added the slider)
         System.Action<float> onMaster = v =>
@@ -506,9 +516,14 @@ public class SettingsUI : MonoBehaviour
             gsm.masterVolume = v;
             AudioListener.volume = v; // Apply live immediately
             PlayerPrefs.SetFloat("MasterVolume", v);
+            UpdateSliderValueDisplay(masterVolumeSlider, heatMasterVolumeSlider, v, 0f, 1f);
         };
         if (masterVolumeSlider != null) masterVolumeSlider.onValueChanged.AddListener(v => onMaster(v));
-        if (heatMasterVolumeSlider != null) heatMasterVolumeSlider.onValueChanged.AddListener(v => onMaster(v));
+        if (heatMasterVolumeSlider != null)
+        {
+            heatMasterVolumeSlider.onValueChanged.AddListener(v => onMaster(v));
+            if (heatMasterVolumeSlider.mainSlider != null) heatMasterVolumeSlider.mainSlider.onValueChanged.AddListener(v => onMaster(v));
+        }
 
         // UI Volume
         System.Action<float> onUi = v =>
@@ -518,9 +533,14 @@ public class SettingsUI : MonoBehaviour
             gsm.uiVolume = v;
             gsm.ApplySettings();
             PlayerPrefs.SetFloat(GameSettingsManager.PREF_UI_VOL, v);
+            UpdateSliderValueDisplay(uiVolumeSlider, heatUIVolumeSlider, v, 0f, 1f);
         };
         if (uiVolumeSlider != null) uiVolumeSlider.onValueChanged.AddListener(v => onUi(v));
-        if (heatUIVolumeSlider != null) heatUIVolumeSlider.onValueChanged.AddListener(v => onUi(v));
+        if (heatUIVolumeSlider != null)
+        {
+            heatUIVolumeSlider.onValueChanged.AddListener(v => onUi(v));
+            if (heatUIVolumeSlider.mainSlider != null) heatUIVolumeSlider.mainSlider.onValueChanged.AddListener(v => onUi(v));
+        }
 
         // Ambient / Environmental Volume
         System.Action<float> onAmbient = v =>
@@ -530,9 +550,14 @@ public class SettingsUI : MonoBehaviour
             gsm.ambientVolume = v;
             gsm.ApplySettings();
             PlayerPrefs.SetFloat(GameSettingsManager.PREF_AMBIENT_VOL, v);
+            UpdateSliderValueDisplay(ambientVolumeSlider, heatAmbientVolumeSlider, v, 0f, 1f);
         };
         if (ambientVolumeSlider != null) ambientVolumeSlider.onValueChanged.AddListener(v => onAmbient(v));
-        if (heatAmbientVolumeSlider != null) heatAmbientVolumeSlider.onValueChanged.AddListener(v => onAmbient(v));
+        if (heatAmbientVolumeSlider != null)
+        {
+            heatAmbientVolumeSlider.onValueChanged.AddListener(v => onAmbient(v));
+            if (heatAmbientVolumeSlider.mainSlider != null) heatAmbientVolumeSlider.mainSlider.onValueChanged.AddListener(v => onAmbient(v));
+        }
 
         // Sensitivity X
         System.Action<float> onSensX = v =>
@@ -540,9 +565,14 @@ public class SettingsUI : MonoBehaviour
             GameSettingsManager gsm = GameSettingsManager.Instance;
             if (gsm != null) { gsm.mouseSensitivity = v; gsm.SaveSettings(); }
             PlayerPrefs.SetFloat("XSensitivity", v);
+            UpdateSliderValueDisplay(sensitivityXSlider, heatSensitivityXSlider, v, 0.2f, 5.0f);
         };
         if (sensitivityXSlider != null) sensitivityXSlider.onValueChanged.AddListener(v => onSensX(v));
-        if (heatSensitivityXSlider != null) heatSensitivityXSlider.onValueChanged.AddListener(v => onSensX(v));
+        if (heatSensitivityXSlider != null)
+        {
+            heatSensitivityXSlider.onValueChanged.AddListener(v => onSensX(v));
+            if (heatSensitivityXSlider.mainSlider != null) heatSensitivityXSlider.mainSlider.onValueChanged.AddListener(v => onSensX(v));
+        }
 
         // Sensitivity Y
         System.Action<float> onSensY = v =>
@@ -550,17 +580,57 @@ public class SettingsUI : MonoBehaviour
             GameSettingsManager gsm = GameSettingsManager.Instance;
             if (gsm != null) { gsm.mouseSensitivity = v; gsm.SaveSettings(); }
             PlayerPrefs.SetFloat("YSensitivity", v);
+            UpdateSliderValueDisplay(sensitivityYSlider, heatSensitivityYSlider, v, 0.2f, 5.0f);
         };
         if (sensitivityYSlider != null) sensitivityYSlider.onValueChanged.AddListener(v => onSensY(v));
-        if (heatSensitivityYSlider != null) heatSensitivityYSlider.onValueChanged.AddListener(v => onSensY(v));
+        if (heatSensitivityYSlider != null)
+        {
+            heatSensitivityYSlider.onValueChanged.AddListener(v => onSensY(v));
+            if (heatSensitivityYSlider.mainSlider != null) heatSensitivityYSlider.mainSlider.onValueChanged.AddListener(v => onSensY(v));
+        }
 
         // Mouse Smooth
         System.Action<float> onSmooth = v =>
         {
             PlayerPrefs.SetFloat("MouseSmoothing", v);
+            UpdateSliderValueDisplay(mouseSmoothSlider, heatMouseSmoothSlider, v, 0f, 1f);
         };
         if (mouseSmoothSlider != null) mouseSmoothSlider.onValueChanged.AddListener(v => onSmooth(v));
-        if (heatMouseSmoothSlider != null) heatMouseSmoothSlider.onValueChanged.AddListener(v => onSmooth(v));
+        if (heatMouseSmoothSlider != null)
+        {
+            heatMouseSmoothSlider.onValueChanged.AddListener(v => onSmooth(v));
+            if (heatMouseSmoothSlider.mainSlider != null) heatMouseSmoothSlider.mainSlider.onValueChanged.AddListener(v => onSmooth(v));
+        }
+    }
+
+    private void UpdateSliderValueDisplay(Slider slider, SliderManager heatSlider, float val, float min, float max)
+    {
+        if (heatSlider != null)
+        {
+            heatSlider.UpdateUI();
+        }
+
+        TMP_Text txt = null;
+        if (heatSlider != null)
+        {
+            txt = heatSlider.GetComponentInChildren<TMP_Text>(true);
+        }
+        else if (slider != null)
+        {
+            txt = slider.GetComponentInChildren<TMP_Text>(true);
+        }
+
+        if (txt != null)
+        {
+            if (max <= 1.01f && min >= 0f)
+            {
+                txt.text = Mathf.RoundToInt(val * 100f) + "%";
+            }
+            else
+            {
+                txt.text = val.ToString("F1");
+            }
+        }
     }
 
     // =========================================================================
@@ -589,6 +659,15 @@ public class SettingsUI : MonoBehaviour
         MichskyUIBridge.SetSliderValue(sensitivityXSlider, heatSensitivityXSlider, sensXVal);
         MichskyUIBridge.SetSliderValue(sensitivityYSlider, heatSensitivityYSlider, sensYVal);
         MichskyUIBridge.SetSliderValue(mouseSmoothSlider, heatMouseSmoothSlider, smoothVal);
+
+        UpdateSliderValueDisplay(musicSlider, heatMusicSlider, musicVal, 0f, 1f);
+        UpdateSliderValueDisplay(sfxVolumeSlider, heatSfxVolumeSlider, sfxVal, 0f, 1f);
+        UpdateSliderValueDisplay(masterVolumeSlider, heatMasterVolumeSlider, masterVal, 0f, 1f);
+        UpdateSliderValueDisplay(uiVolumeSlider, heatUIVolumeSlider, uiVal, 0f, 1f);
+        UpdateSliderValueDisplay(ambientVolumeSlider, heatAmbientVolumeSlider, ambientVal, 0f, 1f);
+        UpdateSliderValueDisplay(sensitivityXSlider, heatSensitivityXSlider, sensXVal, 0.2f, 5.0f);
+        UpdateSliderValueDisplay(sensitivityYSlider, heatSensitivityYSlider, sensYVal, 0.2f, 5.0f);
+        UpdateSliderValueDisplay(mouseSmoothSlider, heatMouseSmoothSlider, smoothVal, 0f, 1f);
 
         // Fullscreen
         if (fullscreentext != null)

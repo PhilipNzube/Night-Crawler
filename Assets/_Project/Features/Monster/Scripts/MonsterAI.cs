@@ -649,35 +649,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     }
 
     /// <summary>
-    /// Mixamo Zombie Idle animation has pronounced waist/hip sway that feels like a doll being shaken side to side.
-    /// This keeps the hips firmly anchored over the base while idling so the zombie feels solid and grounded.
+    /// Preserves natural animation motion for the Zombie idle without artificial hip distortion.
     /// </summary>
     protected virtual void StabilizeIdleZombieWaist()
     {
-        bool isStationary = (_agent == null || !_agent.enabled || _agent.velocity.sqrMagnitude < 0.05f)
-            && (currentState == AIState.Idle || _isGuardIdling || (!_agent.hasPath && currentState != AIState.Attacking && currentState != AIState.SpawningScream));
-
-        if (!isStationary) return;
-
-        Transform hips = _animator.GetBoneTransform(HumanBodyBones.Hips);
-        if (hips != null)
-        {
-            // Zero out horizontal translation of the hips relative to the monster base
-            Vector3 lPos = hips.localPosition;
-            lPos.x = Mathf.MoveTowards(lPos.x, 0f, Time.deltaTime * 6.0f);
-            lPos.z = Mathf.MoveTowards(lPos.z, 0f, Time.deltaTime * 6.0f);
-            hips.localPosition = lPos;
-
-            // Dampen side-to-side roll and yaw sway on the hips
-            Vector3 euler = hips.localEulerAngles;
-            float roll = euler.z > 180f ? euler.z - 360f : euler.z;
-            float yaw = euler.y > 180f ? euler.y - 360f : euler.y;
-            roll = Mathf.MoveTowards(roll, 0f, Time.deltaTime * 50f);
-            yaw = Mathf.MoveTowards(yaw, 0f, Time.deltaTime * 50f);
-            euler.z = roll;
-            euler.y = yaw;
-            hips.localEulerAngles = euler;
-        }
+        // Natural Mixamo idle hip motion is preserved cleanly.
     }
 
     private void UpdateBrain()
@@ -828,7 +804,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     /// Executes the terrifying spawn scream/roar.
     /// Rotates towards the nearest investigator and broadcasts 3D audio.
     /// </summary>
-    private IEnumerator SpawnScreamRoutine()
+    protected virtual IEnumerator SpawnScreamRoutine()
     {
         _hasScreamed = true;
         currentState = AIState.SpawningScream;
@@ -861,12 +837,14 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
     }
 
-    private void Play3DScream()
+    protected virtual void Play3DScream()
     {
         if (spawnScreamClip != null && audioSource != null)
         {
             audioSource.pitch = monsterType == MonsterType.Berserker ? Random.Range(0.85f, 0.95f) : Random.Range(1.05f, 1.20f);
-            audioSource.PlayOneShot(spawnScreamClip, GameSettingsManager.SFXVolume);
+            audioSource.clip = spawnScreamClip;
+            audioSource.volume = GameSettingsManager.SFXVolume;
+            audioSource.Play();
         }
 
         // Broadcast to clients via RPC if networked
@@ -877,14 +855,16 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     }
 
     [ClientRpc]
-    private void PlaySpawnScreamClientRpc()
+    protected void PlaySpawnScreamClientRpc()
     {
         if (IsServer) return; // Already played locally
 
         if (audioSource != null && spawnScreamClip != null)
         {
             audioSource.pitch = monsterType == MonsterType.Berserker ? 0.90f : 1.15f;
-            audioSource.PlayOneShot(spawnScreamClip, GameSettingsManager.SFXVolume);
+            audioSource.clip = spawnScreamClip;
+            audioSource.volume = GameSettingsManager.SFXVolume;
+            audioSource.Play();
         }
 
         TriggerScreamAnimation();
@@ -1565,35 +1545,14 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (desired.sqrMagnitude < 0.01f) return;
 
         Vector3 dir = desired.normalized;
-        float signedAngle = Vector3.SignedAngle(transform.forward, dir, Vector3.up);
-
-        if (Mathf.Abs(signedAngle) > turnAngleThreshold)
-        {
-            UpdateTurningAnimation(dir);
-        }
-
-        float turnRate;
-        if (_isTurningRight || _isTurningLeft || _turnActiveTimer > 0f)
-        {
-            // While executing a turn animation, body rotates at grounded natural pivot speed
-            turnRate = (monsterType == MonsterType.Berserker) ? 140f : 110f;
-        }
-        else
-        {
-            turnRate = (monsterType == MonsterType.Berserker) ? berserkerTurnRate : (currentPosture == ZombiePosture.Crawling ? zombieCrawlTurnRate : zombieTurnRate);
-        }
+        float turnRate = (monsterType == MonsterType.Berserker)
+            ? berserkerTurnRate
+            : (currentPosture == ZombiePosture.Crawling ? zombieCrawlTurnRate : zombieTurnRate);
 
         transform.rotation = Quaternion.RotateTowards(transform.rotation, Quaternion.LookRotation(dir), turnRate * Time.deltaTime);
 
         float align = Vector3.Dot(transform.forward, dir);
         float turnFactor = Mathf.Lerp(minTurnSpeedFactor, 1f, Mathf.InverseLerp(0.3f, 0.95f, align));
-
-        // When turning sharply or when turn animation is actively playing:
-        // Decelerate forward movement so the monster plants feet and turns, NOT auto-sliding/spinning on ice!
-        if (_isTurningRight || _isTurningLeft || _turnActiveTimer > 0f || Mathf.Abs(signedAngle) > 35f)
-        {
-            turnFactor = Mathf.Min(turnFactor, 0.22f);
-        }
 
         float gait = 1f;
         if (_animator != null && zombieDragStrength > 0f)
@@ -1605,34 +1564,21 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
             if (monsterType == MonsterType.Zombie)
             {
-                if (currentPosture == ZombiePosture.Standing)
-                {
-                    bool isWalking = _nominalAgentSpeed <= walkSpeed * 1.35f;
-                    stepsPerCycle = isWalking ? 2.0f : 2.0f;
-                    exponent = isWalking ? 2.6f : 1.7f;
-                    minGait = isWalking ? 0.05f : 0.25f;
-                }
-                else if (currentPosture == ZombiePosture.Crawling)
-                {
-                    stepsPerCycle = 2.0f;
-                    exponent = 2.0f;
-                    minGait = 0.15f;
-                }
+                // Smooth continuous locomotion matching Mixamo preview clip (no shaking / gait choking)
+                gait = 1.0f;
             }
             else if (monsterType == MonsterType.Berserker)
             {
                 stepsPerCycle = 2.0f;
                 exponent = 2.8f; // Heavy impactful strides
                 minGait = 0.1f;
-            }
+                float stepPulse = Mathf.Pow(Mathf.Abs(Mathf.Sin(phase * Mathf.PI * stepsPerCycle)), exponent);
+                gait = Mathf.Lerp(minGait, 1f, stepPulse);
 
-            float stepPulse = Mathf.Pow(Mathf.Abs(Mathf.Sin(phase * Mathf.PI * stepsPerCycle)), exponent);
-            gait = Mathf.Lerp(minGait, 1f, stepPulse);
-
-            // Plant foot brake between steps to prevent ice-skating
-            if (stepPulse < 0.25f && _agent.velocity.sqrMagnitude > 0.01f)
-            {
-                _agent.velocity = Vector3.Lerp(Vector3.zero, _agent.velocity, stepPulse * 4f);
+                if (stepPulse < 0.25f && _agent.velocity.sqrMagnitude > 0.01f)
+                {
+                    _agent.velocity = Vector3.Lerp(Vector3.zero, _agent.velocity, stepPulse * 4f);
+                }
             }
         }
 
@@ -1646,36 +1592,23 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     }
 
     /// <summary>
-    /// Raycasts down onto real collision geometry and pins the pivot to it, so the monster never
-    /// hovers above uneven mine floors (NavMesh height is only an approximation of the floor).
-    /// Only climbs low ground bumps (0.02m to maxClimbableStep, default 0.22m). High obstacles are bypassed!
+    /// Raycasts down onto real collision geometry and pins the pivot to it when not driven by NavMeshAgent.
+    /// When on NavMesh, NavMeshAgent natively keeps the character aligned to the surface without jitter.
     /// </summary>
     protected virtual void EnforceGrounding()
     {
+        // When NavMeshAgent is active on NavMesh, it natively handles surface positioning.
+        // Forcibly overriding transform.position in LateUpdate fights NavMeshAgent every frame,
+        // causing rapid vertical stuttering during movement and sinking in idle.
+        if (_agent != null && _agent.enabled && _agent.isOnNavMesh)
+        {
+            return;
+        }
+
         if (!TryGetGroundHeight(transform.position, out float groundY)) return;
 
         float baseOffset = (_agent != null) ? _agent.baseOffset : 0f;
         float targetY = groundY + baseOffset + groundFootOffset;
-
-        bool isStationary = (_agent == null || !_agent.enabled || _agent.velocity.sqrMagnitude < 0.05f)
-            && (currentState == AIState.Idle || _isGuardIdling || (!_agent.hasPath && currentState != AIState.Attacking));
-
-        // Realistic low ground bump check (0.02m to maxClimbableStep climbing)
-        // High obstacles (> maxClimbableStep) are never stepped over; monsters must path around them!
-        if (!isStationary)
-        {
-            Vector3 forwardProbePos = transform.position + transform.forward * 0.35f;
-            if (TryGetGroundHeight(forwardProbePos, out float forwardGroundY))
-            {
-                float stepDelta = forwardGroundY - groundY;
-                if (stepDelta > 0.02f && stepDelta <= maxClimbableStep)
-                {
-                    // Climb low bumps realistically (e.g. tracks, small stones <= 0.22m)
-                    float bumpTargetY = forwardGroundY + baseOffset + groundFootOffset;
-                    targetY = Mathf.Max(targetY, bumpTargetY);
-                }
-            }
-        }
 
         Vector3 pos = transform.position;
         if (Mathf.Abs(pos.y - targetY) > 0.005f)
@@ -1708,21 +1641,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     }
 
     /// <summary>
-    /// If both humanoid feet hover above the floor (animation lift, pivot mismatch), lowers the
-    /// model child so the lowest foot touches the ground. Visual only; never raises the model.
-    /// Locks stable when stationary to prevent vertical jitter during idle animation.
+    /// If both humanoid feet hover above the floor, adjusts the model child.
+    /// Smoothly resets to base height when idle so the monster is never sunken into the floor.
     /// </summary>
     protected virtual void ApplyFootGrounding()
     {
         if (_animator == null || !_animator.isHuman || _animator.transform == transform) return;
-
-        bool isStationary = (_agent == null || !_agent.enabled || _agent.velocity.sqrMagnitude < 0.05f)
-            && (currentState == AIState.Idle || _isGuardIdling || !_agent.hasPath);
-        if (isStationary)
-        {
-            // Lock foot correction steady when idle to prevent vertical bouncing
-            return;
-        }
 
         Transform model = _animator.transform;
         if (!_modelBaseCached)
@@ -1731,17 +1655,25 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             _modelBaseCached = true;
         }
 
-        // Crawl / stand-up poses legitimately lift the feet; relax the correction back to zero
-        bool eligible = currentPosture == ZombiePosture.Standing || monsterType == MonsterType.Berserker;
+        bool isStationary = (_agent == null || !_agent.enabled || _agent.velocity.sqrMagnitude < 0.05f)
+            && (currentState == AIState.Idle || _isGuardIdling || !_agent.hasPath);
+        if (isStationary)
+        {
+            // Smoothly restore base model position so the monster never sits sunken in the ground in idle
+            _footCorrection = Mathf.MoveTowards(_footCorrection, 0f, Time.deltaTime * 3.0f);
+            Transform s = model.parent != null ? model.parent : transform;
+            model.localPosition = _modelBaseLocalPos + s.InverseTransformVector(Vector3.up * _footCorrection);
+            return;
+        }
 
+        // Only Berserker uses foot grounding correction; Zombie uses its natural humanoid rig root
         float desiredCorrection = 0f;
-        if (eligible)
+        if (monsterType == MonsterType.Berserker)
         {
             Transform lf = _animator.GetBoneTransform(HumanBodyBones.LeftFoot);
             Transform rf = _animator.GetBoneTransform(HumanBodyBones.RightFoot);
             if (lf != null && rf != null && TryGetGroundHeight(transform.position, out float groundY))
             {
-                // Measure without the current correction so we don't chase our own offset
                 float lowestFoot = Mathf.Min(lf.position.y, rf.position.y) - _footCorrection - footSoleHeight;
                 float gap = lowestFoot - groundY;
                 if (gap > 0.02f)
@@ -2052,6 +1984,15 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     public virtual void UpdateTurningAnimation(Vector3 desiredFacingDir)
     {
+        // Strictly restrict in-place turn animations to idle / stationary / stopped states or during stuck reroute
+        bool isStationaryOrIdle = (_agent == null || !_agent.enabled || _agent.isStopped || _agent.velocity.sqrMagnitude < 0.25f
+            || currentState == AIState.Idle || _isGuardIdling || _rerouteTurnCoroutine != null);
+        if (!isStationaryOrIdle)
+        {
+            StopTurningAnimation();
+            return;
+        }
+
         desiredFacingDir.y = 0f;
         if (desiredFacingDir.sqrMagnitude < 0.01f)
         {
@@ -2120,19 +2061,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         if (_turnActiveTimer > 0f) _turnActiveTimer -= Time.deltaTime;
 
-        if (_agent != null && _agent.enabled && _agent.isOnNavMesh && _agent.hasPath)
+        // While actively moving along a path at speed, ensure in-place turn animation is not triggered
+        if (_agent != null && _agent.enabled && _agent.isOnNavMesh && _agent.hasPath && _agent.velocity.sqrMagnitude >= 0.25f && !_agent.isStopped)
         {
-            Vector3 desiredDir = _agent.desiredVelocity;
-            if (_isDodgingMonster && _dodgeOffset != Vector3.zero)
-            {
-                desiredDir = Vector3.Lerp(desiredDir, _dodgeOffset * desiredDir.magnitude, 0.65f);
-            }
-
-            if (desiredDir.sqrMagnitude > 0.05f)
-            {
-                UpdateTurningAnimation(desiredDir);
-            }
-            else if (_turnActiveTimer <= 0f)
+            if (_turnActiveTimer <= 0f)
             {
                 StopTurningAnimation();
             }
@@ -2157,8 +2089,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         dir.y = 0;
         if (dir != Vector3.zero)
         {
+            bool isStationary = (_agent == null || !_agent.enabled || _agent.isStopped || _agent.velocity.sqrMagnitude < 0.25f || currentState == AIState.Idle || _isGuardIdling);
             float angle = Vector3.Angle(transform.forward, dir);
-            if (angle > turnAngleThreshold)
+            if (isStationary && angle > turnAngleThreshold)
             {
                 UpdateTurningAnimation(dir);
             }

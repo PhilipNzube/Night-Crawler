@@ -1951,11 +1951,66 @@ public class HeatSettingsBridge : MonoBehaviour
         s.maxValue = maxVal;
         s.value = initialValue;
 
-        s.onValueChanged.RemoveAllListeners();
-        s.onValueChanged.AddListener(val => onChanged?.Invoke(val));
-
         SliderManager sm = s.GetComponent<SliderManager>() ?? s.GetComponentInParent<SliderManager>();
         if (sm != null) sm.saveValue = false;
+
+        TMP_Text valueLabel = FindSliderValueText(s.transform);
+
+        Action<float> updateTextAction = val =>
+        {
+            if (valueLabel != null)
+            {
+                if (maxVal <= 1.01f && minVal >= 0f)
+                {
+                    valueLabel.text = Mathf.RoundToInt(val * 100f) + "%";
+                }
+                else
+                {
+                    valueLabel.text = val.ToString("F1");
+                }
+            }
+            if (sm != null)
+            {
+                sm.UpdateUI();
+            }
+        };
+
+        s.onValueChanged.RemoveAllListeners();
+        s.onValueChanged.AddListener(val =>
+        {
+            updateTextAction(val);
+            onChanged?.Invoke(val);
+        });
+
+        updateTextAction(initialValue);
+    }
+
+    private TMP_Text FindSliderValueText(Transform root)
+    {
+        if (root == null) return null;
+
+        var tmps = root.GetComponentsInChildren<TMP_Text>(true);
+        foreach (var t in tmps)
+        {
+            if (t == null) continue;
+            string n = t.gameObject.name.ToLower();
+            if (n.Contains("value") || n.Contains("percent") || n.Contains("num") || n.Contains("amount"))
+            {
+                return t;
+            }
+        }
+
+        foreach (var t in tmps)
+        {
+            if (t == null) continue;
+            string n = t.gameObject.name.ToLower();
+            if (!n.Contains("label") && !n.Contains("title") && !n.Contains("header"))
+            {
+                return t;
+            }
+        }
+
+        return null;
     }
 
     private void ConfigureSelectorComponent(HorizontalSelector hs, SettingDescriptionEntry entry, string[] options, int initialIndex, Action<int> onChanged)

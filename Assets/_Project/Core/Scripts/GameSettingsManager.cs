@@ -432,11 +432,14 @@ public class GameSettingsManager : MonoBehaviour
             DiscoverSceneAmbientSources();
         }
 
+        // Both Ambient Volume and Environmental SFX (sfxVolume) scale environmental and water droplet emitters
+        float combinedEnvVol = Mathf.Clamp01(ambientVolume * sfxVolume);
+
         foreach (var src in _ambientSources)
         {
             if (src == null) continue;
             float baseVol = _ambientBaseVolumes.TryGetValue(src, out float b) ? b : 0.5f;
-            src.volume = Mathf.Clamp01(baseVol * ambientVolume);
+            src.volume = Mathf.Clamp01(baseVol * combinedEnvVol);
         }
     }
 
@@ -450,21 +453,23 @@ public class GameSettingsManager : MonoBehaviour
             if (asrc != null) RegisterAmbientSource(asrc, 0.3f);
         }
 
-        // 2. WaterDripAudio & WaterDrip_Emitter instances
-        GameObject waterDrip = GameObject.Find("WaterDripAudio");
-        if (waterDrip != null)
-        {
-            foreach (var asrc in waterDrip.GetComponentsInChildren<AudioSource>(true))
-            {
-                if (asrc != null) RegisterAmbientSource(asrc, 0.5f);
-            }
-        }
-
-        // 3. Dynamic scan of all active/inactive AudioSources for environmental & ambient emitters
+        // 2. Dynamic scan of all active/inactive AudioSources for water droplets & environmental emitters
         var allSources = FindObjectsByType<AudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None);
         foreach (var asrc in allSources)
         {
             if (asrc == null || _ambientSources.Contains(asrc)) continue;
+
+            // Direct WaterDrip_Emitter or water / drip audio sources
+            string goName = asrc.gameObject.name.ToLower();
+            string rootName = asrc.transform.root.gameObject.name.ToLower();
+            string clipName = asrc.clip != null ? asrc.clip.name.ToLower() : "";
+
+            if (goName.Contains("water") || goName.Contains("drip") || goName.Contains("droplet") ||
+                clipName.Contains("water") || clipName.Contains("drip") || clipName.Contains("droplet"))
+            {
+                RegisterAmbientSource(asrc, asrc.volume > 0f ? asrc.volume : 0.5f);
+                continue;
+            }
 
             // Check if explicitly bound via AudioChannelBinding
             var binding = asrc.GetComponent<AudioChannelBinding>();
@@ -478,8 +483,6 @@ public class GameSettingsManager : MonoBehaviour
             }
 
             // Exclude Player characters, Monsters, MusicManager, and UI elements
-            string goName = asrc.gameObject.name.ToLower();
-            string rootName = asrc.transform.root.gameObject.name.ToLower();
             if (goName.Contains("player") || rootName.Contains("player") ||
                 goName.Contains("monster") || rootName.Contains("monster") ||
                 goName.Contains("zombie")  || rootName.Contains("zombie") ||
@@ -501,7 +504,6 @@ public class GameSettingsManager : MonoBehaviour
 
             if (!isAmbientCandidate && asrc.clip != null)
             {
-                string clipName = asrc.clip.name.ToLower();
                 isAmbientCandidate = asrc.loop && (
                     clipName.Contains("ambien") || clipName.Contains("cave") || clipName.Contains("water") ||
                     clipName.Contains("drip")   || clipName.Contains("wind") || clipName.Contains("hum")

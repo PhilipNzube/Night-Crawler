@@ -79,7 +79,7 @@ public class AudioChannelBinding : MonoBehaviour
                 channelVol = GameSettingsManager.Instance != null ? GameSettingsManager.Instance.musicVolume : 1.0f;
                 break;
             case Channel.EnvironmentAmbient:
-                channelVol = GameSettingsManager.AmbientVolume;
+                channelVol = GameSettingsManager.AmbientVolume * GameSettingsManager.SFXVolume;
                 break;
         }
 
