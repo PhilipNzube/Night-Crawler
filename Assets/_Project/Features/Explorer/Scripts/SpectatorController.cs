@@ -1399,7 +1399,6 @@ public class SpectatorController : MonoBehaviour
                 th.GetComponent<MonsterController>() != null ||
                 th.GetComponentInChildren<MonsterAI>() != null ||
                 th.GetComponentInChildren<MonsterController>() != null ||
-                th.CompareTag("Monster") ||
                 th.name.ToLower().Contains("monster") ||
                 th.name.ToLower().Contains("zombie") ||
                 th.name.ToLower().Contains("crawler") ||

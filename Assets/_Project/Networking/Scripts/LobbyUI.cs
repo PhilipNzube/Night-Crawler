@@ -788,7 +788,7 @@ public class LobbyUI : MonoBehaviour
 
         if (NotificationManager.Instance != null)
         {
-            NotificationManager.Instance.ShowNotification($"{title}: {friendlyDescription}", 4.5f);
+            NotificationManager.Instance.ShowNotification(title, friendlyDescription, 4.5f);
         }
 
         if (heatErrorModal != null)
@@ -1443,9 +1443,19 @@ public class LobbyUI : MonoBehaviour
         if (hostTotalCountText != null) hostTotalCountText.text = max.ToString();
         if (hostStatusText != null)
         {
-            hostStatusText.text = canStart
-                ? "All players connected — ready to start!"
-                : $"Waiting for {required - current} more player(s)...";
+            if (current < required)
+            {
+                int needed = required - current;
+                hostStatusText.text = $"EXPEDITION SQUADRON BELOW QUORUM: WAITING FOR {needed} MORE INVESTIGATOR{(needed > 1 ? "S" : "")}...";
+            }
+            else if (current >= max)
+            {
+                hostStatusText.text = "FULL SQUAD COMPLEMENT DEPLOYED: READY FOR DESCENT!";
+            }
+            else
+            {
+                hostStatusText.text = $"MINIMUM SQUAD MET ({current}/{max}): SQUAD READY — HOST MAY AUTHORIZE DESCENT OR AWAIT REINFORCEMENTS.";
+            }
         }
         MichskyUIBridge.SetButtonInteractable(heatHostStartMatchButton, canStart);
 
@@ -1454,7 +1464,15 @@ public class LobbyUI : MonoBehaviour
         if (clientTotalCountText != null) clientTotalCountText.text = max.ToString();
         if (clientStatusText != null)
         {
-            clientStatusText.text = "Waiting for the host to start the match...";
+            if (current < required)
+            {
+                int needed = required - current;
+                clientStatusText.text = $"Awaiting squad quorum ({current}/{required})...";
+            }
+            else
+            {
+                clientStatusText.text = "Squad ready. Awaiting host authorization to begin descent...";
+            }
         }
     }
 

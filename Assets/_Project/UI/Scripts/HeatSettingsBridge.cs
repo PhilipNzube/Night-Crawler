@@ -238,6 +238,9 @@ public class HeatSettingsBridge : MonoBehaviour
     [Tooltip("Slider for UI & Tactical Radio Volume.")]
     public Slider uiVolumeSlider;
 
+    [Tooltip("Slider for Environmental Ambience & Cave Atmosphere.")]
+    public Slider ambientVolumeSlider;
+
     [Header("Visuals Tab Controls")]
     [Tooltip("Dropdown for Screen Resolution (Heat UI Dropdown).")]
     public Michsky.UI.Heat.Dropdown resolutionDropdown;
@@ -826,6 +829,13 @@ public class HeatSettingsBridge : MonoBehaviour
                 elementName  = "UI Volume",
                 displayTitle = "Tactical Radio & UI",
                 description  = "Regulates volume for menu feedback, notification clicks, terminal chimes, and tactical radio prompts.",
+                coverImage   = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName  = "Ambient Volume",
+                displayTitle = "Subterranean Ambience",
+                description  = "Adjusts the loudness of ambient cave drafts, echoing water drips, subterranean wind, and atmospheric acoustic layers.",
                 coverImage   = null
             },
         };
@@ -1582,6 +1592,18 @@ public class HeatSettingsBridge : MonoBehaviour
                 GameSettingsManager.Instance.ApplySettings();
             });
         }
+
+        if (ambientVolumeSlider != null)
+        {
+            var entry = GetDescriptionEntry("Ambient Volume", "Subterranean Ambience");
+            ConfigureSliderComponent(ambientVolumeSlider, entry, GameSettingsManager.AmbientVolume, 0f, 1.0f, val =>
+            {
+                if (_isInitializing || GameSettingsManager.Instance == null) return;
+                GameSettingsManager.Instance.ambientVolume = val;
+                GameSettingsManager.Instance.SaveSettings();
+                GameSettingsManager.Instance.ApplySettings();
+            });
+        }
     }
 
     // =========================================================================
@@ -1707,7 +1729,7 @@ public class HeatSettingsBridge : MonoBehaviour
 
         if (NotificationManager.Instance != null)
         {
-            NotificationManager.Instance.ShowNotification($"{title}: {description}", 4.5f);
+            NotificationManager.Instance.ShowNotification(title, description, 4.5f);
         }
     }
 

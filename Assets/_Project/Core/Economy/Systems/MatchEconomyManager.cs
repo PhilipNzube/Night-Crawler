@@ -359,7 +359,7 @@ namespace NightCrawler.Economy
             {
                 if (NotificationManager.Instance != null)
                 {
-                    NotificationManager.Instance.ShowNotification($"DEAL EXPIRED: Failed deal in time! {penalty} {CurrencyConfig.CurrencySymbol} deducted from your stake.", 4.5f);
+                    NotificationManager.Instance.ShowNotification("DEAL EXPIRED", $"Failed deal in time! <b>{penalty} {CurrencyConfig.CurrencySymbol}</b> deducted from your stake.", 4.5f);
                 }
             }
         }
@@ -371,7 +371,7 @@ namespace NightCrawler.Economy
             {
                 if (NotificationManager.Instance != null)
                 {
-                    NotificationManager.Instance.ShowNotification($"DEAL REWARD SECURED: +{reward} {CurrencyConfig.CurrencySymbol} credited to your match stake!", 4.5f);
+                    NotificationManager.Instance.ShowNotification("DEAL REWARD SECURED", $"<b>+{reward} {CurrencyConfig.CurrencySymbol}</b> credited to your match stake!", 4.5f);
                 }
             }
         }

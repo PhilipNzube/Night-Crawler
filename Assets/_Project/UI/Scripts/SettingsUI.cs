@@ -148,6 +148,12 @@ public class SettingsUI : MonoBehaviour
              "Leave empty if you haven't added it yet.")]
     public Slider masterVolumeSlider;
 
+    [Tooltip("UI Volume Slider.")]
+    public Slider uiVolumeSlider;
+
+    [Tooltip("Ambient / Environmental Volume Slider.")]
+    public Slider ambientVolumeSlider;
+
     // =========================================================================
     //  SlimUI Controls Sliders
     // =========================================================================
@@ -169,6 +175,8 @@ public class SettingsUI : MonoBehaviour
     public SliderManager heatMusicSlider;
     public SliderManager heatSfxVolumeSlider;
     public SliderManager heatMasterVolumeSlider;
+    public SliderManager heatUIVolumeSlider;
+    public SliderManager heatAmbientVolumeSlider;
     public SliderManager heatSensitivityXSlider;
     public SliderManager heatSensitivityYSlider;
     public SliderManager heatMouseSmoothSlider;
@@ -502,6 +510,30 @@ public class SettingsUI : MonoBehaviour
         if (masterVolumeSlider != null) masterVolumeSlider.onValueChanged.AddListener(v => onMaster(v));
         if (heatMasterVolumeSlider != null) heatMasterVolumeSlider.onValueChanged.AddListener(v => onMaster(v));
 
+        // UI Volume
+        System.Action<float> onUi = v =>
+        {
+            GameSettingsManager gsm = GameSettingsManager.Instance;
+            if (gsm == null) return;
+            gsm.uiVolume = v;
+            gsm.ApplySettings();
+            PlayerPrefs.SetFloat(GameSettingsManager.PREF_UI_VOL, v);
+        };
+        if (uiVolumeSlider != null) uiVolumeSlider.onValueChanged.AddListener(v => onUi(v));
+        if (heatUIVolumeSlider != null) heatUIVolumeSlider.onValueChanged.AddListener(v => onUi(v));
+
+        // Ambient / Environmental Volume
+        System.Action<float> onAmbient = v =>
+        {
+            GameSettingsManager gsm = GameSettingsManager.Instance;
+            if (gsm == null) return;
+            gsm.ambientVolume = v;
+            gsm.ApplySettings();
+            PlayerPrefs.SetFloat(GameSettingsManager.PREF_AMBIENT_VOL, v);
+        };
+        if (ambientVolumeSlider != null) ambientVolumeSlider.onValueChanged.AddListener(v => onAmbient(v));
+        if (heatAmbientVolumeSlider != null) heatAmbientVolumeSlider.onValueChanged.AddListener(v => onAmbient(v));
+
         // Sensitivity X
         System.Action<float> onSensX = v =>
         {
@@ -543,6 +575,8 @@ public class SettingsUI : MonoBehaviour
         float musicVal = PlayerPrefs.GetFloat("MusicVolume", gsm != null ? gsm.musicVolume : 0.8f);
         float sfxVal = PlayerPrefs.GetFloat("SFXVolume", gsm != null ? gsm.sfxVolume : 1.0f);
         float masterVal = gsm != null ? gsm.masterVolume : 1.0f;
+        float uiVal = gsm != null ? gsm.uiVolume : 1.0f;
+        float ambientVal = gsm != null ? gsm.ambientVolume : 0.8f;
         float sensXVal = PlayerPrefs.GetFloat("XSensitivity", gsm != null ? gsm.mouseSensitivity : 1f);
         float sensYVal = PlayerPrefs.GetFloat("YSensitivity", gsm != null ? gsm.mouseSensitivity : 1f);
         float smoothVal = PlayerPrefs.GetFloat("MouseSmoothing", 0.5f);
@@ -550,6 +584,8 @@ public class SettingsUI : MonoBehaviour
         MichskyUIBridge.SetSliderValue(musicSlider, heatMusicSlider, musicVal);
         MichskyUIBridge.SetSliderValue(sfxVolumeSlider, heatSfxVolumeSlider, sfxVal);
         MichskyUIBridge.SetSliderValue(masterVolumeSlider, heatMasterVolumeSlider, masterVal);
+        MichskyUIBridge.SetSliderValue(uiVolumeSlider, heatUIVolumeSlider, uiVal);
+        MichskyUIBridge.SetSliderValue(ambientVolumeSlider, heatAmbientVolumeSlider, ambientVal);
         MichskyUIBridge.SetSliderValue(sensitivityXSlider, heatSensitivityXSlider, sensXVal);
         MichskyUIBridge.SetSliderValue(sensitivityYSlider, heatSensitivityYSlider, sensYVal);
         MichskyUIBridge.SetSliderValue(mouseSmoothSlider, heatMouseSmoothSlider, smoothVal);

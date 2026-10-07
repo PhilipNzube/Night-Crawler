@@ -46,11 +46,28 @@ public class PriestExorcismNet : NetworkBehaviour
             _audioSource = gameObject.AddComponent<AudioSource>();
             _audioSource.spatialBlend = 1f;
         }
+        _audioSource.volume = GameSettingsManager.SFXVolume;
 
         if (Camera.main != null)
         {
             _cameraTransform = Camera.main.transform;
         }
+    }
+
+    private void OnEnable()
+    {
+        GameSettingsManager.OnSFXVolumeChanged += HandleSFXVolumeChanged;
+        if (_audioSource != null) _audioSource.volume = GameSettingsManager.SFXVolume;
+    }
+
+    private void OnDisable()
+    {
+        GameSettingsManager.OnSFXVolumeChanged -= HandleSFXVolumeChanged;
+    }
+
+    private void HandleSFXVolumeChanged(float vol)
+    {
+        if (_audioSource != null) _audioSource.volume = vol;
     }
 
     public override void OnNetworkSpawn()
@@ -189,7 +206,7 @@ public class PriestExorcismNet : NetworkBehaviour
     {
         if (_audioSource != null && exorcismCastSound != null)
         {
-            _audioSource.PlayOneShot(exorcismCastSound);
+            _audioSource.PlayOneShot(exorcismCastSound, GameSettingsManager.SFXVolume);
         }
 
         if (exorcismVFXPrefab != null)

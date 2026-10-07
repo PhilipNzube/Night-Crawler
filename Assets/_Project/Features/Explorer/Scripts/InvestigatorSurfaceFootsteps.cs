@@ -133,13 +133,14 @@ public class InvestigatorSurfaceFootsteps : MonoBehaviour
         AudioClip clip = targetClips[idx];
         if (clip == null) return;
 
+        float effectiveVol = footstepVolume * GameSettingsManager.SFXVolume;
         if (footstepSource != null)
         {
-            footstepSource.PlayOneShot(clip, footstepVolume);
+            footstepSource.PlayOneShot(clip, effectiveVol);
         }
         else
         {
-            AudioSource.PlayClipAtPoint(clip, transform.position, footstepVolume);
+            AudioSource.PlayClipAtPoint(clip, transform.position, effectiveVol);
         }
     }
 

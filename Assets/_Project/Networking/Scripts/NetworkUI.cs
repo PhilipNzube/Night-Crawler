@@ -22,7 +22,7 @@ public class NetworkUI : MonoBehaviour
         _diagSource             = gameObject.AddComponent<AudioSource>();
         _diagSource.playOnAwake = false;
         _diagSource.spatialBlend = 0f; // 2D
-        _diagSource.volume      = 1f;
+        _diagSource.volume      = GameSettingsManager.UIVolumeVal;
     }
 
     /// <summary>
@@ -32,7 +32,7 @@ public class NetworkUI : MonoBehaviour
     public void PlayTestSound()
     {
         if (testSound != null)
-            _diagSource.PlayOneShot(testSound);
+            _diagSource.PlayOneShot(testSound, GameSettingsManager.UIVolumeVal);
         else
             Debug.LogWarning("[NetworkUI] No 'Test Sound' assigned in the Inspector.");
     }

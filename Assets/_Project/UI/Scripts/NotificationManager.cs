@@ -154,11 +154,31 @@ public class NotificationManager : MonoBehaviour
     }
 
     /// <summary>
-    /// Standard notification banner without a header.
+    /// Standard notification banner. If message contains 'Header: Text' or '[Header]: Text',
+    /// it automatically parses the title into the dedicated header display and formats the message body.
     /// </summary>
     public void ShowNotification(string message, float duration = 4f)
     {
-        ShowStyledWarning(null, message, new Color(0.3f, 0.8f, 1f, 1f), duration, notificationSound, isPulsing: false);
+        string header = null;
+        string body = message;
+
+        if (!string.IsNullOrEmpty(message))
+        {
+            int colonIdx = message.IndexOf(':');
+            if (colonIdx > 0 && colonIdx < 40)
+            {
+                string candidateHeader = message.Substring(0, colonIdx).Trim();
+                string candidateBody = message.Substring(colonIdx + 1).Trim();
+                if (candidateHeader.StartsWith("[") && candidateHeader.EndsWith("]"))
+                {
+                    candidateHeader = candidateHeader.Substring(1, candidateHeader.Length - 2).Trim();
+                }
+                header = candidateHeader;
+                body = candidateBody;
+            }
+        }
+
+        ShowStyledWarning(header, body, new Color(0.3f, 0.8f, 1f, 1f), duration, notificationSound, isPulsing: false);
     }
 
     /// <summary>
@@ -319,7 +339,7 @@ public class NotificationManager : MonoBehaviour
 
         if (_audioSource != null && data.sound != null)
         {
-            _audioSource.PlayOneShot(data.sound);
+            _audioSource.PlayOneShot(data.sound, GameSettingsManager.UIVolumeVal);
         }
     }
 

@@ -156,7 +156,7 @@ public class ProximityVoiceChatNet : NetworkBehaviour
         if (NotificationManager.Instance != null)
         {
             string friendly = GetFriendlyVoiceErrorMessage(errorMessage);
-            NotificationManager.Instance.ShowNotification($"Voice Chat: {friendly}", 4.5f);
+            NotificationManager.Instance.ShowNotification("VOICE CHAT", friendly, 4.5f);
         }
     }
 

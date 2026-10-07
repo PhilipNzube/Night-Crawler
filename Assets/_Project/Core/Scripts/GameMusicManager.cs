@@ -246,6 +246,21 @@ public class GameMusicManager : MonoBehaviour
         }
     }
 
+    /// <summary>
+    /// Updates the volume of currently active music sources in real-time when the music volume slider is adjusted.
+    /// </summary>
+    public void UpdateLiveVolume()
+    {
+        if (bgAudioSource != null && bgAudioSource.isPlaying)
+        {
+            bgAudioSource.volume = _isIntenseActive ? bgMaxVolume * 0.3f : bgMaxVolume;
+        }
+        if (intenseAudioSource != null && intenseAudioSource.isPlaying && _isIntenseActive)
+        {
+            intenseAudioSource.volume = intenseMaxVolume;
+        }
+    }
+
     // =========================================================================
     //  Private — Background Loop
     // =========================================================================

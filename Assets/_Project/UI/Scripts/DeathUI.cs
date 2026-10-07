@@ -381,12 +381,11 @@ public class DeathUI : MonoBehaviour
         {
             if (th == null || th.gameObject == null) continue;
 
-            // Strict monster exclusion: check components, tags, and names
+            // Strict monster exclusion: check components and names
             if (th.GetComponent<MonsterAI>() != null ||
                 th.GetComponent<MonsterController>() != null ||
                 th.GetComponentInChildren<MonsterAI>() != null ||
                 th.GetComponentInChildren<MonsterController>() != null ||
-                th.gameObject.tag == "Monster" ||
                 th.name.ToLower().Contains("monster") ||
                 th.name.ToLower().Contains("zombie") ||
                 th.name.ToLower().Contains("crawler") ||

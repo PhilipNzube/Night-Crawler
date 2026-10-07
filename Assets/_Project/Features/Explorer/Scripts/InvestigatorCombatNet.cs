@@ -93,10 +93,26 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         _audioSource.minDistance = 5f;
         _audioSource.maxDistance = 65f;
         _audioSource.rolloffMode = AudioRolloffMode.Linear;
-        _audioSource.volume = 1f;
+        _audioSource.volume = GameSettingsManager.SFXVolume;
 
         CacheAnimatorParameters();
         AutoBindWeaponVisuals();
+    }
+
+    private void OnEnable()
+    {
+        GameSettingsManager.OnSFXVolumeChanged += HandleSFXVolumeChanged;
+        if (_audioSource != null) _audioSource.volume = GameSettingsManager.SFXVolume;
+    }
+
+    private void OnDisable()
+    {
+        GameSettingsManager.OnSFXVolumeChanged -= HandleSFXVolumeChanged;
+    }
+
+    private void HandleSFXVolumeChanged(float vol)
+    {
+        if (_audioSource != null) _audioSource.volume = vol;
     }
 
     private void AutoBindWeaponVisuals()

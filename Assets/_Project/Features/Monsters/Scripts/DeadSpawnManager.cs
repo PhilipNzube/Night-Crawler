@@ -185,12 +185,12 @@ namespace NightCrawler.Monsters
 
             if (soundToPlay != null && _audioSource != null)
             {
-                _audioSource.PlayOneShot(soundToPlay);
+                _audioSource.PlayOneShot(soundToPlay, GameSettingsManager.SFXVolume);
             }
 
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification($"THE SHADOWS WRITHE: A {monsterName} has risen from the dead!", 4.5f);
+                NotificationManager.Instance.ShowNotification("THE SHADOWS WRITHE", $"A {monsterName} has risen from the dead!", 4.5f);
             }
         }
 

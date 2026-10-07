@@ -23,6 +23,23 @@ public class HauntedAtmosphereNet : NetworkBehaviour
         _panicSource.minDistance = 1f;
         _panicSource.maxDistance = 10f;
         _panicSource.playOnAwake = false;
+        _panicSource.volume = GameSettingsManager.SFXVolume;
+    }
+
+    private void OnEnable()
+    {
+        GameSettingsManager.OnSFXVolumeChanged += HandleSFXVolumeChanged;
+        if (_panicSource != null) _panicSource.volume = GameSettingsManager.SFXVolume;
+    }
+
+    private void OnDisable()
+    {
+        GameSettingsManager.OnSFXVolumeChanged -= HandleSFXVolumeChanged;
+    }
+
+    private void HandleSFXVolumeChanged(float vol)
+    {
+        if (_panicSource != null) _panicSource.volume = vol;
     }
 
     void Update()

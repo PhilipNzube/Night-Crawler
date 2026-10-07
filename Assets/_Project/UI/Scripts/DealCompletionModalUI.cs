@@ -211,22 +211,19 @@ namespace NightCrawler.UI
             Debug.Log($"[DealCompletionModalUI] Displayed completion modal for '{cleanName}' (reward={rewardCredits})");
         }
 
-        public void Hide()
+        public void HideLocalOnly()
         {
             SetVisible(false, modifyCursor: true);
+        }
 
-            // Clear state on PlayerPossessableNet
-            if (NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null)
+        public void Hide()
+        {
+            HideLocalOnly();
+
+            var pNet = PlayerPossessableNet.GetLocalOrPossessed();
+            if (pNet != null)
             {
-                var localObj = NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
-                if (localObj != null && localObj.TryGetComponent<PlayerPossessableNet>(out var pNet))
-                {
-                    pNet.SetCompletionModalStateServerRpc(false, "", 0, 0, 0, "");
-                    if (pNet.isPossessed.Value)
-                    {
-                        pNet.RequestMirrorModalDismissedServerRpc(0);
-                    }
-                }
+                pNet.DismissModalBidirectionalServerRpc(0);
             }
         }
 
@@ -446,23 +443,19 @@ namespace NightCrawler.UI
             foreach (var t in allTransforms)
             {
                 if (t == null) continue;
-                string lower = t.name.ToLower();
-                if (lower.Contains("reward") || lower.Contains("penalty") || lower.Contains("left") || 
-                    lower.Contains("initial") || lower.Contains("stake") || lower.Contains("coin") || 
-                    lower.Contains("icon") || lower.Contains("badge") || lower.Contains("stat") || 
-                    lower.Contains("row") || lower.Contains("container") || lower.Contains("content"))
+                if (modalWindow != null && modalWindow.cancelButton != null && t == modalWindow.cancelButton.transform)
+                    continue;
+
+                if (!t.gameObject.activeSelf)
                 {
-                    if (!t.gameObject.activeSelf)
-                    {
-                        t.gameObject.SetActive(true);
-                    }
-                    var cg = t.GetComponent<CanvasGroup>();
-                    if (cg != null)
-                    {
-                        cg.alpha = 1f;
-                        cg.interactable = true;
-                        cg.blocksRaycasts = true;
-                    }
+                    t.gameObject.SetActive(true);
+                }
+                var cg = t.GetComponent<CanvasGroup>();
+                if (cg != null)
+                {
+                    cg.alpha = 1f;
+                    cg.interactable = true;
+                    cg.blocksRaycasts = true;
                 }
             }
         }

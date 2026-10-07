@@ -29,6 +29,7 @@ public class MonsterController : MonoBehaviour, IPossessable
     void Awake()
     {
         _controller = GetComponent<CharacterController>();
+        if (_controller != null) _controller.stepOffset = 0.4f;
         _animator = GetComponentInChildren<Animator>();
 
         // Auto-detect monsterCameraTarget if not manually assigned
@@ -153,8 +154,17 @@ public class MonsterController : MonoBehaviour, IPossessable
             float rotation = Mathf.SmoothDampAngle(transform.eulerAngles.y, targetRotation, ref _rotationVelocity, stats.rotationSmoothTime);
             transform.rotation = Quaternion.Euler(0.0f, rotation, 0.0f);
 
+            // Stepped cadence pulse to eliminate ice-skating
+            float gait = 1f;
+            if (_animator != null)
+            {
+                float phase = _animator.GetCurrentAnimatorStateInfo(0).normalizedTime % 1f;
+                float stepPulse = Mathf.Pow(Mathf.Abs(Mathf.Sin(phase * Mathf.PI * 2.0f)), 2.2f);
+                gait = Mathf.Lerp(0.2f, 1f, stepPulse);
+            }
+
             Vector3 moveDir = Quaternion.Euler(0.0f, targetRotation, 0.0f) * Vector3.forward;
-            _controller.Move(moveDir * (stats.walkSpeed * Time.deltaTime));
+            _controller.Move(moveDir * (stats.walkSpeed * gait * Time.deltaTime));
         }
 
         // Apply basic gravity

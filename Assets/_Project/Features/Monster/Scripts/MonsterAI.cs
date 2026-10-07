@@ -433,6 +433,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         audioSource.maxDistance = 65.0f;
         audioSource.dopplerLevel = 0.0f;
         audioSource.playOnAwake = false;
+        audioSource.volume = GameSettingsManager.SFXVolume;
     }
 
     protected virtual void ConfigureMonsterDefaults()
@@ -773,7 +774,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (spawnScreamClip != null && audioSource != null)
         {
             audioSource.pitch = monsterType == MonsterType.Berserker ? Random.Range(0.85f, 0.95f) : Random.Range(1.05f, 1.20f);
-            audioSource.PlayOneShot(spawnScreamClip);
+            audioSource.PlayOneShot(spawnScreamClip, GameSettingsManager.SFXVolume);
         }
 
         // Broadcast to clients via RPC if networked
@@ -791,7 +792,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (audioSource != null && spawnScreamClip != null)
         {
             audioSource.pitch = monsterType == MonsterType.Berserker ? 0.90f : 1.15f;
-            audioSource.PlayOneShot(spawnScreamClip);
+            audioSource.PlayOneShot(spawnScreamClip, GameSettingsManager.SFXVolume);
         }
 
         TriggerScreamAnimation();
@@ -1439,11 +1440,44 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         float turnFactor = Mathf.Lerp(minTurnSpeedFactor, 1f, Mathf.InverseLerp(0.3f, 0.95f, align));
 
         float gait = 1f;
-        if (monsterType == MonsterType.Zombie && currentPosture == ZombiePosture.Standing && _animator != null && zombieDragStrength > 0f)
+        if (_animator != null && zombieDragStrength > 0f)
         {
             float phase = _animator.GetCurrentAnimatorStateInfo(0).normalizedTime % 1f;
-            float stepPulse = Mathf.Abs(Mathf.Sin(phase * Mathf.PI * Mathf.Max(1f, zombieStepsPerCycle)));
-            gait = Mathf.Lerp(1f - zombieDragStrength, 1f, stepPulse);
+            float stepsPerCycle = 2.0f;
+            float exponent = 2.2f;
+            float minGait = 0.2f;
+
+            if (monsterType == MonsterType.Zombie)
+            {
+                if (currentPosture == ZombiePosture.Standing)
+                {
+                    bool isWalking = _nominalAgentSpeed <= walkSpeed * 1.35f;
+                    stepsPerCycle = isWalking ? 2.0f : 2.0f;
+                    exponent = isWalking ? 2.6f : 1.7f;
+                    minGait = isWalking ? 0.05f : 0.25f;
+                }
+                else if (currentPosture == ZombiePosture.Crawling)
+                {
+                    stepsPerCycle = 2.0f;
+                    exponent = 2.0f;
+                    minGait = 0.15f;
+                }
+            }
+            else if (monsterType == MonsterType.Berserker)
+            {
+                stepsPerCycle = 2.0f;
+                exponent = 2.8f; // Heavy impactful strides
+                minGait = 0.1f;
+            }
+
+            float stepPulse = Mathf.Pow(Mathf.Abs(Mathf.Sin(phase * Mathf.PI * stepsPerCycle)), exponent);
+            gait = Mathf.Lerp(minGait, 1f, stepPulse);
+
+            // Plant foot brake between steps to prevent ice-skating
+            if (stepPulse < 0.25f && _agent.velocity.sqrMagnitude > 0.01f)
+            {
+                _agent.velocity = Vector3.Lerp(Vector3.zero, _agent.velocity, stepPulse * 4f);
+            }
         }
 
         _agent.speed = _nominalAgentSpeed * turnFactor * gait;
@@ -1458,6 +1492,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     /// <summary>
     /// Raycasts down onto real collision geometry and pins the pivot to it, so the monster never
     /// hovers above uneven mine floors (NavMesh height is only an approximation of the floor).
+    /// Also handles realistic low ground bump / obstacle climbing (0.02m to 0.45m).
     /// </summary>
     protected virtual void EnforceGrounding()
     {
@@ -1466,10 +1501,24 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         float baseOffset = (_agent != null) ? _agent.baseOffset : 0f;
         float targetY = groundY + baseOffset + groundFootOffset;
 
+        // Realistic forward bump / step-up check (0.02m to 0.45m step-up climbing)
+        Vector3 forwardProbePos = transform.position + transform.forward * 0.35f;
+        if (TryGetGroundHeight(forwardProbePos, out float forwardGroundY))
+        {
+            float stepDelta = forwardGroundY - groundY;
+            if (stepDelta > 0.02f && stepDelta <= 0.45f)
+            {
+                // Climb low bumps realistically
+                float bumpTargetY = forwardGroundY + baseOffset + groundFootOffset;
+                targetY = Mathf.Max(targetY, bumpTargetY);
+            }
+            // Note: If stepDelta > 0.45f, it is treated as a high wall/obstacle, so NavMesh will auto-route around it
+        }
+
         Vector3 pos = transform.position;
         if (Mathf.Abs(pos.y - targetY) > 0.005f)
         {
-            pos.y = targetY;
+            pos.y = Mathf.MoveTowards(pos.y, targetY, Time.deltaTime * 6.0f);
             transform.position = pos;
         }
     }
@@ -1700,7 +1749,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         if (attackSoundClip != null && audioSource != null)
         {
-            audioSource.PlayOneShot(attackSoundClip);
+            audioSource.PlayOneShot(attackSoundClip, GameSettingsManager.SFXVolume);
         }
 
         // Enable attack hitbox for the damage window
@@ -1751,7 +1800,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         if (attackSoundClip != null && audioSource != null)
         {
-            audioSource.PlayOneShot(attackSoundClip);
+            audioSource.PlayOneShot(attackSoundClip, GameSettingsManager.SFXVolume);
         }
     }
 
@@ -2246,7 +2295,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         if (hurtSoundClip != null && audioSource != null)
         {
-            audioSource.PlayOneShot(hurtSoundClip);
+            audioSource.PlayOneShot(hurtSoundClip, GameSettingsManager.SFXVolume);
         }
 
         if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
@@ -2265,7 +2314,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         if (hurtSoundClip != null && audioSource != null)
         {
-            audioSource.PlayOneShot(hurtSoundClip);
+            audioSource.PlayOneShot(hurtSoundClip, GameSettingsManager.SFXVolume);
         }
     }
 

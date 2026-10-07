@@ -172,7 +172,7 @@ public class GirlStealth : NetworkBehaviour
         if (clip != null)
         {
             Debug.Log($"[AUDIO] Playing Clip: {clip.name} | Vol: {_tauntSource.volume} | MaxDist: {_tauntSource.maxDistance}");
-            _tauntSource.PlayOneShot(clip);
+            _tauntSource.PlayOneShot(clip, GameSettingsManager.SFXVolume);
         }
     }
 }

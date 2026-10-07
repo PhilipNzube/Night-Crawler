@@ -896,7 +896,7 @@ public class GirlDealUI : MonoBehaviour
             Debug.LogError($"[GirlDealUI] Error: {title} - {message}");
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification($"{title}: {message}", 4f);
+                NotificationManager.Instance.ShowNotification(title, message, 4f);
             }
             return;
         }

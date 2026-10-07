@@ -650,7 +650,7 @@ public class DealNotificationUI : MonoBehaviour
 
                 if (NotificationManager.Instance != null)
                 {
-                    NotificationManager.Instance.ShowNotification("Deal Sealed: Weapon granted!", 4.5f);
+                    NotificationManager.Instance.ShowNotification("DEAL SEALED", "Weapon granted!", 4.5f);
                 }
             }
         }
@@ -685,23 +685,31 @@ public class DealNotificationUI : MonoBehaviour
         SetVisible(false, modifyCursor: true);
     }
 
-    public void Hide()
+    public void HideLocalOnly()
     {
         _isActive = false;
         _isOutcomeMode = false;
-        ClearDealPromptNetState();
         SetVisible(false, modifyCursor: false);
+    }
+
+    public void Hide()
+    {
+        HideLocalOnly();
+        ClearDealPromptNetState();
+
+        var pNet = PlayerPossessableNet.GetLocalOrPossessed();
+        if (pNet != null)
+        {
+            pNet.DismissModalBidirectionalServerRpc(2);
+        }
     }
 
     private void ClearDealPromptNetState()
     {
-        if (Unity.Netcode.NetworkManager.Singleton != null && Unity.Netcode.NetworkManager.Singleton.SpawnManager != null)
+        var pNet = PlayerPossessableNet.GetLocalOrPossessed();
+        if (pNet != null)
         {
-            var myNetObj = Unity.Netcode.NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
-            if (myNetObj != null && myNetObj.TryGetComponent<PlayerPossessableNet>(out var pNet))
-            {
-                pNet.SetDealPromptStateServerRpc(false, 0, "", "", "", false, 0, 0);
-            }
+            pNet.SetDealPromptStateServerRpc(false, 0, "", "", "", false, 0, 0);
         }
     }
 
@@ -774,23 +782,19 @@ public class DealNotificationUI : MonoBehaviour
         foreach (var t in allTransforms)
         {
             if (t == null) continue;
-            string lower = t.name.ToLower();
-            if (lower.Contains("reward") || lower.Contains("penalty") || lower.Contains("left") || 
-                lower.Contains("initial") || lower.Contains("stake") || lower.Contains("coin") || 
-                lower.Contains("icon") || lower.Contains("badge") || lower.Contains("stat") || 
-                lower.Contains("row") || lower.Contains("container") || lower.Contains("content"))
+            if (heatModalWindow != null && heatModalWindow.cancelButton != null && t == heatModalWindow.cancelButton.transform)
+                continue;
+
+            if (!t.gameObject.activeSelf)
             {
-                if (!t.gameObject.activeSelf)
-                {
-                    t.gameObject.SetActive(true);
-                }
-                var cg = t.GetComponent<CanvasGroup>();
-                if (cg != null)
-                {
-                    cg.alpha = 1f;
-                    cg.interactable = true;
-                    cg.blocksRaycasts = true;
-                }
+                t.gameObject.SetActive(true);
+            }
+            var cg = t.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 1f;
+                cg.interactable = true;
+                cg.blocksRaycasts = true;
             }
         }
     }

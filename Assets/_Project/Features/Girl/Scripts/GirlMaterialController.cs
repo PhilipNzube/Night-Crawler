@@ -150,7 +150,7 @@ public class GirlMaterialController : NetworkBehaviour
                         {
                             if (NotificationManager.Instance != null)
                             {
-                                NotificationManager.Instance.ShowNotification("No manifestation charges remaining!", 2f);
+                                NotificationManager.Instance.ShowNotification("MANIFESTATION DEPLETED", "No manifestation charges remaining.", 2f);
                             }
                             return;
                         }
@@ -161,10 +161,9 @@ public class GirlMaterialController : NetworkBehaviour
                         if (_manifestTimerRoutine != null) StopCoroutine(_manifestTimerRoutine);
                         _manifestTimerRoutine = StartCoroutine(ManifestationTimerRoutine(_manifestDurationSeconds));
 
-                        string statusMsg = $"Manifestation active: Visible for {_manifestDurationSeconds:0}s! ({_remainingManifestCharges} charges left)";
                         if (NotificationManager.Instance != null)
                         {
-                            NotificationManager.Instance.ShowNotification(statusMsg, 2.5f);
+                            NotificationManager.Instance.ShowNotification("MANIFESTATION ACTIVE", $"Visible for <b>{_manifestDurationSeconds:0}s</b>. Remaining charges: <b>{_remainingManifestCharges}</b>", 2.5f);
                         }
                     }
                     else
@@ -173,7 +172,7 @@ public class GirlMaterialController : NetworkBehaviour
                         SetManifested(false);
                         if (NotificationManager.Instance != null)
                         {
-                            NotificationManager.Instance.ShowNotification("Returned to shadows.", 2f);
+                            NotificationManager.Instance.ShowNotification("CLOAK RESTORED", "Returned to shadows.", 2f);
                         }
                     }
                 }

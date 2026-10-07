@@ -1278,10 +1278,53 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         }
     }
 
+    public static PlayerPossessableNet GetLocalOrPossessed()
+    {
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null)
+        {
+            var localObj = NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
+            if (localObj != null && localObj.TryGetComponent<PlayerPossessableNet>(out var pNet))
+            {
+                return pNet;
+            }
+        }
+        return GetPossessedByLocalClient();
+    }
+
+    [Rpc(SendTo.Server)]
+    public void DismissModalBidirectionalServerRpc(int modalType)
+    {
+        if (modalType == 0) isCompletionModalOpen.Value = false;
+        else if (modalType == 1) isFailureModalOpen.Value = false;
+        else if (modalType == 2) isDealPromptOpen.Value = false;
+
+        DismissModalBidirectionalClientRpc(modalType);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void DismissModalBidirectionalClientRpc(int modalType)
+    {
+        if (NetworkManager.Singleton == null) return;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+
+        bool isVictim = (NetworkObject != null && NetworkObject.OwnerClientId == localId) || (originalOwnerClientId.Value == localId);
+        bool isPossessor = isPossessed.Value && (possessingClientId.Value == localId);
+
+        if (isVictim || isPossessor)
+        {
+            if (modalType == 0 && NightCrawler.UI.DealCompletionModalUI.Instance != null)
+                NightCrawler.UI.DealCompletionModalUI.Instance.HideLocalOnly();
+            else if (modalType == 1 && NightCrawler.UI.DealFailureModalUI.Instance != null)
+                NightCrawler.UI.DealFailureModalUI.Instance.HideLocalOnly();
+            else if (modalType == 2 && DealNotificationUI.Instance != null)
+                DealNotificationUI.Instance.HideLocalOnly();
+        }
+    }
+
     [Rpc(SendTo.Server)]
     public void RequestMirrorModalDismissedServerRpc(int modalType)
     {
-        MirrorModalDismissedToPossessorClientRpc(modalType);
+        DismissModalBidirectionalServerRpc(modalType);
     }
 
     [Rpc(SendTo.ClientsAndHost)]
@@ -1292,11 +1335,11 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         if (isPossessed.Value && possessingClientId.Value == localId)
         {
             if (modalType == 0 && NightCrawler.UI.DealCompletionModalUI.Instance != null)
-                NightCrawler.UI.DealCompletionModalUI.Instance.Hide();
+                NightCrawler.UI.DealCompletionModalUI.Instance.HideLocalOnly();
             else if (modalType == 1 && NightCrawler.UI.DealFailureModalUI.Instance != null)
-                NightCrawler.UI.DealFailureModalUI.Instance.Hide();
+                NightCrawler.UI.DealFailureModalUI.Instance.HideLocalOnly();
             else if (modalType == 2 && DealNotificationUI.Instance != null)
-                DealNotificationUI.Instance.Hide();
+                DealNotificationUI.Instance.HideLocalOnly();
         }
     }
 

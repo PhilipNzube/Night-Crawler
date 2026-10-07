@@ -122,10 +122,18 @@ public class DealSystemNet : MonoBehaviour
             _audioSource = gameObject.AddComponent<AudioSource>();
             _audioSource.spatialBlend = 0f; // 2D purely local audio
         }
+        _audioSource.volume = GameSettingsManager.UIVolumeVal;
+        GameSettingsManager.OnUIVolumeChanged += HandleUIVolumeChanged;
+    }
+
+    private void HandleUIVolumeChanged(float vol)
+    {
+        if (_audioSource != null) _audioSource.volume = vol;
     }
 
     private void OnDestroy()
     {
+        GameSettingsManager.OnUIVolumeChanged -= HandleUIVolumeChanged;
         UnregisterMessages();
         if (_instance == this) _instance = null;
     }
@@ -471,7 +479,7 @@ public class DealSystemNet : MonoBehaviour
 
         if (clipToPlay != null)
         {
-            _audioSource.PlayOneShot(clipToPlay, 1.0f);
+            _audioSource.PlayOneShot(clipToPlay, GameSettingsManager.UIVolumeVal);
         }
     }
 

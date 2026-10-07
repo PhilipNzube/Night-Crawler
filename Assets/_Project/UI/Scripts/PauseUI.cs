@@ -502,7 +502,7 @@ public class PauseUI : MonoBehaviour
         }
         else if (NotificationManager.Instance != null)
         {
-            NotificationManager.Instance.ShowNotification($"{title}: {description}", 4f);
+            NotificationManager.Instance.ShowNotification(title, description, 4f);
         }
     }
 }

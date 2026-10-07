@@ -359,7 +359,7 @@ public class GirlRevealUI : MonoBehaviour
         if (audioSource != null && tickSound != null)
         {
             audioSource.pitch = pitch;
-            audioSource.PlayOneShot(tickSound, 0.6f);
+            audioSource.PlayOneShot(tickSound, 0.6f * GameSettingsManager.UIVolumeVal);
         }
     }
 
@@ -368,7 +368,7 @@ public class GirlRevealUI : MonoBehaviour
         if (audioSource != null && clip != null)
         {
             audioSource.pitch = 1.0f;
-            audioSource.PlayOneShot(clip, volume);
+            audioSource.PlayOneShot(clip, volume * GameSettingsManager.UIVolumeVal);
         }
     }
 

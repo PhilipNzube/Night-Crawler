@@ -20,6 +20,7 @@ public class GameSettingsManager : MonoBehaviour
     public static event Action OnSettingsChanged;
     public static event Action<float> OnSFXVolumeChanged;
     public static event Action<float> OnUIVolumeChanged;
+    public static event Action<float> OnAmbientVolumeChanged;
     public static event Action<bool>  OnPerformanceOverlayChanged;
     public static event Action<bool>  OnCameraShakeChanged;
     public static event Action<bool>  OnStruggleModeChanged;
@@ -27,6 +28,9 @@ public class GameSettingsManager : MonoBehaviour
 
     private readonly Dictionary<UnityEngine.UI.CanvasScaler, Vector2> _baseRefResolutions = new Dictionary<UnityEngine.UI.CanvasScaler, Vector2>();
     private readonly Dictionary<UnityEngine.UI.CanvasScaler, float> _baseScaleFactors = new Dictionary<UnityEngine.UI.CanvasScaler, float>();
+
+    private readonly List<AudioSource> _ambientSources = new List<AudioSource>();
+    private readonly Dictionary<AudioSource, float> _ambientBaseVolumes = new Dictionary<AudioSource, float>();
 
     private void OnEnable()
     {
@@ -43,15 +47,21 @@ public class GameSettingsManager : MonoBehaviour
         _baseRefResolutions.Clear();
         _baseScaleFactors.Clear();
         ApplyUIScale();
+
+        _ambientSources.Clear();
+        _ambientBaseVolumes.Clear();
+        DiscoverSceneAmbientSources();
+        UpdateEnvironmentAudioSources();
     }
 
     // =========================================================================
     //  PlayerPrefs Keys
     // =========================================================================
-    private const string PREF_MASTER_VOL      = "NC_Setting_MasterVolume";
-    private const string PREF_MUSIC_VOL       = "NC_Setting_MusicVolume";
-    private const string PREF_SFX_VOL         = "NC_Setting_SFXVolume";
-    private const string PREF_UI_VOL          = "NC_Setting_UIVolume";
+    public const string PREF_MASTER_VOL      = "NC_Setting_MasterVolume";
+    public const string PREF_MUSIC_VOL       = "NC_Setting_MusicVolume";
+    public const string PREF_SFX_VOL         = "NC_Setting_SFXVolume";
+    public const string PREF_UI_VOL          = "NC_Setting_UIVolume";
+    public const string PREF_AMBIENT_VOL     = "NC_Setting_AmbientVolume";
     
     private const string PREF_RES_WIDTH       = "NC_Setting_ResWidth";
     private const string PREF_RES_HEIGHT      = "NC_Setting_ResHeight";
@@ -80,10 +90,11 @@ public class GameSettingsManager : MonoBehaviour
     //  Public Settings State
     // =========================================================================
     [Header("Audio Settings")]
-    public float masterVolume = 1.0f;   // Full master volume
-    public float musicVolume  = 0.75f;  // Slightly under full so SFX doesn't compete
-    public float sfxVolume    = 1.0f;   // Full SFX
-    public float uiVolume     = 1.0f;   // Full UI sounds
+    public float masterVolume  = 1.0f;   // Full master volume
+    public float musicVolume   = 0.75f;  // Atmospheric music
+    public float sfxVolume     = 1.0f;   // Full SFX
+    public float uiVolume      = 1.0f;   // Full UI sounds
+    public float ambientVolume = 0.8f;   // Environmental ambience & cave emitters
 
     [Header("Video / Display Settings")]
     public int resolutionWidth  = 1920;
@@ -117,6 +128,7 @@ public class GameSettingsManager : MonoBehaviour
     public static bool  InvertY             => Instance != null ? Instance.invertYAxis : false;
     public static float SFXVolume           => Instance != null ? Instance.sfxVolume : 1.0f;
     public static float UIVolumeVal         => Instance != null ? Instance.uiVolume : 1.0f;
+    public static float AmbientVolume       => Instance != null ? Instance.ambientVolume : 0.8f;
     public static bool  SprintToggle        => Instance != null ? Instance.sprintToggleMode : false;
     public static bool  ShowPerfOverlay     => Instance != null ? Instance.showPerformanceOverlay : false;
     public static bool  CameraShakeActive   => Instance != null ? Instance.cameraShakeEnabled : true;
@@ -157,10 +169,11 @@ public class GameSettingsManager : MonoBehaviour
     public void LoadSettings()
     {
         // Audio
-        masterVolume = PlayerPrefs.GetFloat(PREF_MASTER_VOL, 1.0f);
-        musicVolume  = PlayerPrefs.GetFloat(PREF_MUSIC_VOL, 0.8f);
-        sfxVolume    = PlayerPrefs.GetFloat(PREF_SFX_VOL, 1.0f);
-        uiVolume     = PlayerPrefs.GetFloat(PREF_UI_VOL, 1.0f);
+        masterVolume  = PlayerPrefs.GetFloat(PREF_MASTER_VOL, 1.0f);
+        musicVolume   = PlayerPrefs.GetFloat(PREF_MUSIC_VOL, 0.8f);
+        sfxVolume     = PlayerPrefs.GetFloat(PREF_SFX_VOL, 1.0f);
+        uiVolume      = PlayerPrefs.GetFloat(PREF_UI_VOL, 1.0f);
+        ambientVolume = PlayerPrefs.GetFloat(PREF_AMBIENT_VOL, 0.8f);
 
         // Display defaults
         Resolution defaultRes = Screen.currentResolution;
@@ -198,6 +211,7 @@ public class GameSettingsManager : MonoBehaviour
         PlayerPrefs.SetFloat(PREF_MUSIC_VOL, musicVolume);
         PlayerPrefs.SetFloat(PREF_SFX_VOL, sfxVolume);
         PlayerPrefs.SetFloat(PREF_UI_VOL, uiVolume);
+        PlayerPrefs.SetFloat(PREF_AMBIENT_VOL, ambientVolume);
 
         PlayerPrefs.SetInt(PREF_RES_WIDTH, resolutionWidth);
         PlayerPrefs.SetInt(PREF_RES_HEIGHT, resolutionHeight);
@@ -236,9 +250,21 @@ public class GameSettingsManager : MonoBehaviour
         if (GameMusicManager.Instance != null)
         {
             GameMusicManager.Instance.bgMaxVolume = Mathf.Clamp01(musicVolume);
+            GameMusicManager.Instance.intenseMaxVolume = Mathf.Clamp01(musicVolume);
+            GameMusicManager.Instance.UpdateLiveVolume();
         }
+
+        // Live-scale Michsky Heat UI audio manager if present
+        if (Michsky.UI.Heat.UIManagerAudio.instance != null && Michsky.UI.Heat.UIManagerAudio.instance.audioSource != null)
+        {
+            Michsky.UI.Heat.UIManagerAudio.instance.audioSource.volume = Mathf.Clamp01(uiVolume);
+        }
+
         OnSFXVolumeChanged?.Invoke(sfxVolume);
         OnUIVolumeChanged?.Invoke(uiVolume);
+        OnAmbientVolumeChanged?.Invoke(ambientVolume);
+
+        UpdateEnvironmentAudioSources();
 
         // 2. Video / Display Mode & Resolution
         FullScreenMode windowMode = FullScreenMode.FullScreenWindow;
@@ -380,14 +406,125 @@ public class GameSettingsManager : MonoBehaviour
     }
 
     // =========================================================================
+    //  Environmental & Ambient Audio Management
+    // =========================================================================
+    public void RegisterAmbientSource(AudioSource src, float baseVolume = 1f)
+    {
+        if (src == null) return;
+        if (!_ambientSources.Contains(src)) _ambientSources.Add(src);
+        _ambientBaseVolumes[src] = baseVolume;
+        src.volume = Mathf.Clamp01(baseVolume * ambientVolume);
+    }
+
+    public void UnregisterAmbientSource(AudioSource src)
+    {
+        if (src == null) return;
+        _ambientSources.Remove(src);
+        _ambientBaseVolumes.Remove(src);
+    }
+
+    private void UpdateEnvironmentAudioSources()
+    {
+        _ambientSources.RemoveAll(s => s == null);
+
+        if (_ambientSources.Count == 0)
+        {
+            DiscoverSceneAmbientSources();
+        }
+
+        foreach (var src in _ambientSources)
+        {
+            if (src == null) continue;
+            float baseVol = _ambientBaseVolumes.TryGetValue(src, out float b) ? b : 0.5f;
+            src.volume = Mathf.Clamp01(baseVol * ambientVolume);
+        }
+    }
+
+    private void DiscoverSceneAmbientSources()
+    {
+        // 1. CaveAmbience in GameScene
+        GameObject caveAmb = GameObject.Find("CaveAmbience");
+        if (caveAmb != null)
+        {
+            var asrc = caveAmb.GetComponent<AudioSource>();
+            if (asrc != null) RegisterAmbientSource(asrc, 0.3f);
+        }
+
+        // 2. WaterDripAudio & WaterDrip_Emitter instances
+        GameObject waterDrip = GameObject.Find("WaterDripAudio");
+        if (waterDrip != null)
+        {
+            foreach (var asrc in waterDrip.GetComponentsInChildren<AudioSource>(true))
+            {
+                if (asrc != null) RegisterAmbientSource(asrc, 0.5f);
+            }
+        }
+
+        // 3. Dynamic scan of all active/inactive AudioSources for environmental & ambient emitters
+        var allSources = FindObjectsByType<AudioSource>(FindObjectsInactive.Include, FindObjectsSortMode.None);
+        foreach (var asrc in allSources)
+        {
+            if (asrc == null || _ambientSources.Contains(asrc)) continue;
+
+            // Check if explicitly bound via AudioChannelBinding
+            var binding = asrc.GetComponent<AudioChannelBinding>();
+            if (binding != null)
+            {
+                if (binding.channel == AudioChannelBinding.Channel.EnvironmentAmbient)
+                {
+                    RegisterAmbientSource(asrc, binding.baseVolume > 0f ? binding.baseVolume : (asrc.volume > 0f ? asrc.volume : 0.5f));
+                }
+                continue;
+            }
+
+            // Exclude Player characters, Monsters, MusicManager, and UI elements
+            string goName = asrc.gameObject.name.ToLower();
+            string rootName = asrc.transform.root.gameObject.name.ToLower();
+            if (goName.Contains("player") || rootName.Contains("player") ||
+                goName.Contains("monster") || rootName.Contains("monster") ||
+                goName.Contains("zombie")  || rootName.Contains("zombie") ||
+                goName.Contains("berserker") || rootName.Contains("demon") ||
+                goName.Contains("music")   || rootName.Contains("music") ||
+                goName.Contains("canvas")  || rootName.Contains("canvas") ||
+                goName.Contains("ui")      || rootName.Contains("ui"))
+            {
+                continue;
+            }
+
+            // Identify ambient looping emitters (water, wind, dripping, cave hum, torches)
+            bool isAmbientCandidate = asrc.loop && (
+                goName.Contains("cave") || goName.Contains("ambien") || goName.Contains("water") ||
+                goName.Contains("drip") || goName.Contains("wind")   || goName.Contains("env") ||
+                goName.Contains("emitter") || goName.Contains("hum") || goName.Contains("torch") ||
+                goName.Contains("fire") || goName.Contains("nature") || goName.Contains("mine")
+            );
+
+            if (!isAmbientCandidate && asrc.clip != null)
+            {
+                string clipName = asrc.clip.name.ToLower();
+                isAmbientCandidate = asrc.loop && (
+                    clipName.Contains("ambien") || clipName.Contains("cave") || clipName.Contains("water") ||
+                    clipName.Contains("drip")   || clipName.Contains("wind") || clipName.Contains("hum")
+                );
+            }
+
+            if (isAmbientCandidate)
+            {
+                RegisterAmbientSource(asrc, asrc.volume > 0f ? asrc.volume : 0.5f);
+            }
+        }
+    }
+
+    // =========================================================================
     //  Defaults Reset
     // =========================================================================
     public void ResetToDefaults()
     {
-        masterVolume = 1.0f;
-        musicVolume  = 0.8f;
-        sfxVolume    = 1.0f;
-        uiVolume     = 1.0f;
+        masterVolume  = 1.0f;
+        musicVolume   = 0.8f;
+        sfxVolume     = 1.0f;
+        uiVolume      = 1.0f;
+        ambientVolume = 0.8f;
 
         Resolution currentRes = Screen.currentResolution;
         resolutionWidth  = currentRes.width;

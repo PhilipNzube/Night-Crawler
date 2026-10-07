@@ -189,13 +189,14 @@ namespace NightCrawler.Monsters
                 // Audio feedback
                 if (hitSound != null)
                 {
+                    float sfxVol = GameSettingsManager.SFXVolume;
                     if (_audioSource != null)
                     {
-                        _audioSource.PlayOneShot(hitSound);
+                        _audioSource.PlayOneShot(hitSound, sfxVol);
                     }
                     else
                     {
-                        AudioSource.PlayClipAtPoint(hitSound, transform.position);
+                        AudioSource.PlayClipAtPoint(hitSound, transform.position, sfxVol);
                     }
                 }
 
