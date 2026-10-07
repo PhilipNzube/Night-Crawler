@@ -136,6 +136,11 @@ public class DealNotificationUI : MonoBehaviour
 
         SanitizeModal(heatModalWindow);
 
+        if (headerTitleText == termsDescriptionText && heatModalWindow != null && heatModalWindow.windowTitle != null)
+        {
+            headerTitleText = heatModalWindow.windowTitle;
+        }
+
         if (acceptButton != null)
         {
             acceptButton.onClick.RemoveListener(OnAcceptClicked);
@@ -316,17 +321,6 @@ public class DealNotificationUI : MonoBehaviour
             canvasGroup.blocksRaycasts = true;
         }
 
-        var childCanvasGroups = GetComponentsInChildren<CanvasGroup>(true);
-        foreach (var cg in childCanvasGroups)
-        {
-            if (cg != null)
-            {
-                cg.alpha = 1f;
-                cg.interactable = true;
-                cg.blocksRaycasts = true;
-            }
-        }
-
         Transform contentT = transform.Find("Content");
         if (contentT != null)
         {
@@ -347,17 +341,6 @@ public class DealNotificationUI : MonoBehaviour
             canvasGroup.alpha = 0f;
             canvasGroup.interactable = false;
             canvasGroup.blocksRaycasts = false;
-        }
-
-        var childCanvasGroups = GetComponentsInChildren<CanvasGroup>(true);
-        foreach (var cg in childCanvasGroups)
-        {
-            if (cg != null)
-            {
-                cg.alpha = 0f;
-                cg.interactable = false;
-                cg.blocksRaycasts = false;
-            }
         }
     }
 
@@ -497,6 +480,7 @@ public class DealNotificationUI : MonoBehaviour
 
         if (heatModalWindow != null)
         {
+            heatModalWindow.useCustomContent = true;
             heatModalWindow.titleText = cleanTitle;
             heatModalWindow.descriptionText = cleanTerms;
             heatModalWindow.useLocalization = false;
@@ -507,6 +491,7 @@ public class DealNotificationUI : MonoBehaviour
             try { heatModalWindow.UpdateUI(); } catch { }
         }
 
+        RebuildLayouts();
         gameObject.SetActive(true);
         SetVisible(true, modifyCursor: true);
 
@@ -734,6 +719,7 @@ public class DealNotificationUI : MonoBehaviour
     private static void SanitizeModal(ModalWindowManager modal)
     {
         if (modal == null) return;
+        modal.useCustomContent = true;
         modal.useLocalization = false;
         modal.titleKey = string.Empty;
         modal.descriptionKey = string.Empty;
@@ -745,16 +731,29 @@ public class DealNotificationUI : MonoBehaviour
         modal.onOpen.RemoveAllListeners();
         modal.onClose.RemoveAllListeners();
 
-        var locObj = modal.GetComponent("LocalizedObject") as Behaviour;
-        if (locObj != null)
+        // Disable all LocalizedObject components across children so dynamic strings are not wiped
+        var locObjs = modal.GetComponentsInChildren<LocalizedObject>(true);
+        foreach (var loc in locObjs)
         {
-            locObj.enabled = false;
+            if (loc != null) loc.enabled = false;
         }
 
         var exitComp = modal.GetComponent("ExitGame");
         if (exitComp != null)
         {
             Destroy(exitComp);
+        }
+    }
+
+    public void RebuildLayouts()
+    {
+        var rts = GetComponentsInChildren<RectTransform>(true);
+        for (int i = rts.Length - 1; i >= 0; i--)
+        {
+            if (rts[i] != null)
+            {
+                UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(rts[i]);
+            }
         }
     }
 

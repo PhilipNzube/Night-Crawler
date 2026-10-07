@@ -184,17 +184,19 @@ namespace NightCrawler.UI
 
             if (modalWindow != null)
             {
+                modalWindow.useCustomContent = true;
                 modalWindow.useLocalization = false;
                 modalWindow.titleKey = string.Empty;
                 modalWindow.descriptionKey = string.Empty;
                 if (modalWindow.windowTitle != null) modalWindow.windowTitle.text = "its a done deal";
-                if (modalWindow.windowDescription != null && string.IsNullOrEmpty(modalWindow.windowDescription.text))
+                if (modalWindow.windowDescription != null)
                 {
                     modalWindow.windowDescription.text = cleanDesc;
                 }
                 try { modalWindow.UpdateUI(); } catch { }
             }
 
+            RebuildLayouts();
             SetVisible(true, modifyCursor: true);
 
             // Sync with PlayerPossessableNet for mirroring to possessing Girl
@@ -297,17 +299,6 @@ namespace NightCrawler.UI
                 canvasGroup.interactable = true;
                 canvasGroup.blocksRaycasts = true;
             }
-
-            var childCanvasGroups = GetComponentsInChildren<CanvasGroup>(true);
-            foreach (var cg in childCanvasGroups)
-            {
-                if (cg != null)
-                {
-                    cg.alpha = 1f;
-                    cg.interactable = true;
-                    cg.blocksRaycasts = true;
-                }
-            }
         }
 
         private void ForceAlphaHidden()
@@ -323,17 +314,6 @@ namespace NightCrawler.UI
                 canvasGroup.alpha = 0f;
                 canvasGroup.interactable = false;
                 canvasGroup.blocksRaycasts = false;
-            }
-
-            var childCanvasGroups = GetComponentsInChildren<CanvasGroup>(true);
-            foreach (var cg in childCanvasGroups)
-            {
-                if (cg != null)
-                {
-                    cg.alpha = 0f;
-                    cg.interactable = false;
-                    cg.blocksRaycasts = false;
-                }
             }
         }
 
@@ -365,6 +345,7 @@ namespace NightCrawler.UI
         private void SanitizeModal()
         {
             if (modalWindow == null) return;
+            modalWindow.useCustomContent = true;
             modalWindow.useLocalization = false;
             modalWindow.titleKey = string.Empty;
             modalWindow.descriptionKey = string.Empty;
@@ -382,8 +363,24 @@ namespace NightCrawler.UI
             var anim = GetComponent<Animator>();
             if (anim != null) anim.enabled = false;
 
-            var locObj = modalWindow.GetComponent("LocalizedObject") as Behaviour;
-            if (locObj != null) locObj.enabled = false;
+            // Disable all LocalizedObject components across children so dynamic strings are not wiped
+            var locObjs = GetComponentsInChildren<LocalizedObject>(true);
+            foreach (var loc in locObjs)
+            {
+                if (loc != null) loc.enabled = false;
+            }
+        }
+
+        public void RebuildLayouts()
+        {
+            var rts = GetComponentsInChildren<RectTransform>(true);
+            for (int i = rts.Length - 1; i >= 0; i--)
+            {
+                if (rts[i] != null)
+                {
+                    UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(rts[i]);
+                }
+            }
         }
 
         private bool IsLocalPlayerDead()
