@@ -17,7 +17,11 @@ public class PossessionSystemNet : NetworkBehaviour
     {
         if (!IsOwner || PauseManager.IsGamePaused) return;
 
-        if (Keyboard.current.tabKey.wasPressedThisFrame)
+        bool triggered = !_isPossessing
+            ? (KeybindingManager.IsActionTriggered("Possession") || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame))
+            : (KeybindingManager.IsActionTriggered("ExitPossession") || KeybindingManager.IsActionTriggered("Possession") || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame));
+
+        if (triggered)
         {
             if (!_isPossessing) TryPossess();
             else ReleasePossession();

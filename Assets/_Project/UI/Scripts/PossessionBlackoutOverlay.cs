@@ -264,17 +264,20 @@ public class PossessionBlackoutOverlay : MonoBehaviour
             if (holdMode)
             {
                 bool isHolding = KeybindingManager.IsActionHeld("Resist");
-                if (!isHolding && Keyboard.current != null)
+                if (!isHolding && KeybindingManager.Instance == null)
                 {
-                    var keyControl = Keyboard.current[assignedResistKey];
-                    if ((keyControl != null && keyControl.isPressed) || Keyboard.current.spaceKey.isPressed)
+                    if (Keyboard.current != null)
+                    {
+                        var keyControl = Keyboard.current[assignedResistKey];
+                        if (keyControl != null && keyControl.isPressed)
+                        {
+                            isHolding = true;
+                        }
+                    }
+                    else if (Input.GetKey(fallbackKeyCode))
                     {
                         isHolding = true;
                     }
-                }
-                else if (!isHolding && (Input.GetKey(fallbackKeyCode) || Input.GetKey(KeyCode.Space)))
-                {
-                    isHolding = true;
                 }
 
                 if (isHolding)

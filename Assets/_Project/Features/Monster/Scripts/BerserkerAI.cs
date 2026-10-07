@@ -253,13 +253,21 @@ public class BerserkerAI : MonsterAI
             lookDir.y = 0f;
             if (lookDir != Vector3.zero)
             {
-                UpdateTurningAnimation(lookDir);
-                Quaternion targetRot = Quaternion.LookRotation(lookDir);
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * turnSpeed);
+                float angle = Vector3.Angle(transform.forward, lookDir);
+                if (angle > turnAngleThreshold)
+                {
+                    UpdateTurningAnimation(lookDir);
+                    Quaternion targetRot = Quaternion.LookRotation(lookDir);
+                    transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRot, 120f * Time.deltaTime);
+                }
+                else
+                {
+                    if (_turnActiveTimer <= 0f) StopTurningAnimation();
+                }
             }
             else
             {
-                StopTurningAnimation();
+                if (_turnActiveTimer <= 0f) StopTurningAnimation();
             }
         }
         else

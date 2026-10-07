@@ -1135,7 +1135,7 @@ public class SpectatorController : MonoBehaviour
         // whichever runs first sets _isSpectating=false, then the other sees
         // IsSpectating=false and opens the pause menu on the very same frame.
         if (KeybindingManager.IsActionTriggered("SpectateExit") 
-            || (Keyboard.current != null && (Keyboard.current[exitHotkey].wasPressedThisFrame || Keyboard.current.cKey.wasPressedThisFrame)))
+            || (KeybindingManager.Instance == null && Keyboard.current != null && (Keyboard.current[exitHotkey].wasPressedThisFrame || Keyboard.current.cKey.wasPressedThisFrame)))
         {
             ExitSpectating();
             return;
@@ -1144,7 +1144,7 @@ public class SpectatorController : MonoBehaviour
         // Switch Category (Survivors <-> Monsters): [Tab] or Gamepad Y / Triangle
         // Dead players can ONLY spectate surviving teammates and can NEVER switch to monsters!
         if (KeybindingManager.IsActionTriggered("SpectateCategory") 
-            || (Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame))
+            || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current.tabKey.wasPressedThisFrame))
         {
             if (modeType == SpectatorModeType.Survivors && IsLocalPlayerDead())
             {
@@ -1157,23 +1157,25 @@ public class SpectatorController : MonoBehaviour
 
         // Cycle Previous: [A], [Left Arrow], or Gamepad Left Shoulder
         bool prevPressed = KeybindingManager.IsActionTriggered("SpectatePrev")
-            || (Keyboard.current != null && (Keyboard.current.aKey.wasPressedThisFrame || Keyboard.current.leftArrowKey.wasPressedThisFrame))
-            || KeybindingManager.IsGamepadButtonPressed("leftShoulder");
+            || KeybindingManager.IsGamepadButtonPressed("leftShoulder")
+            || (KeybindingManager.Instance == null && Keyboard.current != null && (Keyboard.current.aKey.wasPressedThisFrame || Keyboard.current.leftArrowKey.wasPressedThisFrame));
 
         // Cycle Next: [D], [Right Arrow], or Gamepad Right Shoulder
         bool nextPressed = KeybindingManager.IsActionTriggered("SpectateNext")
             || KeybindingManager.IsActionTriggered("SpectateCycle")
-            || (Keyboard.current != null && (Keyboard.current.dKey.wasPressedThisFrame || Keyboard.current.rightArrowKey.wasPressedThisFrame))
-            || KeybindingManager.IsGamepadButtonPressed("rightShoulder");
+            || KeybindingManager.IsGamepadButtonPressed("rightShoulder")
+            || (KeybindingManager.Instance == null && Keyboard.current != null && (Keyboard.current.dKey.wasPressedThisFrame || Keyboard.current.rightArrowKey.wasPressedThisFrame));
 
-        // Toggle Free Orbit vs Follow Facing: [Space]
-        if (KeybindingManager.IsActionTriggered("SpectateViewMode") || (Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame))
+        // Toggle Free Orbit vs Follow Facing: bound to "SpectateViewMode"
+        if (KeybindingManager.IsActionTriggered("SpectateViewMode") 
+            || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current.spaceKey.wasPressedThisFrame))
         {
             ToggleOrbitMode();
         }
 
         // Toggle Cursor Lock: [Left Alt]
-        if (KeybindingManager.IsActionTriggered("SpectateCursor") || (Keyboard.current != null && Keyboard.current.leftAltKey.wasPressedThisFrame))
+        if (KeybindingManager.IsActionTriggered("SpectateCursor") 
+            || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current.leftAltKey.wasPressedThisFrame))
         {
             ToggleCursorLock();
         }

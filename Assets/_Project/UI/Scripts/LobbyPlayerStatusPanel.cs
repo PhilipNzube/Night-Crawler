@@ -98,14 +98,41 @@ public class LobbyPlayerStatusPanel : MonoBehaviour
         UnsubscribeFromTracker();
     }
 
+    private Coroutine _statusEllipsesCoroutine;
+    private int _statusDotCount = 1;
+    private bool _isAllReady = false;
+
+    private System.Collections.IEnumerator StatusEllipsesRoutine()
+    {
+        while (true)
+        {
+            yield return new WaitForSecondsRealtime(0.5f);
+            if (!_isAllReady && statusHeaderText != null)
+            {
+                _statusDotCount = (_statusDotCount % 3) + 1;
+                string dots = new string('.', _statusDotCount);
+                statusHeaderText.text = $"WAITING FOR SQUAD{dots}";
+            }
+        }
+    }
+
     private void OnEnable()
     {
         SubscribeToTracker();
+        if (_statusEllipsesCoroutine == null)
+        {
+            _statusEllipsesCoroutine = StartCoroutine(StatusEllipsesRoutine());
+        }
     }
 
     private void OnDisable()
     {
         UnsubscribeFromTracker();
+        if (_statusEllipsesCoroutine != null)
+        {
+            StopCoroutine(_statusEllipsesCoroutine);
+            _statusEllipsesCoroutine = null;
+        }
     }
 
     private void SubscribeToTracker()
@@ -135,9 +162,10 @@ public class LobbyPlayerStatusPanel : MonoBehaviour
 
     private void HandleAllPlayersReady()
     {
+        _isAllReady = true;
         if (statusHeaderText != null)
         {
-            statusHeaderText.text = "<color=#2ECC71>ALL OPERATIVES READY • INITIATING DESCENT...</color>";
+            statusHeaderText.text = "<color=#2ECC71>ALL OPERATIVES READY</color>";
         }
     }
 
@@ -147,15 +175,14 @@ public class LobbyPlayerStatusPanel : MonoBehaviour
 
         if (totalCount > 0 && readyCount >= totalCount)
         {
-            statusHeaderText.text = "<color=#2ECC71>ALL OPERATIVES READY • INITIATING DESCENT...</color>";
-        }
-        else if (totalCount > 0)
-        {
-            statusHeaderText.text = $"WAITING FOR PLAYERS ({readyCount}/{totalCount} READY)...";
+            _isAllReady = true;
+            statusHeaderText.text = "<color=#2ECC71>ALL OPERATIVES READY</color>";
         }
         else
         {
-            statusHeaderText.text = "WAITING FOR PLAYERS...";
+            _isAllReady = false;
+            string dots = new string('.', _statusDotCount);
+            statusHeaderText.text = $"WAITING FOR SQUAD{dots}";
         }
     }
 

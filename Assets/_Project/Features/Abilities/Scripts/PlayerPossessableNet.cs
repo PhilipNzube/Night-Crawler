@@ -162,6 +162,24 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         return null;
     }
 
+    /// <summary>
+    /// Returns true if the local client is an investigator who is currently possessed by the Girl.
+    /// </summary>
+    public static bool IsLocalPlayerPossessed()
+    {
+        if (NetworkManager.Singleton == null) return false;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+        var all = Object.FindObjectsByType<PlayerPossessableNet>(FindObjectsSortMode.None);
+        foreach (var p in all)
+        {
+            if (p != null && p.isPossessed.Value && p.originalOwnerClientId.Value == localId)
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
     private void HandlePossessionChanged(bool previous, bool current)
     {
         if (NetworkManager.Singleton == null) return;
@@ -382,19 +400,21 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             {
                 elapsed += Time.deltaTime;
 
-                if (Keyboard.current != null)
+                bool keyMashed = KeybindingManager.IsActionTriggered("Resist");
+                if (!keyMashed && KeybindingManager.Instance == null)
                 {
-                    var keyControl = Keyboard.current[resistKey];
-                    bool keyMashed = (keyControl != null && keyControl.wasPressedThisFrame) ||
-                                     Keyboard.current.spaceKey.wasPressedThisFrame;
-
-                    if (keyMashed)
+                    if (Keyboard.current != null)
                     {
-                        rejected = true;
-                        break;
+                        var keyControl = Keyboard.current[resistKey];
+                        if (keyControl != null && keyControl.wasPressedThisFrame) keyMashed = true;
+                    }
+                    else if (Input.GetKeyDown(fallbackResistKeyCode))
+                    {
+                        keyMashed = true;
                     }
                 }
-                else if (Input.GetKeyDown(fallbackResistKeyCode) || Input.GetKeyDown(KeyCode.Space))
+
+                if (keyMashed)
                 {
                     rejected = true;
                     break;

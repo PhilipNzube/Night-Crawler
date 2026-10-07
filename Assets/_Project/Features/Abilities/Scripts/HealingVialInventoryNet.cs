@@ -152,17 +152,17 @@ public class HealingVialInventoryNet : NetworkBehaviour
             _cameraTransform = Camera.main.transform;
         }
 
-        // Send vial to teammate with E key (when aiming at them) or self-heal with H key
-        if (Keyboard.current != null)
+        // Send vial to teammate with Interact key (when aiming at them) or self-heal with Heal key
+        bool interactPressed = KeybindingManager.IsActionTriggered("Interact") || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame);
+        bool healPressed = KeybindingManager.IsActionTriggered("Heal") || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current.hKey.wasPressedThisFrame);
+
+        if (interactPressed)
         {
-            if (Keyboard.current.eKey.wasPressedThisFrame)
-            {
-                TryInteractHeal();
-            }
-            else if (KeybindingManager.IsActionTriggered("Heal") || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current.hKey.wasPressedThisFrame))
-            {
-                TrySelfHeal();
-            }
+            TryInteractHeal();
+        }
+        else if (healPressed)
+        {
+            TrySelfHeal();
         }
     }
 
@@ -300,14 +300,25 @@ public class HealingVialInventoryNet : NetworkBehaviour
         {
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification("Received a Healing Vial! Press [H] to use.", 3.5f);
+                string healKey = KeybindingManager.GetBoundKeyString("Heal", "H");
+                NotificationManager.Instance.ShowNotification(
+                    "HEALING VIAL RECEIVED",
+                    $"Medical supplies delivered by teammate. Press [{healKey}] to restore vitals.",
+                    new Color(0.15f, 0.95f, 0.6f, 1f),
+                    4.5f
+                );
             }
         }
         else if (myClientId == senderClientId)
         {
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification("Healing vial transferred to teammate!", 3f);
+                NotificationManager.Instance.ShowNotification(
+                    "HEALING VIAL DISPATCHED",
+                    "Medical supplies successfully transferred to operative in range.",
+                    new Color(0.2f, 0.85f, 1f, 1f),
+                    4.0f
+                );
             }
         }
     }

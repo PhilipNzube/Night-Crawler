@@ -530,7 +530,7 @@ public class DealNotificationUI : MonoBehaviour
             if (_isOutcomeMode)
             {
                 if (Keyboard.current.enterKey.wasPressedThisFrame ||
-                    Keyboard.current.spaceKey.wasPressedThisFrame ||
+                    Keyboard.current.numpadEnterKey.wasPressedThisFrame ||
                     Keyboard.current.escapeKey.wasPressedThisFrame)
                 {
                     OnAcceptClicked();

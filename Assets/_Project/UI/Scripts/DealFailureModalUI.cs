@@ -97,12 +97,11 @@ namespace NightCrawler.UI
             if (!Cursor.visible) Cursor.visible = true;
             SetPlayerLookInputs(false);
 
-            // Allow Enter, Space, or Escape to dismiss
+            // Allow Enter, Numpad Enter, or Escape to dismiss
             if (UnityEngine.InputSystem.Keyboard.current != null)
             {
                 if (UnityEngine.InputSystem.Keyboard.current.enterKey.wasPressedThisFrame ||
                     UnityEngine.InputSystem.Keyboard.current.numpadEnterKey.wasPressedThisFrame ||
-                    UnityEngine.InputSystem.Keyboard.current.spaceKey.wasPressedThisFrame ||
                     UnityEngine.InputSystem.Keyboard.current.escapeKey.wasPressedThisFrame)
                 {
                     Hide();

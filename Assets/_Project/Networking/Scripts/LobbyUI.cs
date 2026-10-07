@@ -269,16 +269,58 @@ public class LobbyUI : MonoBehaviour
         EnsureRelayManager();
     }
 
+    private Coroutine _lobbyEllipsesCoroutine;
+    private int _lobbyDotCount = 1;
+    private string _currentHostWaitBase = "";
+    private string _currentClientWaitBase = "";
+    private string _currentLoadingWaitBase = "";
+
+    private System.Collections.IEnumerator LobbyEllipsesRoutine()
+    {
+        while (true)
+        {
+            yield return new WaitForSecondsRealtime(0.5f);
+            _lobbyDotCount = (_lobbyDotCount % 3) + 1;
+            string dots = new string('.', _lobbyDotCount);
+
+            if (!string.IsNullOrEmpty(_currentHostWaitBase) && hostStatusText != null)
+            {
+                hostStatusText.text = $"{_currentHostWaitBase}{dots}";
+            }
+
+            if (!string.IsNullOrEmpty(_currentClientWaitBase) && clientStatusText != null)
+            {
+                clientStatusText.text = $"{_currentClientWaitBase}{dots}";
+            }
+
+            if (!string.IsNullOrEmpty(_currentLoadingWaitBase) && loadingStatusText != null && loadingStatusText.gameObject.activeSelf)
+            {
+                loadingStatusText.text = $"{_currentLoadingWaitBase}{dots}";
+            }
+        }
+    }
+
     private void OnEnable()
     {
         CloudCharacterSaveManager.OnProfileLoaded += HandleProfileLoaded;
         CloudCharacterSaveManager.OnCreditsChanged += HandleCreditsChanged;
+
+        if (_lobbyEllipsesCoroutine == null)
+        {
+            _lobbyEllipsesCoroutine = StartCoroutine(LobbyEllipsesRoutine());
+        }
     }
 
     private void OnDisable()
     {
         CloudCharacterSaveManager.OnProfileLoaded -= HandleProfileLoaded;
         CloudCharacterSaveManager.OnCreditsChanged -= HandleCreditsChanged;
+
+        if (_lobbyEllipsesCoroutine != null)
+        {
+            StopCoroutine(_lobbyEllipsesCoroutine);
+            _lobbyEllipsesCoroutine = null;
+        }
     }
 
     private void HandleCreditsChanged(int newBalance)
@@ -1438,6 +1480,8 @@ public class LobbyUI : MonoBehaviour
 
         string countString = $"{current}  /  {max}  players";
 
+        string dots = new string('.', _lobbyDotCount);
+
         // Refresh Host Panel
         if (hostUnlockedCountText != null) hostUnlockedCountText.text = current.ToString();
         if (hostTotalCountText != null) hostTotalCountText.text = max.ToString();
@@ -1445,16 +1489,13 @@ public class LobbyUI : MonoBehaviour
         {
             if (current < required)
             {
-                int needed = required - current;
-                hostStatusText.text = $"EXPEDITION SQUADRON BELOW QUORUM: WAITING FOR {needed} MORE INVESTIGATOR{(needed > 1 ? "S" : "")}...";
-            }
-            else if (current >= max)
-            {
-                hostStatusText.text = "FULL SQUAD COMPLEMENT DEPLOYED: READY FOR DESCENT!";
+                _currentHostWaitBase = "AWAITING OPERATIVES";
+                hostStatusText.text = $"{_currentHostWaitBase}{dots}";
             }
             else
             {
-                hostStatusText.text = $"MINIMUM SQUAD MET ({current}/{max}): SQUAD READY — HOST MAY AUTHORIZE DESCENT OR AWAIT REINFORCEMENTS.";
+                _currentHostWaitBase = "";
+                hostStatusText.text = "READY TO DEPLOY";
             }
         }
         MichskyUIBridge.SetButtonInteractable(heatHostStartMatchButton, canStart);
@@ -1466,12 +1507,13 @@ public class LobbyUI : MonoBehaviour
         {
             if (current < required)
             {
-                int needed = required - current;
-                clientStatusText.text = $"Awaiting squad quorum ({current}/{required})...";
+                _currentClientWaitBase = "AWAITING OPERATIVES";
+                clientStatusText.text = $"{_currentClientWaitBase}{dots}";
             }
             else
             {
-                clientStatusText.text = "Squad ready. Awaiting host authorization to begin descent...";
+                _currentClientWaitBase = "AWAITING HOST";
+                clientStatusText.text = $"{_currentClientWaitBase}{dots}";
             }
         }
     }
@@ -1685,13 +1727,17 @@ public class LobbyUI : MonoBehaviour
         }
         if (loadingStatusText != null)
         {
-            loadingStatusText.text = reason;
+            string cleanReason = !string.IsNullOrEmpty(reason) ? reason.TrimEnd('.') : "CONNECTING";
+            _currentLoadingWaitBase = cleanReason;
+            string dots = new string('.', _lobbyDotCount);
+            loadingStatusText.text = $"{cleanReason}{dots}";
             loadingStatusText.gameObject.SetActive(true);
         }
     }
 
     public void HideLoading()
     {
+        _currentLoadingWaitBase = "";
         SetPanel(loadingOverlayPanel, false);
         if (loadingSpinner != null) loadingSpinner.SetActive(false);
         if (loadingStatusText != null) loadingStatusText.gameObject.SetActive(false);

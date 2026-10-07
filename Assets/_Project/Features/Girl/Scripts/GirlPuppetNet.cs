@@ -33,8 +33,10 @@ public class GirlPuppetNet : NetworkBehaviour
 
         if (!_isInPuppetMode.Value)
         {
-            // 1. Try to enter a body (E Key)
-            if (Keyboard.current.eKey.wasPressedThisFrame)
+            // 1. Try to enter a body (Interact key or E)
+            bool enterPressed = KeybindingManager.IsActionTriggered("Interact")
+                || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame);
+            if (enterPressed)
             {
                 TryPossessCorpse();
             }

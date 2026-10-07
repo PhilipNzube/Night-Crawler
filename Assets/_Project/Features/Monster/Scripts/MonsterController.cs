@@ -114,8 +114,10 @@ public class MonsterController : MonoBehaviour, IPossessable
     {
         if (!_isPossessed) return;
 
-        // Release monster (E Key)
-        if (Keyboard.current.eKey.wasPressedThisFrame) { Release(); return; }
+        // Release monster (Interact key or E)
+        bool releasePressed = KeybindingManager.IsActionTriggered("Interact")
+            || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame);
+        if (releasePressed) { Release(); return; }
 
         HandleAttack();
         HandleMovement();

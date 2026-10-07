@@ -31,6 +31,9 @@ public class ProximityVoiceChatNet : NetworkBehaviour
     private string _currentChannelName = string.Empty;
     private bool _isChannelJoined = false;
     private Transform _listenerCamera;
+    private bool _isLocalPlayerVoiceInstance = false;
+    private bool _girlMuteNotified = false;
+    private bool _wasPossessedLastFrame = false;
 
     public bool IsChannelJoined => _isChannelJoined;
 
@@ -43,13 +46,38 @@ public class ProximityVoiceChatNet : NetworkBehaviour
 
         if (IsOwner)
         {
+            _isLocalPlayerVoiceInstance = true;
             ConnectToVivox3D();
+
+            if (IsGirlPlayer())
+            {
+                StartCoroutine(NotifyGirlMutedRoutine());
+            }
+        }
+    }
+
+    private System.Collections.IEnumerator NotifyGirlMutedRoutine()
+    {
+        // Wait briefly for HUD & NotificationManager to fully initialize
+        yield return new WaitForSeconds(1.5f);
+        if (!_girlMuteNotified)
+        {
+            _girlMuteNotified = true;
+            if (NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification(
+                    "MICROPHONE MUTED",
+                    "Vengeful Spirits cannot speak in the physical realm. Your microphone is disabled.",
+                    new Color(0.9f, 0.2f, 0.2f, 1f),
+                    6.0f
+                );
+            }
         }
     }
 
     public override void OnNetworkDespawn()
     {
-        if (IsOwner)
+        if (_isLocalPlayerVoiceInstance)
         {
             LeaveVivox3D();
         }
@@ -185,7 +213,7 @@ public class ProximityVoiceChatNet : NetworkBehaviour
 
     private void Update()
     {
-        if (!IsOwner || !_isChannelJoined || VivoxService.Instance == null || PauseManager.IsGamePaused) return;
+        if (!_isLocalPlayerVoiceInstance || !_isChannelJoined || VivoxService.Instance == null || PauseManager.IsGamePaused) return;
 
         if (_listenerCamera == null && Camera.main != null)
         {
@@ -202,11 +230,66 @@ public class ProximityVoiceChatNet : NetworkBehaviour
             channelName: _currentChannelName
         );
 
-        // 2. Handle Push-To-Talk input
+        bool isGirl = IsGirlPlayer();
+        bool isPossessed = IsLocalPlayerPossessed();
+
+        // Check if voice key was attempted this frame
+        bool voiceKeyPressed = KeybindingManager.IsActionTriggered("VoiceChat")
+            || (KeybindingManager.Instance == null && Keyboard.current != null && pushToTalkKey != Key.None && Keyboard.current[pushToTalkKey].wasPressedThisFrame);
+
+        // CASE 1: The Girl player is ALWAYS muted
+        if (isGirl)
+        {
+            if (!VivoxService.Instance.IsInputDeviceMuted)
+            {
+                VivoxService.Instance.MuteInputDevice();
+            }
+
+            if (voiceKeyPressed && NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification(
+                    "MICROPHONE MUTED",
+                    "Vengeful Spirits cannot transmit voice to investigators.",
+                    new Color(0.9f, 0.2f, 0.2f, 1f),
+                    3.0f
+                );
+            }
+            return;
+        }
+
+        // CASE 2: Investigator is possessed by the Girl -> Mute microphone!
+        if (isPossessed)
+        {
+            _wasPossessedLastFrame = true;
+            if (!VivoxService.Instance.IsInputDeviceMuted)
+            {
+                VivoxService.Instance.MuteInputDevice();
+            }
+
+            if (voiceKeyPressed && NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification(
+                    "MICROPHONE MUTED",
+                    "You are currently possessed. Your vocal cords are suppressed.",
+                    new Color(0.9f, 0.2f, 0.2f, 1f),
+                    3.0f
+                );
+            }
+            return;
+        }
+
+        // CASE 3: Possession just ended -> restore normal mic mute state
+        if (_wasPossessedLastFrame)
+        {
+            _wasPossessedLastFrame = false;
+            ApplyMicMuteState();
+        }
+
+        // CASE 4: Normal human investigator Push-To-Talk / Open Mic
         if (pushToTalk)
         {
             bool isHeld = KeybindingManager.IsActionHeld("VoiceChat")
-                || (Keyboard.current != null && pushToTalkKey != Key.None && Keyboard.current[pushToTalkKey].isPressed);
+                || (KeybindingManager.Instance == null && Keyboard.current != null && pushToTalkKey != Key.None && Keyboard.current[pushToTalkKey].isPressed);
             if (isHeld && VivoxService.Instance.IsInputDeviceMuted)
             {
                 VivoxService.Instance.UnmuteInputDevice();
@@ -216,11 +299,24 @@ public class ProximityVoiceChatNet : NetworkBehaviour
                 VivoxService.Instance.MuteInputDevice();
             }
         }
+        else
+        {
+            if (VivoxService.Instance.IsInputDeviceMuted)
+            {
+                VivoxService.Instance.UnmuteInputDevice();
+            }
+        }
     }
 
     private void ApplyMicMuteState()
     {
         if (VivoxService.Instance == null) return;
+
+        if (IsGirlPlayer() || IsLocalPlayerPossessed())
+        {
+            VivoxService.Instance.MuteInputDevice();
+            return;
+        }
 
         if (pushToTalk)
         {
@@ -230,5 +326,28 @@ public class ProximityVoiceChatNet : NetworkBehaviour
         {
             VivoxService.Instance.UnmuteInputDevice();
         }
+    }
+
+    private bool IsGirlPlayer()
+    {
+        if (PersistentCharacterSelection.IsVengefulSpirit()) return true;
+        if (GetComponent<GirlPossession>() != null || GetComponent<GirlMovement>() != null || GetComponent<GirlStealth>() != null) return true;
+        if (gameObject.name.ToLower().Contains("girl") || gameObject.name.ToLower().Contains("demon") || gameObject.name.ToLower().Contains("spirit")) return true;
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null && NetworkManager.Singleton.LocalClient.PlayerObject != null)
+        {
+            var localObj = NetworkManager.Singleton.LocalClient.PlayerObject;
+            if (localObj.GetComponent<GirlPossession>() != null || localObj.GetComponent<GirlMovement>() != null) return true;
+        }
+        return false;
+    }
+
+    private bool IsLocalPlayerPossessed()
+    {
+        if (TryGetComponent<PlayerPossessableNet>(out var pNet) && pNet.isPossessed.Value)
+        {
+            ulong localId = NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : ulong.MaxValue;
+            if (pNet.originalOwnerClientId.Value == localId) return true;
+        }
+        return PlayerPossessableNet.IsLocalPlayerPossessed();
     }
 }

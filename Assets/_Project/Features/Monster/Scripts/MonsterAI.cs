@@ -31,7 +31,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         SpawningScream,
         Running,
         Attacking,
-        Dead
+        Dead,
+        Idle
     }
 
     public enum Command { Hunt, Follow }
@@ -125,6 +126,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     public float footSoleHeight = 0.09f;
     [Tooltip("Maximum visual downward correction applied to the model (metres).")]
     public float maxFootCorrection = 0.35f;
+    [Tooltip("Maximum height of obstacles monsters will step over (0.22m). Higher obstacles are treated as walls and bypassed.")]
+    public float maxClimbableStep = 0.22f;
 
     private float _nominalAgentSpeed = -1f;
     private float _smoothedStrideScale = 1f;
@@ -216,7 +219,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     // Turning animation hashes
     [Header("Turning Animations")]
-    public float turnAngleThreshold = 25f;
+    public float turnAngleThreshold = 22f;
+    public float minTurnDuration = 0.45f;
+    protected float _turnActiveTimer = 0f;
     protected bool _isTurningRight = false;
     protected bool _isTurningLeft = false;
     protected readonly int _turnRightHash = Animator.StringToHash("TurnRight");
@@ -224,6 +229,15 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected readonly int _isTurningRightHash = Animator.StringToHash("IsTurningRight");
     protected readonly int _isTurningLeftHash = Animator.StringToHash("IsTurningLeft");
     protected readonly int _turnAngleHash = Animator.StringToHash("TurnAngle");
+
+    // Monster Dodge & Spatial Avoidance System
+    public static readonly List<MonsterAI> ActiveMonsters = new List<MonsterAI>();
+    [Header("Monster Avoidance & Dodging")]
+    public bool enableMonsterDodging = true;
+    public float monsterDodgeDistance = 2.8f;
+    protected bool _isDodgingMonster = false;
+    protected float _dodgeTimer = 0f;
+    protected Vector3 _dodgeOffset = Vector3.zero;
 
     // Direct Animator state hashes
     protected readonly int _stateHitReaction  = Animator.StringToHash("Zombie Reaction Hit");
@@ -272,6 +286,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected float _targetIgnoreTimer = 0f;
     protected NavMeshPath _pathCalc;
     protected NavMeshPath _reroutePath;
+    protected Coroutine _rerouteTurnCoroutine;
 
     protected bool HasAuthority => (NetworkObject != null && NetworkObject.IsSpawned) ? IsServer : true;
     protected Coroutine _spawnScreamCoroutine;
@@ -384,6 +399,14 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             // Body rotation is driven manually in ApplyLocomotionFriction so the monster
             // turns its body into corners instead of spinning on the spot while sliding.
             _agent.updateRotation = false;
+            _agent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance;
+            _agent.radius = 0.45f;
+            _agent.avoidancePriority = 40 + (int)(NetworkObjectId % 30);
+        }
+
+        if (!ActiveMonsters.Contains(this))
+        {
+            ActiveMonsters.Add(this);
         }
 
         if (groundMask.value == 0)
@@ -482,6 +505,16 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         base.OnNetworkSpawn();
 
+        if (_agent != null)
+        {
+            _agent.avoidancePriority = 40 + (int)(NetworkObjectId % 30);
+        }
+
+        if (!ActiveMonsters.Contains(this))
+        {
+            ActiveMonsters.Add(this);
+        }
+
         if (_targetHealth != null)
         {
             _targetHealth.currentHealth.OnValueChanged += HandleTargetHealthChanged;
@@ -494,12 +527,19 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         base.OnNetworkDespawn();
 
+        ActiveMonsters.Remove(this);
+
         if (_targetHealth != null)
         {
             _targetHealth.currentHealth.OnValueChanged -= HandleTargetHealthChanged;
         }
 
         netPosture.OnValueChanged -= HandlePostureChanged;
+    }
+
+    protected virtual void OnDestroy()
+    {
+        ActiveMonsters.Remove(this);
     }
 
     private void HandlePostureChanged(ZombiePosture prev, ZombiePosture curr)
@@ -600,6 +640,44 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         {
             ApplyFootGrounding();
         }
+
+        // Stabilize idle zombie to keep it solid and firmly planted on the ground (no side-to-side doll shaking)
+        if (monsterType == MonsterType.Zombie && _animator != null && _animator.isHuman)
+        {
+            StabilizeIdleZombieWaist();
+        }
+    }
+
+    /// <summary>
+    /// Mixamo Zombie Idle animation has pronounced waist/hip sway that feels like a doll being shaken side to side.
+    /// This keeps the hips firmly anchored over the base while idling so the zombie feels solid and grounded.
+    /// </summary>
+    protected virtual void StabilizeIdleZombieWaist()
+    {
+        bool isStationary = (_agent == null || !_agent.enabled || _agent.velocity.sqrMagnitude < 0.05f)
+            && (currentState == AIState.Idle || _isGuardIdling || (!_agent.hasPath && currentState != AIState.Attacking && currentState != AIState.SpawningScream));
+
+        if (!isStationary) return;
+
+        Transform hips = _animator.GetBoneTransform(HumanBodyBones.Hips);
+        if (hips != null)
+        {
+            // Zero out horizontal translation of the hips relative to the monster base
+            Vector3 lPos = hips.localPosition;
+            lPos.x = Mathf.MoveTowards(lPos.x, 0f, Time.deltaTime * 6.0f);
+            lPos.z = Mathf.MoveTowards(lPos.z, 0f, Time.deltaTime * 6.0f);
+            hips.localPosition = lPos;
+
+            // Dampen side-to-side roll and yaw sway on the hips
+            Vector3 euler = hips.localEulerAngles;
+            float roll = euler.z > 180f ? euler.z - 360f : euler.z;
+            float yaw = euler.y > 180f ? euler.y - 360f : euler.y;
+            roll = Mathf.MoveTowards(roll, 0f, Time.deltaTime * 50f);
+            yaw = Mathf.MoveTowards(yaw, 0f, Time.deltaTime * 50f);
+            euler.z = roll;
+            euler.y = yaw;
+            hips.localEulerAngles = euler;
+        }
     }
 
     private void UpdateBrain()
@@ -638,15 +716,22 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
 
         // Active reroute handling: steer away from the obstacle/wall
+        if (_rerouteTurnCoroutine != null)
+        {
+            // Monster is executing visual turn animation towards new escape route
+            return;
+        }
+
         if (_rerouteTimer > 0f)
         {
             _rerouteTimer -= Time.deltaTime;
             if (_agent != null && _agent.isOnNavMesh && _agent.enabled)
             {
                 _agent.isStopped = false;
-                _agent.speed = runSpeed;
+                float spd = (monsterType == MonsterType.Zombie) ? standRunSpeed : runSpeed;
+                _agent.speed = spd;
                 _agent.SetDestination(_rerouteWaypoint);
-                SafeSetFloat(_speedHash, runSpeed);
+                SafeSetFloat(_speedHash, spd);
                 SafeSetBool(_isRunningHash, true);
                 UpdateNavMeshTurningAnimation();
             }
@@ -671,9 +756,16 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         if (_attackTimer > 0) _attackTimer -= Time.deltaTime;
 
+        UpdateMonsterDodge();
+
         // 3. State Machine
         switch (currentState)
         {
+            case AIState.Idle:
+                if (_animator != null) _animator.SetFloat(_speedHash, 0f);
+                if (_agent != null && _agent.enabled && _agent.isOnNavMesh) _agent.isStopped = true;
+                break;
+
             case AIState.SpawningScream:
                 // Stay stationary while roaring/screaming
                 if (_agent != null && _agent.enabled && _agent.isOnNavMesh) _agent.isStopped = true;
@@ -932,8 +1024,21 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             lookDir.y = 0f;
             if (lookDir != Vector3.zero)
             {
-                Quaternion targetRot = Quaternion.LookRotation(lookDir);
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * turnSpeed);
+                float angle = Vector3.Angle(transform.forward, lookDir);
+                if (angle > turnAngleThreshold)
+                {
+                    UpdateTurningAnimation(lookDir);
+                    Quaternion targetRot = Quaternion.LookRotation(lookDir);
+                    transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRot, 110f * Time.deltaTime);
+                }
+                else
+                {
+                    if (_turnActiveTimer <= 0f) StopTurningAnimation();
+                }
+            }
+            else
+            {
+                if (_turnActiveTimer <= 0f) StopTurningAnimation();
             }
         }
         else
@@ -1065,8 +1170,21 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             lookDir.y = 0f;
             if (lookDir != Vector3.zero)
             {
-                Quaternion targetRot = Quaternion.LookRotation(lookDir);
-                transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * 3f);
+                float angle = Vector3.Angle(transform.forward, lookDir);
+                if (angle > turnAngleThreshold)
+                {
+                    UpdateTurningAnimation(lookDir);
+                    Quaternion targetRot = Quaternion.LookRotation(lookDir);
+                    transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRot, 100f * Time.deltaTime);
+                }
+                else
+                {
+                    if (_turnActiveTimer <= 0f) StopTurningAnimation();
+                }
+            }
+            else
+            {
+                if (_turnActiveTimer <= 0f) StopTurningAnimation();
             }
 
             _guardIdleTimer -= Time.deltaTime;
@@ -1145,6 +1263,13 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             {
                 StartCoroutine(PerformAttackRoutine());
             }
+            return;
+        }
+
+        // Check if a physical obstacle (e.g. door frame, mine timber beam, barrier) blocks forward pursuit
+        if (distToThreat > attackRange && CheckForwardObstacleInChase(threat.position))
+        {
+            ExecuteSmartReroute();
             return;
         }
 
@@ -1233,6 +1358,13 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             }
             else
             {
+                // Check if a physical obstacle (e.g. door frame, mine timber beam, barrier) blocks forward pursuit
+                if (CheckForwardObstacleInChase(target.position))
+                {
+                    ExecuteSmartReroute();
+                    return;
+                }
+
                 _agent.isStopped = false;
                 _agent.speed = runSpeed;
                 _agent.SetDestination(target.position);
@@ -1425,19 +1557,43 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (currentState == AIState.Attacking || currentState == AIState.SpawningScream) return;
 
         Vector3 desired = _agent.desiredVelocity;
+        if (_isDodgingMonster && _dodgeOffset != Vector3.zero)
+        {
+            desired = Vector3.Lerp(desired, _dodgeOffset * desired.magnitude, 0.65f);
+        }
         desired.y = 0f;
         if (desired.sqrMagnitude < 0.01f) return;
 
         Vector3 dir = desired.normalized;
+        float signedAngle = Vector3.SignedAngle(transform.forward, dir, Vector3.up);
+
+        if (Mathf.Abs(signedAngle) > turnAngleThreshold)
+        {
+            UpdateTurningAnimation(dir);
+        }
 
         float turnRate;
-        if (monsterType == MonsterType.Berserker) turnRate = berserkerTurnRate;
-        else turnRate = currentPosture == ZombiePosture.Crawling ? zombieCrawlTurnRate : zombieTurnRate;
+        if (_isTurningRight || _isTurningLeft || _turnActiveTimer > 0f)
+        {
+            // While executing a turn animation, body rotates at grounded natural pivot speed
+            turnRate = (monsterType == MonsterType.Berserker) ? 140f : 110f;
+        }
+        else
+        {
+            turnRate = (monsterType == MonsterType.Berserker) ? berserkerTurnRate : (currentPosture == ZombiePosture.Crawling ? zombieCrawlTurnRate : zombieTurnRate);
+        }
 
         transform.rotation = Quaternion.RotateTowards(transform.rotation, Quaternion.LookRotation(dir), turnRate * Time.deltaTime);
 
         float align = Vector3.Dot(transform.forward, dir);
         float turnFactor = Mathf.Lerp(minTurnSpeedFactor, 1f, Mathf.InverseLerp(0.3f, 0.95f, align));
+
+        // When turning sharply or when turn animation is actively playing:
+        // Decelerate forward movement so the monster plants feet and turns, NOT auto-sliding/spinning on ice!
+        if (_isTurningRight || _isTurningLeft || _turnActiveTimer > 0f || Mathf.Abs(signedAngle) > 35f)
+        {
+            turnFactor = Mathf.Min(turnFactor, 0.22f);
+        }
 
         float gait = 1f;
         if (_animator != null && zombieDragStrength > 0f)
@@ -1492,7 +1648,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     /// <summary>
     /// Raycasts down onto real collision geometry and pins the pivot to it, so the monster never
     /// hovers above uneven mine floors (NavMesh height is only an approximation of the floor).
-    /// Also handles realistic low ground bump / obstacle climbing (0.02m to 0.45m).
+    /// Only climbs low ground bumps (0.02m to maxClimbableStep, default 0.22m). High obstacles are bypassed!
     /// </summary>
     protected virtual void EnforceGrounding()
     {
@@ -1501,18 +1657,24 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         float baseOffset = (_agent != null) ? _agent.baseOffset : 0f;
         float targetY = groundY + baseOffset + groundFootOffset;
 
-        // Realistic forward bump / step-up check (0.02m to 0.45m step-up climbing)
-        Vector3 forwardProbePos = transform.position + transform.forward * 0.35f;
-        if (TryGetGroundHeight(forwardProbePos, out float forwardGroundY))
+        bool isStationary = (_agent == null || !_agent.enabled || _agent.velocity.sqrMagnitude < 0.05f)
+            && (currentState == AIState.Idle || _isGuardIdling || (!_agent.hasPath && currentState != AIState.Attacking));
+
+        // Realistic low ground bump check (0.02m to maxClimbableStep climbing)
+        // High obstacles (> maxClimbableStep) are never stepped over; monsters must path around them!
+        if (!isStationary)
         {
-            float stepDelta = forwardGroundY - groundY;
-            if (stepDelta > 0.02f && stepDelta <= 0.45f)
+            Vector3 forwardProbePos = transform.position + transform.forward * 0.35f;
+            if (TryGetGroundHeight(forwardProbePos, out float forwardGroundY))
             {
-                // Climb low bumps realistically
-                float bumpTargetY = forwardGroundY + baseOffset + groundFootOffset;
-                targetY = Mathf.Max(targetY, bumpTargetY);
+                float stepDelta = forwardGroundY - groundY;
+                if (stepDelta > 0.02f && stepDelta <= maxClimbableStep)
+                {
+                    // Climb low bumps realistically (e.g. tracks, small stones <= 0.22m)
+                    float bumpTargetY = forwardGroundY + baseOffset + groundFootOffset;
+                    targetY = Mathf.Max(targetY, bumpTargetY);
+                }
             }
-            // Note: If stepDelta > 0.45f, it is treated as a high wall/obstacle, so NavMesh will auto-route around it
         }
 
         Vector3 pos = transform.position;
@@ -1548,10 +1710,19 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     /// <summary>
     /// If both humanoid feet hover above the floor (animation lift, pivot mismatch), lowers the
     /// model child so the lowest foot touches the ground. Visual only; never raises the model.
+    /// Locks stable when stationary to prevent vertical jitter during idle animation.
     /// </summary>
     protected virtual void ApplyFootGrounding()
     {
         if (_animator == null || !_animator.isHuman || _animator.transform == transform) return;
+
+        bool isStationary = (_agent == null || !_agent.enabled || _agent.velocity.sqrMagnitude < 0.05f)
+            && (currentState == AIState.Idle || _isGuardIdling || !_agent.hasPath);
+        if (isStationary)
+        {
+            // Lock foot correction steady when idle to prevent vertical bouncing
+            return;
+        }
 
         Transform model = _animator.transform;
         if (!_modelBaseCached)
@@ -1884,7 +2055,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         desiredFacingDir.y = 0f;
         if (desiredFacingDir.sqrMagnitude < 0.01f)
         {
-            StopTurningAnimation();
+            if (_turnActiveTimer <= 0f) StopTurningAnimation();
             return;
         }
 
@@ -1897,11 +2068,16 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             if (!_isTurningRight)
             {
                 SafeSetTrigger(_turnRightHash);
+                if (monsterType == MonsterType.Zombie)
+                {
+                    SafeCrossFade(_stateTurnRight, "Turn Right", 0.12f);
+                }
             }
             _isTurningRight = true;
             _isTurningLeft = false;
             SafeSetBool(_isTurningRightHash, true);
             SafeSetBool(_isTurningLeftHash, false);
+            _turnActiveTimer = Mathf.Max(_turnActiveTimer, minTurnDuration);
         }
         else if (signedAngle < -turnAngleThreshold)
         {
@@ -1909,13 +2085,18 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             if (!_isTurningLeft)
             {
                 SafeSetTrigger(_turnLeftHash);
+                if (monsterType == MonsterType.Zombie)
+                {
+                    SafeCrossFade(_stateTurnLeft, "Turn Left", 0.12f);
+                }
             }
             _isTurningLeft = true;
             _isTurningRight = false;
             SafeSetBool(_isTurningLeftHash, true);
             SafeSetBool(_isTurningRightHash, false);
+            _turnActiveTimer = Mathf.Max(_turnActiveTimer, minTurnDuration);
         }
-        else if (Mathf.Abs(signedAngle) <= 12f)
+        else if (_turnActiveTimer <= 0f && Mathf.Abs(signedAngle) <= 12f)
         {
             StopTurningAnimation();
         }
@@ -1923,6 +2104,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     public virtual void StopTurningAnimation()
     {
+        if (_turnActiveTimer > 0f) return;
+
         if (_isTurningRight || _isTurningLeft)
         {
             _isTurningRight = false;
@@ -1935,21 +2118,31 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     protected virtual void UpdateNavMeshTurningAnimation()
     {
+        if (_turnActiveTimer > 0f) _turnActiveTimer -= Time.deltaTime;
+
         if (_agent != null && _agent.enabled && _agent.isOnNavMesh && _agent.hasPath)
         {
             Vector3 desiredDir = _agent.desiredVelocity;
+            if (_isDodgingMonster && _dodgeOffset != Vector3.zero)
+            {
+                desiredDir = Vector3.Lerp(desiredDir, _dodgeOffset * desiredDir.magnitude, 0.65f);
+            }
+
             if (desiredDir.sqrMagnitude > 0.05f)
             {
                 UpdateTurningAnimation(desiredDir);
             }
-            else
+            else if (_turnActiveTimer <= 0f)
             {
                 StopTurningAnimation();
             }
         }
         else if (currentState != AIState.SpawningScream && currentState != AIState.Attacking)
         {
-            StopTurningAnimation();
+            if (_turnActiveTimer <= 0f)
+            {
+                StopTurningAnimation();
+            }
         }
     }
 
@@ -1957,20 +2150,30 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         if (t == null)
         {
-            StopTurningAnimation();
+            if (_turnActiveTimer <= 0f) StopTurningAnimation();
             return;
         }
         Vector3 dir = (t.position - transform.position).normalized;
         dir.y = 0;
         if (dir != Vector3.zero)
         {
-            UpdateTurningAnimation(dir);
+            float angle = Vector3.Angle(transform.forward, dir);
+            if (angle > turnAngleThreshold)
+            {
+                UpdateTurningAnimation(dir);
+            }
+            else if (_turnActiveTimer <= 0f && angle < 10f)
+            {
+                StopTurningAnimation();
+            }
+
+            float rate = (_isTurningRight || _isTurningLeft || _turnActiveTimer > 0f) ? 120f : 160f;
             Quaternion look = Quaternion.LookRotation(dir);
-            transform.rotation = Quaternion.Slerp(transform.rotation, look, Time.deltaTime * turnSpeed);
+            transform.rotation = Quaternion.RotateTowards(transform.rotation, look, rate * Time.deltaTime);
         }
         else
         {
-            StopTurningAnimation();
+            if (_turnActiveTimer <= 0f) StopTurningAnimation();
         }
     }
 
@@ -2055,10 +2258,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     /// <summary>
     /// Detects when a monster is stuck against a cave wall or obstacle while trying to run forward.
+    /// Stops locomotion animation, figures out an alternate route, triggers turn animation, and reroutes.
     /// </summary>
     protected virtual void UpdateAntiStuck()
     {
-        if (!enableAntiStuck || _agent == null || !_agent.isOnNavMesh || !_agent.enabled || _agent.isStopped)
+        if (!enableAntiStuck || _agent == null || !_agent.isOnNavMesh || !_agent.enabled || _agent.isStopped || _rerouteTurnCoroutine != null)
         {
             _stuckTimer = 0f;
             return;
@@ -2069,7 +2273,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         {
             _stuckCheckTimer = _stuckCheckInterval;
 
-            if (_agent.hasPath && _agent.desiredVelocity.sqrMagnitude > 0.35f)
+            if (_agent.hasPath && _agent.desiredVelocity.sqrMagnitude > 0.25f)
             {
                 float movedDist = Vector3.Distance(transform.position, _lastStuckCheckPos);
                 if (movedDist < 0.10f)
@@ -2097,7 +2301,137 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     }
 
     /// <summary>
+    /// Proactively detects another monster in the path or immediate vicinity,
+    /// and steers or sidesteps laterally around it to dodge the other monster cleanly.
+    /// </summary>
+    protected virtual void UpdateMonsterDodge()
+    {
+        if (!enableMonsterDodging || _agent == null || !_agent.enabled || !_agent.isOnNavMesh) return;
+        if (currentState == AIState.Dead || isBeingPossessed || _agent.isStopped) return;
+
+        if (_dodgeTimer > 0f)
+        {
+            _dodgeTimer -= Time.deltaTime;
+            if (_dodgeTimer <= 0f)
+            {
+                _isDodgingMonster = false;
+                _dodgeOffset = Vector3.zero;
+            }
+        }
+
+        MonsterAI blockingMonster = null;
+        float closestDist = float.MaxValue;
+        Vector3 myPos = transform.position;
+        Vector3 myForward = transform.forward;
+
+        for (int i = 0; i < ActiveMonsters.Count; i++)
+        {
+            var other = ActiveMonsters[i];
+            if (other == null || other == this || other.currentState == AIState.Dead || !other.gameObject.activeInHierarchy) continue;
+
+            Vector3 otherPos = other.transform.position;
+            Vector3 toOther = otherPos - myPos;
+            toOther.y = 0f;
+            float dist = toOther.magnitude;
+
+            if (dist < monsterDodgeDistance && dist > 0.1f)
+            {
+                Vector3 toOtherDir = toOther / dist;
+                float forwardDot = Vector3.Dot(myForward, toOtherDir);
+
+                // If other monster is ahead of us within ~130 degree cone
+                if (forwardDot > 0.35f)
+                {
+                    if (dist < closestDist)
+                    {
+                        closestDist = dist;
+                        blockingMonster = other;
+                    }
+                }
+            }
+        }
+
+        if (blockingMonster != null)
+        {
+            Vector3 localOther = transform.InverseTransformPoint(blockingMonster.transform.position);
+            Vector3 lateralDir;
+            if (Mathf.Abs(localOther.x) > 0.15f)
+            {
+                lateralDir = localOther.x > 0f ? -transform.right : transform.right;
+            }
+            else
+            {
+                lateralDir = (GetInstanceID() % 2 == 0) ? transform.right : -transform.right;
+            }
+
+            float dodgeDist = 1.6f;
+            Vector3 probePos = myPos + lateralDir * dodgeDist + myForward * 1.0f;
+            if (NavMesh.SamplePosition(probePos, out NavMeshHit hit, 1.2f, NavMesh.AllAreas))
+            {
+                _dodgeOffset = (hit.position - myPos).normalized;
+                _isDodgingMonster = true;
+                _dodgeTimer = 0.5f;
+
+                // If jammed very close (head-to-head deadlock < 1.6m), steer destination and play turn
+                if (closestDist < 1.6f && _agent.velocity.magnitude < 0.8f)
+                {
+                    Vector3 steerTarget = hit.position;
+                    _agent.SetDestination(steerTarget);
+                    Vector3 steerDir = steerTarget - myPos;
+                    steerDir.y = 0f;
+                    if (steerDir.sqrMagnitude > 0.05f)
+                    {
+                        UpdateTurningAnimation(steerDir);
+                    }
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Detects if an obstacle (door frame, timber beam, mine prop, high barrier) is blocking the monster
+    /// during pursuit so it can reroute through open corridors instead of trying to run through it.
+    /// </summary>
+    protected virtual bool CheckForwardObstacleInChase(Vector3 targetPos)
+    {
+        if (_rerouteTurnCoroutine != null || _rerouteTimer > 0f) return false;
+
+        // SphereCast forward at chest level (0.85m)
+        Vector3 origin = transform.position + Vector3.up * 0.85f;
+        Vector3 forward = transform.forward;
+        float checkDist = 1.7f;
+
+        int layerMask = ~LayerMask.GetMask("Ignore Raycast", "UI");
+        if (Physics.SphereCast(origin, 0.30f, forward, out RaycastHit hit, checkDist, layerMask, QueryTriggerInteraction.Ignore))
+        {
+            if (hit.collider != null && !hit.collider.transform.IsChildOf(transform))
+            {
+                // If it hits the human prey, this is not an obstacle
+                if (target != null && (hit.collider.transform == target || hit.collider.transform.IsChildOf(target)))
+                {
+                    return false;
+                }
+
+                // If hitting another monster, do not trigger obstacle reroute
+                if (hit.collider.GetComponentInParent<MonsterAI>() != null)
+                {
+                    return false;
+                }
+
+                // If the hit normal faces towards us, we are about to push into an obstacle / frame
+                float angle = Vector3.Angle(-hit.normal, forward);
+                if (angle < 80f)
+                {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
     /// Intelligently maneuvers the monster away from a wall or obstacle into clear NavMesh tunnel space.
+    /// Stops walk/run animation, finds open route, executes turn animation towards route, and resumes navigation.
     /// </summary>
     protected virtual void ExecuteSmartReroute()
     {
@@ -2113,6 +2447,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         if (_reroutePath == null) _reroutePath = new NavMeshPath();
 
+        Vector3 chosenWaypoint = Vector3.zero;
+        bool found = false;
+
         // 1. Try steering away from the closest NavMesh wall edge
         if (NavMesh.FindClosestEdge(transform.position, out NavMeshHit edgeHit, NavMesh.AllAreas))
         {
@@ -2120,53 +2457,117 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             pushAwayDir.y = 0f;
             if (pushAwayDir.sqrMagnitude > 0.01f)
             {
-                Vector3 escapeCandidate = transform.position + pushAwayDir.normalized * 3.2f;
+                Vector3 escapeCandidate = transform.position + pushAwayDir.normalized * 3.5f;
                 if (NavMesh.SamplePosition(escapeCandidate, out NavMeshHit navHit, 2.5f, NavMesh.AllAreas))
                 {
                     if (NavMesh.CalculatePath(transform.position, navHit.position, NavMesh.AllAreas, _reroutePath) &&
                         _reroutePath.status == NavMeshPathStatus.PathComplete)
                     {
-                        _rerouteWaypoint = navHit.position;
-                        _rerouteTimer = rerouteDuration;
-                        _agent.isStopped = false;
-                        _agent.SetDestination(_rerouteWaypoint);
-                        return;
+                        chosenWaypoint = navHit.position;
+                        found = true;
                     }
                 }
             }
         }
 
-        // 2. Flanking escape angles (90 deg, -90 deg, 135 deg, -135 deg, 180 deg)
-        float[] escapeAngles = new float[] { 90f, -90f, 135f, -135f, 180f, 45f, -45f };
-        Vector3 forward = transform.forward;
-        foreach (float angle in escapeAngles)
+        // 2. Flanking escape angles (90 deg, -90 deg, 135 deg, -135 deg, 180 deg, 45 deg, -45 deg)
+        if (!found)
         {
-            Vector3 testDir = Quaternion.Euler(0f, angle, 0f) * forward;
-            Vector3 testSpot = transform.position + testDir * 3.0f;
-            if (NavMesh.SamplePosition(testSpot, out NavMeshHit navHit, 2.0f, NavMesh.AllAreas))
+            float[] escapeAngles = new float[] { 90f, -90f, 135f, -135f, 180f, 45f, -45f };
+            Vector3 forward = transform.forward;
+            foreach (float angle in escapeAngles)
             {
-                if (NavMesh.CalculatePath(transform.position, navHit.position, NavMesh.AllAreas, _reroutePath) &&
-                    _reroutePath.status == NavMeshPathStatus.PathComplete)
+                Vector3 testDir = Quaternion.Euler(0f, angle, 0f) * forward;
+                Vector3 testSpot = transform.position + testDir * 3.2f;
+                if (NavMesh.SamplePosition(testSpot, out NavMeshHit navHit, 2.0f, NavMesh.AllAreas))
                 {
-                    _rerouteWaypoint = navHit.position;
-                    _rerouteTimer = rerouteDuration;
-                    _agent.isStopped = false;
-                    _agent.SetDestination(_rerouteWaypoint);
-                    return;
+                    if (NavMesh.CalculatePath(transform.position, navHit.position, NavMesh.AllAreas, _reroutePath) &&
+                        _reroutePath.status == NavMeshPathStatus.PathComplete)
+                    {
+                        chosenWaypoint = navHit.position;
+                        found = true;
+                        break;
+                    }
                 }
             }
         }
 
         // 3. Fallback: Nearby clear spot
-        Vector3 randomPoint = transform.position + Random.insideUnitSphere * 3.5f;
-        randomPoint.y = transform.position.y;
-        if (NavMesh.SamplePosition(randomPoint, out NavMeshHit fallbackHit, 3f, NavMesh.AllAreas))
+        if (!found)
         {
-            _rerouteWaypoint = fallbackHit.position;
-            _rerouteTimer = rerouteDuration;
-            _agent.isStopped = false;
-            _agent.SetDestination(_rerouteWaypoint);
+            Vector3 randomPoint = transform.position + Random.insideUnitSphere * 3.5f;
+            randomPoint.y = transform.position.y;
+            if (NavMesh.SamplePosition(randomPoint, out NavMeshHit fallbackHit, 3f, NavMesh.AllAreas))
+            {
+                chosenWaypoint = fallbackHit.position;
+                found = true;
+            }
         }
+
+        if (found)
+        {
+            _rerouteWaypoint = chosenWaypoint;
+            _rerouteTimer = rerouteDuration;
+
+            if (_rerouteTurnCoroutine != null) StopCoroutine(_rerouteTurnCoroutine);
+            _rerouteTurnCoroutine = StartCoroutine(SmartRerouteTurnRoutine(chosenWaypoint));
+        }
+    }
+
+    /// <summary>
+    /// Smoothly transitions the monster from being stuck: stops locomotion animation, triggers turn animation,
+    /// turns towards the clear corridor waypoint, and resumes running.
+    /// </summary>
+    protected virtual IEnumerator SmartRerouteTurnRoutine(Vector3 waypoint)
+    {
+        // 1. Immediately stop the walk / run locomotion animation
+        SetLocomotionAnimSpeed(1.0f);
+        SafeSetFloat(_speedHash, 0f);
+        SafeSetBool(_isRunningHash, false);
+        SafeSetBool(_isWalkingHash, false);
+
+        if (_agent != null && _agent.isOnNavMesh && _agent.enabled)
+        {
+            _agent.isStopped = true;
+            _agent.velocity = Vector3.zero;
+        }
+
+        // 2. Compute facing direction towards the new route waypoint
+        Vector3 turnDir = waypoint - transform.position;
+        turnDir.y = 0f;
+
+        if (turnDir.sqrMagnitude > 0.05f)
+        {
+            // 3. Trigger turn animation and rotate body towards open tunnel
+            UpdateTurningAnimation(turnDir);
+
+            Quaternion targetRotation = Quaternion.LookRotation(turnDir.normalized);
+            float elapsed = 0f;
+            float maxDuration = 0.55f;
+            float rerouteTurnRate = (monsterType == MonsterType.Berserker) ? 140f : 110f;
+
+            while (elapsed < maxDuration && Quaternion.Angle(transform.rotation, targetRotation) > 8f)
+            {
+                transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, rerouteTurnRate * Time.deltaTime);
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+
+            if (_turnActiveTimer <= 0f) StopTurningAnimation();
+        }
+
+        // 4. Resume locomotion along the open route
+        if (_agent != null && _agent.isOnNavMesh && _agent.enabled)
+        {
+            _agent.isStopped = false;
+            _agent.SetDestination(waypoint);
+
+            float runSpd = (monsterType == MonsterType.Zombie) ? standRunSpeed : runSpeed;
+            SafeSetFloat(_speedHash, runSpd);
+            SafeSetBool(_isRunningHash, true);
+        }
+
+        _rerouteTurnCoroutine = null;
     }
 
     protected Transform FindBestTarget()
@@ -2350,6 +2751,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     private void Die()
     {
         currentState = AIState.Dead;
+        ActiveMonsters.Remove(this);
 
         if (_standUpCoroutine != null)
         {
