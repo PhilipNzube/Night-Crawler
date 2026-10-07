@@ -605,31 +605,46 @@ public class SettingsUI : MonoBehaviour
 
     private void UpdateSliderValueDisplay(Slider slider, SliderManager heatSlider, float val, float min, float max)
     {
-        if (heatSlider != null)
+        string displayStr = (max <= 1.01f && min >= 0f)
+            ? Mathf.RoundToInt(val * 100f) + "%"
+            : val.ToString("F1");
+
+        Transform root = null;
+        if (heatSlider != null) root = heatSlider.transform;
+        else if (slider != null) root = slider.transform;
+
+        if (root == null) return;
+
+        // 1. Update all TMP_InputFields under root (e.g. Michsky Text Input)
+        var inps = root.GetComponentsInChildren<TMP_InputField>(true);
+        foreach (var inp in inps)
         {
-            heatSlider.UpdateUI();
+            if (inp == null) continue;
+            inp.contentType = TMP_InputField.ContentType.Standard;
+            inp.characterValidation = TMP_InputField.CharacterValidation.None;
+            inp.SetTextWithoutNotify(displayStr);
         }
 
-        TMP_Text txt = null;
-        if (heatSlider != null)
+        // 2. Update all TMP_Text value labels under root
+        var tmps = root.GetComponentsInChildren<TMP_Text>(true);
+        foreach (var t in tmps)
         {
-            txt = heatSlider.GetComponentInChildren<TMP_Text>(true);
-        }
-        else if (slider != null)
-        {
-            txt = slider.GetComponentInChildren<TMP_Text>(true);
+            if (t == null) continue;
+            string n = t.gameObject.name.ToLower();
+            if (n.Contains("title") || n.Contains("header")) continue;
+            if (t.transform == root.parent && n.Contains("label")) continue;
+
+            t.text = displayStr;
         }
 
-        if (txt != null)
+        // 3. Fallback for standard UGUI Text if present
+        var uTexts = root.GetComponentsInChildren<UnityEngine.UI.Text>(true);
+        foreach (var ut in uTexts)
         {
-            if (max <= 1.01f && min >= 0f)
-            {
-                txt.text = Mathf.RoundToInt(val * 100f) + "%";
-            }
-            else
-            {
-                txt.text = val.ToString("F1");
-            }
+            if (ut == null) continue;
+            string n = ut.gameObject.name.ToLower();
+            if (n.Contains("title") || n.Contains("header")) continue;
+            ut.text = displayStr;
         }
     }
 

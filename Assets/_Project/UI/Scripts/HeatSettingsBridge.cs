@@ -1901,11 +1901,12 @@ public class HeatSettingsBridge : MonoBehaviour
         if (invertYSwitch != null) invertYSwitch.isOn = GameSettingsManager.InvertY;
         if (vSyncSwitch != null) vSyncSwitch.isOn = GameSettingsManager.Instance.vSync == 1;
 
-        if (lookSensitivitySlider != null) lookSensitivitySlider.value = GameSettingsManager.MouseSens;
-        if (masterVolumeSlider != null) masterVolumeSlider.value = GameSettingsManager.Instance.masterVolume;
-        if (musicVolumeSlider != null) musicVolumeSlider.value = GameSettingsManager.Instance.musicVolume;
-        if (sfxVolumeSlider != null) sfxVolumeSlider.value = GameSettingsManager.SFXVolume;
-        if (uiVolumeSlider != null) uiVolumeSlider.value = GameSettingsManager.UIVolumeVal;
+        if (lookSensitivitySlider != null) RefreshSliderUI(lookSensitivitySlider, GameSettingsManager.MouseSens);
+        if (masterVolumeSlider != null) RefreshSliderUI(masterVolumeSlider, GameSettingsManager.Instance.masterVolume);
+        if (musicVolumeSlider != null) RefreshSliderUI(musicVolumeSlider, GameSettingsManager.Instance.musicVolume);
+        if (sfxVolumeSlider != null) RefreshSliderUI(sfxVolumeSlider, GameSettingsManager.SFXVolume);
+        if (uiVolumeSlider != null) RefreshSliderUI(uiVolumeSlider, GameSettingsManager.UIVolumeVal);
+        if (ambientVolumeSlider != null) RefreshSliderUI(ambientVolumeSlider, GameSettingsManager.AmbientVolume);
 
         if (struggleModeSelector != null) SetSelectorIndex(struggleModeSelector, GameSettingsManager.StruggleHoldActive ? 1 : 0);
         if (sprintModeSelector != null) SetSelectorIndex(sprintModeSelector, GameSettingsManager.SprintToggle ? 1 : 0);
@@ -1927,6 +1928,13 @@ public class HeatSettingsBridge : MonoBehaviour
         _isInitializing = false;
     }
 
+    private void RefreshSliderUI(Slider s, float val)
+    {
+        if (s == null) return;
+        s.value = val;
+        s.onValueChanged?.Invoke(s.value);
+    }
+
     // =========================================================================
     //  Helper Methods for Control Configuration
     // =========================================================================
@@ -1944,8 +1952,27 @@ public class HeatSettingsBridge : MonoBehaviour
 
     private void ConfigureSliderComponent(Slider s, SettingDescriptionEntry entry, float initialValue, float minVal, float maxVal, Action<float> onChanged)
     {
-        SetRowTitleText(s.transform, entry.displayTitle);
-        AttachHoverPreview(s.transform, entry);
+        if (s == null) return;
+
+        // 1. Identify row container vs inner slider transform:
+        // Settings Element (Slider) [Row Container]
+        //   ├── Text (Row Title, e.g. "Master Volume")
+        //   └── Slider [Inner Slider, contains Slider & SliderManager]
+        //         └── Text Area
+        //               ├── Text (TextMeshProUGUI - value display)
+        //               └── Text Input (TMP_InputField, SliderInput)
+        Transform rowContainer = s.transform;
+        if (s.transform.parent != null &&
+            (s.transform.parent.name.Contains("Element") ||
+             s.transform.parent.name.Contains("Row") ||
+             s.transform.parent.name.Contains("Item") ||
+             s.transform.name.Equals("Slider", StringComparison.OrdinalIgnoreCase)))
+        {
+            rowContainer = s.transform.parent;
+        }
+
+        SetRowTitleText(rowContainer, entry.displayTitle);
+        AttachHoverPreview(rowContainer, entry);
 
         s.minValue = minVal;
         s.maxValue = maxVal;
@@ -1954,24 +1981,38 @@ public class HeatSettingsBridge : MonoBehaviour
         SliderManager sm = s.GetComponent<SliderManager>() ?? s.GetComponentInParent<SliderManager>();
         if (sm != null) sm.saveValue = false;
 
-        TMP_Text valueLabel = FindSliderValueText(s.transform);
-
         Action<float> updateTextAction = val =>
         {
-            if (valueLabel != null)
+            string displayStr;
+            if (maxVal <= 1.01f && minVal >= 0f)
             {
-                if (maxVal <= 1.01f && minVal >= 0f)
-                {
-                    valueLabel.text = Mathf.RoundToInt(val * 100f) + "%";
-                }
-                else
-                {
-                    valueLabel.text = val.ToString("F1");
-                }
+                displayStr = Mathf.RoundToInt(val * 100f) + "%";
             }
-            if (sm != null)
+            else
             {
-                sm.UpdateUI();
+                displayStr = val.ToString("F1");
+            }
+
+            // 1. Update all TMP_InputFields under s.transform (e.g. Michsky Text Input)
+            var inputFields = s.GetComponentsInChildren<TMP_InputField>(true);
+            foreach (var inp in inputFields)
+            {
+                if (inp == null) continue;
+                inp.contentType = TMP_InputField.ContentType.Standard;
+                inp.characterValidation = TMP_InputField.CharacterValidation.None;
+                inp.SetTextWithoutNotify(displayStr);
+            }
+
+            // 2. Update all TMP_Text value labels under s.transform
+            var texts = s.GetComponentsInChildren<TMP_Text>(true);
+            foreach (var t in texts)
+            {
+                if (t == null) continue;
+                string n = t.gameObject.name.ToLower();
+                if (n.Contains("title") || n.Contains("header")) continue;
+                if (t.transform == rowContainer && n.Contains("label")) continue;
+
+                t.text = displayStr;
             }
         };
 
@@ -1981,6 +2022,27 @@ public class HeatSettingsBridge : MonoBehaviour
             updateTextAction(val);
             onChanged?.Invoke(val);
         });
+
+        // Hook up manual typing into the input field if the user edits it directly
+        var inps = s.GetComponentsInChildren<TMP_InputField>(true);
+        foreach (var inp in inps)
+        {
+            if (inp == null) continue;
+            inp.onEndEdit.RemoveAllListeners();
+            inp.onEndEdit.AddListener(str =>
+            {
+                if (string.IsNullOrEmpty(str)) return;
+                string clean = str.Replace("%", "").Trim();
+                if (float.TryParse(clean, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float parsedVal))
+                {
+                    if (maxVal <= 1.01f && minVal >= 0f && parsedVal > 1.01f)
+                    {
+                        parsedVal = parsedVal / 100f;
+                    }
+                    s.value = Mathf.Clamp(parsedVal, minVal, maxVal);
+                }
+            });
+        }
 
         updateTextAction(initialValue);
     }
@@ -2041,16 +2103,45 @@ public class HeatSettingsBridge : MonoBehaviour
 
     private void SetRowTitleText(Transform root, string title)
     {
-        Transform textChild = root.Find("Label") ?? root.Find("Text");
+        if (root == null || string.IsNullOrEmpty(title)) return;
+
+        // If root points to the inner Slider, navigate up to parent row container
+        if (root.name.Equals("Slider", StringComparison.OrdinalIgnoreCase) && root.parent != null)
+        {
+            root = root.parent;
+        }
+
+        Transform textChild = null;
+
+        // 1. Direct child under root
+        Transform direct = root.Find("Text") ?? root.Find("Label") ?? root.Find("Title") ?? root.Find("Text Parent/Text");
+        if (direct != null && direct.GetComponent<TextMeshProUGUI>() != null)
+        {
+            textChild = direct;
+        }
+
+        // 2. Recursive search, strictly avoiding any Slider or Text Area children
         if (textChild == null)
         {
             foreach (Transform c in root.GetComponentsInChildren<Transform>(true))
             {
-                if (c.name.Equals("Label", StringComparison.OrdinalIgnoreCase) || c.name.Equals("Text", StringComparison.OrdinalIgnoreCase))
+                if (c == root) continue;
+
+                if (c.GetComponentInParent<Slider>() != null) continue;
+                if (c.name.Equals("Text Area", StringComparison.OrdinalIgnoreCase) ||
+                    (c.parent != null && c.parent.name.Equals("Text Area", StringComparison.OrdinalIgnoreCase))) continue;
+                if (c.parent != null && c.parent.name.Equals("Header", StringComparison.OrdinalIgnoreCase)) continue;
+
+                if (c.name.Equals("Label", StringComparison.OrdinalIgnoreCase) ||
+                    c.name.Equals("Text", StringComparison.OrdinalIgnoreCase) ||
+                    c.name.Equals("Title", StringComparison.OrdinalIgnoreCase) ||
+                    c.name.Equals("RowTitle", StringComparison.OrdinalIgnoreCase))
                 {
-                    if (c.parent != null && c.parent.name.Equals("Header", StringComparison.OrdinalIgnoreCase)) continue;
-                    textChild = c;
-                    break;
+                    if (c.GetComponent<TextMeshProUGUI>() != null)
+                    {
+                        textChild = c;
+                        break;
+                    }
                 }
             }
         }
@@ -2059,11 +2150,6 @@ public class HeatSettingsBridge : MonoBehaviour
         {
             var tmp = textChild.GetComponent<TextMeshProUGUI>();
             if (tmp != null) tmp.text = title;
-        }
-        else
-        {
-            var tmps = root.GetComponentsInChildren<TextMeshProUGUI>(true);
-            if (tmps.Length > 0 && tmps[0] != null) tmps[0].text = title;
         }
     }
 
