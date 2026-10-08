@@ -331,8 +331,11 @@ public class GirlDealUI : MonoBehaviour
             canvasGroup.blocksRaycasts = false;
         }
 
-        Cursor.lockState = CursorLockMode.Locked;
-        Cursor.visible = false;
+        if (!PauseManager.IsGamePaused)
+        {
+            Cursor.lockState = CursorLockMode.Locked;
+            Cursor.visible = false;
+        }
     }
 
     // =========================================================================

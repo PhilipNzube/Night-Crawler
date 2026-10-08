@@ -141,21 +141,21 @@ namespace NightCrawler.Economy
         }
 
         /// <summary>
-        /// Maximum times the Girl can reveal/manifest herself per match.
-        /// Baseline = 3 reveals, +1 per level.
+        /// Maximum times the Girl can reveal/manifest herself per match (deprecated, now time bank driven).
         /// </summary>
         public static int GetGirlVisibilityCharges(int level)
         {
-            return 3 + level;
+            return 1;
         }
 
         /// <summary>
-        /// Duration in seconds of each visibility/manifestation.
-        /// Baseline = 8s, +2s per level.
+        /// Total match time bank (in seconds) the Girl is permitted to remain physically manifested and visible.
+        /// Pauses whenever she cloaks back into shadows and resumes when manifested again.
+        /// Baseline = 40s, +15s per level.
         /// </summary>
         public static float GetGirlVisibilityDuration(int level)
         {
-            return 8f + (level * 2f);
+            return 40f + (level * 15f);
         }
 
         /// <summary>
@@ -189,8 +189,8 @@ namespace NightCrawler.Economy
 
                 case UpgradeStatType.PossessionDuration:  return "Possession Pool";
                 case UpgradeStatType.DealCapacity:        return "Dark Deal Capacity";
-                case UpgradeStatType.VisibilityCount:     return "Manifest Charges";
-                case UpgradeStatType.VisibilityDuration:  return "Manifest Duration";
+                case UpgradeStatType.VisibilityCount:     return "Manifest Bank";
+                case UpgradeStatType.VisibilityDuration:  return "Manifestation Pool";
                 case UpgradeStatType.DeadSummonCharges:   return "Necrotic Summons";
                 default: return stat.ToString();
             }
@@ -220,9 +220,9 @@ namespace NightCrawler.Economy
                 case UpgradeStatType.DealCapacity:
                     return $"{GetGirlDealCapacity(level)} Dark Deals / Match";
                 case UpgradeStatType.VisibilityCount:
-                    return $"{GetGirlVisibilityCharges(level)} Manifestations / Match";
+                    return $"{GetGirlVisibilityDuration(level):0}s Manifestation Time Bank";
                 case UpgradeStatType.VisibilityDuration:
-                    return $"{GetGirlVisibilityDuration(level):0}s Manifest Duration";
+                    return $"{GetGirlVisibilityDuration(level):0}s Manifestation Time Bank";
                 case UpgradeStatType.DeadSummonCharges:
                     if (level >= 5) return $"{GetGirlDeadSummonCharges(level)} Monsters (6 Undead + 2 Berserkers)";
                     if (level >= 3) return $"{GetGirlDeadSummonCharges(level)} Monsters (Includes Berserker Unlock)";

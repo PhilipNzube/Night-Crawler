@@ -505,4 +505,21 @@ public class PauseUI : MonoBehaviour
             NotificationManager.Instance.ShowNotification(title, description, 4f);
         }
     }
+
+    private void LateUpdate()
+    {
+        // Whenever the game is paused, enforce that the cursor remains unlocked and visible,
+        // even if another closing UI panel, modal, or HUD attempted to lock it this frame.
+        if (PauseManager.IsGamePaused)
+        {
+            if (Cursor.lockState != CursorLockMode.None)
+            {
+                Cursor.lockState = CursorLockMode.None;
+            }
+            if (!Cursor.visible)
+            {
+                Cursor.visible = true;
+            }
+        }
+    }
 }

@@ -198,6 +198,20 @@ public class NotificationManager : MonoBehaviour
         ShowStyledWarning(header, message, accentColor, duration, notificationSound, isPulsing: false);
     }
 
+    public static string SanitizeNotificationText(string text)
+    {
+        if (string.IsNullOrEmpty(text)) return text;
+        string result = System.Text.RegularExpressions.Regex.Replace(text, @"\(\s*\d+\s*s\s*timer\s*,\s*", "(", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        result = System.Text.RegularExpressions.Regex.Replace(result, @"\s*\d+\s*s\s*timer\b", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        result = System.Text.RegularExpressions.Regex.Replace(result, @"Estimated survival:\s*[^.]*\.", "Seek immediate medical treatment.", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        result = System.Text.RegularExpressions.Regex.Replace(result, @"Reinforced respirator lifespan:\s*[^.]*\.", "Reinforced respirator active.", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        result = System.Text.RegularExpressions.Regex.Replace(result, @"\b(?:for\s*)?<b>\d+(?:\.\d+)?s</b>", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        result = System.Text.RegularExpressions.Regex.Replace(result, @"\b\d+m\s*\d+s\b", "", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        result = System.Text.RegularExpressions.Regex.Replace(result, @"\bLost\s+\d+s\s+possession\s+time", "Lost possession time", System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+        result = System.Text.RegularExpressions.Regex.Replace(result, @"\s{2,}", " ");
+        return result.Trim();
+    }
+
     /// <summary>
     /// Enqueues and displays a styled warning. If it is the exact same notification as the one
     /// currently displaying or already in queue, it will NOT trigger a re-animation or duplicate queue buildup.
@@ -205,6 +219,9 @@ public class NotificationManager : MonoBehaviour
     /// </summary>
     public void ShowStyledWarning(string header, string message, Color accentColor, float duration, AudioClip sound = null, bool isPulsing = false)
     {
+        header = SanitizeNotificationText(header);
+        message = SanitizeNotificationText(message);
+
         // 1. If identical notification is already waiting in queue, ignore it
         foreach (var item in _queue)
         {

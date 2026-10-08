@@ -427,8 +427,11 @@ namespace NightCrawler.Monsters
                 canvasGroup.blocksRaycasts = false;
             }
 
-            Cursor.lockState = CursorLockMode.Locked;
-            Cursor.visible = false;
+            if (!PauseManager.IsGamePaused)
+            {
+                Cursor.lockState = CursorLockMode.Locked;
+                Cursor.visible = false;
+            }
         }
 
         public void SetVisible(bool visible)

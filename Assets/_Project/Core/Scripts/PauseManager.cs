@@ -259,4 +259,24 @@ public class PauseManager : MonoBehaviour
         _inputs     = localPlayer.GetComponent<StarterAssetsInputs>();
         _controller = localPlayer.GetComponent<ThirdPersonController>();
     }
+
+    private void LateUpdate()
+    {
+        if (_isPaused)
+        {
+            if (Cursor.lockState != CursorLockMode.None)
+            {
+                Cursor.lockState = CursorLockMode.None;
+            }
+            if (!Cursor.visible)
+            {
+                Cursor.visible = true;
+            }
+            if (_inputs != null)
+            {
+                _inputs.cursorLocked = false;
+                _inputs.cursorInputForLook = false;
+            }
+        }
+    }
 }

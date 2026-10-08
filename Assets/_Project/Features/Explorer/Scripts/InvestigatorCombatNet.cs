@@ -41,11 +41,11 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
     [Tooltip("Total number of combo steps in the attack chain (e.g. 3 for 3-hit combo).")]
     public int maxComboSteps = 3;
     [Tooltip("Minimum time in seconds between normal combo strikes to allow swing follow-through.")]
-    public float comboHitInterval = 0.35f;
+    public float comboHitInterval = 0.60f;
     [Tooltip("Recovery duration in seconds after the final finisher hit before a new combo can begin.")]
-    public float comboFinisherRecovery = 0.35f;
+    public float comboFinisherRecovery = 0.70f;
     [Tooltip("Buffer window in seconds to queue an attack if clicked slightly before recovery ends.")]
-    public float inputBufferWindow = 0.30f;
+    public float inputBufferWindow = 0.20f;
 
     [Header("Equip Animation Settings")]
     [Tooltip("If true, plays draw/equip and holster/disarm animations. If false (default), weapons appear instantly in hand upon deal/pickup.")]
@@ -525,32 +525,84 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
 
     private IEnumerator DelayedMeleeStrikeRoutine(WeaponStats stats, int comboStep)
     {
-        float delay = comboStep switch
+        // 1. If an Animator is present, wait until the attack animation has actually begun and reaches the swing stroke apex
+        bool syncedToAnim = false;
+        if (_animator != null)
         {
-            0 => meleeStrikeDelayStep0,
-            1 => meleeStrikeDelayStep1,
-            _ => meleeStrikeDelayStep2
-        };
+            float maxWait = 0.85f;
+            float elapsed = 0f;
 
-        if (delay > 0f)
-        {
-            yield return new WaitForSeconds(delay);
+            // Allow 1 frame for the Animator to consume the trigger and begin transition
+            yield return null;
+            elapsed += Time.deltaTime;
+
+            while (elapsed < maxWait)
+            {
+                var curState = _animator.GetCurrentAnimatorStateInfo(0);
+                var nextState = _animator.GetNextAnimatorStateInfo(0);
+
+                bool isAttacking = IsMeleeAttackState(curState) || IsMeleeAttackState(nextState);
+                if (isAttacking)
+                {
+                    // If still blending in, wait for transition to complete
+                    if (_animator.IsInTransition(0))
+                    {
+                        yield return null;
+                        elapsed += Time.deltaTime;
+                        continue;
+                    }
+
+                    // Once inside the melee attack state, wait until the weapon cuts downward through the air (apex ~0.45f - 0.55f)
+                    if (curState.normalizedTime >= 0.45f)
+                    {
+                        syncedToAnim = true;
+                        break;
+                    }
+                }
+
+                yield return null;
+                elapsed += Time.deltaTime;
+            }
         }
 
-        // 1. Play the crisp swing whoosh audio right as the axe blade chops downward through the air
+        // 2. Fallback delay if animator was not present or timed out
+        if (!syncedToAnim)
+        {
+            float delay = comboStep switch
+            {
+                0 => meleeStrikeDelayStep0,
+                1 => meleeStrikeDelayStep1,
+                _ => meleeStrikeDelayStep2
+            };
+
+            if (delay > 0f)
+            {
+                yield return new WaitForSeconds(delay);
+            }
+        }
+
+        // 3. Play the crisp swing whoosh audio right as the axe blade chops downward through the air
         if (stats != null && stats.fireSound != null && _audioSource != null)
         {
             float vol = Mathf.Clamp01(stats.fireSoundVolume);
             _audioSource.PlayOneShot(stats.fireSound, vol);
         }
 
-        // 2. Perform the physical melee hit detection right at the strike apex
+        // 4. Perform the physical melee hit detection right at the strike apex
         if (stats != null)
         {
             PerformMeleeHit(stats);
         }
 
         _meleeStrikeRoutine = null;
+    }
+
+    private static bool IsMeleeAttackState(AnimatorStateInfo state)
+    {
+        return state.IsName("Melee_Attack_1") ||
+               state.IsName("Melee_Combo") ||
+               state.IsName("Melee_Attack_3") ||
+               state.IsTag("Attack");
     }
 
     private bool _hasWarnedMonsterDealWeapon = false;

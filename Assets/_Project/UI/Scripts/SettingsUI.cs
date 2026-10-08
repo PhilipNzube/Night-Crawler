@@ -542,22 +542,9 @@ public class SettingsUI : MonoBehaviour
             if (heatUIVolumeSlider.mainSlider != null) heatUIVolumeSlider.mainSlider.onValueChanged.AddListener(v => onUi(v));
         }
 
-        // Ambient / Environmental Volume
-        System.Action<float> onAmbient = v =>
-        {
-            GameSettingsManager gsm = GameSettingsManager.Instance;
-            if (gsm == null) return;
-            gsm.ambientVolume = v;
-            gsm.ApplySettings();
-            PlayerPrefs.SetFloat(GameSettingsManager.PREF_AMBIENT_VOL, v);
-            UpdateSliderValueDisplay(ambientVolumeSlider, heatAmbientVolumeSlider, v, 0f, 1f);
-        };
-        if (ambientVolumeSlider != null) ambientVolumeSlider.onValueChanged.AddListener(v => onAmbient(v));
-        if (heatAmbientVolumeSlider != null)
-        {
-            heatAmbientVolumeSlider.onValueChanged.AddListener(v => onAmbient(v));
-            if (heatAmbientVolumeSlider.mainSlider != null) heatAmbientVolumeSlider.mainSlider.onValueChanged.AddListener(v => onAmbient(v));
-        }
+        // Ambient / Subterranean Volume is merged into Environmental SFX
+        if (ambientVolumeSlider != null) ambientVolumeSlider.gameObject.SetActive(false);
+        if (heatAmbientVolumeSlider != null) heatAmbientVolumeSlider.gameObject.SetActive(false);
 
         // Sensitivity X
         System.Action<float> onSensX = v =>

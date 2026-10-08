@@ -93,17 +93,19 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     [Tooltip("Acceleration for instantaneous, aggressive chasing.")]
     public float runAcceleration = 8.0f;
 
-    [Header("Locomotion Friction (anti-glide)")]
-    [Tooltip("Max body turn rate (deg/sec) for a standing Zombie. Lower = heavier, more sluggish turns.")]
-    public float zombieTurnRate = 150f;
+    [Header("Locomotion & Root Motion Settings")]
+    [Tooltip("If true, enables Animator root motion and synchronizes it with the NavMeshAgent velocity for 1:1 Mixamo locomotion.")]
+    public bool useRootMotion = false;
+    [Tooltip("Max body turn rate (deg/sec) for a standing Zombie. Higher = responsive, smooth turning without sideways skating.")]
+    public float zombieTurnRate = 480f;
     [Tooltip("Max body turn rate (deg/sec) for a crawling Zombie.")]
-    public float zombieCrawlTurnRate = 220f;
+    public float zombieCrawlTurnRate = 420f;
     [Tooltip("Max body turn rate (deg/sec) for a Berserker.")]
-    public float berserkerTurnRate = 260f;
-    [Tooltip("Fraction of forward speed kept when the body faces away from the path. Near 0 = monster stops and pivots before moving on (no sideways gliding).")]
-    [Range(0f, 1f)] public float minTurnSpeedFactor = 0.08f;
-    [Tooltip("How strongly a standing Zombie's speed stalls between steps (leg drag). 0 = smooth glide, 0.7 = heavy limping drag.")]
-    [Range(0f, 0.9f)] public float zombieDragStrength = 0.6f;
+    public float berserkerTurnRate = 360f;
+    [Tooltip("Fraction of forward speed kept when the body faces away from the path.")]
+    [Range(0f, 1f)] public float minTurnSpeedFactor = 0.65f;
+    [Tooltip("How strongly a standing Zombie's speed stalls between steps (leg drag). 0 = smooth continuous movement.")]
+    [Range(0f, 0.9f)] public float zombieDragStrength = 0f;
     [Tooltip("Number of footsteps per loop of the Zombie walk/run clip (usually 2).")]
     public float zombieStepsPerCycle = 2f;
     [Tooltip("How quickly the monster brakes to a halt when stopped (m/s per sec). Higher = less sliding when stopping.")]
@@ -309,8 +311,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         _animator = GetComponentInChildren<Animator>();
         if (_animator != null)
         {
-            // CRITICAL: Disable root motion so animation clips do not double-stack displacement on top of NavMeshAgent!
-            _animator.applyRootMotion = false;
+            _animator.applyRootMotion = useRootMotion;
         }
 
         // Ensure physical body CapsuleCollider exists so monsters have solid physics collision
@@ -396,9 +397,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             _agent.acceleration = runAcceleration;
             _agent.stoppingDistance = Mathf.Max(0.5f, attackRange * 0.8f);
             _agent.autoBraking = true;
-            // Body rotation is driven manually in ApplyLocomotionFriction so the monster
-            // turns its body into corners instead of spinning on the spot while sliding.
-            _agent.updateRotation = false;
+            _agent.updateRotation = true;
+            _agent.angularSpeed = 480f;
             _agent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance;
             _agent.radius = 0.45f;
             _agent.avoidancePriority = 40 + (int)(NetworkObjectId % 30);
@@ -1552,7 +1552,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         transform.rotation = Quaternion.RotateTowards(transform.rotation, Quaternion.LookRotation(dir), turnRate * Time.deltaTime);
 
         float align = Vector3.Dot(transform.forward, dir);
-        float turnFactor = Mathf.Lerp(minTurnSpeedFactor, 1f, Mathf.InverseLerp(0.3f, 0.95f, align));
+        float turnFactor = (monsterType == MonsterType.Zombie) 
+            ? 1.0f 
+            : Mathf.Lerp(minTurnSpeedFactor, 1f, Mathf.InverseLerp(0.3f, 0.95f, align));
 
         float gait = 1f;
         if (_animator != null && zombieDragStrength > 0f)
@@ -1585,9 +1587,20 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         _agent.speed = _nominalAgentSpeed * turnFactor * gait;
 
         // Kill any leftover sideways drift when the body is badly misaligned
-        if (align < 0.3f)
+        if (align < 0.3f && monsterType != MonsterType.Zombie)
         {
             _agent.velocity = Vector3.MoveTowards(_agent.velocity, Vector3.zero, stopFriction * Time.deltaTime);
+        }
+    }
+
+    protected virtual void OnAnimatorMove()
+    {
+        if (_animator != null && _animator.applyRootMotion && _agent != null && _agent.enabled && _agent.isOnNavMesh)
+        {
+            // Synchronize root motion displacement with NavMeshAgent velocity
+            Vector3 rootVelocity = _animator.deltaPosition / Time.deltaTime;
+            rootVelocity.y = _agent.velocity.y;
+            _agent.velocity = rootVelocity;
         }
     }
 

@@ -34,6 +34,9 @@ public class GirlMaterialController : NetworkBehaviour
     public NetworkVariable<float> currentManifestDuration = new NetworkVariable<float>(
         8f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
+    public NetworkVariable<float> remainingManifestTime = new NetworkVariable<float>(
+        40f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
     private Renderer[] _allRenderers;
     private Dictionary<Renderer, Material[]> _originalMaterials = new Dictionary<Renderer, Material[]>();
     private ModelDissolveController _dissolveController;
@@ -57,29 +60,28 @@ public class GirlMaterialController : NetworkBehaviour
         }
     }
 
-    private int _remainingManifestCharges = 3;
-    private float _manifestDurationSeconds = 8f;
-    private Coroutine _manifestTimerRoutine;
-
     public override void OnNetworkSpawn()
     {
         isManifested.OnValueChanged += HandleManifestationChanged;
         ApplyVisualState(isManifested.Value, immediate: true);
 
-        if (IsOwner)
+        if (IsServer)
         {
-            int countLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.VisibilityCount) : 0;
             int durationLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.VisibilityDuration) : 0;
-            _remainingManifestCharges = UpgradeStatFormulas.GetGirlVisibilityCharges(countLvl);
-            _manifestDurationSeconds = UpgradeStatFormulas.GetGirlVisibilityDuration(durationLvl);
-            Debug.Log($"[GirlMaterialController] Manifestation initialized with {_remainingManifestCharges} charges, {_manifestDurationSeconds:0}s duration.");
+            remainingManifestTime.Value = UpgradeStatFormulas.GetGirlVisibilityDuration(durationLvl);
+            Debug.Log($"[GirlMaterialController] Manifestation time bank initialized: {remainingManifestTime.Value:0}s.");
+        }
+        else if (IsOwner)
+        {
+            int durationLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.VisibilityDuration) : 0;
+            float dur = UpgradeStatFormulas.GetGirlVisibilityDuration(durationLvl);
+            InitManifestTimeServerRpc(dur);
         }
     }
 
     public override void OnNetworkDespawn()
     {
         isManifested.OnValueChanged -= HandleManifestationChanged;
-        if (_manifestTimerRoutine != null) StopCoroutine(_manifestTimerRoutine);
     }
 
     private void HandleManifestationChanged(bool previous, bool current)
@@ -90,8 +92,7 @@ public class GirlMaterialController : NetworkBehaviour
         {
             if (current)
             {
-                float dur = currentManifestDuration.Value > 0f ? currentManifestDuration.Value : _manifestDurationSeconds;
-                ManifestationHUD.Instance.Show(dur);
+                ManifestationHUD.Instance.Show(remainingManifestTime.Value);
             }
             else
             {
@@ -105,23 +106,26 @@ public class GirlMaterialController : NetworkBehaviour
     /// </summary>
     public void SetManifested(bool visible, float customDuration = -1f)
     {
-        float dur = customDuration > 0f ? customDuration : _manifestDurationSeconds;
         if (IsServer)
         {
-            currentManifestDuration.Value = dur;
             isManifested.Value = visible;
         }
         else
         {
-            SetManifestedServerRpc(visible, dur);
+            SetManifestedServerRpc(visible);
         }
     }
 
     [Rpc(SendTo.Server)]
-    private void SetManifestedServerRpc(bool visible, float duration = 8f)
+    private void SetManifestedServerRpc(bool visible)
     {
-        currentManifestDuration.Value = duration;
         isManifested.Value = visible;
+    }
+
+    [Rpc(SendTo.Server)]
+    private void InitManifestTimeServerRpc(float duration)
+    {
+        remainingManifestTime.Value = duration;
     }
 
     private CharacterController _characterController;
@@ -131,6 +135,19 @@ public class GirlMaterialController : NetworkBehaviour
 
     void Update()
     {
+        // Server counts down manifestation time bank while visible
+        if (IsServer && isManifested.Value)
+        {
+            if (remainingManifestTime.Value > 0f)
+            {
+                remainingManifestTime.Value = Mathf.Max(0f, remainingManifestTime.Value - Time.deltaTime);
+                if (remainingManifestTime.Value <= 0f)
+                {
+                    SetManifested(false);
+                }
+            }
+        }
+
         // Owner controls: Press [T] to toggle Manifestation (Visible to all) vs Spirit Form (Invisible)
         if (IsOwner)
         {
@@ -143,40 +160,35 @@ public class GirlMaterialController : NetworkBehaviour
                                 || (KeybindingManager.Instance == null && ((Keyboard.current != null && Keyboard.current.tKey.wasPressedThisFrame) || Input.GetKeyDown(KeyCode.T)));
 
             if (manifestPressed)
+            {
+                if (!isManifested.Value)
                 {
-                    if (!isManifested.Value)
+                    if (remainingManifestTime.Value <= 0f)
                     {
-                        if (_remainingManifestCharges <= 0)
-                        {
-                            if (NotificationManager.Instance != null)
-                            {
-                                NotificationManager.Instance.ShowNotification("MANIFESTATION DEPLETED", "No manifestation charges remaining.", 2f);
-                            }
-                            return;
-                        }
-
-                        _remainingManifestCharges--;
-                        SetManifested(true);
-
-                        if (_manifestTimerRoutine != null) StopCoroutine(_manifestTimerRoutine);
-                        _manifestTimerRoutine = StartCoroutine(ManifestationTimerRoutine(_manifestDurationSeconds));
-
                         if (NotificationManager.Instance != null)
                         {
-                            NotificationManager.Instance.ShowNotification("MANIFESTATION ACTIVE", $"Visible for <b>{_manifestDurationSeconds:0}s</b>. Remaining charges: <b>{_remainingManifestCharges}</b>", 2.5f);
+                            NotificationManager.Instance.ShowNotification("MANIFESTATION DEPLETED", "Manifestation time bank depleted.", 2f);
                         }
+                        return;
                     }
-                    else
+
+                    SetManifested(true);
+
+                    if (NotificationManager.Instance != null)
                     {
-                        if (_manifestTimerRoutine != null) StopCoroutine(_manifestTimerRoutine);
-                        SetManifested(false);
-                        if (NotificationManager.Instance != null)
-                        {
-                            NotificationManager.Instance.ShowNotification("CLOAK RESTORED", "Returned to shadows.", 2f);
-                        }
+                        NotificationManager.Instance.ShowNotification("MANIFESTATION ACTIVE", "Visible to investigators.", 2f);
+                    }
+                }
+                else
+                {
+                    SetManifested(false);
+                    if (NotificationManager.Instance != null)
+                    {
+                        NotificationManager.Instance.ShowNotification("CLOAK RESTORED", "Returned to shadows.", 2f);
                     }
                 }
             }
+        }
 
         // Periodic safeguard running on all clients (host and remotes) to ensure
         // newly spawned or connected players ignore collision with spirit form
@@ -234,15 +246,6 @@ public class GirlMaterialController : NetworkBehaviour
         }
     }
 
-    private IEnumerator ManifestationTimerRoutine(float duration)
-    {
-        yield return new WaitForSeconds(duration);
-        SetManifested(false);
-        if (IsOwner && NotificationManager.Instance != null)
-        {
-            NotificationManager.Instance.ShowNotification("Manifestation ended. You are invisible.", 2f);
-        }
-    }
 
     public void SetAlphaInstant(float alpha)
     {

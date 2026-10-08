@@ -127,7 +127,7 @@ public class GameSettingsManager : MonoBehaviour
     public static bool  InvertY             => Instance != null ? Instance.invertYAxis : false;
     public static float SFXVolume           => Instance != null ? Instance.sfxVolume : 1.0f;
     public static float UIVolumeVal         => Instance != null ? Instance.uiVolume : 1.0f;
-    public static float AmbientVolume       => Instance != null ? Instance.ambientVolume : 0.8f;
+    public static float AmbientVolume       => Instance != null ? Instance.sfxVolume : 1.0f;
     public static bool  SprintToggle        => Instance != null ? Instance.sprintToggleMode : false;
     public static bool  ShowPerfOverlay     => Instance != null ? Instance.showPerformanceOverlay : false;
     public static bool  CameraShakeActive   => Instance != null ? Instance.cameraShakeEnabled : true;
@@ -261,7 +261,7 @@ public class GameSettingsManager : MonoBehaviour
 
         OnSFXVolumeChanged?.Invoke(sfxVolume);
         OnUIVolumeChanged?.Invoke(uiVolume);
-        OnAmbientVolumeChanged?.Invoke(ambientVolume);
+        OnAmbientVolumeChanged?.Invoke(sfxVolume);
 
         UpdateEnvironmentAudioSources();
 
@@ -412,7 +412,7 @@ public class GameSettingsManager : MonoBehaviour
         if (src == null) return;
         if (!_ambientSources.Contains(src)) _ambientSources.Add(src);
         _ambientBaseVolumes[src] = baseVolume;
-        src.volume = Mathf.Clamp01(baseVolume * ambientVolume);
+        src.volume = Mathf.Clamp01(baseVolume * sfxVolume);
     }
 
     public void UnregisterAmbientSource(AudioSource src)
@@ -426,8 +426,8 @@ public class GameSettingsManager : MonoBehaviour
     {
         _ambientSources.RemoveAll(s => s == null);
 
-        // Scales explicitly registered ambient AudioSources (e.g. via AudioChannelBinding component)
-        float combinedEnvVol = Mathf.Clamp01(ambientVolume * sfxVolume);
+        // Scales explicitly registered ambient AudioSources directly from Environmental SFX
+        float combinedEnvVol = Mathf.Clamp01(sfxVolume);
 
         foreach (var src in _ambientSources)
         {

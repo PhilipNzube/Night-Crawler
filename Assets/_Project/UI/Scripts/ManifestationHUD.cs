@@ -85,11 +85,27 @@ public class ManifestationHUD : MonoBehaviour
         if (Instance == this) _instance = null;
     }
 
+    private GirlMaterialController _girlController;
+
     private void Update()
     {
         if (!_isCountingDown) return;
 
-        if (_timeRemaining > 0f)
+        if (_girlController == null)
+        {
+            _girlController = FindFirstObjectByType<GirlMaterialController>();
+        }
+
+        if (_girlController != null)
+        {
+            _timeRemaining = _girlController.remainingManifestTime.Value;
+            UpdateTimerText(_timeRemaining);
+            if (!_girlController.isManifested.Value || _timeRemaining <= 0f)
+            {
+                Hide();
+            }
+        }
+        else if (_timeRemaining > 0f)
         {
             _timeRemaining -= Time.deltaTime;
             if (_timeRemaining < 0f) _timeRemaining = 0f;

@@ -1595,14 +1595,9 @@ public class HeatSettingsBridge : MonoBehaviour
 
         if (ambientVolumeSlider != null)
         {
-            var entry = GetDescriptionEntry("Ambient Volume", "Subterranean Ambience");
-            ConfigureSliderComponent(ambientVolumeSlider, entry, GameSettingsManager.AmbientVolume, 0f, 1.0f, val =>
-            {
-                if (_isInitializing || GameSettingsManager.Instance == null) return;
-                GameSettingsManager.Instance.ambientVolume = val;
-                GameSettingsManager.Instance.SaveSettings();
-                GameSettingsManager.Instance.ApplySettings();
-            });
+            // Subterranean SFX / Ambience is merged into Environmental SFX (sfxVolume).
+            // Deactivate the redundant UI object if present in the scene.
+            ambientVolumeSlider.gameObject.SetActive(false);
         }
     }
 

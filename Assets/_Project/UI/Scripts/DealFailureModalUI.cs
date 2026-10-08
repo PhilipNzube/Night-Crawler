@@ -254,7 +254,7 @@ namespace NightCrawler.UI
             {
                 ForceAlphaHidden();
 
-                if (modifyCursor)
+                if (modifyCursor && !PauseManager.IsGamePaused)
                 {
                     Cursor.lockState = CursorLockMode.Locked;
                     Cursor.visible = false;

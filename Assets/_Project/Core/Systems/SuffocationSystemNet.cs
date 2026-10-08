@@ -188,13 +188,9 @@ public class SuffocationSystemNet : NetworkBehaviour
     {
         yield return new WaitForSeconds(1.5f);
 
-        int minutes = Mathf.FloorToInt(_effectiveLifespan / 60f);
-        int seconds = Mathf.FloorToInt(_effectiveLifespan % 60f);
-        string timeStr = $"{minutes}m {seconds:00}s";
-
         string message = _isHazardSpecialist
-            ? $"Toxic mine air detected. Reinforced respirator lifespan: {timeStr}."
-            : $"[WARNING: TOXIC ATMOSPHERE] Lethal mine air detected! Estimated survival: {timeStr} without medical treatment.";
+            ? "Toxic mine air detected. Reinforced respirator active."
+            : "[WARNING: TOXIC ATMOSPHERE] Lethal mine air detected! Seek immediate medical treatment.";
 
         Debug.LogWarning($"[SuffocationSystemNet] {message}");
 
