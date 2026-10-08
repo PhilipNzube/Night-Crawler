@@ -68,8 +68,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     [Tooltip("Duration in seconds of the Zombie Hit Reaction stagger.")]
     public float hitReactionDuration = 0.5f;
 
-    [Tooltip("Walking speed in standing posture (used when following Girl or patrolling near her).")]
-    public float walkSpeed = 0.95f;
+    [Tooltip("Walking speed in standing posture (calibrated to match animation foot stride).")]
+    public float walkSpeed = 0.55f;
 
     [Tooltip("Standing run speed while pursuing targets or catching up to the Girl.")]
     public float standRunSpeed = 2.6f;
@@ -95,7 +95,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     [Header("Locomotion & Root Motion Settings")]
     [Tooltip("If true, enables Animator root motion and synchronizes it with the NavMeshAgent velocity for 1:1 Mixamo locomotion.")]
-    public bool useRootMotion = false;
+    public bool useRootMotion = true;
     [Tooltip("Max body turn rate (deg/sec) for a standing Zombie. Higher = responsive, smooth turning without sideways skating.")]
     public float zombieTurnRate = 480f;
     [Tooltip("Max body turn rate (deg/sec) for a crawling Zombie.")]
@@ -153,6 +153,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     public bool playScreamOnSpawn = true;
     [Tooltip("Duration of the roar state where the monster screams at players before running.")]
     public float screamDuration = 2.4f;
+    [Tooltip("Delay in seconds before the scream audio triggers, waiting for the animation wind-up to reach the open-mouth apex.")]
+    public float screamAudioDelay = 0.35f;
     [Tooltip("Audio clip for the scream/roar.")]
     public AudioClip spawnScreamClip;
     [Tooltip("3D AudioSource configured for scary spatial audio.")]
@@ -397,6 +399,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             _agent.acceleration = runAcceleration;
             _agent.stoppingDistance = Mathf.Max(0.5f, attackRange * 0.8f);
             _agent.autoBraking = true;
+            _agent.updatePosition = (monsterType != MonsterType.Zombie);
             _agent.updateRotation = true;
             _agent.angularSpeed = 480f;
             _agent.obstacleAvoidanceType = ObstacleAvoidanceType.HighQualityObstacleAvoidance;
@@ -475,7 +478,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             // Zombie defaults: calibrated to realistic, grounded speeds that match the animations
             crawlSpeed = 4.2f;
             standRunSpeed = 3.5f;
-            walkSpeed = 1.25f;
+            walkSpeed = 0.55f;
             runSpeed = crawlSpeed;
             runAcceleration = 8.0f;
             if (attackDamage < 25f) attackDamage = 35f;
@@ -622,6 +625,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         {
             ApplyLocomotionFriction();
         }
+
+        UpdateDynamicStrideSync();
     }
 
     private void LateUpdate()
@@ -787,7 +792,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         _hasLanded = true;
         if (_characterController != null) _characterController.enabled = false;
-        if (_agent != null) _agent.enabled = true;
+        if (_agent != null)
+        {
+            _agent.enabled = true;
+            _agent.updatePosition = (monsterType != MonsterType.Zombie);
+        }
 
         if (playScreamOnSpawn && !_hasScreamed)
         {
@@ -817,17 +826,22 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         // Find initial closest player to look at while screaming
         target = FindBestTarget();
 
-        // 3D Audio Scream
-        Play3DScream();
-
-        // Animation Scream Trigger
+        // 1. Trigger Animation first
         TriggerScreamAnimation();
 
         SetLocomotionAnimSpeed(1.0f);
         SafeSetFloat(_speedHash, 0f);
         SafeSetBool(_isRunningHash, false);
 
-        yield return new WaitForSeconds(screamDuration);
+        // 2. Wait for the animation anticipation/wind-up to open the mouth at apex
+        float audioDelay = Mathf.Clamp(screamAudioDelay, 0.1f, screamDuration * 0.5f);
+        yield return new WaitForSeconds(audioDelay);
+
+        // 3. Play 3D Audio Scream precisely at the apex
+        Play3DScream();
+
+        float remaining = Mathf.Max(0.5f, screamDuration - audioDelay);
+        yield return new WaitForSeconds(remaining);
 
         // Transition directly to relentless pursuit
         currentState = AIState.Running;
@@ -1495,19 +1509,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     /// </summary>
     protected virtual void UpdateDynamicStrideSync()
     {
-        if (_animator == null || _agent == null || !_agent.enabled || !_agent.isOnNavMesh) return;
-
-        float curVelocity = _agent.velocity.magnitude;
-        float targetScale = 1.0f;
-        if (curVelocity > 0.15f)
-        {
-            float nominalSpeed = _agent.speed > 0.1f ? _agent.speed : 1.0f;
-            targetScale = Mathf.Clamp(curVelocity / nominalSpeed, 0.5f, 1.25f);
-        }
-
-        // Smoothed so the zombie drag-gait speed pulses don't make the animation stutter
-        _smoothedStrideScale = Mathf.Lerp(_smoothedStrideScale, targetScale, Time.deltaTime * 3f);
-        _animator.speed = _smoothedStrideScale;
+        if (_animator == null) return;
+        _animator.speed = 1.0f;
     }
 
     // =========================================================================
@@ -1515,10 +1518,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     // =========================================================================
 
     /// <summary>
-    /// Gives the monster weight: the body turns at a capped rate, forward speed drops when
-    /// the body isn't facing the path (so it pivots instead of sliding sideways like a
-    /// spinning globe), standing zombies stall between steps (leg drag) and all monsters
-    /// brake quickly when stopped.
+    /// Smooth, natural locomotion matching original Mixamo animations.
     /// </summary>
     protected virtual void ApplyLocomotionFriction()
     {
@@ -1533,101 +1533,98 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             return;
         }
 
-        // Attack / scream facing is handled by RotateTowardsTarget
-        if (currentState == AIState.Attacking || currentState == AIState.SpawningScream) return;
-
-        Vector3 desired = _agent.desiredVelocity;
-        if (_isDodgingMonster && _dodgeOffset != Vector3.zero)
-        {
-            desired = Vector3.Lerp(desired, _dodgeOffset * desired.magnitude, 0.65f);
-        }
-        desired.y = 0f;
-        if (desired.sqrMagnitude < 0.01f) return;
-
-        Vector3 dir = desired.normalized;
-        float turnRate = (monsterType == MonsterType.Berserker)
-            ? berserkerTurnRate
-            : (currentPosture == ZombiePosture.Crawling ? zombieCrawlTurnRate : zombieTurnRate);
-
-        transform.rotation = Quaternion.RotateTowards(transform.rotation, Quaternion.LookRotation(dir), turnRate * Time.deltaTime);
-
-        float align = Vector3.Dot(transform.forward, dir);
-        float turnFactor = (monsterType == MonsterType.Zombie) 
-            ? 1.0f 
-            : Mathf.Lerp(minTurnSpeedFactor, 1f, Mathf.InverseLerp(0.3f, 0.95f, align));
-
-        float gait = 1f;
-        if (_animator != null && zombieDragStrength > 0f)
-        {
-            float phase = _animator.GetCurrentAnimatorStateInfo(0).normalizedTime % 1f;
-            float stepsPerCycle = 2.0f;
-            float exponent = 2.2f;
-            float minGait = 0.2f;
-
-            if (monsterType == MonsterType.Zombie)
-            {
-                // Smooth continuous locomotion matching Mixamo preview clip (no shaking / gait choking)
-                gait = 1.0f;
-            }
-            else if (monsterType == MonsterType.Berserker)
-            {
-                stepsPerCycle = 2.0f;
-                exponent = 2.8f; // Heavy impactful strides
-                minGait = 0.1f;
-                float stepPulse = Mathf.Pow(Mathf.Abs(Mathf.Sin(phase * Mathf.PI * stepsPerCycle)), exponent);
-                gait = Mathf.Lerp(minGait, 1f, stepPulse);
-
-                if (stepPulse < 0.25f && _agent.velocity.sqrMagnitude > 0.01f)
-                {
-                    _agent.velocity = Vector3.Lerp(Vector3.zero, _agent.velocity, stepPulse * 4f);
-                }
-            }
-        }
-
-        _agent.speed = _nominalAgentSpeed * turnFactor * gait;
-
-        // Kill any leftover sideways drift when the body is badly misaligned
-        if (align < 0.3f && monsterType != MonsterType.Zombie)
-        {
-            _agent.velocity = Vector3.MoveTowards(_agent.velocity, Vector3.zero, stopFriction * Time.deltaTime);
-        }
+        // Maintain full nominal speed without artificial drag or gait throttling
+        _agent.speed = _nominalAgentSpeed;
     }
 
     protected virtual void OnAnimatorMove()
     {
-        if (_animator != null && _animator.applyRootMotion && _agent != null && _agent.enabled && _agent.isOnNavMesh)
+        if (_animator != null && _animator.applyRootMotion)
         {
-            // Synchronize root motion displacement with NavMeshAgent velocity
-            Vector3 rootVelocity = _animator.deltaPosition / Time.deltaTime;
-            rootVelocity.y = _agent.velocity.y;
-            _agent.velocity = rootVelocity;
+            if (_agent != null && _agent.enabled && _agent.isOnNavMesh)
+            {
+                if (monsterType == MonsterType.Zombie)
+                {
+                    // Pure animation-driven stride:
+                    // Only move forward when the front leg steps forward (forward root motion delta > 0),
+                    // and remain stationary while dragging the back leg!
+                    Vector3 delta = _animator.deltaPosition;
+
+                    if (_agent.hasPath && !_agent.isStopped && _agent.desiredVelocity.sqrMagnitude > 0.01f)
+                    {
+                        Vector3 moveDir = _agent.desiredVelocity.normalized;
+                        // Project local forward root translation along the agent's desired path direction
+                        float forwardMagnitude = Vector3.Dot(delta, transform.forward);
+                        if (forwardMagnitude > 0.001f)
+                        {
+                            delta = moveDir * forwardMagnitude;
+                        }
+                        else
+                        {
+                            // Back leg dragging: zero forward movement, perfectly planted!
+                            delta = Vector3.zero;
+                        }
+                    }
+                    else if (_agent.isStopped)
+                    {
+                        delta = Vector3.zero;
+                    }
+
+                    Vector3 newPos = transform.position + delta;
+                    newPos.y = _agent.nextPosition.y;
+                    transform.position = newPos;
+
+                    // Pull NavMeshAgent's internal position to match the actual visual transform
+                    _agent.nextPosition = transform.position;
+                }
+                else
+                {
+                    Vector3 position = _animator.rootPosition;
+                    position.y = _agent.nextPosition.y;
+                    transform.position = position;
+                    _agent.nextPosition = transform.position;
+                }
+            }
+            else
+            {
+                transform.position += _animator.deltaPosition;
+                transform.rotation *= _animator.deltaRotation;
+            }
         }
     }
 
     /// <summary>
-    /// Raycasts down onto real collision geometry and pins the pivot to it when not driven by NavMeshAgent.
-    /// When on NavMesh, NavMeshAgent natively keeps the character aligned to the surface without jitter.
+    /// Keeps the character grounded to the NavMesh or geometry, eliminating the flying bug on high platforms.
     /// </summary>
     protected virtual void EnforceGrounding()
     {
-        // When NavMeshAgent is active on NavMesh, it natively handles surface positioning.
-        // Forcibly overriding transform.position in LateUpdate fights NavMeshAgent every frame,
-        // causing rapid vertical stuttering during movement and sinking in idle.
         if (_agent != null && _agent.enabled && _agent.isOnNavMesh)
         {
+            // Sample NavMesh directly under the agent to eliminate any vertical hover/flying on high ledges
+            Vector3 pos = transform.position;
+            if (NavMesh.SamplePosition(pos, out NavMeshHit hit, 2.0f, NavMesh.AllAreas))
+            {
+                float targetY = hit.position.y + _agent.baseOffset;
+                // If hovering noticeably above the NavMesh on high geometry, pull down smoothly
+                if (pos.y > targetY + 0.15f)
+                {
+                    pos.y = Mathf.MoveTowards(pos.y, targetY, Time.deltaTime * 6.0f);
+                    transform.position = pos;
+                }
+            }
             return;
         }
 
-        if (!TryGetGroundHeight(transform.position, out float groundY)) return;
-
-        float baseOffset = (_agent != null) ? _agent.baseOffset : 0f;
-        float targetY = groundY + baseOffset + groundFootOffset;
-
-        Vector3 pos = transform.position;
-        if (Mathf.Abs(pos.y - targetY) > 0.005f)
+        // When off NavMesh or falling from a high structure:
+        if (TryGetGroundHeight(transform.position, out float groundY))
         {
-            pos.y = Mathf.MoveTowards(pos.y, targetY, Time.deltaTime * 6.0f);
-            transform.position = pos;
+            float targetY = groundY + ((_agent != null) ? _agent.baseOffset : 0f);
+            Vector3 pos = transform.position;
+            if (pos.y > targetY + 0.05f)
+            {
+                pos.y = Mathf.MoveTowards(pos.y, targetY, Time.deltaTime * 9.81f);
+                transform.position = pos;
+            }
         }
     }
 
@@ -1653,52 +1650,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         return found;
     }
 
-    /// <summary>
-    /// If both humanoid feet hover above the floor, adjusts the model child.
-    /// Smoothly resets to base height when idle so the monster is never sunken into the floor.
-    /// </summary>
     protected virtual void ApplyFootGrounding()
     {
-        if (_animator == null || !_animator.isHuman || _animator.transform == transform) return;
-
-        Transform model = _animator.transform;
-        if (!_modelBaseCached)
-        {
-            _modelBaseLocalPos = model.localPosition;
-            _modelBaseCached = true;
-        }
-
-        bool isStationary = (_agent == null || !_agent.enabled || _agent.velocity.sqrMagnitude < 0.05f)
-            && (currentState == AIState.Idle || _isGuardIdling || !_agent.hasPath);
-        if (isStationary)
-        {
-            // Smoothly restore base model position so the monster never sits sunken in the ground in idle
-            _footCorrection = Mathf.MoveTowards(_footCorrection, 0f, Time.deltaTime * 3.0f);
-            Transform s = model.parent != null ? model.parent : transform;
-            model.localPosition = _modelBaseLocalPos + s.InverseTransformVector(Vector3.up * _footCorrection);
-            return;
-        }
-
-        // Only Berserker uses foot grounding correction; Zombie uses its natural humanoid rig root
-        float desiredCorrection = 0f;
-        if (monsterType == MonsterType.Berserker)
-        {
-            Transform lf = _animator.GetBoneTransform(HumanBodyBones.LeftFoot);
-            Transform rf = _animator.GetBoneTransform(HumanBodyBones.RightFoot);
-            if (lf != null && rf != null && TryGetGroundHeight(transform.position, out float groundY))
-            {
-                float lowestFoot = Mathf.Min(lf.position.y, rf.position.y) - _footCorrection - footSoleHeight;
-                float gap = lowestFoot - groundY;
-                if (gap > 0.02f)
-                {
-                    desiredCorrection = -Mathf.Min(gap, maxFootCorrection);
-                }
-            }
-        }
-
-        _footCorrection = Mathf.MoveTowards(_footCorrection, desiredCorrection, Time.deltaTime * 1.5f);
-        Transform space = model.parent != null ? model.parent : transform;
-        model.localPosition = _modelBaseLocalPos + space.InverseTransformVector(Vector3.up * _footCorrection);
+        // Intentionally no-op: bone displacement fights Mixamo humanoid root motion and causes idle/stride bobbing
     }
 
     // =========================================================================
@@ -1795,9 +1749,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     private void PlayZombieCrawlingLocomotion()
     {
-        float currentSpeed = (_agent != null && _agent.enabled) ? _agent.velocity.magnitude : crawlSpeed;
-        float animSpeedRatio = crawlSpeed > 0.05f ? Mathf.Clamp(currentSpeed / crawlSpeed, 0.6f, 1.4f) : 1.0f;
-        SetLocomotionAnimSpeed(animSpeedRatio);
+        SetLocomotionAnimSpeed(1.0f);
 
         SafeSetFloat(_speedHash, crawlSpeed);
         SafeSetBool(_isRunningHash, true);
@@ -1809,9 +1761,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     private void PlayZombieStandingRunLocomotion()
     {
-        float currentSpeed = (_agent != null && _agent.enabled) ? _agent.velocity.magnitude : standRunSpeed;
-        float animSpeedRatio = standRunSpeed > 0.05f ? Mathf.Clamp(currentSpeed / standRunSpeed, 0.6f, 1.4f) : 1.0f;
-        SetLocomotionAnimSpeed(animSpeedRatio);
+        SetLocomotionAnimSpeed(1.0f);
 
         SafeSetFloat(_speedHash, standRunSpeed);
         SafeSetBool(_isRunningHash, true);
@@ -1823,9 +1773,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     private void PlayZombieStandingWalkLocomotion()
     {
-        float currentSpeed = (_agent != null && _agent.enabled) ? _agent.velocity.magnitude : walkSpeed;
-        float animSpeedRatio = walkSpeed > 0.05f ? Mathf.Clamp(currentSpeed / walkSpeed, 0.5f, 1.3f) : 1.0f;
-        SetLocomotionAnimSpeed(animSpeedRatio);
+        SetLocomotionAnimSpeed(1.0f);
 
         SafeSetFloat(_speedHash, walkSpeed);
         SafeSetBool(_isRunningHash, false);

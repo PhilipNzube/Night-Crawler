@@ -2,6 +2,7 @@ using System.Collections;
 using UnityEngine;
 using Unity.Netcode;
 using Michsky.UI.Heat;
+using StarterAssets;
 
 /// <summary>
 /// Controls the In-Game Pause UI using Heat UI components.
@@ -140,10 +141,16 @@ public class PauseUI : MonoBehaviour
         if (NightCrawler.Economy.MatchEconomyManager.Instance != null && NightCrawler.Economy.MatchEconomyManager.Instance.isMatchResolved.Value) return true;
         return false;
     }
-
     private void Start()
     {
-        _pauseManager = FindFirstObjectByType<PauseManager>();
+        if (_pauseManager == null)
+            _pauseManager = FindFirstObjectByType<PauseManager>();
+        if (_pauseManager == null)
+        {
+            var pmObj = new GameObject("[PauseManager]");
+            _pauseManager = pmObj.AddComponent<PauseManager>();
+            _pauseManager.pauseUI = this;
+        }
 
         BindButton(OnResumePressed, resumeButton);
         BindButton(OnSettingsPressed, settingsButton);
@@ -264,6 +271,13 @@ public class PauseUI : MonoBehaviour
 
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
+
+        var localPlayer = NetworkManager.Singleton?.LocalClient?.PlayerObject;
+        if (localPlayer != null && localPlayer.TryGetComponent<StarterAssetsInputs>(out var inputs))
+        {
+            inputs.cursorLocked = true;
+            inputs.cursorInputForLook = true;
+        }
     }
 
     private void SetCanvasState(bool active)
@@ -357,6 +371,9 @@ public class PauseUI : MonoBehaviour
     public void OnResumePressed()
     {
         if (Time.frameCount == _pauseOpenFrame) return;
+
+        Cursor.lockState = CursorLockMode.Locked;
+        Cursor.visible = false;
 
         if (_pauseManager != null)
             _pauseManager.ResumeGame();
@@ -519,6 +536,13 @@ public class PauseUI : MonoBehaviour
             if (!Cursor.visible)
             {
                 Cursor.visible = true;
+            }
+        }
+        else
+        {
+            if (Cursor.lockState == CursorLockMode.Locked && Cursor.visible)
+            {
+                Cursor.visible = false;
             }
         }
     }

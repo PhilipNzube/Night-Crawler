@@ -61,13 +61,21 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
     private bool _hasWeaponIdParam;
     private bool _paramsInitialized;
 
+    [Header("Armed State")]
+    [Tooltip("Allow playing IdleFidget while holding a weapon.")]
+    public bool allowFidgetWithWeapon = true;
+
+    [Tooltip("Allow playing IdleFidget while unarmed.")]
+    public bool allowFidgetUnarmed = true;
+
     public override void OnStateEnter(Animator animator, AnimatorStateInfo stateInfo, int layerIndex)
     {
         if (animator == null) return;
         InitParameters(animator);
         int animId = animator.GetInstanceID();
 
-        if (IsGirl(animator, animId) || !IsHoldingWeapon(animator))
+        bool hasWeapon = IsHoldingWeapon(animator);
+        if (IsGirl(animator, animId) || (hasWeapon && !allowFidgetWithWeapon) || (!hasWeapon && !allowFidgetUnarmed))
         {
             animator.ResetTrigger(_triggerHash);
             return;
@@ -95,8 +103,9 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
             return;
         }
 
-        // 2. RULE: Idle fidget animation should happen ONLY when holding a weapon
-        if (!IsHoldingWeapon(animator))
+        // 2. Check weapon rules
+        bool hasWeapon = IsHoldingWeapon(animator);
+        if ((hasWeapon && !allowFidgetWithWeapon) || (!hasWeapon && !allowFidgetUnarmed))
         {
             _timers[animId] = Random.Range(minIdleTime, maxIdleTime);
             animator.ResetTrigger(_triggerHash);
@@ -114,7 +123,7 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
             return;
         }
 
-        // 4. Count down only while continuously in the armed idle state
+        // 4. Count down only while continuously in the idle state
         if (!_timers.TryGetValue(animId, out float t))
         {
             t = Random.Range(minIdleTime, maxIdleTime);
@@ -125,8 +134,8 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
         {
             t = Random.Range(minIdleTime, maxIdleTime);
 
-            // Re-verify that the character is still strictly idle and holding a weapon right now before triggering
-            if (IsHoldingWeapon(animator) && IsCharacterIdle(animator))
+            // Re-verify that the character is still strictly idle right now before triggering
+            if (IsCharacterIdle(animator))
             {
                 if (totalFidgetVariations > 1)
                 {
@@ -207,11 +216,7 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
         if (_hasSpeedParam && animator.GetFloat(_speedHash) > speedThreshold)
             return false;
 
-        // B. Motion Speed / Input magnitude: If movement input is being applied, not idle
-        if (_hasMotionSpeedParam && animator.GetFloat(_motionSpeedHash) > speedThreshold)
-            return false;
-
-        // C. Physical velocity: Check only planar horizontal velocity (ignore -2m/s gravity on grounded character controller)
+        // B. Physical velocity: Check only planar horizontal velocity (ignore -2m/s gravity on grounded character controller)
         var cc = animator.GetComponentInParent<CharacterController>();
         if (cc != null)
         {

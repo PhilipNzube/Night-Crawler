@@ -26,7 +26,7 @@ public class ZombieAI : MonsterAI
         monsterType = MonsterType.Zombie;
         crawlSpeed = 2.8f;
         standRunSpeed = 2.6f;
-        walkSpeed = 0.95f;
+        walkSpeed = 0.55f;
         runSpeed = crawlSpeed;
         runAcceleration = 8.0f;
         if (attackDamage < 25f) attackDamage = 35f;

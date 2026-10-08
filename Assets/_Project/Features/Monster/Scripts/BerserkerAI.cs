@@ -53,6 +53,10 @@ public class BerserkerAI : MonsterAI
     [Header("Roar Synchronization (Double Roar)")]
     [Tooltip("If true, the Berserker plays the roar animation twice to rhyme with the double-roar audio clip. If false, cuts the audio after the first roar.")]
     public bool doubleRoarSequence = true;
+    [Tooltip("Optional custom audio clip for the second roar. If left empty, re-plays spawnScreamClip.")]
+    public AudioClip secondRoarClip;
+    [Tooltip("Delay in seconds before roar audio starts, allowing the animation wind-up to reach the open-mouth roar apex.")]
+    public float roarAudioDelay = 0.35f;
     [Tooltip("Time in seconds before triggering the second roar animation to rhyme with the second roar in the audio.")]
     public float secondRoarDelay = 2.6f;
     [Tooltip("Total duration of the entire double-roar spawn sequence before running.")]
@@ -148,20 +152,25 @@ public class BerserkerAI : MonsterAI
             RotateTowardsTarget(target);
         }
 
-        // 1. Play 3D audio roar
-        Play3DScream();
-
-        // 2. Trigger first roar animation
+        // 1. Trigger first roar animation FIRST
         TriggerScreamAnimation();
 
         SetLocomotionAnimSpeed(1.0f);
         SafeSetFloat(_speedHash, 0f);
         SafeSetBool(_isRunningHash, false);
 
+        // 2. Wait for first roar animation wind-up to reach the open-mouth apex
+        float delay = Mathf.Clamp(roarAudioDelay, 0.1f, 1.0f);
+        yield return new WaitForSeconds(delay);
+
+        // 3. Play first 3D roar audio precisely at the apex
+        Play3DScream();
+
         if (doubleRoarSequence)
         {
-            // Wait for first roar animation and audio to complete
-            yield return new WaitForSeconds(secondRoarDelay);
+            // Wait for first roar to finish before second roar
+            float waitBeforeSecond = Mathf.Max(0.5f, secondRoarDelay - delay);
+            yield return new WaitForSeconds(waitBeforeSecond);
 
             // Re-aim at target if moved
             target = FindBestTarget();
@@ -170,16 +179,22 @@ public class BerserkerAI : MonsterAI
                 RotateTowardsTarget(target);
             }
 
-            // Trigger second roar animation to rhyme with second audio roar
+            // 4. Trigger second roar animation
             TriggerSecondRoar();
 
-            float remaining = Mathf.Max(0.5f, totalRoarDuration - secondRoarDelay);
+            // 5. Wait for second roar animation wind-up to reach the open-mouth apex
+            yield return new WaitForSeconds(delay);
+
+            // 6. Play second roar audio precisely at the second roar animation apex!
+            PlaySecondRoarAudio();
+
+            float remaining = Mathf.Max(0.5f, totalRoarDuration - secondRoarDelay - delay);
             yield return new WaitForSeconds(remaining);
         }
         else
         {
             // Single roar mode: wait for first roar to finish, then cleanly cut audio
-            float singleDuration = secondRoarDelay > 0f ? secondRoarDelay : screamDuration;
+            float singleDuration = Mathf.Max(0.5f, (secondRoarDelay > 0f ? secondRoarDelay : screamDuration) - delay);
             yield return new WaitForSeconds(singleDuration);
 
             if (audioSource != null && audioSource.isPlaying)
@@ -219,6 +234,33 @@ public class BerserkerAI : MonsterAI
         if (IsServer) return;
         SafeSetTrigger(_roarHash);
         SafeCrossFade(_stateMutantRoar, "Mutant Roaring", 0.12f, true);
+    }
+
+    protected virtual void PlaySecondRoarAudio()
+    {
+        AudioClip clip = secondRoarClip != null ? secondRoarClip : spawnScreamClip;
+        if (clip != null && audioSource != null)
+        {
+            audioSource.clip = clip;
+            audioSource.Play();
+        }
+
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            PlaySecondRoarAudioClientRpc();
+        }
+    }
+
+    [ClientRpc]
+    private void PlaySecondRoarAudioClientRpc()
+    {
+        if (IsServer) return;
+        AudioClip clip = secondRoarClip != null ? secondRoarClip : spawnScreamClip;
+        if (audioSource != null && clip != null)
+        {
+            audioSource.clip = clip;
+            audioSource.Play();
+        }
     }
 
     public override void PlayHitReaction()

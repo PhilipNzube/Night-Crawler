@@ -404,6 +404,49 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         }
     }
 
+    private void LateUpdate()
+    {
+        UpdateUpperBodyLayerWeight();
+    }
+
+    private void UpdateUpperBodyLayerWeight()
+    {
+        if (_animator == null) return;
+        int combatLayer = _animator.GetLayerIndex("UpperBody_Combat");
+        if (combatLayer < 0) return;
+
+        var baseState = _animator.GetCurrentAnimatorStateInfo(0);
+        bool isFidgeting = baseState.IsName("Idle_Looking") ||
+                           _animator.GetNextAnimatorStateInfo(0).IsName("Idle_Looking");
+
+        bool hasWeapon = HasWeapon && currentWeaponIndex.Value >= 0;
+
+        // When the Idle_Looking fidget animation is nearing its end (normalizedTime >= 0.88f)
+        // and the player is holding a weapon, immediately crossfade straight to Armed_Locomotion on Layer 0!
+        // This completely bypasses the controller's default transition to unarmed Idle Walk Run Blend!
+        if (hasWeapon && baseState.IsName("Idle_Looking") && baseState.normalizedTime >= 0.88f && !_animator.IsInTransition(0))
+        {
+            _animator.CrossFade("Armed_Locomotion", 0.12f, 0);
+            _animator.SetLayerWeight(combatLayer, 1f);
+            return;
+        }
+
+        // While fidgeting, fade UpperBody_Combat weight to 0 so full-body fidget is visible.
+        // As soon as fidgeting is done (or transitioning back), immediately restore UpperBody_Combat weight to 1!
+        float targetWeight = (isFidgeting && baseState.normalizedTime < 0.88f) ? 0f : 1f;
+        float currentWeight = _animator.GetLayerWeight(combatLayer);
+
+        if (!isFidgeting)
+        {
+            // Instantly snap to 1 so there is never a single frame showing unarmed idle arms
+            _animator.SetLayerWeight(combatLayer, 1f);
+        }
+        else if (Mathf.Abs(currentWeight - targetWeight) > 0.01f)
+        {
+            _animator.SetLayerWeight(combatLayer, Mathf.MoveTowards(currentWeight, targetWeight, Time.deltaTime * 6f));
+        }
+    }
+
     public void SwitchWeapon(int index)
     {
         if (_weaponEquipRoutine != null)
@@ -502,11 +545,10 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
             SafeSetInteger(_comboStepHash, _currentComboStep);
             SafeSetTrigger(_attackHash);
 
-            if (_meleeStrikeRoutine != null)
-            {
-                StopCoroutine(_meleeStrikeRoutine);
-            }
-            _meleeStrikeRoutine = StartCoroutine(DelayedMeleeStrikeRoutine(activeStats, _currentComboStep));
+            // Each strike routine independently monitors its own animation state and plays
+            // the swing whoosh audio strictly when that animation reaches its climax (~0.68f).
+            // Do NOT play sounds on button mash — sounds ONLY trigger when the animation plays!
+            StartCoroutine(DelayedMeleeStrikeRoutine(activeStats, _currentComboStep));
         }
         else
         {
@@ -525,11 +567,21 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
 
     private IEnumerator DelayedMeleeStrikeRoutine(WeaponStats stats, int comboStep)
     {
-        // 1. If an Animator is present, wait until the attack animation has actually begun and reaches the swing stroke apex
+        // 1. If an Animator is present, monitor the UpperBody_Combat layer (where melee attack states live)
         bool syncedToAnim = false;
         if (_animator != null)
         {
-            float maxWait = 0.85f;
+            int combatLayer = _animator.GetLayerIndex("UpperBody_Combat");
+            if (combatLayer < 0) combatLayer = 0;
+
+            string targetStateName = comboStep switch
+            {
+                0 => "Melee_Attack_1",
+                1 => "Melee_Combo",
+                _ => "Melee_Attack_3"
+            };
+
+            float maxWait = 1.0f;
             float elapsed = 0f;
 
             // Allow 1 frame for the Animator to consume the trigger and begin transition
@@ -538,22 +590,31 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
 
             while (elapsed < maxWait)
             {
-                var curState = _animator.GetCurrentAnimatorStateInfo(0);
-                var nextState = _animator.GetNextAnimatorStateInfo(0);
+                var curState = _animator.GetCurrentAnimatorStateInfo(combatLayer);
+                var nextState = _animator.GetNextAnimatorStateInfo(combatLayer);
 
-                bool isAttacking = IsMeleeAttackState(curState) || IsMeleeAttackState(nextState);
+                // If not found on combatLayer, also check Base Layer (layer 0) as fallback
+                if (!curState.IsName(targetStateName) && !nextState.IsName(targetStateName) && combatLayer != 0)
+                {
+                    var l0Cur = _animator.GetCurrentAnimatorStateInfo(0);
+                    var l0Next = _animator.GetNextAnimatorStateInfo(0);
+                    if (l0Cur.IsName(targetStateName) || l0Cur.IsTag("Attack")) curState = l0Cur;
+                    else if (l0Next.IsName(targetStateName) || l0Next.IsTag("Attack")) curState = l0Next;
+                }
+
+                bool isAttacking = curState.IsName(targetStateName) || curState.IsTag("Attack");
                 if (isAttacking)
                 {
                     // If still blending in, wait for transition to complete
-                    if (_animator.IsInTransition(0))
+                    if (_animator.IsInTransition(combatLayer))
                     {
                         yield return null;
                         elapsed += Time.deltaTime;
                         continue;
                     }
 
-                    // Once inside the melee attack state, wait until the weapon cuts downward through the air (apex ~0.45f - 0.55f)
-                    if (curState.normalizedTime >= 0.45f)
+                    // Play the swing sound when the attack animation is almost ended (stroke apex at ~0.65f - 0.70f)
+                    if (curState.normalizedTime >= 0.68f)
                     {
                         syncedToAnim = true;
                         break;
@@ -570,9 +631,9 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         {
             float delay = comboStep switch
             {
-                0 => meleeStrikeDelayStep0,
-                1 => meleeStrikeDelayStep1,
-                _ => meleeStrikeDelayStep2
+                0 => 0.32f,
+                1 => 0.28f,
+                _ => 0.34f
             };
 
             if (delay > 0f)
@@ -581,7 +642,7 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
             }
         }
 
-        // 3. Play the crisp swing whoosh audio right as the axe blade chops downward through the air
+        // 3. Play the crisp swing whoosh audio right as each combo animation is almost ended
         if (stats != null && stats.fireSound != null && _audioSource != null)
         {
             float vol = Mathf.Clamp01(stats.fireSoundVolume);

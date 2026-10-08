@@ -278,5 +278,12 @@ public class PauseManager : MonoBehaviour
                 _inputs.cursorInputForLook = false;
             }
         }
+        else
+        {
+            if (Cursor.lockState == CursorLockMode.Locked && Cursor.visible)
+            {
+                Cursor.visible = false;
+            }
+        }
     }
 }
