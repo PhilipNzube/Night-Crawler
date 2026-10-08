@@ -269,8 +269,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected Transform _commandLeader;
     protected float _roamTimer = 0f;
     protected float _roamWaitTimer = 0f;
-    protected bool _isRoamWaiting = false;
+    protected bool _isRoamWaiting = true;
+    protected float _roamMinTravelTimer = 0f;
     protected Vector3 _roamDestination;
+    protected Vector3 _lastRoamDirection = Vector3.zero;
 
     // Close-guard wandering state near the Girl
     protected bool _isGuardIdling = true;
@@ -911,9 +913,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             _commandLeader = GameManager.Instance.GirlTransform;
         }
 
-        _roamWaitTimer = 0f;
-        _isRoamWaiting = false;
+        _isRoamWaiting = true;
+        _roamWaitTimer = Random.Range(3.5f, 6.0f);
         _roamTimer = 0f;
+        _roamMinTravelTimer = 0f;
+        _lastRoamDirection = Vector3.zero;
 
         // If the monster just spawned / loaded and is currently falling or screaming,
         // immediately cancel the stationary pause so it responds instantly to the command!
@@ -1375,6 +1379,36 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         ExecuteRoam(walkSpeed);
     }
 
+    protected virtual void PlayPatrolWalkLocomotion(float speed)
+    {
+        if (monsterType == MonsterType.Zombie)
+        {
+            PlayZombieStandingWalkLocomotion();
+        }
+        else
+        {
+            float curSpeed = _animator != null ? _animator.GetFloat(_speedHash) : 0f;
+            SafeSetFloat(_speedHash, Mathf.MoveTowards(curSpeed, speed, Time.deltaTime * 4f));
+            SafeSetBool(_isRunningHash, false);
+            SafeSetBool(_isWalkingHash, true);
+        }
+    }
+
+    protected virtual void PlayPatrolIdleLocomotion()
+    {
+        if (monsterType == MonsterType.Zombie)
+        {
+            PlayZombieIdleLocomotion();
+        }
+        else
+        {
+            float curSpeed = _animator != null ? _animator.GetFloat(_speedHash) : 0f;
+            SafeSetFloat(_speedHash, Mathf.MoveTowards(curSpeed, 0f, Time.deltaTime * 6f));
+            SafeSetBool(_isRunningHash, false);
+            SafeSetBool(_isWalkingHash, false);
+        }
+    }
+
     protected virtual void ExecuteRoam(float patrolSpeed)
     {
         if (monsterType == MonsterType.Zombie && currentPosture == ZombiePosture.StandingUp)
@@ -1382,20 +1416,19 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             return;
         }
 
+        // Initialize into a natural stationary pause if starting fresh
+        if (_roamWaitTimer <= 0f && _roamTimer <= 0f && (!_agent.hasPath || _agent.remainingDistance == 0f))
+        {
+            _isRoamWaiting = true;
+            _roamWaitTimer = Random.Range(3.5f, 6.5f);
+        }
+
+        // State 1: Monster is resting / idling realistically before moving
         if (_isRoamWaiting)
         {
             _agent.isStopped = true;
-            _agent.speed = Mathf.MoveTowards(_agent.speed, 0f, Time.deltaTime * 6f);
-            if (monsterType == MonsterType.Zombie)
-            {
-                PlayZombieIdleLocomotion();
-            }
-            else
-            {
-                float curSpeed = _animator != null ? _animator.GetFloat(_speedHash) : 0f;
-                SafeSetFloat(_speedHash, Mathf.MoveTowards(curSpeed, 0f, Time.deltaTime * 6f));
-                SafeSetBool(_isRunningHash, false);
-            }
+            _agent.velocity = Vector3.MoveTowards(_agent.velocity, Vector3.zero, stopFriction * Time.deltaTime);
+            PlayPatrolIdleLocomotion();
 
             _roamWaitTimer -= Time.deltaTime;
             if (_roamWaitTimer <= 0f)
@@ -1406,88 +1439,129 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             return;
         }
 
+        // State 2: Monster is actively walking towards its chosen waypoint
+        if (_roamMinTravelTimer > 0f)
+        {
+            _roamMinTravelTimer -= Time.deltaTime;
+        }
+
         _roamTimer -= Time.deltaTime;
-        bool arrived = !_agent.pathPending && (_agent.remainingDistance <= 1.2f || (_agent.remainingDistance == 0f && !_agent.hasPath));
-        if (arrived || _roamTimer <= 0f)
+
+        // Arrival check: enforce minimum travel grace period so frame-0 path latency never triggers instant arrival
+        bool hasArrived = false;
+        if (_roamMinTravelTimer <= 0f)
+        {
+            if (!_agent.pathPending)
+            {
+                if (!_agent.hasPath || _agent.remainingDistance <= 1.2f)
+                {
+                    hasArrived = true;
+                }
+            }
+        }
+
+        // Reached destination or timer expired -> smooth stop and enter realistic idle pause
+        if (hasArrived || _roamTimer <= 0f)
         {
             _isRoamWaiting = true;
-            _roamWaitTimer = Random.Range(2.0f, 4.0f);
+            _roamWaitTimer = Random.Range(4.0f, 7.5f);
             _agent.isStopped = true;
-            if (monsterType == MonsterType.Zombie)
-            {
-                PlayZombieIdleLocomotion();
-            }
-            else
-            {
-                float curSpeed = _animator != null ? _animator.GetFloat(_speedHash) : 0f;
-                SafeSetFloat(_speedHash, Mathf.MoveTowards(curSpeed, 0f, Time.deltaTime * 6f));
-                SafeSetBool(_isRunningHash, false);
-            }
+            _agent.velocity = Vector3.zero;
+            PlayPatrolIdleLocomotion();
             return;
         }
 
+        // Walk smoothly along the path
         _agent.isStopped = false;
         _agent.speed = Mathf.MoveTowards(_agent.speed, patrolSpeed, Time.deltaTime * 3.5f);
-        if (monsterType == MonsterType.Zombie)
-        {
-            PlayZombieStandingWalkLocomotion();
-        }
-        else
-        {
-            float curSpeed = _animator != null ? _animator.GetFloat(_speedHash) : 0f;
-            SafeSetFloat(_speedHash, Mathf.MoveTowards(curSpeed, patrolSpeed, Time.deltaTime * 4f));
-            SafeSetBool(_isRunningHash, false);
-        }
+        PlayPatrolWalkLocomotion(patrolSpeed);
     }
 
     protected void PickNewRoamDestination()
     {
-        _roamTimer = Random.Range(10f, 16f);
+        _roamTimer = Random.Range(14f, 22f);
+        _roamMinTravelTimer = 1.2f; // Guarantees at least 1.2s of travel before arrival can evaluate
+
         if (_agent == null || !_agent.isOnNavMesh) return;
         if (_pathCalc == null) _pathCalc = new NavMeshPath();
 
-        // AAA Mine Tunnel Pathfinding:
-        // Do not sample a random circle in solid rock!
-        // Instead, cast along tunnel corridor angles (forward, slight turns, sharper turns, reverse)
-        float[] candidateAngles = { 0f, 30f, -30f, 60f, -60f, 90f, -90f, 135f, -135f, 180f };
-        // Shuffle angles for organic patrol variety
-        for (int i = 0; i < candidateAngles.Length - 1; i++)
-        {
-            int swapIdx = Random.Range(i, candidateAngles.Length);
-            float tmp = candidateAngles[i];
-            candidateAngles[i] = candidateAngles[swapIdx];
-            candidateAngles[swapIdx] = tmp;
-        }
-
-        float[] candidateDistances = { 14f, 10f, 7f };
-
+        // Smart Creature Corridor Navigation:
+        // Continues forward down cavern tunnels or branches organically into side paths.
+        // Strictly avoids turning 180 degrees back along the incoming corridor unless trapped at a dead-end wall!
         Vector3 forward = transform.forward;
         if (forward.sqrMagnitude < 0.01f) forward = Vector3.forward;
 
-        bool foundCompletePath = false;
+        float[] candidateDistances = { 16f, 12f, 8f };
+
+        // Organically alternate branch checking order (left vs right)
+        bool branchLeftFirst = Random.value > 0.5f;
+        float[] forwardAngles = branchLeftFirst
+            ? new float[] { 0f, -25f, 25f, -50f, 50f, -75f, 75f }
+            : new float[] { 0f, 25f, -25f, 50f, -50f, 75f, -75f };
+
+        bool foundPath = false;
         Vector3 bestPoint = transform.position;
 
+        // 1. Forward and side branches (prioritize continuing forward exploration)
         foreach (float dist in candidateDistances)
         {
-            foreach (float angle in candidateAngles)
+            foreach (float angle in forwardAngles)
             {
                 Vector3 rayDir = Quaternion.Euler(0f, angle, 0f) * forward;
-                Vector3 sampleOrigin = transform.position + rayDir * dist;
 
-                if (NavMesh.SamplePosition(sampleOrigin, out NavMeshHit navHit, 3.0f, NavMesh.AllAreas))
+                // Anti-backtracking filter: do not immediately reverse into the tunnel we just walked from
+                if (_lastRoamDirection != Vector3.zero && Vector3.Dot(rayDir, -_lastRoamDirection) > 0.70f)
+                {
+                    continue;
+                }
+
+                Vector3 sampleOrigin = transform.position + rayDir * dist;
+                if (NavMesh.SamplePosition(sampleOrigin, out NavMeshHit navHit, 3.5f, NavMesh.AllAreas))
                 {
                     if (_agent.CalculatePath(navHit.position, _pathCalc) && _pathCalc.status == NavMeshPathStatus.PathComplete)
                     {
-                        bestPoint = navHit.position;
-                        foundCompletePath = true;
-                        break;
+                        if (Vector3.Distance(transform.position, navHit.position) >= 3.5f)
+                        {
+                            bestPoint = navHit.position;
+                            _lastRoamDirection = (bestPoint - transform.position).normalized;
+                            foundPath = true;
+                            break;
+                        }
                     }
                 }
             }
-            if (foundCompletePath) break;
+            if (foundPath) break;
         }
 
-        if (foundCompletePath)
+        // 2. Dead-end fallback: If every forward angle hits solid rock, turn around and exit the dead end
+        if (!foundPath)
+        {
+            float[] turnaroundAngles = { 120f, -120f, 150f, -150f, 180f };
+            foreach (float dist in new float[] { 10f, 6f })
+            {
+                foreach (float angle in turnaroundAngles)
+                {
+                    Vector3 rayDir = Quaternion.Euler(0f, angle, 0f) * forward;
+                    Vector3 sampleOrigin = transform.position + rayDir * dist;
+                    if (NavMesh.SamplePosition(sampleOrigin, out NavMeshHit navHit, 3.5f, NavMesh.AllAreas))
+                    {
+                        if (_agent.CalculatePath(navHit.position, _pathCalc) && _pathCalc.status == NavMeshPathStatus.PathComplete)
+                        {
+                            if (Vector3.Distance(transform.position, navHit.position) >= 3.0f)
+                            {
+                                bestPoint = navHit.position;
+                                _lastRoamDirection = (bestPoint - transform.position).normalized;
+                                foundPath = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+                if (foundPath) break;
+            }
+        }
+
+        if (foundPath)
         {
             _roamDestination = bestPoint;
             _agent.isStopped = false;
@@ -1495,10 +1569,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
         else
         {
-            // If all corridor angles are blocked, NEVER force a partial path into a rock wall!
+            // Fully trapped: stay idle for a bit and re-evaluate
             _isRoamWaiting = true;
-            _roamWaitTimer = Random.Range(1.5f, 3.0f);
+            _roamWaitTimer = Random.Range(3.5f, 5.5f);
             _agent.isStopped = true;
+            PlayPatrolIdleLocomotion();
         }
     }
 

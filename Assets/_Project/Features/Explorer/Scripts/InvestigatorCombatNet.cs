@@ -64,6 +64,10 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
     public float meleeStrikeDelayStep2 = 0.24f;
 
     private Coroutine _meleeStrikeRoutine;
+    private readonly int _meleeAttack1Hash = Animator.StringToHash("Melee_Attack_1");
+    private readonly int _meleeComboHash   = Animator.StringToHash("Melee_Combo");
+    private readonly int _meleeAttack3Hash = Animator.StringToHash("Melee_Attack_3");
+    private bool _comboQueued = false;
 
     private readonly int _weaponIdHash     = Animator.StringToHash("WeaponID");
     private readonly int _hasWeaponHash    = Animator.StringToHash("HasWeapon");
@@ -384,13 +388,31 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
 
             if (HasWeapon && currentWeaponIndex.Value >= 0)
             {
-                if (_attackTimer <= 0)
+                if (currentWeaponIndex.Value == 0) // Melee Axe / Pickaxe
                 {
-                    PerformAttack();
+                    if (_meleeStrikeRoutine == null)
+                    {
+                        if (_attackTimer <= 0)
+                        {
+                            PerformAttack();
+                        }
+                    }
+                    else
+                    {
+                        // Melee attack is currently active: queue next combo strike if eligible
+                        QueueNextMeleeCombo();
+                    }
                 }
-                else if (_attackTimer <= inputBufferWindow)
+                else // Ranged Gun
                 {
-                    _hasBufferedAttack = true;
+                    if (_attackTimer <= 0)
+                    {
+                        PerformAttack();
+                    }
+                    else if (_attackTimer <= inputBufferWindow)
+                    {
+                        _hasBufferedAttack = true;
+                    }
                 }
             }
         }
@@ -506,6 +528,35 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         _weaponEquipRoutine = null;
     }
 
+    private void QueueNextMeleeCombo()
+    {
+        if (_animator == null) return;
+        int combatLayer = _animator.GetLayerIndex("UpperBody_Combat");
+        if (combatLayer < 0) combatLayer = 0;
+
+        var curState = _animator.GetCurrentAnimatorStateInfo(combatLayer);
+
+        // Can queue next combo strike if currently in Step 0 (Melee_Attack_1) or Step 1 (Melee_Combo)
+        // and haven't already queued for this step!
+        if (!_comboQueued)
+        {
+            int activeIndex = GetAttackStateIndex(curState);
+            if (activeIndex == 0 || activeIndex == 1)
+            {
+                _comboQueued = true;
+                SafeSetTrigger(_attackHash);
+            }
+        }
+    }
+
+    private int GetAttackStateIndex(AnimatorStateInfo state)
+    {
+        if (state.shortNameHash == _meleeAttack1Hash || state.IsName("Melee_Attack_1")) return 0;
+        if (state.shortNameHash == _meleeComboHash || state.IsName("Melee_Combo")) return 1;
+        if (state.shortNameHash == _meleeAttack3Hash || state.IsName("Melee_Attack_3")) return 2;
+        return -1;
+    }
+
     private void PerformAttack()
     {
         WeaponStats activeStats = currentWeaponIndex.Value == 0 ? axeStats : gunStats;
@@ -520,35 +571,12 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
 
         if (currentWeaponIndex.Value == 0)
         {
-            // Melee Combo Logic: step through 0 -> 1 -> 2
-            if (Time.time - _lastAttackTime <= comboWindow)
+            if (_meleeStrikeRoutine != null)
             {
-                if (_currentComboStep < maxComboSteps - 1)
-                {
-                    _currentComboStep++;
-                }
-                else
-                {
-                    _currentComboStep = 0;
-                }
+                StopCoroutine(_meleeStrikeRoutine);
+                _meleeStrikeRoutine = null;
             }
-            else
-            {
-                _currentComboStep = 0;
-            }
-            _lastAttackTime = Time.time;
-
-            // Lock out attacks: normal interval for intermediate strikes, full recovery for the finisher
-            bool isFinisher = (_currentComboStep == maxComboSteps - 1);
-            _attackTimer = isFinisher ? comboFinisherRecovery : comboHitInterval;
-
-            SafeSetInteger(_comboStepHash, _currentComboStep);
-            SafeSetTrigger(_attackHash);
-
-            // Each strike routine independently monitors its own animation state and plays
-            // the swing whoosh audio strictly when that animation reaches its climax (~0.68f).
-            // Do NOT play sounds on button mash — sounds ONLY trigger when the animation plays!
-            StartCoroutine(DelayedMeleeStrikeRoutine(activeStats, _currentComboStep));
+            _meleeStrikeRoutine = StartCoroutine(MeleeComboRoutine(activeStats));
         }
         else
         {
@@ -565,96 +593,105 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         }
     }
 
-    private IEnumerator DelayedMeleeStrikeRoutine(WeaponStats stats, int comboStep)
+    private IEnumerator MeleeComboRoutine(WeaponStats stats)
     {
-        // 1. If an Animator is present, monitor the UpperBody_Combat layer (where melee attack states live)
-        bool syncedToAnim = false;
-        if (_animator != null)
+        int combatLayer = _animator != null ? _animator.GetLayerIndex("UpperBody_Combat") : -1;
+        if (combatLayer < 0) combatLayer = 0;
+
+        int currentTrackedIndex = -1;
+        bool hitFiredForState = false;
+        _comboQueued = false;
+
+        // Trigger opening strike
+        SafeSetTrigger(_attackHash);
+
+        float timeout = 4.0f; // Absolute safety watchdog
+        float elapsed = 0f;
+
+        // Give the Animator 1 frame to begin the transition
+        yield return null;
+        elapsed += Time.deltaTime;
+
+        while (elapsed < timeout)
         {
-            int combatLayer = _animator.GetLayerIndex("UpperBody_Combat");
-            if (combatLayer < 0) combatLayer = 0;
+            if (_animator == null) break;
 
-            string targetStateName = comboStep switch
+            var curState = _animator.GetCurrentAnimatorStateInfo(combatLayer);
+            var nextState = _animator.GetNextAnimatorStateInfo(combatLayer);
+
+            // If not found on combatLayer, check Base Layer (layer 0) as fallback
+            int activeIndex = GetAttackStateIndex(curState);
+            if (activeIndex == -1 && combatLayer != 0)
             {
-                0 => "Melee_Attack_1",
-                1 => "Melee_Combo",
-                _ => "Melee_Attack_3"
-            };
+                var l0Cur = _animator.GetCurrentAnimatorStateInfo(0);
+                activeIndex = GetAttackStateIndex(l0Cur);
+                if (activeIndex != -1) curState = l0Cur;
+            }
 
-            float maxWait = 1.0f;
-            float elapsed = 0f;
-
-            // Allow 1 frame for the Animator to consume the trigger and begin transition
-            yield return null;
-            elapsed += Time.deltaTime;
-
-            while (elapsed < maxWait)
+            if (activeIndex != -1)
             {
-                var curState = _animator.GetCurrentAnimatorStateInfo(combatLayer);
-                var nextState = _animator.GetNextAnimatorStateInfo(combatLayer);
-
-                // If not found on combatLayer, also check Base Layer (layer 0) as fallback
-                if (!curState.IsName(targetStateName) && !nextState.IsName(targetStateName) && combatLayer != 0)
+                // We are inside an active combo attack state
+                if (activeIndex != currentTrackedIndex)
                 {
-                    var l0Cur = _animator.GetCurrentAnimatorStateInfo(0);
-                    var l0Next = _animator.GetNextAnimatorStateInfo(0);
-                    if (l0Cur.IsName(targetStateName) || l0Cur.IsTag("Attack")) curState = l0Cur;
-                    else if (l0Next.IsName(targetStateName) || l0Next.IsTag("Attack")) curState = l0Next;
+                    currentTrackedIndex = activeIndex;
+                    _currentComboStep = activeIndex;
+                    SafeSetInteger(_comboStepHash, activeIndex);
+                    hitFiredForState = false;
+                    _comboQueued = false; // Fresh step: allow queuing the NEXT step
                 }
 
-                bool isAttacking = curState.IsName(targetStateName) || curState.IsTag("Attack");
-                if (isAttacking)
+                // Play the swing whoosh audio and hit detection almost to the end of the animation
+                // (stroke apex between 0.65f and 0.72f), precisely before the 0.75f exit transition!
+                if (!hitFiredForState && curState.normalizedTime >= 0.65f)
                 {
-                    // If still blending in, wait for transition to complete
-                    if (_animator.IsInTransition(combatLayer))
+                    hitFiredForState = true;
+
+                    // Play crisp swing whoosh audio
+                    if (stats != null && stats.fireSound != null && _audioSource != null)
                     {
-                        yield return null;
-                        elapsed += Time.deltaTime;
-                        continue;
+                        float vol = Mathf.Clamp01(stats.fireSoundVolume);
+                        _audioSource.PlayOneShot(stats.fireSound, vol);
                     }
 
-                    // Play the swing sound when the attack animation is almost ended (stroke apex at ~0.65f - 0.70f)
-                    if (curState.normalizedTime >= 0.68f)
+                    // Perform physical melee hit detection
+                    if (stats != null)
                     {
-                        syncedToAnim = true;
+                        PerformMeleeHit(stats);
+                    }
+                }
+            }
+            else
+            {
+                // We are not currently in an attack state
+                // If we were previously tracking an attack state, check if we are transitioning into the next one
+                if (currentTrackedIndex != -1)
+                {
+                    int nextIndex = GetAttackStateIndex(nextState);
+                    if (nextIndex == -1 && combatLayer != 0)
+                    {
+                        var l0Next = _animator.GetNextAnimatorStateInfo(0);
+                        nextIndex = GetAttackStateIndex(l0Next);
+                    }
+
+                    if (nextIndex == -1)
+                    {
+                        // The combo sequence has completely returned to Idle / Locomotion!
                         break;
                     }
                 }
-
-                yield return null;
-                elapsed += Time.deltaTime;
+                else if (elapsed > 0.45f)
+                {
+                    // If after 0.45s we never even entered an attack state (e.g. animation suppressed), abort
+                    break;
+                }
             }
+
+            yield return null;
+            elapsed += Time.deltaTime;
         }
 
-        // 2. Fallback delay if animator was not present or timed out
-        if (!syncedToAnim)
-        {
-            float delay = comboStep switch
-            {
-                0 => 0.32f,
-                1 => 0.28f,
-                _ => 0.34f
-            };
-
-            if (delay > 0f)
-            {
-                yield return new WaitForSeconds(delay);
-            }
-        }
-
-        // 3. Play the crisp swing whoosh audio right as each combo animation is almost ended
-        if (stats != null && stats.fireSound != null && _audioSource != null)
-        {
-            float vol = Mathf.Clamp01(stats.fireSoundVolume);
-            _audioSource.PlayOneShot(stats.fireSound, vol);
-        }
-
-        // 4. Perform the physical melee hit detection right at the strike apex
-        if (stats != null)
-        {
-            PerformMeleeHit(stats);
-        }
-
+        _comboQueued = false;
+        _attackTimer = comboFinisherRecovery;
         _meleeStrikeRoutine = null;
     }
 

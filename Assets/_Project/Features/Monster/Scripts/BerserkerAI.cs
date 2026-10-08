@@ -135,6 +135,16 @@ public class BerserkerAI : MonsterAI
         SafeCrossFade(_stateBerserkerIdle, "Berserker Idle", 0.25f);
     }
 
+    protected override void PlayPatrolWalkLocomotion(float speed)
+    {
+        PlayBerserkerWalkLocomotion(speed);
+    }
+
+    protected override void PlayPatrolIdleLocomotion()
+    {
+        PlayBerserkerIdleLocomotion();
+    }
+
     protected override IEnumerator SpawnScreamRoutine()
     {
         _hasScreamed = true;
