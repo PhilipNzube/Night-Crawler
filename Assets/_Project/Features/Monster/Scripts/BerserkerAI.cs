@@ -339,6 +339,12 @@ public class BerserkerAI : MonsterAI
                 }
                 else
                 {
+                    if (CheckForwardObstacleInChase(target.position))
+                    {
+                        ExecuteSmartReroute();
+                        return;
+                    }
+
                     _agent.isStopped = false;
                     _agent.speed = runSpeed;
                     _agent.SetDestination(target.position);
@@ -397,6 +403,12 @@ public class BerserkerAI : MonsterAI
             }
             else
             {
+                if (CheckForwardObstacleInChase(target.position))
+                {
+                    ExecuteSmartReroute();
+                    return;
+                }
+
                 _agent.isStopped = false;
                 _agent.speed = runSpeed;
                 _agent.SetDestination(target.position);

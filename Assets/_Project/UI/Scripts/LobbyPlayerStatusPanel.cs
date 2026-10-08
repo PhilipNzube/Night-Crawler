@@ -203,6 +203,14 @@ public class LobbyPlayerStatusPanel : MonoBehaviour
         }
     }
 
+    public void Refresh()
+    {
+        if (PlayerReadyTracker.Instance != null)
+        {
+            RefreshLobbyStatusRows(PlayerReadyTracker.Instance.GetLobbySnapshot());
+        }
+    }
+
     private void HandlePlayerLobbyStatesUpdated(Dictionary<ulong, PlayerLobbyInfo> snapshot)
     {
         RefreshLobbyStatusRows(snapshot);

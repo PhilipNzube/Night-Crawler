@@ -415,10 +415,14 @@ public class CharacterSelectUI : MonoBehaviour
             PlayerReadyTracker.Instance.OnPlayerLobbyStatesUpdated += HandlePlayerLobbyStatesUpdated;
             PlayerReadyTracker.Instance.OnAllPlayersReady += HandleAllPlayersReady;
         }
+
+        CloudCharacterSaveManager.OnUpgradeChanged += HandleStatUpgradeChanged;
     }
 
     void OnDisable()
     {
+        CloudCharacterSaveManager.OnUpgradeChanged -= HandleStatUpgradeChanged;
+
         if (exitHotkey != null && IsTransitionOrDescentLocked())
         {
             exitHotkey.gameObject.SetActive(false);
@@ -433,6 +437,15 @@ public class CharacterSelectUI : MonoBehaviour
             PlayerReadyTracker.Instance.OnReadyStatesUpdated -= HandleReadyStatesUpdated;
             PlayerReadyTracker.Instance.OnPlayerLobbyStatesUpdated -= HandlePlayerLobbyStatesUpdated;
             PlayerReadyTracker.Instance.OnAllPlayersReady -= HandleAllPlayersReady;
+        }
+    }
+
+    private void HandleStatUpgradeChanged(UpgradeStatType stat, int newLevel)
+    {
+        UpdateCharacterStatProgressBars(_selectedIndex);
+        if (lobbyPlayerStatusPanel != null)
+        {
+            lobbyPlayerStatusPanel.Refresh();
         }
     }
 

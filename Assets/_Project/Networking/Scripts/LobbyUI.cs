@@ -104,6 +104,15 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Optional text label in the Bottom Panel (or header) displaying the player's credit balance.")]
     public TextMeshProUGUI creditBalanceText;
 
+    [Tooltip("Optional text label displaying the countdown for low-credit emergency grant (e.g. 'Emergency Grant in 00:45').")]
+    public TextMeshProUGUI creditEmergencyTimerText;
+
+    [Tooltip("Duration in seconds before emergency credits are granted when balance is below stake threshold (< 4 credits). Default: 60s.")]
+    public float emergencyGrantCooldown = 60f;
+
+    private float _emergencyTimer = 0f;
+    private bool  _emergencyTimerActive = false;
+
     [Tooltip("The main PanelManager for top tab navigation (Main Content). If unassigned, will be auto-found.")]
     public PanelManager mainPanelManager;
 
@@ -304,6 +313,7 @@ public class LobbyUI : MonoBehaviour
     {
         CloudCharacterSaveManager.OnProfileLoaded += HandleProfileLoaded;
         CloudCharacterSaveManager.OnCreditsChanged += HandleCreditsChanged;
+        CloudCharacterSaveManager.OnUpgradeChanged += HandleUpgradeChanged;
 
         if (_lobbyEllipsesCoroutine == null)
         {
@@ -315,12 +325,18 @@ public class LobbyUI : MonoBehaviour
     {
         CloudCharacterSaveManager.OnProfileLoaded -= HandleProfileLoaded;
         CloudCharacterSaveManager.OnCreditsChanged -= HandleCreditsChanged;
+        CloudCharacterSaveManager.OnUpgradeChanged -= HandleUpgradeChanged;
 
         if (_lobbyEllipsesCoroutine != null)
         {
             StopCoroutine(_lobbyEllipsesCoroutine);
             _lobbyEllipsesCoroutine = null;
         }
+    }
+
+    private void HandleUpgradeChanged(UpgradeStatType stat, int newLevel)
+    {
+        UpdateProfileUI();
     }
 
     private void HandleCreditsChanged(int newBalance)
@@ -409,6 +425,9 @@ public class LobbyUI : MonoBehaviour
             loadingSpinner.transform.Rotate(0f, 0f, -spinnerRotationSpeed * Time.deltaTime);
         }
 
+        // Emergency poverty relief timer when balance is below stake threshold (< 4 credits)
+        UpdateEmergencyCreditsRelief();
+
         _refreshTimer -= Time.deltaTime;
         if (_refreshTimer > 0f) return;
         _refreshTimer = _refreshInterval;
@@ -417,6 +436,73 @@ public class LobbyUI : MonoBehaviour
 
         if (NetworkManager.Singleton.IsClient || NetworkManager.Singleton.IsServer)
             RefreshLobbyPanels();
+    }
+
+    private void UpdateEmergencyCreditsRelief()
+    {
+        int bal = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : 60;
+
+        // Poverty condition: Player has < 4 credits and cannot meet minimum stake requirements
+        if (bal < 4)
+        {
+            if (!_emergencyTimerActive)
+            {
+                _emergencyTimerActive = true;
+                _emergencyTimer = emergencyGrantCooldown > 0f ? emergencyGrantCooldown : 60f;
+            }
+
+            _emergencyTimer -= Time.deltaTime;
+
+            if (_emergencyTimer <= 0f)
+            {
+                // Multiplier grant with guaranteed minimum: x10 with minimum 20 credits
+                int grantAmount = Mathf.Clamp(Mathf.Max(20, bal * 10), 20, 30);
+                if (CloudCharacterSaveManager.Instance != null)
+                {
+                    CloudCharacterSaveManager.Instance.AddCredits(grantAmount);
+                }
+                _emergencyTimerActive = false;
+                _emergencyTimer = 0f;
+
+                if (NotificationManager.Instance != null)
+                {
+                    NotificationManager.Instance.ShowNotification(
+                        $"EMERGENCY STIPEND: +{grantAmount} {CurrencyConfig.CurrencyPlural} added!", 
+                        3.5f
+                    );
+                }
+
+                UpdateCreditsUI();
+                return;
+            }
+
+            int mins = Mathf.FloorToInt(_emergencyTimer / 60f);
+            int secs = Mathf.FloorToInt(_emergencyTimer % 60f);
+            string timerStr = $"{mins:00}:{secs:00}";
+
+            if (creditEmergencyTimerText != null)
+            {
+                if (!creditEmergencyTimerText.gameObject.activeSelf) creditEmergencyTimerText.gameObject.SetActive(true);
+                creditEmergencyTimerText.text = $"Stipend in {timerStr}";
+            }
+            else if (creditBalanceText != null)
+            {
+                creditBalanceText.text = $"{CurrencyConfig.FormatBalance(bal)}  <color=#FFD700><size=80%>[Grant in {timerStr}]</size></color>";
+            }
+        }
+        else
+        {
+            if (_emergencyTimerActive)
+            {
+                _emergencyTimerActive = false;
+                _emergencyTimer = 0f;
+                if (creditEmergencyTimerText != null && creditEmergencyTimerText.gameObject.activeSelf)
+                {
+                    creditEmergencyTimerText.gameObject.SetActive(false);
+                }
+                UpdateCreditsUI();
+            }
+        }
     }
 
     /// <summary>

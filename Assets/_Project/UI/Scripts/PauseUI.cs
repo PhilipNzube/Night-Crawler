@@ -435,6 +435,12 @@ public class PauseUI : MonoBehaviour
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
 
+        // Ensure early exit deductions and stake forfeits are written directly to disk before scene load
+        if (CloudCharacterSaveManager.Instance != null)
+        {
+            CloudCharacterSaveManager.Instance.SaveProfileDirect();
+        }
+
         if (GameManager.Instance != null && GameManager.Instance.gameObject.activeInHierarchy)
         {
             GameManager.Instance.StartCoroutine(_isExternalQuitPending ? QuitAfterDisconnectRoutine() : DisconnectRoutine(true));

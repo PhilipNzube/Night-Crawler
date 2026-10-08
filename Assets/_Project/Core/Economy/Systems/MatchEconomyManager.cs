@@ -628,14 +628,19 @@ namespace NightCrawler.Economy
         {
             if (CloudCharacterSaveManager.Instance != null)
             {
-                if (summary.netPayout > 0)
+                if (summary.won && summary.netPayout > 0)
                 {
+                    // Winner receives returned stake plus win bonuses & pot shares
                     CloudCharacterSaveManager.Instance.AddCredits(summary.netPayout);
                 }
-                else if (summary.netPayout < 0)
+                else
                 {
-                    // Deduct stake or penalties
-                    CloudCharacterSaveManager.Instance.TryDeductCredits(Mathf.Abs(summary.netPayout));
+                    // Upfront stake was already deducted at ready/stake time.
+                    // Only deduct additional penalties beyond the stake if applicable (e.g. GirlLossPenalty, TraitorPenalty).
+                    if (summary.penaltyDeduction > 0)
+                    {
+                        CloudCharacterSaveManager.Instance.TryDeductCredits(summary.penaltyDeduction);
+                    }
                 }
                 summary.newBalance = CloudCharacterSaveManager.Instance.CurrentCredits;
             }

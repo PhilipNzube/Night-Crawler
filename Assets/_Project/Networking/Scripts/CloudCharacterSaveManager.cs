@@ -40,6 +40,7 @@ public class CloudCharacterSaveManager : MonoBehaviour
 
     public static event Action<PlayerProfileData> OnProfileLoaded;
     public static event Action<int> OnCreditsChanged;
+    public static event Action<UpgradeStatType, int> OnUpgradeChanged;
 
     [Header("Testing")]
     [Tooltip("Set your credit balance here in the Inspector before testing (e.g. 50, 100, 500, 0). If set to 0 or greater, you will start with this amount. Set to -1 to use normal saved credits.")]
@@ -201,8 +202,21 @@ public class CloudCharacterSaveManager : MonoBehaviour
 
         CurrentProfile.economy.SetLevel(stat, currentLvl + 1);
         _ = SaveProfileAsync(CurrentProfile);
-        Debug.Log($"[CloudSaveManager] Upgraded {stat} to Level {currentLvl + 1} for {cost} Cinders.");
+        OnUpgradeChanged?.Invoke(stat, currentLvl + 1);
+        Debug.Log($"[CloudSaveManager] Upgraded {stat} to Level {currentLvl + 1} for {cost} {CurrencyConfig.CurrencyName}.");
         return true;
+    }
+
+    /// <summary>
+    /// Forces an immediate synchronous write to local PlayerPrefs, ensuring state is preserved
+    /// even if network or scene changes abruptly (e.g. Early Disconnect / Quitting).
+    /// </summary>
+    public void SaveProfileDirect()
+    {
+        if (CurrentProfile != null)
+        {
+            SaveToLocalPlayerPrefs(CurrentProfile);
+        }
     }
 
     // =========================================================================
@@ -210,7 +224,7 @@ public class CloudCharacterSaveManager : MonoBehaviour
     // =========================================================================
 
     /// <summary>
-    /// Returns the total number of purchased upgrade tiers across all active stats (0 to 55).
+    /// Returns the total number of purchased upgrade tiers across all active stats.
     /// </summary>
     public int GetTotalPurchasedTiers()
     {
@@ -226,11 +240,13 @@ public class CloudCharacterSaveManager : MonoBehaviour
 
     /// <summary>
     /// Calculates the player's overall level based on all purchased stats.
-    /// Base level is 1; each purchased upgrade tier adds +1 (Level 1 to 61).
+    /// Base level is 1; each purchased upgrade tier adds +1 (Level 1 to 55).
     /// </summary>
     public int GetPlayerLevel()
     {
-        return 1 + GetTotalPurchasedTiers();
+        const int baselineTiers = 11; // 7 investigator + 4 girl stats at starting level 1
+        int purchasedAboveBase = Mathf.Max(0, GetTotalPurchasedTiers() - baselineTiers);
+        return 1 + purchasedAboveBase;
     }
 
     /// <summary>

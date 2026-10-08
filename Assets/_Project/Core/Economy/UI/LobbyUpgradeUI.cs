@@ -149,12 +149,23 @@ namespace NightCrawler.Economy.UI
                     var capturedStat = item.statType;
                     var capturedCost = cost;
 
-                    // Directly wire the child purchase button
+                    // Directly wire the child purchase button (both Michsky & Unity standard Button)
                     if (pBtn != null)
                     {
                         pBtn.isInteractable = canAfford;
                         pBtn.buttonText = isMaxLevel ? "MAX" : "Purchase";
                         pBtn.UpdateUI();
+
+                        var stdBtn = pBtn.GetComponent<UnityEngine.UI.Button>();
+                        if (stdBtn != null)
+                        {
+                            stdBtn.interactable = canAfford;
+                            stdBtn.onClick.RemoveAllListeners();
+                            if (!isMaxLevel)
+                            {
+                                stdBtn.onClick.AddListener(() => OnUpgradeClicked(capturedStat, capturedCost));
+                            }
+                        }
 
                         pBtn.onClick.RemoveAllListeners();
                         if (!isMaxLevel)
@@ -191,24 +202,34 @@ namespace NightCrawler.Economy.UI
             string statTitle = UpgradeStatFormulas.GetStatDisplayName(stat);
             string nextEffect = UpgradeStatFormulas.GetStatEffectDescription(stat, currentLevel + 1);
 
-            int balance = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : 0;
+            int balance = CloudCharacterSaveManager.Instance.CurrentCredits;
             bool canAfford = balance >= cost;
 
             // If a confirmation modal window is assigned, open it with details!
             if (purchaseConfirmModal != null)
             {
+                if (!purchaseConfirmModal.gameObject.activeSelf)
+                {
+                    purchaseConfirmModal.gameObject.SetActive(true);
+                }
+
                 purchaseConfirmModal.titleText = $"UPGRADE {statTitle.ToUpper()}";
                 purchaseConfirmModal.descriptionText = canAfford
                     ? $"Upgrade to Level {currentLevel + 1} for {cost} {CurrencyConfig.CurrencySymbol}?\n\n<b>Next Tier:</b> {nextEffect}"
                     : $"Requires {cost} {CurrencyConfig.CurrencySymbol} (You have {balance} {CurrencyConfig.CurrencySymbol}).\n\n<b>Next Tier:</b> {nextEffect}";
                 purchaseConfirmModal.UpdateUI();
 
+                bool hasPurchased = false;
                 Action doPurchase = () =>
                 {
+                    if (hasPurchased) return;
                     if (CloudCharacterSaveManager.Instance != null && CloudCharacterSaveManager.Instance.TryPurchaseUpgrade(stat))
                     {
+                        hasPurchased = true;
                         purchaseConfirmModal.CloseWindow();
                         RefreshUI();
+                        LobbyUI.Instance?.UpdateCreditsUI();
+                        LobbyUI.Instance?.UpdateProfileUI();
                     }
                 };
 
@@ -223,6 +244,15 @@ namespace NightCrawler.Economy.UI
                     purchaseConfirmModal.confirmButton.isInteractable = canAfford;
                     purchaseConfirmModal.confirmButton.buttonText = canAfford ? "Confirm" : "Not Enough";
                     purchaseConfirmModal.confirmButton.UpdateUI();
+
+                    var stdConfirm = purchaseConfirmModal.confirmButton.GetComponent<UnityEngine.UI.Button>();
+                    if (stdConfirm != null)
+                    {
+                        stdConfirm.interactable = canAfford;
+                        stdConfirm.onClick.RemoveAllListeners();
+                        if (canAfford) stdConfirm.onClick.AddListener(() => doPurchase());
+                    }
+
                     purchaseConfirmModal.confirmButton.onClick.RemoveAllListeners();
                     if (canAfford)
                     {
@@ -240,6 +270,13 @@ namespace NightCrawler.Economy.UI
 
                 if (purchaseConfirmModal.cancelButton != null)
                 {
+                    var stdCancel = purchaseConfirmModal.cancelButton.GetComponent<UnityEngine.UI.Button>();
+                    if (stdCancel != null)
+                    {
+                        stdCancel.onClick.RemoveAllListeners();
+                        stdCancel.onClick.AddListener(() => doCancel());
+                    }
+
                     purchaseConfirmModal.cancelButton.onClick.RemoveAllListeners();
                     purchaseConfirmModal.cancelButton.onClick.AddListener(() => doCancel());
                 }

@@ -68,6 +68,7 @@ public class GameManager : NetworkBehaviour
     public int  CurrentPlayerCount => NetworkManager.Singleton.ConnectedClientsIds.Count;
     public bool HasGameStarted     => _gameHasStarted;
     public Transform GirlTransform => _girlPlayer != null ? _girlPlayer.transform : null;
+    public IReadOnlyList<NetworkObject> AliveExplorers => _aliveExplorers;
 
     // -------------------------------------------------------------------------
     //  Private State

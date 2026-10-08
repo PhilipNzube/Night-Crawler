@@ -80,6 +80,8 @@ public class PlayerReadyTracker : NetworkBehaviour
 
     public int TotalCount => _lobbySnapshot.Count;
 
+    public Dictionary<ulong, PlayerLobbyInfo> GetLobbySnapshot() => _lobbySnapshot;
+
     void Awake()
     {
         if (_instance != null && _instance != this) { Destroy(gameObject); return; }

@@ -212,6 +212,12 @@ namespace NightCrawler.UI
             if (_hasConfirmed) return;
             _hasConfirmed = true;
 
+            PersistentCharacterSelection.SetSavedMatchStake(_selectedStake);
+            if (CloudCharacterSaveManager.Instance != null)
+            {
+                CloudCharacterSaveManager.Instance.SpendCredits(_selectedStake);
+            }
+
             if (MatchEconomyManager.Instance != null)
             {
                 MatchEconomyManager.Instance.SubmitStakeServerRpc(_selectedStake);

@@ -191,8 +191,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     [Header("Anti-Stuck & Auto-Reroute")]
     [Tooltip("Enables smart obstacle avoidance and automatic rerouting when jammed against tunnel walls.")]
     public bool enableAntiStuck = true;
-    [Tooltip("Time in seconds the monster must be pushing forward without progress before triggering an auto-reroute.")]
-    public float stuckDetectionDuration = 0.7f;
+    [Tooltip("Time in seconds the monster must be pushing forward without progress before triggering an auto-reroute. Kept short (<0.4s) so players never notice.")]
+    public float stuckDetectionDuration = 0.35f;
     [Tooltip("Duration in seconds the monster focuses on the escape path away from the wall before re-evaluating.")]
     public float rerouteDuration = 1.1f;
 
@@ -291,7 +291,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected float _rerouteTimer = 0f;
     protected Vector3 _rerouteWaypoint;
     protected Vector3 _lastStuckCheckPos;
-    protected float _stuckCheckInterval = 0.25f;
+    protected float _stuckCheckInterval = 0.12f;
     protected float _stuckCheckTimer = 0f;
     protected int _consecutiveStuckCount = 0;
     protected Transform _temporarilyIgnoredTarget;
@@ -299,6 +299,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected NavMeshPath _pathCalc;
     protected NavMeshPath _reroutePath;
     protected Coroutine _rerouteTurnCoroutine;
+    protected Coroutine _roamTurnCoroutine;
 
     protected bool HasAuthority => (NetworkObject != null && NetworkObject.IsSpawned) ? IsServer : true;
     protected Coroutine _spawnScreamCoroutine;
@@ -709,6 +710,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (_rerouteTurnCoroutine != null)
         {
             // Monster is executing visual turn animation towards new escape route
+            return;
+        }
+
+        // Active roam turn handling: take time to turn in idle state before walking
+        if (_roamTurnCoroutine != null)
+        {
             return;
         }
 
@@ -1598,6 +1605,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             return;
         }
 
+        // State 0: Monster is actively executing a realistic turning animation while IDLE
+        if (_roamTurnCoroutine != null)
+        {
+            return;
+        }
+
         // Initialize into a natural stationary pause if starting fresh
         if (_roamWaitTimer <= 0f && _roamTimer <= 0f && (!_agent.hasPath || _agent.remainingDistance == 0f))
         {
@@ -1616,7 +1629,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             if (_roamWaitTimer <= 0f)
             {
                 _isRoamWaiting = false;
-                PickNewRoamDestination();
+                PickNewRoamDestination(patrolSpeed);
             }
             return;
         }
@@ -1642,6 +1655,23 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             }
         }
 
+        // Sharp corner check during patrol: stop into idle and turn rather than spinning body while walking
+        if (_agent.hasPath && !_agent.pathPending && _roamMinTravelTimer <= 0f)
+        {
+            Vector3 steerDir = _agent.steeringTarget - transform.position;
+            steerDir.y = 0f;
+            if (steerDir.sqrMagnitude > 0.4f)
+            {
+                float cornerAngle = Vector3.Angle(transform.forward, steerDir);
+                if (cornerAngle > 60f && _agent.remainingDistance > 2.0f)
+                {
+                    if (_roamTurnCoroutine != null) StopCoroutine(_roamTurnCoroutine);
+                    _roamTurnCoroutine = StartCoroutine(RoamTurnTowardsDestinationRoutine(_agent.steeringTarget, patrolSpeed));
+                    return;
+                }
+            }
+        }
+
         // Reached destination or timer expired -> smooth stop and enter realistic idle pause
         if (hasArrived || _roamTimer <= 0f)
         {
@@ -1659,8 +1689,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         PlayPatrolWalkLocomotion(patrolSpeed);
     }
 
-    protected void PickNewRoamDestination()
+    protected void PickNewRoamDestination(float patrolSpeed = -1f)
     {
+        if (patrolSpeed <= 0f) patrolSpeed = walkSpeed;
+
         _roamTimer = Random.Range(14f, 22f);
         _roamMinTravelTimer = 1.2f; // Guarantees at least 1.2s of travel before arrival can evaluate
 
@@ -1746,8 +1778,21 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (foundPath)
         {
             _roamDestination = bestPoint;
-            _agent.isStopped = false;
-            _agent.SetDestination(_roamDestination);
+            Vector3 toDest = bestPoint - transform.position;
+            toDest.y = 0f;
+            float turnAngle = Vector3.Angle(transform.forward, toDest);
+
+            // If angle requires turning, go into idle state and take time to turn properly with turning animation
+            if (turnAngle > 25f && toDest.sqrMagnitude > 0.1f)
+            {
+                if (_roamTurnCoroutine != null) StopCoroutine(_roamTurnCoroutine);
+                _roamTurnCoroutine = StartCoroutine(RoamTurnTowardsDestinationRoutine(_roamDestination, patrolSpeed));
+            }
+            else
+            {
+                _agent.isStopped = false;
+                _agent.SetDestination(_roamDestination);
+            }
         }
         else
         {
@@ -1757,6 +1802,62 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             _agent.isStopped = true;
             PlayPatrolIdleLocomotion();
         }
+    }
+
+    /// <summary>
+    /// Smoothly turns the monster towards its destination while in IDLE state.
+    /// Plays authentic turning animations without walking or running, preventing unnatural globe spinning.
+    /// </summary>
+    protected virtual IEnumerator RoamTurnTowardsDestinationRoutine(Vector3 destination, float patrolSpeed)
+    {
+        // 1. Enter idle state: stop movement and locomotion animations immediately
+        if (_agent != null && _agent.isOnNavMesh && _agent.enabled)
+        {
+            _agent.isStopped = true;
+            _agent.velocity = Vector3.zero;
+        }
+        PlayPatrolIdleLocomotion();
+
+        Vector3 turnDir = destination - transform.position;
+        turnDir.y = 0f;
+
+        if (turnDir.sqrMagnitude > 0.05f)
+        {
+            // If Zombie is crawling, transition to standing posture so turn animations can play
+            if (monsterType == MonsterType.Zombie && currentPosture == ZombiePosture.Crawling)
+            {
+                yield return StartCoroutine(StandUpRoutine());
+            }
+
+            // 2. Play turning animation while stationary idle
+            UpdateTurningAnimation(turnDir);
+
+            Quaternion targetRot = Quaternion.LookRotation(turnDir.normalized);
+            float elapsed = 0f;
+            float maxDuration = 1.1f;
+            float turnRate = (monsterType == MonsterType.Berserker) ? 140f : 120f;
+
+            while (elapsed < maxDuration && Quaternion.Angle(transform.rotation, targetRot) > 10f)
+            {
+                transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRot, turnRate * Time.deltaTime);
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+
+            StopTurningAnimation(true);
+            yield return new WaitForSeconds(0.12f); // Brief natural pause before stepping into forward walk
+        }
+
+        // 3. Resume locomotion forward along the new corridor path
+        if (_agent != null && _agent.isOnNavMesh && _agent.enabled)
+        {
+            _agent.isStopped = false;
+            _agent.SetDestination(destination);
+            _roamTimer = Random.Range(14f, 22f);
+            _roamMinTravelTimer = 1.2f;
+        }
+
+        _roamTurnCoroutine = null;
     }
 
     /// <summary>
@@ -2100,7 +2201,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         _standUpCoroutine = StartCoroutine(StandUpRoutine());
     }
 
-    private IEnumerator StandUpRoutine()
+    protected IEnumerator StandUpRoutine()
     {
         currentPosture = ZombiePosture.StandingUp;
         if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
@@ -2865,6 +2966,36 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     }
 
     /// <summary>
+    /// Verifies that a proposed path candidate is completely clear of physical obstacles (doors, props, beams).
+    /// </summary>
+    protected virtual bool IsClearOfObstacles(Vector3 start, Vector3 end)
+    {
+        Vector3 origin = start + Vector3.up * 0.7f;
+        Vector3 dest = end + Vector3.up * 0.7f;
+        Vector3 diff = dest - origin;
+        float dist = diff.magnitude;
+
+        if (dist > 0.1f)
+        {
+            int obstacleMask = ~LayerMask.GetMask("Ignore Raycast", "UI");
+            if (Physics.SphereCast(origin, 0.28f, diff.normalized, out RaycastHit hit, dist, obstacleMask, QueryTriggerInteraction.Ignore))
+            {
+                if (hit.collider != null && !hit.collider.transform.IsChildOf(transform))
+                {
+                    if (target == null || (hit.collider.transform != target && !hit.collider.transform.IsChildOf(target)))
+                    {
+                        if (hit.collider.GetComponentInParent<MonsterAI>() == null)
+                        {
+                            return false; // Physical barrier detected
+                        }
+                    }
+                }
+            }
+        }
+        return true;
+    }
+
+    /// <summary>
     /// Intelligently maneuvers the monster away from a wall or obstacle into clear NavMesh tunnel space.
     /// Stops walk/run animation, finds open route, executes turn animation towards route, and resumes navigation.
     /// </summary>
@@ -2895,7 +3026,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 Vector3 escapeCandidate = transform.position + pushAwayDir.normalized * 3.5f;
                 if (NavMesh.SamplePosition(escapeCandidate, out NavMeshHit navHit, 2.5f, NavMesh.AllAreas))
                 {
-                    if (NavMesh.CalculatePath(transform.position, navHit.position, NavMesh.AllAreas, _reroutePath) &&
+                    if (IsClearOfObstacles(transform.position, navHit.position) &&
+                        NavMesh.CalculatePath(transform.position, navHit.position, NavMesh.AllAreas, _reroutePath) &&
                         _reroutePath.status == NavMeshPathStatus.PathComplete)
                     {
                         chosenWaypoint = navHit.position;
@@ -2916,7 +3048,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 Vector3 testSpot = transform.position + testDir * 3.2f;
                 if (NavMesh.SamplePosition(testSpot, out NavMeshHit navHit, 2.0f, NavMesh.AllAreas))
                 {
-                    if (NavMesh.CalculatePath(transform.position, navHit.position, NavMesh.AllAreas, _reroutePath) &&
+                    if (IsClearOfObstacles(transform.position, navHit.position) &&
+                        NavMesh.CalculatePath(transform.position, navHit.position, NavMesh.AllAreas, _reroutePath) &&
                         _reroutePath.status == NavMeshPathStatus.PathComplete)
                     {
                         chosenWaypoint = navHit.position;
@@ -2934,8 +3067,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             randomPoint.y = transform.position.y;
             if (NavMesh.SamplePosition(randomPoint, out NavMeshHit fallbackHit, 3f, NavMesh.AllAreas))
             {
-                chosenWaypoint = fallbackHit.position;
-                found = true;
+                if (IsClearOfObstacles(transform.position, fallbackHit.position))
+                {
+                    chosenWaypoint = fallbackHit.position;
+                    found = true;
+                }
             }
         }
 
@@ -3007,10 +3143,25 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     protected Transform FindBestTarget()
     {
-        int hitCount = Physics.OverlapSphereNonAlloc(transform.position, searchRadius, _searchBuffer);
         Transform closest = null;
         float minEffectiveDistance = Mathf.Infinity;
 
+        // 1. Mine-Wide Global Targeting: Evaluate all living explorers across the entire mine
+        if (GameManager.Instance != null && GameManager.Instance.AliveExplorers != null)
+        {
+            var alive = GameManager.Instance.AliveExplorers;
+            for (int i = 0; i < alive.Count; i++)
+            {
+                var netObj = alive[i];
+                if (netObj == null || !netObj.gameObject.activeInHierarchy) continue;
+                Transform candidate = netObj.transform;
+
+                EvaluateCandidatePrey(candidate, ref closest, ref minEffectiveDistance);
+            }
+        }
+
+        // 2. Proximity Sphere Fallback (picks up non-registered local player colliders)
+        int hitCount = Physics.OverlapSphereNonAlloc(transform.position, searchRadius, _searchBuffer);
         for (int i = 0; i < hitCount; i++)
         {
             Collider col = _searchBuffer[i];
@@ -3021,38 +3172,43 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             if (col.CompareTag("Player") || (col.transform.root != null && col.transform.root.CompareTag("Player")))
             {
                 Transform candidate = col.transform.root != null ? col.transform.root : col.transform;
-
-                if (IsTargetInvalidOrDead(candidate)) continue;
-                if (_temporarilyIgnoredTarget != null && candidate == _temporarilyIgnoredTarget) continue;
-
-                float straightDist = Vector3.Distance(transform.position, candidate.position);
-                bool hasLoS = HasLineOfSight(candidate);
-
-                // Smart tunnel distance calculation:
-                // If candidate has direct Line of Sight in the tunnel, use straight distance.
-                // If separated by solid walls, evaluate actual NavMesh path distance.
-                // If NO complete path exists (separated by solid cave rock/tunnels), REJECT CANDIDATE!
-                float effectiveDist = straightDist;
-                if (!hasLoS)
-                {
-                    float pathDist = GetNavMeshPathDistance(transform.position, candidate.position);
-                    if (pathDist <= 0f)
-                    {
-                        // Candidate is unreachable through the mine tunnels (separated by rock walls or on separate level)
-                        continue;
-                    }
-                    effectiveDist = pathDist;
-                }
-
-                if (effectiveDist < minEffectiveDistance)
-                {
-                    minEffectiveDistance = effectiveDist;
-                    closest = candidate;
-                }
+                EvaluateCandidatePrey(candidate, ref closest, ref minEffectiveDistance);
             }
         }
 
         return closest;
+    }
+
+    protected void EvaluateCandidatePrey(Transform candidate, ref Transform closest, ref float minEffectiveDistance)
+    {
+        if (candidate == null || candidate.gameObject == gameObject) return;
+        if (IsMonster(candidate.gameObject)) return;
+        if (IsTargetInvalidOrDead(candidate)) return;
+        if (_temporarilyIgnoredTarget != null && candidate == _temporarilyIgnoredTarget) return;
+
+        float straightDist = Vector3.Distance(transform.position, candidate.position);
+        bool hasLoS = HasLineOfSight(candidate);
+
+        // Huge global mine calculation:
+        // Calculate the full NavMesh corridor path across the entire mine before considering moving.
+        // If NO complete path exists (blocked by cave cave-in or solid rock wall), STRICTLY REJECT!
+        float effectiveDist = straightDist;
+        if (!hasLoS)
+        {
+            float pathDist = GetNavMeshPathDistance(transform.position, candidate.position);
+            if (pathDist <= 0f)
+            {
+                // Target is unreachable through the mine corridors (separated by rock walls or on separate level)
+                return;
+            }
+            effectiveDist = pathDist;
+        }
+
+        if (effectiveDist < minEffectiveDistance)
+        {
+            minEffectiveDistance = effectiveDist;
+            closest = candidate;
+        }
     }
 
     protected bool IsTargetInvalidOrDead(Transform t)

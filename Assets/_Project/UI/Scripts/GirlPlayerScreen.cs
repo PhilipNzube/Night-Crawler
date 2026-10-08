@@ -141,13 +141,26 @@ public class GirlPlayerScreen : MonoBehaviour
 
         MichskyUIBridge.BindButton(null, heatReadyButton, OnReadyButtonClicked);
         InitExitBindings();
+
+        CloudCharacterSaveManager.OnUpgradeChanged += HandleStatUpgradeChanged;
     }
 
     void OnDestroy()
     {
+        CloudCharacterSaveManager.OnUpgradeChanged -= HandleStatUpgradeChanged;
+
         if (Instance == this)
         {
             Instance = null;
+        }
+    }
+
+    private void HandleStatUpgradeChanged(UpgradeStatType stat, int newLevel)
+    {
+        UpdateGirlStatProgressBars();
+        if (lobbyPlayerStatusPanel != null)
+        {
+            lobbyPlayerStatusPanel.Refresh();
         }
     }
 

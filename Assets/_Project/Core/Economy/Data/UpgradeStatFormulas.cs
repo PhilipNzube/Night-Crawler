@@ -14,44 +14,57 @@ namespace NightCrawler.Economy
         // =========================================================================
 
         /// <summary>
-        /// Base cost in Cinders for Level 1 upgrades.
-        /// Balanced for high-stakes economy where upgrades are meaningful, premium milestones.
+        /// Base cost in Credits for Level 2 upgrades (upgrading from starting Level 1).
+        /// Balanced for a healthy, rewarding economy without player frustration.
         /// </summary>
         public static int GetBaseCost(UpgradeStatType stat)
         {
             switch (stat)
             {
-                case UpgradeStatType.DamageResistance:     return 40;
-                case UpgradeStatType.WeaponDamage:        return 50;
-                case UpgradeStatType.MaskFilter:          return 35;
-                case UpgradeStatType.SpiritualLevel:      return 60;
-                case UpgradeStatType.MapPower:            return 30;
-                case UpgradeStatType.VialCount:           return 50;
-                case UpgradeStatType.VialHealingPower:    return 40;
+                case UpgradeStatType.DamageResistance:     return 16;
+                case UpgradeStatType.WeaponDamage:        return 20;
+                case UpgradeStatType.MaskFilter:          return 14;
+                case UpgradeStatType.SpiritualLevel:      return 18;
+                case UpgradeStatType.MapPower:            return 12;
+                case UpgradeStatType.VialCount:           return 18;
+                case UpgradeStatType.VialHealingPower:    return 15;
 
-                case UpgradeStatType.PossessionDuration:  return 70;
-                case UpgradeStatType.DealCapacity:        return 60;
+                case UpgradeStatType.PossessionDuration:  return 22;
+                case UpgradeStatType.DealCapacity:        return 20;
                 case UpgradeStatType.VisibilityCount:
-                case UpgradeStatType.VisibilityDuration:  return 40;
-                case UpgradeStatType.DeadSummonCharges:   return 60;
-                default: return 40;
+                case UpgradeStatType.VisibilityDuration:  return 16;
+                case UpgradeStatType.DeadSummonCharges:   return 22;
+                default: return 16;
             }
         }
 
         /// <summary>
         /// Calculates the upgrade cost from currentLevel to (currentLevel + 1).
-        /// Uses a steep 2.15x exponential multiplier per tier:
-        /// - Tier 1: ~30-70 Cinders  (Accessible early milestone)
-        /// - Tier 2: ~80-150 Cinders (Requires saving from a good extraction)
-        /// - Tier 3: ~180-325 Cinders (Major build specialization)
-        /// - Tier 4: ~400-700 Cinders (High-stakes dedication)
-        /// - Tier 5: ~850-1,500 Cinders (Prestige apex capstone)
+        /// Uses a fair, motivating progression curve that prevents player burnout:
+        /// - Level 1 -> 2: ~12-22 Credits (Immediate rewarding milestone with 60 starting credits)
+        /// - Level 2 -> 3: ~26-48 Credits (Earnable in 1-2 good matches)
+        /// - Level 3 -> 4: ~52-96 Credits (Mid-game specialization milestone)
+        /// - Level 4 -> 5: ~90-165 Credits (Prestigious apex capstone, completely achievable)
         /// </summary>
         public static int CalculateUpgradeCost(UpgradeStatType stat, int currentLevel)
         {
+            if (currentLevel >= 5) return 0;
+
             float baseCost = GetBaseCost(stat);
-            float multiplier = Mathf.Pow(2.15f, currentLevel);
-            return Mathf.RoundToInt(baseCost * multiplier);
+            switch (currentLevel)
+            {
+                case 0:
+                case 1:
+                    return Mathf.RoundToInt(baseCost);
+                case 2:
+                    return Mathf.RoundToInt(baseCost * 2.2f);
+                case 3:
+                    return Mathf.RoundToInt(baseCost * 4.4f);
+                case 4:
+                    return Mathf.RoundToInt(baseCost * 7.5f);
+                default:
+                    return Mathf.RoundToInt(baseCost * 8f);
+            }
         }
 
         // =========================================================================
@@ -59,85 +72,95 @@ namespace NightCrawler.Economy
         // =========================================================================
 
         /// <summary>
-        /// Damage resistance percentage (0.0 to 0.40 max).
-        /// Each level grants +5% damage reduction, capped at 40%.
+        /// Damage resistance percentage (0.10 to 0.35 max).
+        /// Level 1 baseline = 10%, scaling up to 35% at Level 5.
         /// </summary>
         public static float GetDamageResistanceFraction(int level)
         {
-            return Mathf.Clamp(level * 0.05f, 0f, 0.40f);
+            if (level <= 0) return 0.10f;
+            return Mathf.Clamp(0.05f + (level * 0.06f), 0.10f, 0.35f);
         }
 
         /// <summary>
-        /// Weapon damage multiplier (1.0 = normal, +8% per level).
+        /// Weapon damage multiplier.
+        /// Level 1 baseline = 1.10 (+10%), scaling up to +45% at Level 5.
         /// </summary>
         public static float GetWeaponDamageMultiplier(int level)
         {
-            return 1.0f + (level * 0.08f);
+            if (level <= 0) return 1.10f;
+            return 1.02f + (level * 0.08f);
         }
 
         /// <summary>
-        /// Mask Filter: reduces poison tick damage over time (0.0 to 0.50 max).
-        /// Does NOT increase lifespan or duration, preserving time pressure.
-        /// Each level grants +6% reduction on tick damage, capped at 50%.
+        /// Mask Filter: reduces poison tick damage over time (0.12 to 0.45 max).
+        /// Level 1 baseline = 12% reduction, scaling to 45% at Level 5.
         /// </summary>
         public static float GetMaskPoisonDamageReduction(int level)
         {
-            return Mathf.Clamp(level * 0.06f, 0f, 0.50f);
+            if (level <= 0) return 0.12f;
+            return Mathf.Clamp(0.04f + (level * 0.08f), 0.12f, 0.45f);
         }
 
         /// <summary>
-        /// Spiritual Level: Exorcism channel speed multiplier (+10% speed per level).
+        /// Spiritual Level: Exorcism channel speed multiplier.
+        /// Level 1 baseline = +12% speed, scaling to +55% at Level 5.
         /// </summary>
         public static float GetExorcismSpeedMultiplier(int level)
         {
-            return 1.0f + (level * 0.10f);
+            if (level <= 0) return 1.12f;
+            return 1.02f + (level * 0.10f);
         }
 
         /// <summary>
         /// Map Power: ping/reveal radius in meters for clues/exorcism site.
-        /// Baseline = 15m, +5m per level.
+        /// Level 1 baseline = 20m, scaling to 40m at Level 5.
         /// </summary>
         public static float GetMapPingRadius(int level)
         {
+            if (level <= 0) return 20f;
             return 15f + (level * 5f);
         }
 
         /// <summary>
-        /// Medic starting vial count. Baseline = 4, +1 per level.
+        /// Medic starting vial count. Level 1 baseline = 4, +1 per level up to 8.
         /// </summary>
         public static int GetStartingVialCount(int level)
         {
-            return 4 + level;
+            if (level <= 0) return 4;
+            return 3 + level;
         }
 
         /// <summary>
-        /// Medic vial healing amount. Baseline = 50 HP, +6 HP per level.
+        /// Medic vial healing amount. Level 1 baseline = 55 HP, +10 HP per level up to 95 HP.
         /// </summary>
         public static float GetVialHealAmount(int level)
         {
-            return 50f + (level * 6f);
+            if (level <= 0) return 55f;
+            return 45f + (level * 10f);
         }
 
         // =========================================================================
-        //  The Girl (Vengeful Spirit) Persistent Upgrades
+        //  The Girl (Wraith) Persistent Upgrades
         // =========================================================================
 
         /// <summary>
         /// Total possession time pool in seconds across the match.
-        /// Baseline = 120s (2 mins), +25s per level.
+        /// Level 1 baseline = 120s (2 mins), +25s per level up to 220s.
         /// </summary>
         public static float GetGirlPossessionTimePool(int level)
         {
-            return 120f + (level * 25f);
+            if (level <= 0) return 120f;
+            return 95f + (level * 25f);
         }
 
         /// <summary>
         /// Maximum number of deals the Girl can send per match.
-        /// Baseline = 1 deal, +1 per level.
+        /// Level 1 baseline = 1 deal, scaling to 5 at Level 5.
         /// </summary>
         public static int GetGirlDealCapacity(int level)
         {
-            return 1 + level;
+            if (level <= 0) return 1;
+            return level;
         }
 
         /// <summary>
@@ -150,25 +173,29 @@ namespace NightCrawler.Economy
 
         /// <summary>
         /// Total match time bank (in seconds) the Girl is permitted to remain physically manifested and visible.
-        /// Pauses whenever she cloaks back into shadows and resumes when manifested again.
-        /// Baseline = 40s, +15s per level.
+        /// Level 1 baseline = 45s, scaling up to 105s at Level 5.
         /// </summary>
         public static float GetGirlVisibilityDuration(int level)
         {
-            return 40f + (level * 15f);
+            if (level <= 0) return 45f;
+            return 30f + (level * 15f);
         }
 
         /// <summary>
         /// Girl dead / monster summon charges per match.
-        /// Levels 0-2: 2, 3, 4 Undead.
-        /// Level 3 (Mid): 4 Undead + 1 Berserker (5 total).
-        /// Level 4: 5 Undead + 1 Berserker (6 total).
-        /// Level 5 (Final/Max): 6 Undead + 2 Berserkers (8 total).
+        /// Level 1 baseline = 2 Undead.
+        /// Level 2 = 3 Undead.
+        /// Level 3 = 4 Monsters (Includes Berserker Unlock).
+        /// Level 4 = 6 Monsters (Includes Berserker Unlock).
+        /// Level 5 (Max) = 8 Monsters (6 Undead + 2 Berserkers).
         /// </summary>
         public static int GetGirlDeadSummonCharges(int level)
         {
             if (level >= 5) return 8;
-            return 2 + level;
+            if (level >= 4) return 6;
+            if (level >= 3) return 4;
+            if (level <= 1) return 2;
+            return 3;
         }
 
         // =========================================================================

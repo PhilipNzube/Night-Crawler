@@ -79,26 +79,29 @@ namespace NightCrawler.Economy
 
         /// <summary>
         /// Gets the current upgrade level for any stat type.
+        /// Guaranteed minimum is 1 so beginners always have positive starting baseline stats.
         /// </summary>
         public int GetLevel(UpgradeStatType stat)
         {
+            int val = 1;
             switch (stat)
             {
-                case UpgradeStatType.DamageResistance:     return damageResistanceLevel;
-                case UpgradeStatType.WeaponDamage:        return weaponDamageLevel;
-                case UpgradeStatType.MaskFilter:          return maskFilterLevel;
-                case UpgradeStatType.SpiritualLevel:      return spiritualLevel;
-                case UpgradeStatType.MapPower:            return mapPowerLevel;
-                case UpgradeStatType.VialCount:           return vialCountLevel;
-                case UpgradeStatType.VialHealingPower:    return vialHealingPowerLevel;
+                case UpgradeStatType.DamageResistance:     val = damageResistanceLevel; break;
+                case UpgradeStatType.WeaponDamage:        val = weaponDamageLevel; break;
+                case UpgradeStatType.MaskFilter:          val = maskFilterLevel; break;
+                case UpgradeStatType.SpiritualLevel:      val = spiritualLevel; break;
+                case UpgradeStatType.MapPower:            val = mapPowerLevel; break;
+                case UpgradeStatType.VialCount:           val = vialCountLevel; break;
+                case UpgradeStatType.VialHealingPower:    val = vialHealingPowerLevel; break;
 
-                case UpgradeStatType.PossessionDuration:  return possessionDurationLevel;
-                case UpgradeStatType.DealCapacity:        return dealCapacityLevel;
+                case UpgradeStatType.PossessionDuration:  val = possessionDurationLevel; break;
+                case UpgradeStatType.DealCapacity:        val = dealCapacityLevel; break;
                 case UpgradeStatType.VisibilityCount:
-                case UpgradeStatType.VisibilityDuration:  return visibilityDurationLevel;
-                case UpgradeStatType.DeadSummonCharges:   return deadSummonChargesLevel;
-                default: return 0;
+                case UpgradeStatType.VisibilityDuration:  val = visibilityDurationLevel; break;
+                case UpgradeStatType.DeadSummonCharges:   val = deadSummonChargesLevel; break;
+                default: val = 1; break;
             }
+            return Mathf.Max(1, val);
         }
 
         /// <summary>
@@ -106,7 +109,7 @@ namespace NightCrawler.Economy
         /// </summary>
         public void SetLevel(UpgradeStatType stat, int level)
         {
-            level = Mathf.Max(0, level);
+            level = Mathf.Max(1, level);
             switch (stat)
             {
                 case UpgradeStatType.DamageResistance:     damageResistanceLevel = level; break;
@@ -129,25 +132,25 @@ namespace NightCrawler.Economy
         }
 
         /// <summary>
-        /// Returns a baseline economy profile with 0 upgrades, ensuring looted items are always functional.
+        /// Returns a baseline economy profile with starting level 1 on all stats, ensuring beginners have functional starting stats.
         /// </summary>
         public static PlayerEconomyProfile CreateBaseline()
         {
             return new PlayerEconomyProfile
             {
                 credits = CurrencyConfig.DefaultStartingBalance,
-                damageResistanceLevel = 0,
-                weaponDamageLevel = 0,
-                maskFilterLevel = 0,
-                spiritualLevel = 0,
-                mapPowerLevel = 0,
-                vialCountLevel = 0,
-                vialHealingPowerLevel = 0,
-                possessionDurationLevel = 0,
-                dealCapacityLevel = 0,
-                visibilityCountLevel = 0,
-                visibilityDurationLevel = 0,
-                deadSummonChargesLevel = 0
+                damageResistanceLevel = 1,
+                weaponDamageLevel = 1,
+                maskFilterLevel = 1,
+                spiritualLevel = 1,
+                mapPowerLevel = 1,
+                vialCountLevel = 1,
+                vialHealingPowerLevel = 1,
+                possessionDurationLevel = 1,
+                dealCapacityLevel = 1,
+                visibilityCountLevel = 1,
+                visibilityDurationLevel = 1,
+                deadSummonChargesLevel = 1
             };
         }
     }

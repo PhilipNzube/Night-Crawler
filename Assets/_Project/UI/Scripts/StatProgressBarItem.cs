@@ -27,6 +27,9 @@ namespace NightCrawler.UI
         [Tooltip("Optional label displaying stat title (e.g. 'Armor Resistance'). If left empty, will use default display name.")]
         public TextMeshProUGUI titleText;
 
+        [Tooltip("Optional label displaying the stat effect or value (e.g. '-15% Physical Damage', '45s Manifestation Bank').")]
+        public TextMeshProUGUI valueText;
+
         /// <summary>
         /// Toggles the visibility of this stat row container.
         /// </summary>
@@ -43,13 +46,18 @@ namespace NightCrawler.UI
         }
 
         /// <summary>
-        /// Updates the bar fill and title label based on the exact upgrade level (0 to 5).
+        /// Updates the bar fill, title label, and effect text based on the exact upgrade level (1 to 5).
         /// </summary>
         public void Refresh(int level)
         {
             if (titleText != null)
             {
                 titleText.text = UpgradeStatFormulas.GetStatDisplayName(statType);
+            }
+
+            if (valueText != null)
+            {
+                valueText.text = UpgradeStatFormulas.GetStatEffectDescription(statType, level);
             }
 
             float fraction = Mathf.Clamp01(level / 5f);
