@@ -301,7 +301,7 @@ namespace NightCrawler.UI
 
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification("DEAL COMPLETED", $"Dark deal finished. <b>+{netGain}</b> credits gained.", 4f);
+                NotificationManager.Instance.ShowNotification("DEAL COMPLETED", $"Dark deal finished. <b>+{netGain}</b> {CurrencyConfig.CurrencyPlural} gained.", 4f);
             }
 
             if (gameObject.activeInHierarchy)
@@ -356,7 +356,7 @@ namespace NightCrawler.UI
 
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification("DEAL FAILED", $"Time expired. <b>-{_penaltyAmount}</b> credits deducted from stake.", 4.5f);
+                NotificationManager.Instance.ShowNotification("DEAL FAILED", $"Time expired. <b>-{_penaltyAmount}</b> {CurrencyConfig.CurrencyPlural} deducted from stake.", 4.5f);
             }
 
             if (gameObject.activeInHierarchy)

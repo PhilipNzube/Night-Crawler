@@ -79,13 +79,13 @@ public class GirlPlayerScreen : MonoBehaviour
     [Tooltip("Michsky Input Field inside the modal where the player types their stake.")]
     public InputFieldManager heatStakeInputField;
 
-    [Tooltip("Confirm button inside the stake modal. Inactive until 2+ credits entered.")]
+    [Tooltip("Confirm button inside the stake modal. Inactive until 2+ Cinders entered.")]
     public ButtonManager heatStakeConfirmButton;
 
     [Tooltip("Cancel / Close button inside the stake modal.")]
     public ButtonManager heatStakeCancelButton;
 
-    [Tooltip("Error / Hint label inside the stake modal (e.g. 'Min 2 credits').")]
+    [Tooltip("Error / Hint label inside the stake modal (e.g. 'Min 2 Cinders').")]
     public TextMeshProUGUI stakeErrorText;
 
     [Header("Central Player Status Panel")]
@@ -453,7 +453,8 @@ public class GirlPlayerScreen : MonoBehaviour
             ? CloudCharacterSaveManager.Instance.CurrentCredits
             : 50;
 
-        int maxAllowedStake = Mathf.Max(CurrencyConfig.MinimumStake, Mathf.FloorToInt(balance * CurrencyConfig.MaxStakeCapPercentage));
+        bool canStake = CurrencyConfig.CanMeetMinimumStake(balance);
+        int maxAllowedStake = canStake ? CurrencyConfig.GetMaxStake(balance) : CurrencyConfig.MinimumStake;
 
         if (matchStakeModal != null)
         {
@@ -462,7 +463,9 @@ public class GirlPlayerScreen : MonoBehaviour
             matchStakeModal.descriptionKey = string.Empty;
 
             string title = "MATCH STAKE";
-            string desc = $"Enter your stake to confirm deployment as Wraith.\n<b>Available:</b> {balance} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {maxAllowedStake} {CurrencyConfig.CurrencyPlural}";
+            string desc = canStake
+                ? $"Enter your stake to confirm deployment as Wraith.\n<b>Available:</b> {balance} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {maxAllowedStake} {CurrencyConfig.CurrencyPlural}"
+                : $"<color=#FF5555>Insufficient {CurrencyConfig.CurrencyPlural}!</color>\n60% of your total balance ({balance} {CurrencyConfig.CurrencySymbol}) is below the minimum stake of {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.";
 
             matchStakeModal.titleText = title;
             matchStakeModal.descriptionText = desc;
@@ -524,13 +527,13 @@ public class GirlPlayerScreen : MonoBehaviour
             ? CloudCharacterSaveManager.Instance.CurrentCredits
             : 50;
 
-        int maxAllowedStake = Mathf.Max(CurrencyConfig.MinimumStake, Mathf.FloorToInt(balance * CurrencyConfig.MaxStakeCapPercentage));
-
-        if (balance < CurrencyConfig.MinimumStake)
+        if (!CurrencyConfig.CanMeetMinimumStake(balance))
         {
-            errorMessage = $"Insufficient {CurrencyConfig.CurrencyPlural}! You need at least {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol} to participate (Available: {balance} {CurrencyConfig.CurrencySymbol}).";
+            errorMessage = $"Insufficient {CurrencyConfig.CurrencyPlural}! 60% of your total balance ({balance} {CurrencyConfig.CurrencySymbol}) is below the minimum stake of {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.";
             return false;
         }
+
+        int maxAllowedStake = CurrencyConfig.GetMaxStake(balance);
 
         if (string.IsNullOrWhiteSpace(raw))
         {

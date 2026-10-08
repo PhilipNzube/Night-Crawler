@@ -48,7 +48,22 @@ namespace NightCrawler.Economy
         // Formatting Helpers
         public static string Format(int amount) => $"{amount} {CurrencySymbol}";
         public static string FormatFull(int amount) => $"{amount} {CurrencyName}";
-        public static string FormatBalance(int balance) => $"{CurrencyName}: {balance} {CurrencySymbol}";
+        public static string FormatBalance(int balance) => $"{balance} {CurrencyPlural}";
+
+        /// <summary>
+        /// Maximum allowed stake (strictly capped at 60% of total balance, no all-in).
+        /// </summary>
+        public static int GetMaxStake(int balance) => Mathf.FloorToInt(balance * MaxStakeCapPercentage);
+
+        /// <summary>
+        /// Returns true if 60% of the total Cinders amount can be used to place at least the minimum stake (2 Cinders).
+        /// When false, the player cannot stake and emergency stipend countdown activates!
+        /// </summary>
+        public static bool CanMeetMinimumStake(int balance)
+        {
+            if (balance < MinimumStake) return false;
+            return GetMaxStake(balance) >= MinimumStake;
+        }
     }
 
     /// <summary>

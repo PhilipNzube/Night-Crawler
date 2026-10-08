@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Unity.Netcode;
 using Unity.Collections;
+using NightCrawler.Economy;
 
 /// <summary>
 /// SOLID — SRP: Manages dark deals and pacts between the Vengeful Spirit (Girl) and Investigators.
@@ -618,7 +619,7 @@ public class DealSystemNet : MonoBehaviour
         string status = success ? "COMPLETED" : "FAILED";
         string msg = success
             ? $"DEAL {status}: {playerName} fulfilled '{dealTitle}'!"
-            : $"DEAL {status}: {playerName} failed '{dealTitle}'. Penalty collected: {amount} credits.";
+            : $"DEAL {status}: {playerName} failed '{dealTitle}'. Penalty collected: {amount} {CurrencyConfig.CurrencyPlural}.";
 
         Debug.Log($"[DealSystemNet] Girl notified of deal outcome: {msg}");
 

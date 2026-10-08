@@ -45,7 +45,7 @@ public class GirlDealUI : MonoBehaviour
     [Tooltip("SliderManager for the deal reward amount.")]
     public SliderManager rewardSlider;
 
-    [Tooltip("SliderManager for the credit penalty amount.")]
+    [Tooltip("SliderManager for the Cinder penalty amount.")]
     public SliderManager penaltySlider;
 
     [Tooltip("SliderManager for completion time (in seconds).")]
@@ -813,14 +813,14 @@ public class GirlDealUI : MonoBehaviour
             ? Mathf.RoundToInt(timeSlider.mainSlider.value)
             : 120;
 
-        // 2. Validate Rule 1: Reward cannot exceed 60% of Girl's total credit amount
+        // 2. Validate Rule 1: Reward cannot exceed 60% of Girl's total Cinder amount
         int girlCredits = GetGirlTotalCredits();
         int maxAllowedReward = Mathf.FloorToInt(girlCredits * 0.60f);
 
         if (rewardAmount > maxAllowedReward)
         {
             ShowError("REWARD TOO HIGH", 
-                $"The reward amount ({rewardAmount} credits) cannot exceed 60% of your total credit balance ({maxAllowedReward} credits).\n\nYour Total Credits: {girlCredits}");
+                $"The reward amount ({rewardAmount} {CurrencyConfig.CurrencyPlural}) cannot exceed 60% of your total {CurrencyConfig.CurrencyPlural} balance ({maxAllowedReward} {CurrencyConfig.CurrencyPlural}).\n\nYour Total {CurrencyConfig.CurrencyPlural}: {girlCredits}");
             return;
         }
 
@@ -830,7 +830,7 @@ public class GirlDealUI : MonoBehaviour
         if (penaltyAmount > maxAllowedPenalty)
         {
             ShowError("PENALTY TOO HIGH", 
-                $"The credit penalty ({penaltyAmount} credits) cannot exceed 50% of the offered reward ({maxAllowedPenalty} credits).\n\nOffered Reward: {rewardAmount} credits");
+                $"The {CurrencyConfig.CurrencyName} penalty ({penaltyAmount} {CurrencyConfig.CurrencyPlural}) cannot exceed 50% of the offered reward ({maxAllowedPenalty} {CurrencyConfig.CurrencyPlural}).\n\nOffered Reward: {rewardAmount} {CurrencyConfig.CurrencyPlural}");
             return;
         }
 
@@ -868,7 +868,7 @@ public class GirlDealUI : MonoBehaviour
                 ? "Locate and loot a fallen investigator's corpse to claim your bounty." 
                 : "Eliminate an investigator to claim your reward.");
 
-        string rewardStr = $"{rewardAmount} Credits";
+        string rewardStr = $"{rewardAmount} {CurrencyConfig.CurrencyPlural}";
 
         if (DealSystemNet.Instance != null)
         {

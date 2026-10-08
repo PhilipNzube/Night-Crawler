@@ -421,7 +421,7 @@ public class PauseUI : MonoBehaviour
             int stake = PersistentCharacterSelection.GetSavedMatchStake();
             if (stake <= 0) stake = NightCrawler.Economy.CurrencyConfig.MinimumStake;
 
-            string desc = $"Are you sure you want to abandon the match?\n\n<color=#FF5555><b>WARNING:</b> If you quit now, you will lose what you staked (<b>{stake:N0} Credits</b>)!</color>";
+            string desc = $"Are you sure you want to abandon the match?\n\n<color=#FF5555><b>WARNING:</b> If you quit now, you will lose what you staked (<b>{stake:N0} {NightCrawler.Economy.CurrencyConfig.CurrencyPlural}</b>)!</color>";
             exitModal.descriptionText = desc;
             if (exitModal.windowDescription != null) exitModal.windowDescription.text = desc;
         }

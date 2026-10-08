@@ -6,6 +6,7 @@ using Unity.Netcode;
 using Unity.Netcode.Transports.UTP;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.Serialization;
 using TMPro;
 using Michsky.UI.Heat;
 using NightCrawler.UI;
@@ -91,7 +92,7 @@ public class LobbyUI : MonoBehaviour
     // -------------------------------------------------------------------------
     //  Inspector — 3. Bottom Profile Bar
     // -------------------------------------------------------------------------
-    [Header("3. Bottom Profile Bar & Credits")]
+    [Header("3. Bottom Profile Bar & Cinders")]
     [Tooltip("The Profile GameObject in the Bottom Panel. Hidden until the player enters a valid name.")]
     public GameObject profileSection;
 
@@ -101,13 +102,17 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Text label inside the Profile section displaying the player's level (e.g. 'Lv. 14 • Specialist').")]
     public TextMeshProUGUI profileLevelText;
 
-    [Tooltip("Optional text label in the Bottom Panel (or header) displaying the player's credit balance.")]
-    public TextMeshProUGUI creditBalanceText;
+    [FormerlySerializedAs("creditBalanceText")]
+    [Tooltip("The text label that shows the total Cinders amount. When 60% of Cinders cannot be used or isn't up to 2 Cinders, this text shows the countdown timer!")]
+    public TextMeshProUGUI cindersBalanceText;
 
-    [Tooltip("Optional text label displaying the countdown for low-credit emergency grant (e.g. 'Emergency Grant in 00:45').")]
+    // Backwards-compatibility property so any existing code referencing creditBalanceText continues to work
+    public TextMeshProUGUI creditBalanceText { get => cindersBalanceText; set => cindersBalanceText = value; }
+
+    [Tooltip("Optional dedicated secondary text label displaying the countdown for low-cinder emergency stipend (e.g. 'Stipend in 00:45').")]
     public TextMeshProUGUI creditEmergencyTimerText;
 
-    [Tooltip("Duration in seconds before emergency credits are granted when balance is below stake threshold (< 4 credits). Default: 60s.")]
+    [Tooltip("Duration in seconds before emergency Cinders are granted when 60% of total balance cannot be used or isn't up to 2 Cinders. Default: 60s.")]
     public float emergencyGrantCooldown = 60f;
 
     private float _emergencyTimer = 0f;
@@ -349,10 +354,21 @@ public class LobbyUI : MonoBehaviour
 
     public void UpdateCreditsUI(int newBalance = -1)
     {
-        if (creditBalanceText != null)
+        if (cindersBalanceText != null)
         {
             int bal = newBalance >= 0 ? newBalance : (CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : 60);
-            creditBalanceText.text = CurrencyConfig.FormatBalance(bal);
+            if (_emergencyTimerActive && _emergencyTimer > 0f)
+            {
+                int mins = Mathf.Max(0, Mathf.FloorToInt(_emergencyTimer / 60f));
+                int secs = Mathf.Max(0, Mathf.FloorToInt(_emergencyTimer % 60f));
+                string timerStr = $"{mins:00}:{secs:00}";
+                int grantAmount = 25;
+                cindersBalanceText.text = $"{bal} {CurrencyConfig.CurrencyPlural}  <color=#FFD700><size=80%>(+{grantAmount} in {timerStr})</size></color>";
+            }
+            else
+            {
+                cindersBalanceText.text = CurrencyConfig.FormatBalance(bal);
+            }
         }
     }
 
@@ -445,8 +461,10 @@ public class LobbyUI : MonoBehaviour
     {
         int bal = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : 60;
 
-        // Poverty condition: Player has < 4 credits and cannot meet minimum stake requirements
-        if (bal < 4)
+        // Condition: Timer appears when 60% of total Cinders cannot be used or isn't up to 2 Cinders (cannot meet minimum stake)
+        bool cannotStake = !CurrencyConfig.CanMeetMinimumStake(bal);
+
+        if (cannotStake)
         {
             if (!_emergencyTimerActive)
             {
@@ -456,10 +474,13 @@ public class LobbyUI : MonoBehaviour
 
             _emergencyTimer -= Time.deltaTime;
 
+            int mins = Mathf.Max(0, Mathf.FloorToInt(_emergencyTimer / 60f));
+            int secs = Mathf.Max(0, Mathf.FloorToInt(_emergencyTimer % 60f));
+            string timerStr = $"{mins:00}:{secs:00}";
+            int grantAmount = 25;
+
             if (_emergencyTimer <= 0f)
             {
-                // Multiplier grant with guaranteed minimum: x10 with minimum 20 credits
-                int grantAmount = Mathf.Clamp(Mathf.Max(20, bal * 10), 20, 30);
                 if (CloudCharacterSaveManager.Instance != null)
                 {
                     CloudCharacterSaveManager.Instance.AddCredits(grantAmount);
@@ -471,7 +492,7 @@ public class LobbyUI : MonoBehaviour
                 {
                     NotificationManager.Instance.ShowNotification(
                         $"EMERGENCY STIPEND: +{grantAmount} {CurrencyConfig.CurrencyPlural} added!", 
-                        3.5f
+                        4.0f
                     );
                 }
 
@@ -479,18 +500,16 @@ public class LobbyUI : MonoBehaviour
                 return;
             }
 
-            int mins = Mathf.FloorToInt(_emergencyTimer / 60f);
-            int secs = Mathf.FloorToInt(_emergencyTimer % 60f);
-            string timerStr = $"{mins:00}:{secs:00}";
+            // The text that shows the total Cinders amount directly displays the timer!
+            if (cindersBalanceText != null)
+            {
+                cindersBalanceText.text = $"{bal} {CurrencyConfig.CurrencyPlural}  <color=#FFD700><size=80%>(+{grantAmount} in {timerStr})</size></color>";
+            }
 
             if (creditEmergencyTimerText != null)
             {
                 if (!creditEmergencyTimerText.gameObject.activeSelf) creditEmergencyTimerText.gameObject.SetActive(true);
                 creditEmergencyTimerText.text = $"Stipend in {timerStr}";
-            }
-            else if (creditBalanceText != null)
-            {
-                creditBalanceText.text = $"{CurrencyConfig.FormatBalance(bal)}  <color=#FFD700><size=80%>[Grant in {timerStr}]</size></color>";
             }
         }
         else

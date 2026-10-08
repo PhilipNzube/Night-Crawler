@@ -10,8 +10,8 @@ namespace NightCrawler.UI
 {
     /// <summary>
     /// SOLID — SRP: Staking UI modal shown at match start.
-    /// Allows players to select and submit their credit stake into the pot.
-    /// Enforces minimum stake (2 credits) and hard cap (max 60% balance, no all-in).
+    /// Allows players to select and submit their Cinders stake into the pot.
+    /// Enforces minimum stake (2 Cinders) and hard cap (max 60% balance, no all-in).
     /// Includes runtime auto-creation fallback if not baked into the scene canvas!
     /// </summary>
     public class StakingUI : MonoBehaviour
@@ -123,7 +123,8 @@ namespace NightCrawler.UI
 
             // Enforce minimum stake and max cap (60% balance)
             int minStake = CurrencyConfig.MinimumStake;
-            _maxAllowedStake = Mathf.Max(minStake, Mathf.FloorToInt(_currentBalance * CurrencyConfig.MaxStakeCapPercentage));
+            bool canStake = CurrencyConfig.CanMeetMinimumStake(_currentBalance);
+            _maxAllowedStake = canStake ? CurrencyConfig.GetMaxStake(_currentBalance) : minStake;
 
             if (heatStakingModal != null)
             {
@@ -131,7 +132,10 @@ namespace NightCrawler.UI
                 heatStakingModal.titleKey = string.Empty;
                 heatStakingModal.descriptionKey = string.Empty;
                 string title = "MATCH STAKE";
-                string desc = $"Select your stake amount.\n<b>Available:</b> {_currentBalance} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {_maxAllowedStake} {CurrencyConfig.CurrencyPlural}";
+                string desc = canStake
+                    ? $"Select your stake amount.\n<b>Available:</b> {_currentBalance} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {_maxAllowedStake} {CurrencyConfig.CurrencyPlural}"
+                    : $"<color=#FF5555>Insufficient {CurrencyConfig.CurrencyPlural}!</color>\n60% of your total balance ({_currentBalance} {CurrencyConfig.CurrencySymbol}) is below the minimum stake of {minStake} {CurrencyConfig.CurrencySymbol}.";
+
                 heatStakingModal.titleText = title;
                 heatStakingModal.descriptionText = desc;
                 if (heatStakingModal.windowTitle != null) heatStakingModal.windowTitle.text = title;
@@ -142,9 +146,15 @@ namespace NightCrawler.UI
 
             MichskyUIBridge.SetSliderLimits(stakeSlider, heatStakeSlider, minStake, _maxAllowedStake, true);
             MichskyUIBridge.SetSliderValue(stakeSlider, heatStakeSlider, minStake);
+            MichskyUIBridge.SetAnyButtonInteractable(canStake, confirmStakeButton, heatConfirmStakeButton, heatBoxConfirmStakeButton, heatConfirmStakeButtonObject);
 
             _selectedStake = minStake;
             UpdateDisplay();
+
+            if (!canStake)
+            {
+                SetErrorText($"Insufficient {CurrencyConfig.CurrencyPlural}! 60% of your balance ({_currentBalance} {CurrencyConfig.CurrencySymbol}) is below the minimum stake of {minStake} {CurrencyConfig.CurrencySymbol}.", false);
+            }
 
             // Reset error text to warning color when modal opens (user hasn't adjusted slider yet)
             ApplyErrorTextColor(false);
