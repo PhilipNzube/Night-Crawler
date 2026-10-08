@@ -4,6 +4,7 @@ using System.Threading.Tasks;
 using UnityEngine;
 using Unity.Services.Authentication;
 using Unity.Services.CloudSave;
+using Unity.Services.Core;
 using NightCrawler.Economy;
 
 /// <summary>
@@ -70,6 +71,26 @@ public class CloudCharacterSaveManager : MonoBehaviour
     public int CurrentCredits => CurrentProfile?.economy?.credits ?? 0;
 
     /// <summary>
+    /// Safe check to determine if Unity Gaming Services is initialized and authenticated without throwing.
+    /// </summary>
+    public bool IsAuthenticated
+    {
+        get
+        {
+            try
+            {
+                return UnityServices.State == ServicesInitializationState.Initialized
+                    && AuthenticationService.Instance != null
+                    && AuthenticationService.Instance.IsSignedIn;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
     /// Returns the current credit balance (getter alias for CurrentCredits).
     /// </summary>
     public int GetCredits() => CurrentCredits;
@@ -91,24 +112,53 @@ public class CloudCharacterSaveManager : MonoBehaviour
         ApplyTestCredits();
     }
 
-    private void Start()
+    private async void Start()
     {
-        // 2. Automatically listen to UGS authentication to fetch cloud data seamlessly
-        if (AuthenticationService.Instance != null)
+        await InitializeServicesAndAuthAsync();
+    }
+
+    private async Task InitializeServicesAndAuthAsync()
+    {
+        try
         {
-            AuthenticationService.Instance.SignedIn += HandleSignedIn;
-            if (AuthenticationService.Instance.IsSignedIn)
+            // 1. If Unity Services is not yet initialized, initialize it asynchronously
+            if (UnityServices.State != ServicesInitializationState.Initialized)
             {
-                _ = LoadProfileAsync();
+                await UnityServices.InitializeAsync();
+                Debug.Log("[CloudSaveManager] Unity Gaming Services initialized.");
             }
+
+            // 2. Hook authentication events safely
+            if (AuthenticationService.Instance != null)
+            {
+                AuthenticationService.Instance.SignedIn -= HandleSignedIn;
+                AuthenticationService.Instance.SignedIn += HandleSignedIn;
+
+                if (AuthenticationService.Instance.IsSignedIn)
+                {
+                    _ = LoadProfileAsync();
+                }
+            }
+        }
+        catch (Exception ex)
+        {
+            // Graceful fallback for offline mode or network errors
+            Debug.LogWarning($"[CloudSaveManager] Unity Gaming Services offline or not configured: {ex.Message}");
         }
     }
 
     private void OnDestroy()
     {
-        if (AuthenticationService.Instance != null)
+        try
         {
-            AuthenticationService.Instance.SignedIn -= HandleSignedIn;
+            if (UnityServices.State == ServicesInitializationState.Initialized && AuthenticationService.Instance != null)
+            {
+                AuthenticationService.Instance.SignedIn -= HandleSignedIn;
+            }
+        }
+        catch
+        {
+            // Suppress exception on shutdown if services already disposed
         }
     }
 
@@ -301,7 +351,7 @@ public class CloudCharacterSaveManager : MonoBehaviour
         SaveToLocalPlayerPrefs(profile);
 
         // 2. If authenticated with UGS, persist to Cloud Save
-        if (AuthenticationService.Instance != null && AuthenticationService.Instance.IsSignedIn)
+        if (IsAuthenticated)
         {
             try
             {
@@ -333,7 +383,7 @@ public class CloudCharacterSaveManager : MonoBehaviour
     public async Task<PlayerProfileData> LoadProfileAsync()
     {
         // 1. If signed into UGS, attempt to fetch from Cloud Save
-        if (AuthenticationService.Instance != null && AuthenticationService.Instance.IsSignedIn)
+        if (IsAuthenticated)
         {
             try
             {

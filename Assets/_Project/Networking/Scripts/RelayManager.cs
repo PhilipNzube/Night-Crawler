@@ -24,7 +24,22 @@ public class RelayManager : MonoBehaviour
     public string CurrentJoinCode { get; private set; } = string.Empty;
 
     /// <summary>True if UGS has been initialized and signed in.</summary>
-    public bool IsAuthenticated => AuthenticationService.Instance != null && AuthenticationService.Instance.IsSignedIn;
+    public bool IsAuthenticated
+    {
+        get
+        {
+            try
+            {
+                return UnityServices.State == ServicesInitializationState.Initialized
+                    && AuthenticationService.Instance != null
+                    && AuthenticationService.Instance.IsSignedIn;
+            }
+            catch
+            {
+                return false;
+            }
+        }
+    }
 
     private void Awake()
     {
