@@ -218,7 +218,7 @@ public class LobbyUI : MonoBehaviour
     [Tooltip("Minimum connected players required to enable 'START MATCH'. Set to 1 for solo testing, or 2+ for multiplayer builds.")]
     public int minPlayers = 1;
 
-    [Tooltip("Maximum allowed players in the lobby (e.g. 6: 1 Vengeful Spirit + 5 Investigators).")]
+    [Tooltip("Maximum allowed players in the lobby (e.g. 6: 1 Wraith + 5 Investigators).")]
     public int maxPlayers = 6;
 
     [Tooltip("The name of the Game Scene containing GameManager and map spawn points.")]

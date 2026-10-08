@@ -43,8 +43,8 @@ public class LobbyPlayerStatusPanel : MonoBehaviour
     [Tooltip("Role name displayed in the subtext for the Hazard Specialist.")]
     public string hazardRoleName = "Hazard Specialist";
 
-    [Tooltip("Role name displayed in the subtext for the Girl / Spirit.")]
-    public string spiritRoleName = "Spirit";
+    [Tooltip("Role name displayed in the subtext for the Wraith.")]
+    public string spiritRoleName = "Wraith";
 
     [Tooltip("Fallback role name displayed if selection is pending or unknown.")]
     public string defaultRoleName = "Operative";

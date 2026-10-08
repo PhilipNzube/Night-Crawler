@@ -20,7 +20,7 @@ public class SuffocationSystemNet : NetworkBehaviour
     [Tooltip("Multiplier applied if this player is a Hazard Specialist.")]
     public float hazardMultiplier = 2.0f;
 
-    [Tooltip("If true, this character is immune to suffocation (e.g. Vengeful Spirit).")]
+    [Tooltip("If true, this character is immune to suffocation (e.g. Wraith).")]
     public bool isImmune = false;
 
     [Header("Warning Settings")]

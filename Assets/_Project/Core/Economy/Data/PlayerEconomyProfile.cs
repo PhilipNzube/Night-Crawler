@@ -94,7 +94,7 @@ namespace NightCrawler.Economy
 
                 case UpgradeStatType.PossessionDuration:  return possessionDurationLevel;
                 case UpgradeStatType.DealCapacity:        return dealCapacityLevel;
-                case UpgradeStatType.VisibilityCount:     return visibilityCountLevel;
+                case UpgradeStatType.VisibilityCount:
                 case UpgradeStatType.VisibilityDuration:  return visibilityDurationLevel;
                 case UpgradeStatType.DeadSummonCharges:   return deadSummonChargesLevel;
                 default: return 0;
@@ -119,8 +119,11 @@ namespace NightCrawler.Economy
 
                 case UpgradeStatType.PossessionDuration:  possessionDurationLevel = level; break;
                 case UpgradeStatType.DealCapacity:        dealCapacityLevel = level; break;
-                case UpgradeStatType.VisibilityCount:     visibilityCountLevel = level; break;
-                case UpgradeStatType.VisibilityDuration:  visibilityDurationLevel = level; break;
+                case UpgradeStatType.VisibilityCount:
+                case UpgradeStatType.VisibilityDuration:
+                    visibilityDurationLevel = level;
+                    visibilityCountLevel = level;
+                    break;
                 case UpgradeStatType.DeadSummonCharges:   deadSummonChargesLevel = level; break;
             }
         }

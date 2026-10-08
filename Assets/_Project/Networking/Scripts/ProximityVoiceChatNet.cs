@@ -67,7 +67,7 @@ public class ProximityVoiceChatNet : NetworkBehaviour
             {
                 NotificationManager.Instance.ShowNotification(
                     "MICROPHONE MUTED",
-                    "Vengeful Spirits cannot speak in the physical realm. Your microphone is disabled.",
+                    "The Wraith cannot speak in the physical realm. Your microphone is disabled.",
                     new Color(0.9f, 0.2f, 0.2f, 1f),
                     6.0f
                 );
@@ -249,7 +249,7 @@ public class ProximityVoiceChatNet : NetworkBehaviour
             {
                 NotificationManager.Instance.ShowNotification(
                     "MICROPHONE MUTED",
-                    "Vengeful Spirits cannot transmit voice to investigators.",
+                    "The Wraith cannot transmit voice to investigators.",
                     new Color(0.9f, 0.2f, 0.2f, 1f),
                     3.0f
                 );
@@ -332,11 +332,11 @@ public class ProximityVoiceChatNet : NetworkBehaviour
     {
         if (PersistentCharacterSelection.IsVengefulSpirit()) return true;
         if (GetComponent<GirlPossession>() != null || GetComponent<GirlMovement>() != null || GetComponent<GirlStealth>() != null) return true;
-        if (gameObject.name.ToLower().Contains("girl") || gameObject.name.ToLower().Contains("demon") || gameObject.name.ToLower().Contains("spirit")) return true;
+        if (gameObject.name.ToLower().Contains("girl") || gameObject.name.ToLower().Contains("demon") || gameObject.name.ToLower().Contains("spirit") || gameObject.name.ToLower().Contains("wraith")) return true;
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null && NetworkManager.Singleton.LocalClient.PlayerObject != null)
         {
             var localObj = NetworkManager.Singleton.LocalClient.PlayerObject;
-            if (localObj.GetComponent<GirlPossession>() != null || localObj.GetComponent<GirlMovement>() != null) return true;
+            if (localObj.GetComponent<GirlPossession>() != null || localObj.GetComponent<GirlMovement>() != null || localObj.name.ToLower().Contains("wraith")) return true;
         }
         return false;
     }

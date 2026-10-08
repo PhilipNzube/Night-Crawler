@@ -209,14 +209,9 @@ namespace NightCrawler.Economy
             }
             Debug.Log($"[MatchEconomyManager] Applied Girl Deal Capacity upgrade: {dealCap} deals (Lvl {profile.dealCapacityLevel})");
 
-            // 3. Visibility / Manifestation charges and duration
-            if (girlObject.TryGetComponent<GirlStealth>(out var stealth))
-            {
-                // Set stats or charges
-                int visCharges = UpgradeStatFormulas.GetGirlVisibilityCharges(profile.visibilityCountLevel);
-                float visDuration = UpgradeStatFormulas.GetGirlVisibilityDuration(profile.visibilityDurationLevel);
-                Debug.Log($"[MatchEconomyManager] Applied Girl Visibility upgrade: {visCharges} charges, {visDuration:0}s duration.");
-            }
+            // 3. Visibility / Manifestation timer bank
+            float visDuration = UpgradeStatFormulas.GetGirlVisibilityDuration(profile.visibilityDurationLevel);
+            Debug.Log($"[MatchEconomyManager] Applied Wraith Manifestation Time upgrade: {visDuration:0}s duration (Lvl {profile.visibilityDurationLevel}).");
         }
 
         // =========================================================================
@@ -402,7 +397,7 @@ namespace NightCrawler.Economy
             if (!IsServer || isMatchResolved.Value) return;
             isMatchResolved.Value = true;
 
-            Debug.Log($"[MatchEconomyManager] Resolving match economy. Winner: {(investigatorsWon ? "INVESTIGATORS" : "VENGEFUL SPIRIT")}");
+            Debug.Log($"[MatchEconomyManager] Resolving match economy. Winner: {(investigatorsWon ? "INVESTIGATORS" : "WRAITH")}");
 
             if (investigatorsWon)
             {
@@ -489,7 +484,7 @@ namespace NightCrawler.Economy
                         contributionBonus = 0,
                         penaltyDeduction = CurrencyConfig.GirlLossPenalty,
                         netPayout = -(record.stakedCredits + CurrencyConfig.GirlLossPenalty),
-                        bonusDetails = $"Spirit Exorcised (-{CurrencyConfig.GirlLossPenalty} {CurrencyConfig.CurrencyName} Penalty)"
+                        bonusDetails = $"Wraith Exorcised (-{CurrencyConfig.GirlLossPenalty} {CurrencyConfig.CurrencyName} Penalty)"
                     });
                 }
                 else if (record.hasAcceptedDeal && !record.hasAbandoned)
@@ -568,7 +563,7 @@ namespace NightCrawler.Economy
                         contributionBonus = 0,
                         penaltyDeduction = 0,
                         netPayout = -record.stakedCredits,
-                        bonusDetails = "Team Wiped by Vengeful Spirit"
+                        bonusDetails = "Team Wiped by Wraith"
                     });
                 }
             }

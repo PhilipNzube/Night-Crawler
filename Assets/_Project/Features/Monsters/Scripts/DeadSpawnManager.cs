@@ -203,6 +203,17 @@ namespace NightCrawler.Monsters
         {
             if (!IsServer) return;
 
+            // If Hunt (Attack) command is issued, verify that living human investigators actually exist in the mine!
+            if (commandIndex == 0)
+            {
+                if (!HasLivingInvestigatorsInScene())
+                {
+                    Debug.Log($"[DeadSpawnManager] Attack command ignored: No living investigators in the mine.");
+                    NotifyNoInvestigatorsClientRpc(summonerClientId);
+                    return; // Monsters totally ignore the command and do not shift behavior at all!
+                }
+            }
+
             // Resolve summoning Girl's transform
             Transform girlTransform = null;
             if (NetworkManager.Singleton != null && NetworkManager.Singleton.ConnectedClients.TryGetValue(summonerClientId, out var client) && client.PlayerObject != null)
@@ -235,6 +246,31 @@ namespace NightCrawler.Monsters
         }
 
         [ClientRpc]
+        private void NotifyNoInvestigatorsClientRpc(ulong summonerClientId)
+        {
+            bool isLocalSummoner = (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == summonerClientId);
+            if (isLocalSummoner && NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification("No investigators in the mine to attack!", 2.5f);
+            }
+        }
+
+        public static bool HasLivingInvestigatorsInScene()
+        {
+            var players = GameObject.FindGameObjectsWithTag("Player");
+            foreach (var p in players)
+            {
+                if (p == null || !p.activeInHierarchy) continue;
+                Transform root = p.transform.root != null ? p.transform.root : p.transform;
+                if (MonsterAI.IsGirl(root)) continue;
+                if (root.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) continue;
+                if (root.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) continue;
+                return true;
+            }
+            return false;
+        }
+
+        [ClientRpc]
         private void BroadcastMonsterCommandClientRpc(int commandIndex, int monsterCount, ulong summonerClientId)
         {
             bool isLocalSummoner = (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClientId == summonerClientId);
@@ -253,7 +289,7 @@ namespace NightCrawler.Monsters
             {
                 message = isLocalSummoner
                     ? $"TO MY SIDE! {monsterCount} creature(s) returning to guard you!"
-                    : "THE SHADOWS RETREAT: The Vengeful Spirit has recalled her minions!";
+                    : "THE SHADOWS RETREAT: The Wraith has recalled her minions!";
             }
             else // Hunt
             {

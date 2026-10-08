@@ -153,7 +153,7 @@ namespace NightCrawler.UI
                 EnsureHierarchyAndContainersActive(penaltyText);
             }
 
-            string cleanDesc = !string.IsNullOrWhiteSpace(description) ? description : "You failed to uphold the terms in time. The spirit claims its tribute from your stake.";
+            string cleanDesc = !string.IsNullOrWhiteSpace(description) ? description : "You failed to uphold the terms in time. The Wraith claims its tribute from your stake.";
             if (descriptionText != null)
             {
                 descriptionText.text = cleanDesc;

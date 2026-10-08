@@ -641,7 +641,7 @@ public class HeatSettingsBridge : MonoBehaviour
             {
                 elementName  = "Deal Activations",
                 displayTitle = "Deal Activations",
-                description  = "Initiate and negotiate forbidden subterranean deals and demonic blood pacts with the Vengeful Spirit.",
+                description  = "Initiate and negotiate forbidden subterranean deals and demonic blood pacts with the Wraith.",
                 coverImage   = null
             },
             new SettingDescriptionEntry
@@ -711,7 +711,7 @@ public class HeatSettingsBridge : MonoBehaviour
             {
                 elementName  = "Spectate Monsters",
                 displayTitle = "Spectate Monsters",
-                description  = "As the Vengeful Spirit, enter monster spectator mode from the Summon HUD to watch your zombies and berserkers hunt. The Monster Summoning prompt always shows this key.",
+                description  = "As the Wraith, enter monster spectator mode from the Summon HUD to watch your zombies and berserkers hunt. The Monster Summoning prompt always shows this key.",
                 coverImage   = null
             },
             new SettingDescriptionEntry
@@ -732,7 +732,7 @@ public class HeatSettingsBridge : MonoBehaviour
             {
                 elementName  = "Command: To My Side",
                 displayTitle = "Command: To My Side",
-                description  = "Command all summoned monsters to return and stand guard beside the Vengeful Spirit.",
+                description  = "Command all summoned monsters to return and stand guard beside the Wraith.",
                 coverImage   = null
             },
             new SettingDescriptionEntry

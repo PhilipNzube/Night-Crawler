@@ -691,8 +691,8 @@ public class SquadLineupDisplay : MonoBehaviour
     {
         if (CharacterSelectManager.Instance != null)
         {
-            bool isVengefulSpirit = CharacterSelectManager.Instance.vengefulSpiritClientId.Value == clientId;
-            if (isVengefulSpirit) return "Investigator"; // Disguised — role hidden
+            bool isWraith = CharacterSelectManager.Instance.vengefulSpiritClientId.Value == clientId;
+            if (isWraith) return "Investigator"; // Disguised — role hidden
 
             int idx = CharacterSelectManager.Instance.GetSelectedCharacterIndex(clientId);
             var chars = CharacterSelectManager.Instance.availableCharacters;

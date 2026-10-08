@@ -507,7 +507,7 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
 
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification("You purged the spirit & rejected possession!", 3f);
+                NotificationManager.Instance.ShowNotification("You purged the Wraith & rejected possession!", 3f);
             }
 
             Cursor.lockState = CursorLockMode.Locked;
@@ -517,7 +517,7 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
         {
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification($"{victimName} purged your spirit & rejected possession! Lost {penalty:0}s possession time!", 4f);
+                NotificationManager.Instance.ShowNotification($"{victimName} purged the Wraith & rejected possession! Lost {penalty:0}s possession time!", 4f);
             }
         }
     }

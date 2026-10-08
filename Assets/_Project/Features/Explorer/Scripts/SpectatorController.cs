@@ -367,7 +367,7 @@ public class SpectatorController : MonoBehaviour
             // Verify local player is not the Girl (anti-ghosting)
             if (IsLocalPlayerGirl())
             {
-                Debug.Log("[SpectatorController] Suppressed — Local player is the Vengeful Spirit.");
+                Debug.Log("[SpectatorController] Suppressed — Local player is the Wraith.");
                 return;
             }
 
@@ -1941,7 +1941,7 @@ public class SpectatorController : MonoBehaviour
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null)
         {
             var localObj = NetworkManager.Singleton.LocalClient.PlayerObject;
-            if (localObj != null && (localObj.GetComponent<GirlPossession>() != null || localObj.name.ToLower().Contains("girl")))
+            if (localObj != null && (localObj.GetComponent<GirlPossession>() != null || localObj.name.ToLower().Contains("girl") || localObj.name.ToLower().Contains("wraith")))
             {
                 return true;
             }

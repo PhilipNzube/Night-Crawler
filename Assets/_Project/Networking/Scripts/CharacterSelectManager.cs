@@ -58,7 +58,7 @@ public class CharacterSelectManager : NetworkBehaviour
                 Instance.vengefulSpiritClientId.Value = 999;
                 Instance.roleSelectionDone.Value      = false;
             }
-            Debug.Log("[CharacterSelectManager] Vengeful Spirit role cleared (forceInvestigator or no selection).");
+            Debug.Log("[CharacterSelectManager] Wraith role cleared (forceInvestigator or no selection).");
         }
         else
         {
@@ -68,7 +68,7 @@ public class CharacterSelectManager : NetworkBehaviour
                 Instance.vengefulSpiritClientId.Value = clientId;
                 Instance.roleSelectionDone.Value      = true;
             }
-            Debug.Log($"[CharacterSelectManager] Persistent Vengeful Spirit role saved for Client {clientId}.");
+            Debug.Log($"[CharacterSelectManager] Persistent Wraith role saved for Client {clientId}.");
         }
     }
 
@@ -122,7 +122,7 @@ public class CharacterSelectManager : NetworkBehaviour
         s_SavedRoleSelectionDone = true;
 
         Debug.Log($"[CharacterSelectManager] {clientIds.Count} players connected. " +
-                  $"Client {chosenId} selected as Vengeful Spirit.");
+                  $"Client {chosenId} selected as Wraith.");
     }
 
     // =========================================================================

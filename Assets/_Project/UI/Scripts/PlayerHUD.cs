@@ -47,8 +47,8 @@ public class PlayerHUD : MonoBehaviour
     [Tooltip("The text component inside VialCount (e.g. VialText) showing the number.")]
     public TextMeshProUGUI vialCountNumberText;
 
-    [Header("Vengeful Spirit Panel (hidden for Investigator)")]
-    [Tooltip("Root GameObject for Vengeful Spirit-specific UI (stealth prompt, taunt prompt, etc). Hidden for Investigators.")]
+    [Header("Wraith Panel (hidden for Investigator)")]
+    [Tooltip("Root GameObject for Wraith-specific UI (stealth prompt, taunt prompt, etc). Hidden for Investigators.")]
     public GameObject demonPanel;
 
     // -------------------------------------------------------------------------

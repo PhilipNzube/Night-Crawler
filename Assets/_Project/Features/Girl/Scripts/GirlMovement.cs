@@ -375,6 +375,15 @@ public class GirlMovement : NetworkBehaviour
 
         if (huntPressed)
         {
+            if (!NightCrawler.Monsters.DeadSpawnManager.HasLivingInvestigatorsInScene())
+            {
+                if (NotificationManager.Instance != null)
+                {
+                    NotificationManager.Instance.ShowNotification("No investigators in the mine to attack!", 2.5f);
+                }
+                return;
+            }
+
             if (NightCrawler.Monsters.DeadSpawnManager.Instance != null && NetworkManager.Singleton != null)
             {
                 NightCrawler.Monsters.DeadSpawnManager.Instance.CommandAllMonstersServerRpc(0, NetworkManager.Singleton.LocalClientId);

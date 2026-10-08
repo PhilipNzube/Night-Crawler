@@ -376,7 +376,7 @@ public class KeybindingManager : MonoBehaviour
             {
                 actionId = "Deal",
                 displayName = "Deal Activations",
-                tacticalDescription = "Initiate and negotiate forbidden subterranean deals and demonic blood pacts with the Vengeful Spirit.",
+                tacticalDescription = "Initiate and negotiate forbidden subterranean deals and demonic blood pacts with the Wraith.",
                 context = ActionContext.Spirit,
                 defaultKey = Key.B,
                 defaultMouseButton = -1,
@@ -396,7 +396,7 @@ public class KeybindingManager : MonoBehaviour
             {
                 actionId = "CommandRecall",
                 displayName = "Command: To My Side",
-                tacticalDescription = "Command all summoned monsters to return and stand guard beside the Vengeful Spirit.",
+                tacticalDescription = "Command all summoned monsters to return and stand guard beside the Wraith.",
                 context = ActionContext.Spirit,
                 defaultKey = Key.Digit4,
                 defaultMouseButton = -1,

@@ -210,7 +210,7 @@ public class CloudCharacterSaveManager : MonoBehaviour
     // =========================================================================
 
     /// <summary>
-    /// Returns the total number of purchased upgrade tiers across all 12 stats (0 to 60).
+    /// Returns the total number of purchased upgrade tiers across all active stats (0 to 55).
     /// </summary>
     public int GetTotalPurchasedTiers()
     {
@@ -218,6 +218,7 @@ public class CloudCharacterSaveManager : MonoBehaviour
         int total = 0;
         foreach (UpgradeStatType stat in System.Enum.GetValues(typeof(UpgradeStatType)))
         {
+            if (stat == UpgradeStatType.VisibilityCount) continue; // Deprecated: visibility is solely controlled by VisibilityDuration timer
             total += CurrentProfile.economy.GetLevel(stat);
         }
         return total;

@@ -343,14 +343,14 @@ namespace NightCrawler.UI
             if (failureModal != null)
             {
                 failureModal.gameObject.SetActive(true);
-                failureModal.Show(_activeMissionTitle, _penaltyAmount, "You failed to uphold the terms before the timer expired. The spirit claims its tribute from your stake.");
+                failureModal.Show(_activeMissionTitle, _penaltyAmount, "You failed to uphold the terms before the timer expired. The Wraith claims its tribute from your stake.");
             }
 
             // If possessed, mirror failure to the possessing Girl
             var localPoss = GetLocalPossessable();
             if (localPoss != null)
             {
-                localPoss.RequestMirrorDealFailureServerRpc(_activeMissionTitle, _penaltyAmount, "You failed to uphold the terms before the timer expired. The spirit claims its tribute from your stake.");
+                localPoss.RequestMirrorDealFailureServerRpc(_activeMissionTitle, _penaltyAmount, "You failed to uphold the terms before the timer expired. The Wraith claims its tribute from your stake.");
                 localPoss.ClearActiveDealServerRpc();
             }
 

@@ -113,7 +113,7 @@ public class HostDisconnectUI : MonoBehaviour
                         else
                         {
                             var overlay = FindFirstObjectByType<MatchResultOverlay>(FindObjectsInactive.Include);
-                            overlay?.ShowResultDirectly("INVESTIGATORS VICTORIOUS\nThe Vengeful Spirit abandoned the hunt.");
+                            overlay?.ShowResultDirectly("INVESTIGATORS VICTORIOUS\nThe Wraith abandoned the hunt.");
                         }
                         return;
                     }
@@ -157,7 +157,7 @@ public class HostDisconnectUI : MonoBehaviour
                 else
                 {
                     var overlay = FindFirstObjectByType<MatchResultOverlay>(FindObjectsInactive.Include);
-                    overlay?.ShowResultDirectly("INVESTIGATORS VICTORIOUS\nThe Vengeful Spirit abandoned the hunt.");
+                    overlay?.ShowResultDirectly("INVESTIGATORS VICTORIOUS\nThe Wraith abandoned the hunt.");
                 }
                 return;
             }
@@ -178,7 +178,7 @@ public class HostDisconnectUI : MonoBehaviour
         // 1. Send alert into AllyBanner feed
         if (DeathUI.Instance != null)
         {
-            DeathUI.Instance.AddAllyAlertEntry("The Vengeful Spirit has fled. Investigators survive!", new Color(0f, 0.9f, 0.45f, 1f));
+            DeathUI.Instance.AddAllyAlertEntry("The Wraith has fled. Investigators survive!", new Color(0f, 0.9f, 0.45f, 1f));
         }
 
         // 2. Unlock cursor

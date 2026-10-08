@@ -32,7 +32,7 @@ public class CharacterSelectUI : MonoBehaviour
     [Header("Root Panel")]
     public GameObject characterSelectPanel;
 
-    [Header("Vengeful Spirit Secret View")]
+    [Header("Wraith Secret View")]
     public GameObject vengefulSpiritPanel;
 
     [Header("Investigator View")]

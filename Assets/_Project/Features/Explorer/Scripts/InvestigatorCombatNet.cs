@@ -215,6 +215,7 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
     public bool IsMiner => startArmed || gameObject.name.ToLower().Contains("miner") || gameObject.name.ToLower().Contains("worker");
 
     public bool HasWeapon => currentWeaponIndex.Value >= 0;
+    public bool IsAttacking => _meleeStrikeRoutine != null;
 
     void Start()
     {
@@ -232,6 +233,11 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
 
         UpdateAnimatorWeaponState(initialIndex);
         ApplyWeaponVisuals(initialIndex);
+
+        if (_animator != null && initialIndex >= 0)
+        {
+            _animator.CrossFadeInFixedTime("Armed_Locomotion", 0.05f, 0);
+        }
     }
 
     public override void OnNetworkSpawn()
@@ -446,6 +452,14 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         int combatLayer = _animator.GetLayerIndex("UpperBody_Combat");
         if (combatLayer < 0) return;
 
+        // While attacking, force UpperBody_Combat weight to 1.0f and cancel any fidgeting!
+        if (IsAttacking)
+        {
+            _animator.SetLayerWeight(combatLayer, 1f);
+            _animator.ResetTrigger("IdleFidget");
+            return;
+        }
+
         var baseState = _animator.GetCurrentAnimatorStateInfo(0);
         bool isFidgeting = baseState.IsName("Idle_Looking") ||
                            _animator.GetNextAnimatorStateInfo(0).IsName("Idle_Looking");
@@ -547,19 +561,24 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         int activeIndex = GetAttackStateIndex(curState);
 
         // Can queue next combo strike if currently in Step 0 (Melee_Attack_1) or Step 1 (Melee_Combo)
-        // and haven't already queued for this step!
+        // and past the initial windup (normalizedTime >= 0.20f), and not already queued!
         if (activeIndex == 0 || activeIndex == 1)
         {
-            if (!_comboQueued)
+            if (!_comboQueued && curState.normalizedTime >= 0.20f)
             {
                 _comboQueued = true;
                 SafeSetTrigger(_attackHash);
             }
         }
+        else if (activeIndex == 2)
+        {
+            // Finisher (Step 2 - Melee_Attack_3):
+            // DO NOT set Attack trigger! (Transition 203109516750066291 would cut off Melee_Attack_3 at 50%!)
+            // Instead, buffer the attack so that a brand new combo starts AFTER the finisher completes!
+            _hasBufferedAttack = true;
+        }
         else
         {
-            // If in finisher (Step 2) or recovering to idle:
-            // Buffer the attack so the next attack begins IMMEDIATELY as the animation finishes!
             _hasBufferedAttack = true;
         }
     }
@@ -623,15 +642,17 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
             _animator.SetLayerWeight(combatLayer, 1f);
         }
 
-        // Trigger opening strike and crossfade directly so animation begins immediately on frame 0
+        // Clear any lingering triggers so opening attack does NOT auto-trigger combo step 1!
+        SafeResetTrigger(_attackHash);
         SafeSetInteger(_comboStepHash, 0);
-        SafeSetTrigger(_attackHash);
+
+        // Crossfade directly into Melee_Attack_1 so animation begins immediately on frame 0
         if (_animator != null)
         {
             _animator.CrossFadeInFixedTime("Melee_Attack_1", 0.05f, combatLayer);
         }
 
-        float timeout = 4.0f; // Absolute safety watchdog
+        float timeout = 4.5f; // Absolute safety watchdog
         float elapsed = 0f;
 
         // Give the Animator 1 frame to begin the transition
@@ -663,11 +684,19 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                     _currentComboStep = activeIndex;
                     SafeSetInteger(_comboStepHash, activeIndex);
                     hitFiredForState = false;
-                    _comboQueued = false; // Fresh step: allow queuing the NEXT step
+                    _comboQueued = false; // Fresh step: allow queuing next step
+
+                    // CRITICAL: Consume/clear the Attack trigger now that the transition completed!
+                    // This prevents unconsumed triggers from automatically bleeding into subsequent steps!
+                    SafeResetTrigger(_attackHash);
                 }
 
-                // Play the swing whoosh audio and hit detection at swing stroke apex (between 0.40f and 0.48f)
-                if (!hitFiredForState && curState.normalizedTime >= 0.40f)
+                // Play the swing whoosh audio and hit detection at swing stroke apex
+                // Step 0: Downward chop (apex ~0.35)
+                // Step 1: Return slash (apex ~0.30)
+                // Step 2: Finisher roundhouse (apex ~0.38)
+                float apex = (activeIndex == 2) ? 0.38f : (activeIndex == 1 ? 0.30f : 0.35f);
+                if (!hitFiredForState && curState.normalizedTime >= apex)
                 {
                     hitFiredForState = true;
 
@@ -690,7 +719,7 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                 // We are not currently in an attack state
                 if (currentTrackedIndex != -1)
                 {
-                    // If the animation is transitioning before reaching 0.40f, ensure swing sound and hit detection fire!
+                    // Fallback hit if transitioning before reaching apex
                     if (!hitFiredForState)
                     {
                         hitFiredForState = true;
@@ -729,6 +758,8 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
             elapsed += Time.deltaTime;
         }
 
+        SafeResetTrigger(_attackHash);
+        SafeSetInteger(_comboStepHash, 0);
         _comboQueued = false;
         _attackTimer = 0f; // Completely eliminates post-animation lockout for immediate responsiveness!
         _meleeStrikeRoutine = null;
@@ -969,6 +1000,24 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
             else if (_animator != null)
             {
                 _animator.SetTrigger(hash);
+            }
+        }
+    }
+
+    private void SafeResetTrigger(int hash)
+    {
+        if (_animator == null) _animator = GetComponentInChildren<Animator>();
+        if (_animatorParameterHashes.Count == 0) CacheAnimatorParameters();
+
+        if (_animatorParameterHashes.Contains(hash))
+        {
+            if (_networkAnimator != null)
+            {
+                _networkAnimator.ResetTrigger(hash);
+            }
+            if (_animator != null)
+            {
+                _animator.ResetTrigger(hash);
             }
         }
     }

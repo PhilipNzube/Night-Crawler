@@ -106,7 +106,7 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
             if (isLocalCharacter && DeathUI.Instance != null)
             {
                 DeathUI.Instance.ShowDeathScreen("YOU DIED", isGirl 
-                    ? "The Vengeful Spirit has been banished." 
+                    ? "The Wraith has been banished." 
                     : "Your soul has fallen. Allies can still loot your body.");
             }
 

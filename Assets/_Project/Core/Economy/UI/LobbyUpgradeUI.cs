@@ -111,6 +111,13 @@ namespace NightCrawler.Economy.UI
             {
                 if (item == null) continue;
 
+                // Deprecated: Visibility is now solely timer-based (VisibilityDuration)
+                if (item.statType == UpgradeStatType.VisibilityCount)
+                {
+                    if (item.heatShopButton != null) item.heatShopButton.gameObject.SetActive(false);
+                    continue;
+                }
+
                 int currentLevel = CloudCharacterSaveManager.Instance != null
                     ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(item.statType)
                     : 0;

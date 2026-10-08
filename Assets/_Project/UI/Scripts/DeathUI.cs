@@ -399,9 +399,9 @@ public class DeathUI : MonoBehaviour
             var netObj = th.GetComponent<Unity.Netcode.NetworkObject>();
             if (netObj != null && netObj.OwnerClientId == localId) continue;
 
-            // Skip the Girl
+            // Skip the Girl / Wraith
             if (th.GetComponent<GirlPossession>() != null || th.GetComponent<GirlStealth>() != null ||
-                th.gameObject.name.ToLower().Contains("girl")) continue;
+                th.gameObject.name.ToLower().Contains("girl") || th.gameObject.name.ToLower().Contains("wraith")) continue;
 
             if (th.isCorpse.Value || th.CurrentHealth <= 0f) continue;
             if (th.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) continue;

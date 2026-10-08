@@ -26,7 +26,7 @@ public class GameManager : NetworkBehaviour
     //  Inspector Fields — Spawn Points
     // -------------------------------------------------------------------------
     [Header("Spawn Points")]
-    [Tooltip("Drag SpawnPoint GameObjects here for the Girl / Vengeful Spirit player.")]
+    [Tooltip("Drag SpawnPoint GameObjects here for the Wraith player.")]
     public List<Transform> girlSpawnPoints = new List<Transform>();
 
     [Tooltip("Drag SpawnPoint GameObjects here for Investigator players.")]
@@ -38,7 +38,7 @@ public class GameManager : NetworkBehaviour
     [Header("Match Settings")]
     [Tooltip("Minimum connected players required to start. Set to 1 for solo testing, or 2+ for multiplayer builds.")]
     public int minPlayers = 1;
-    [Tooltip("Maximum allowed players in the match (e.g. 6: 1 Vengeful Spirit + 5 Investigators).")]
+    [Tooltip("Maximum allowed players in the match (e.g. 6: 1 Wraith + 5 Investigators).")]
     public int maxPlayers = 6;
     public float spawnHeight = 50f;
 
@@ -85,8 +85,8 @@ public class GameManager : NetworkBehaviour
     // OCP: Extend win messages here without touching EndMatch logic.
     private static readonly Dictionary<WinReason, string> WinMessages = new Dictionary<WinReason, string>
     {
-        { WinReason.TeamWipe,   "Vengeful Spirit Wins! (No Survivors)"   },
-        { WinReason.DemonSlain, "Investigators Win! (Vengeful Spirit Slain)" },
+        { WinReason.TeamWipe,   "Wraith Wins! (No Survivors)"   },
+        { WinReason.DemonSlain, "Investigators Win! (Wraith Slain)" },
     };
 
     // -------------------------------------------------------------------------
@@ -187,13 +187,13 @@ public class GameManager : NetworkBehaviour
 
         if (_cachedOverlay != null)
         {
-            _cachedOverlay.ShowResultDirectly("INVESTIGATORS VICTORIOUS\nThe Vengeful Spirit abandoned the hunt.");
+            _cachedOverlay.ShowResultDirectly("INVESTIGATORS VICTORIOUS\nThe Wraith abandoned the hunt.");
         }
         else if (HostDisconnectUI.Instance != null)
         {
             HostDisconnectUI.Instance.TriggerSuccessOverlay(
                 "INVESTIGATORS VICTORIOUS",
-                "The Vengeful Spirit abandoned the hunt.",
+                "The Wraith abandoned the hunt.",
                 "Returning to Lobby in {0}s...",
                 8f
             );
@@ -224,7 +224,7 @@ public class GameManager : NetworkBehaviour
             if (_cachedOverlay == null)
                 _cachedOverlay = FindFirstObjectByType<MatchResultOverlay>(FindObjectsInactive.Include);
 
-            _cachedOverlay?.ShowResultDirectly("VENGEFUL SPIRIT VICTORIOUS\nAll investigators abandoned the cavern.");
+            _cachedOverlay?.ShowResultDirectly("WRAITH VICTORIOUS\nAll investigators abandoned the cavern.");
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
 
@@ -297,7 +297,7 @@ public class GameManager : NetworkBehaviour
 
             if (playerObj == _girlPlayer)
             {
-                Debug.Log("[GameManager] Vengeful Spirit disconnected. Triggering victory success overlay for investigators!");
+                Debug.Log("[GameManager] Wraith disconnected. Triggering victory success overlay for investigators!");
                 BroadcastGirlLeftSuccessClientRpc();
                 Invoke(nameof(ReturnToLobby), 5.5f);
                 return;
@@ -601,7 +601,7 @@ public class GameManager : NetworkBehaviour
             _clientPlayerObjects[clientId] = netObj;
             RegisterPlayer(netObj, isGirl);
 
-            string joinName = isGirl ? "The Vengeful Spirit" : GirlRevealManager.GetRegisteredPlayerName(clientId);
+            string joinName = isGirl ? "The Wraith" : GirlRevealManager.GetRegisteredPlayerName(clientId);
             if (string.IsNullOrEmpty(joinName) || joinName.StartsWith("Player "))
             {
                 if (netObj.TryGetComponent<NetworkPlayerName>(out var netName) && !string.IsNullOrEmpty(netName.playerName.Value.ToString()))
@@ -815,7 +815,7 @@ public class GameManager : NetworkBehaviour
 
         if (isGirl)
         {
-            victimName = "The Vengeful Spirit";
+            victimName = "The Wraith";
         }
         else
         {
@@ -862,7 +862,7 @@ public class GameManager : NetworkBehaviour
         if (NetworkManager.Singleton != null && NetworkManager.Singleton.LocalClient != null)
         {
             var localObj = NetworkManager.Singleton.LocalClient.PlayerObject;
-            bool localIsGirl = localObj != null && (localObj.GetComponent<GirlPossession>() != null || localObj.name.ToLower().Contains("girl"));
+            bool localIsGirl = localObj != null && (localObj.GetComponent<GirlPossession>() != null || localObj.name.ToLower().Contains("girl") || localObj.name.ToLower().Contains("wraith"));
             if (localIsGirl && !isGirl)
             {
                 if (DeathUI.Instance != null && DeathUI.Instance.deathCanvasGroup != null)
@@ -883,7 +883,7 @@ public class GameManager : NetworkBehaviour
             if (DeathUI.Instance != null)
             {
                 DeathUI.Instance.ShowDeathScreen("YOU DIED", isGirl 
-                    ? "The Vengeful Spirit has been banished." 
+                    ? "The Wraith has been banished." 
                     : "Your soul has fallen. Allies can still loot your body.");
             }
 
@@ -895,7 +895,7 @@ public class GameManager : NetworkBehaviour
         }
         else
         {
-            string msg = isGirl ? "The Vengeful Spirit has been slain!" : $"{victimName} has fallen.";
+            string msg = isGirl ? "The Wraith has been slain!" : $"{victimName} has fallen.";
             Debug.Log($"[DeathNotification] Remote player death: {msg}");
 
             if (DeathUI.Instance != null)
@@ -956,12 +956,12 @@ public class GameManager : NetworkBehaviour
     [ClientRpc]
     public void BroadcastGirlLeftSuccessClientRpc()
     {
-        Debug.Log("[GameManager] Vengeful Spirit disconnected. Triggering victory success UI on clients!");
+        Debug.Log("[GameManager] Wraith disconnected. Triggering victory success UI on clients!");
         if (HostDisconnectUI.Instance != null)
         {
             HostDisconnectUI.Instance.TriggerSuccessOverlay(
                 "INVESTIGATORS VICTORIOUS",
-                "The Vengeful Spirit has fled into the shadows. You survived!",
+                "The Wraith has fled into the shadows. You survived!",
                 "Returning to Lobby in {0}s...",
                 5f
             );

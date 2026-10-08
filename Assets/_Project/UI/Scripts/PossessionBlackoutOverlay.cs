@@ -549,7 +549,7 @@ public class PossessionBlackoutOverlay : MonoBehaviour
             if (Unity.Netcode.NetworkManager.Singleton != null && Unity.Netcode.NetworkManager.Singleton.LocalClient != null)
             {
                 var localObj = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject;
-                if (localObj != null && (localObj.GetComponent<GirlPossession>() != null || localObj.name.ToLower().Contains("girl")))
+                if (localObj != null && (localObj.GetComponent<GirlPossession>() != null || localObj.name.ToLower().Contains("girl") || localObj.name.ToLower().Contains("wraith")))
                 {
                     return;
                 }

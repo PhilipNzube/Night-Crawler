@@ -234,6 +234,18 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
             return false;
 
         // E. Attacks / Combos: Cannot fidget while attacking
+        var combat = animator.GetComponentInParent<InvestigatorCombatNet>();
+        if (combat != null && combat.IsAttacking)
+            return false;
+
+        int combatLayer = animator.GetLayerIndex("UpperBody_Combat");
+        if (combatLayer >= 0)
+        {
+            var cState = animator.GetCurrentAnimatorStateInfo(combatLayer);
+            if (cState.IsName("Melee_Attack_1") || cState.IsName("Melee_Combo") || cState.IsName("Melee_Attack_3"))
+                return false;
+        }
+
         if (_hasComboStepParam && animator.GetInteger(_comboStepHash) > 0)
             return false;
 
@@ -273,7 +285,8 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
             string rootName = root.gameObject.name;
             if (rootName.IndexOf("girl", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
                 rootName.IndexOf("demon", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
-                rootName.IndexOf("vengeful", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                rootName.IndexOf("vengeful", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+                rootName.IndexOf("wraith", System.StringComparison.OrdinalIgnoreCase) >= 0)
             {
                 return true;
             }
@@ -282,7 +295,8 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
         string objName = animator.gameObject.name;
         if (objName.IndexOf("girl", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
             objName.IndexOf("demon", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
-            objName.IndexOf("vengeful", System.StringComparison.OrdinalIgnoreCase) >= 0)
+            objName.IndexOf("vengeful", System.StringComparison.OrdinalIgnoreCase) >= 0 ||
+            objName.IndexOf("wraith", System.StringComparison.OrdinalIgnoreCase) >= 0)
         {
             return true;
         }

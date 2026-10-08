@@ -413,7 +413,7 @@ public class GirlRevealManager : NetworkBehaviour
 
         if (isGirl)
         {
-            Debug.Log("[GirlRevealManager] Local client is the Vengeful Spirit → showing girl screen.");
+            Debug.Log("[GirlRevealManager] Local client is the Wraith → showing girl screen.");
             PersistentCharacterSelection.SetIsVengefulSpirit(true);
 
             if (investigatorFlow != null)

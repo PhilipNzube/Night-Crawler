@@ -105,6 +105,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     public float berserkerTurnRate = 360f;
     [Tooltip("Fraction of forward speed kept when the body faces away from the path.")]
     [Range(0f, 1f)] public float minTurnSpeedFactor = 0.65f;
+    [Tooltip("Normalized time in Zombie Walk animation where the rear leg drag begins (forward movement stops completely).")]
+    [Range(0f, 1f)] public float legDragStartNormalizedTime = 0.42f;
+    [Tooltip("Normalized time in Zombie Walk animation where the rear leg drag ends (forward movement resumes).")]
+    [Range(0f, 1f)] public float legDragEndNormalizedTime = 0.88f;
     [Tooltip("How strongly a standing Zombie's speed stalls between steps (leg drag). 0 = smooth continuous movement.")]
     [Range(0f, 0.9f)] public float zombieDragStrength = 0f;
     [Tooltip("Number of footsteps per loop of the Zombie walk/run clip (usually 2).")]
@@ -627,6 +631,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         if (HasAuthority && currentState != AIState.Dead && _hasLanded && !isBeingPossessed)
         {
+            UpdateSteeringAndRotation();
             ApplyLocomotionFriction();
         }
 
@@ -1802,9 +1807,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
                 if (monsterType == MonsterType.Zombie)
                 {
-                    // Pure animation-driven stride:
-                    // Only move forward when the front leg steps forward (forward root motion delta > 0),
-                    // and remain stationary while dragging the back leg!
+                    // Authentic animation-driven zombie stride:
+                    // Only move forward when stepping the lead leg forward,
+                    // and apply ZERO forward movement while dragging the rear leg along the ground!
                     if (_agent.hasPath && !_agent.isStopped && _agent.desiredVelocity.sqrMagnitude > 0.01f)
                     {
                         Vector3 moveDir = _agent.desiredVelocity.normalized;
@@ -1814,16 +1819,49 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                             moveDir = (moveDir + avoidDir * 0.85f).normalized;
                         }
 
-                        // Project local forward root translation along the agent's desired path direction
-                        float forwardMagnitude = Vector3.Dot(delta, transform.forward);
-                        if (forwardMagnitude > 0.001f)
+                        var animState = _animator.GetCurrentAnimatorStateInfo(0);
+                        bool isStandingWalk = (animState.shortNameHash == _stateWalk || animState.IsName("Zombie Walk"));
+
+                        if (isStandingWalk)
                         {
-                            delta = moveDir * forwardMagnitude;
+                            // Mixamo Zombie Walk cycle:
+                            // Stride phase: Lead leg drives and swings forward (moves forward).
+                            // Drag phase: Lead foot planted, rear leg drags behind along the ground.
+                            // ZERO forward movement during rear leg drag!
+                            float norm = animState.normalizedTime % 1.0f;
+                            bool isDraggingRearLeg = (norm >= legDragStartNormalizedTime && norm <= legDragEndNormalizedTime);
+
+                            if (isDraggingRearLeg)
+                            {
+                                // Back leg dragging: zero forward movement, perfectly planted!
+                                delta = Vector3.zero;
+                            }
+                            else
+                            {
+                                float forwardMagnitude = Vector3.Dot(delta, transform.forward);
+                                if (forwardMagnitude > 0.001f)
+                                {
+                                    delta = moveDir * forwardMagnitude;
+                                }
+                                else
+                                {
+                                    delta = moveDir * (walkSpeed * Time.deltaTime * 2.2f);
+                                }
+                            }
                         }
                         else
                         {
-                            // Back leg dragging: zero forward movement, perfectly planted!
-                            delta = Vector3.zero;
+                            // Crawling or running: continuous forward motion
+                            float forwardMagnitude = Vector3.Dot(delta, transform.forward);
+                            if (forwardMagnitude > 0.001f)
+                            {
+                                delta = moveDir * forwardMagnitude;
+                            }
+                            else
+                            {
+                                float spd = (currentPosture == ZombiePosture.Crawling) ? crawlSpeed : standRunSpeed;
+                                delta = moveDir * (spd * Time.deltaTime);
+                            }
                         }
                     }
                     else if (_agent.isStopped)
@@ -2295,7 +2333,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
     }
 
-    private static bool IsGirl(Transform t)
+    public static bool IsGirl(Transform t)
     {
         if (t == null) return false;
         if (GameManager.Instance != null && (GameManager.Instance.GirlTransform == t || (t.root != null && GameManager.Instance.GirlTransform == t.root))) return true;
@@ -2314,7 +2352,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (pNet != null && pNet.isPossessed.Value) return true;
         if (t.CompareTag("Girl") || (t.root != null && t.root.CompareTag("Girl"))) return true;
         string n = t.name.ToLower();
-        return n.Contains("girl") || (n.Contains("demon") && !n.Contains("monster") && !n.Contains("creep")) || n.Contains("vengeful");
+        return n.Contains("girl") || (n.Contains("demon") && !n.Contains("monster") && !n.Contains("creep")) || n.Contains("vengeful") || n.Contains("wraith");
     }
 
     public void IgnoreGirlCollisionIfInvisible()
@@ -2341,24 +2379,139 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (go == null) return false;
         if (go.GetComponentInParent<MonsterAI>() != null || go.GetComponentInParent<MonsterController>() != null) return true;
         string n = go.name.ToLower();
-        return n.Contains("monster") || n.Contains("creep") || (n.Contains("demon") && !n.Contains("girl"));
+        return n.Contains("monster") || n.Contains("creep") || (n.Contains("demon") && !n.Contains("girl") && !n.Contains("wraith"));
     }
 
-    public virtual void UpdateTurningAnimation(Vector3 desiredFacingDir)
+    /// <summary>
+    /// Returns true if the monster is actively walking or running.
+    /// Used to strictly suppress stationary turning animations during locomotion.
+    /// </summary>
+    public virtual bool IsMovingLocomotion()
     {
-        // Strictly restrict in-place turn animations to idle / stationary / stopped states or during stuck reroute
-        bool isStationaryOrIdle = (_agent == null || !_agent.enabled || _agent.isStopped || _agent.velocity.sqrMagnitude < 0.25f
-            || currentState == AIState.Idle || _isGuardIdling || _rerouteTurnCoroutine != null);
-        if (!isStationaryOrIdle)
+        if (currentState == AIState.Dead || currentState == AIState.Falling) return false;
+        if (currentState == AIState.Attacking || currentState == AIState.SpawningScream) return false;
+        if (currentState == AIState.Idle) return false;
+        if (_isGuardIdling || _isRoamWaiting) return false;
+
+        if (_agent != null && _agent.enabled && !_agent.isStopped)
         {
-            StopTurningAnimation();
-            return;
+            if (_agent.velocity.sqrMagnitude > 0.04f) return true;
+            if (_agent.hasPath && _agent.remainingDistance > 0.35f && _agent.desiredVelocity.sqrMagnitude > 0.04f) return true;
+        }
+
+        if (_animator != null)
+        {
+            if (_animator.GetBool(_isRunningHash) || _animator.GetBool(_isWalkingHash)) return true;
+            if (_animator.GetFloat(_speedHash) > 0.1f) return true;
+        }
+
+        return false;
+    }
+
+    /// <summary>
+    /// Server-authoritative steering and continuous rotation for monsters.
+    /// Ensures the monster actively and smoothly faces its navigation path, destination,
+    /// or active target at all times, completely eliminating sideways skating or moving backwards.
+    /// STRICT RULE: Turning animations (Turn Left / Turn Right) ONLY play when the monster is idle/stationary.
+    /// While running or walking, the monster smoothly rotates its body without triggering turn animation clips.
+    /// </summary>
+    protected virtual void UpdateSteeringAndRotation()
+    {
+        if (!HasAuthority || currentState == AIState.Dead || !_hasLanded || isBeingPossessed) return;
+        if (_rerouteTurnCoroutine != null) return; // Smart reroute handles its own rotation
+
+        if (_turnActiveTimer > 0f) _turnActiveTimer -= Time.deltaTime;
+
+        Vector3 desiredFacingDir = Vector3.zero;
+
+        if (currentState == AIState.Attacking || currentState == AIState.SpawningScream)
+        {
+            if (target != null)
+            {
+                desiredFacingDir = target.position - transform.position;
+            }
+        }
+        else if (_agent != null && _agent.enabled && _agent.isOnNavMesh && _agent.hasPath && !_agent.isStopped)
+        {
+            if (_agent.desiredVelocity.sqrMagnitude > 0.04f)
+            {
+                desiredFacingDir = _agent.desiredVelocity;
+            }
+            else
+            {
+                desiredFacingDir = _agent.steeringTarget - transform.position;
+            }
+        }
+        else if (target != null && HasLineOfSight(target))
+        {
+            desiredFacingDir = target.position - transform.position;
         }
 
         desiredFacingDir.y = 0f;
         if (desiredFacingDir.sqrMagnitude < 0.01f)
         {
             if (_turnActiveTimer <= 0f) StopTurningAnimation();
+            return;
+        }
+
+        desiredFacingDir.Normalize();
+        float signedAngle = Vector3.SignedAngle(transform.forward, desiredFacingDir, Vector3.up);
+        float absAngle = Mathf.Abs(signedAngle);
+
+        bool isMoving = IsMovingLocomotion();
+        if (isMoving)
+        {
+            // STRICT REQUIREMENT: Monsters must NEVER play turning animations while running or walking!
+            StopTurningAnimation(true);
+        }
+        else
+        {
+            // Turning animations are strictly restricted to IDLE / stationary states
+            if (absAngle > turnAngleThreshold)
+            {
+                UpdateTurningAnimation(desiredFacingDir);
+            }
+            else if (absAngle <= 15f && _turnActiveTimer <= 0f)
+            {
+                StopTurningAnimation();
+            }
+        }
+
+        // Smooth body rotation towards desired direction (always active so monster faces path/target)
+        float turnRate = (monsterType == MonsterType.Zombie)
+            ? (currentPosture == ZombiePosture.Crawling ? zombieCrawlTurnRate : zombieTurnRate)
+            : berserkerTurnRate;
+
+        // Ensure snappy turning during dedicated turn animation
+        if (_isTurningLeft || _isTurningRight || _turnActiveTimer > 0f)
+        {
+            turnRate = Mathf.Max(turnRate, 320f);
+        }
+
+        Quaternion targetRot = Quaternion.LookRotation(desiredFacingDir);
+        transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRot, turnRate * Time.deltaTime);
+    }
+
+    public virtual void UpdateTurningAnimation(Vector3 desiredFacingDir)
+    {
+        // STRICT REQUIREMENT: Never play turning animations when running or walking; only while idle/stationary.
+        if (IsMovingLocomotion())
+        {
+            StopTurningAnimation(true);
+            return;
+        }
+
+        // Crawling postures should never play upright turn animations
+        if (monsterType == MonsterType.Zombie && currentPosture != ZombiePosture.Standing)
+        {
+            StopTurningAnimation(true);
+            return;
+        }
+
+        desiredFacingDir.y = 0f;
+        if (desiredFacingDir.sqrMagnitude < 0.01f)
+        {
+            StopTurningAnimation(true);
             return;
         }
 
@@ -2393,16 +2546,17 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             SafeSetBool(_isTurningRightHash, false);
             _turnActiveTimer = Mathf.Max(_turnActiveTimer, minTurnDuration);
         }
-        else if (_turnActiveTimer <= 0f && Mathf.Abs(signedAngle) <= 12f)
+        else if (_turnActiveTimer <= 0f && Mathf.Abs(signedAngle) <= 15f)
         {
             StopTurningAnimation();
         }
     }
 
-    public virtual void StopTurningAnimation()
+    public virtual void StopTurningAnimation(bool force = false)
     {
-        if (_turnActiveTimer > 0f) return;
+        if (!force && _turnActiveTimer > 0f) return;
 
+        _turnActiveTimer = 0f;
         if (_isTurningRight || _isTurningLeft)
         {
             _isTurningRight = false;
@@ -2410,28 +2564,21 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             SafeSetBool(_isTurningRightHash, false);
             SafeSetBool(_isTurningLeftHash, false);
             SafeSetFloat(_turnAngleHash, 0f);
+
+            // If we are stationary idle and just finished turning, return smoothly to idle pose
+            if (!IsMovingLocomotion() && currentState != AIState.Dead && currentState != AIState.Attacking)
+            {
+                if (monsterType == MonsterType.Zombie && currentPosture == ZombiePosture.Standing)
+                {
+                    SafeCrossFade(_stateIdle, "Zombie Idle", 0.15f);
+                }
+            }
         }
     }
 
     protected virtual void UpdateNavMeshTurningAnimation()
     {
-        if (_turnActiveTimer > 0f) _turnActiveTimer -= Time.deltaTime;
-
-        // While actively moving along a path at speed, ensure in-place turn animation is not triggered
-        if (_agent != null && _agent.enabled && _agent.isOnNavMesh && _agent.hasPath && _agent.velocity.sqrMagnitude >= 0.25f && !_agent.isStopped)
-        {
-            if (_turnActiveTimer <= 0f)
-            {
-                StopTurningAnimation();
-            }
-        }
-        else if (currentState != AIState.SpawningScream && currentState != AIState.Attacking)
-        {
-            if (_turnActiveTimer <= 0f)
-            {
-                StopTurningAnimation();
-            }
-        }
+        UpdateSteeringAndRotation();
     }
 
     protected virtual void RotateTowardsTarget(Transform t)
@@ -2445,18 +2592,17 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         dir.y = 0;
         if (dir != Vector3.zero)
         {
-            bool isStationary = (_agent == null || !_agent.enabled || _agent.isStopped || _agent.velocity.sqrMagnitude < 0.25f || currentState == AIState.Idle || _isGuardIdling);
             float angle = Vector3.Angle(transform.forward, dir);
-            if (isStationary && angle > turnAngleThreshold)
+            if (!IsMovingLocomotion() && angle > turnAngleThreshold)
             {
                 UpdateTurningAnimation(dir);
             }
-            else if (_turnActiveTimer <= 0f && angle < 10f)
+            else if (_turnActiveTimer <= 0f && angle < 15f)
             {
                 StopTurningAnimation();
             }
 
-            float rate = (_isTurningRight || _isTurningLeft || _turnActiveTimer > 0f) ? 120f : 160f;
+            float rate = (_isTurningRight || _isTurningLeft || _turnActiveTimer > 0f) ? 280f : 360f;
             Quaternion look = Quaternion.LookRotation(dir);
             transform.rotation = Quaternion.RotateTowards(transform.rotation, look, rate * Time.deltaTime);
         }
@@ -2668,7 +2814,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                     _agent.SetDestination(steerTarget);
                     Vector3 steerDir = steerTarget - myPos;
                     steerDir.y = 0f;
-                    if (steerDir.sqrMagnitude > 0.05f)
+                    if (!IsMovingLocomotion() && steerDir.sqrMagnitude > 0.05f)
                     {
                         UpdateTurningAnimation(steerDir);
                     }
@@ -2842,7 +2988,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 yield return null;
             }
 
-            if (_turnActiveTimer <= 0f) StopTurningAnimation();
+            StopTurningAnimation(true);
         }
 
         // 4. Resume locomotion along the open route

@@ -34,6 +34,14 @@ public class GirlCommandNet : NetworkBehaviour
 
         if (huntPressed)
         {
+            if (!DeadSpawnManager.HasLivingInvestigatorsInScene())
+            {
+                if (NotificationManager.Instance != null)
+                {
+                    NotificationManager.Instance.ShowNotification("No investigators in the mine to attack!", 2.5f);
+                }
+                return;
+            }
             RequestCommandServerRpc(0); // 0 = Hunt
         }
         else if (recallPressed)

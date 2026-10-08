@@ -188,7 +188,8 @@ public class ManifestationHUD : MonoBehaviour
             if (localClient?.PlayerObject != null)
             {
                 if (localClient.PlayerObject.GetComponent<GirlMaterialController>() != null ||
-                    localClient.PlayerObject.name.ToLower().Contains("girl"))
+                    localClient.PlayerObject.name.ToLower().Contains("girl") ||
+                    localClient.PlayerObject.name.ToLower().Contains("wraith"))
                 {
                     return true;
                 }

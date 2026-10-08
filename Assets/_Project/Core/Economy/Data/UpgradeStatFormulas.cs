@@ -31,7 +31,7 @@ namespace NightCrawler.Economy
 
                 case UpgradeStatType.PossessionDuration:  return 70;
                 case UpgradeStatType.DealCapacity:        return 60;
-                case UpgradeStatType.VisibilityCount:     return 50;
+                case UpgradeStatType.VisibilityCount:
                 case UpgradeStatType.VisibilityDuration:  return 40;
                 case UpgradeStatType.DeadSummonCharges:   return 60;
                 default: return 40;
@@ -189,7 +189,7 @@ namespace NightCrawler.Economy
 
                 case UpgradeStatType.PossessionDuration:  return "Possession Pool";
                 case UpgradeStatType.DealCapacity:        return "Dark Deal Capacity";
-                case UpgradeStatType.VisibilityCount:     return "Manifest Bank";
+                case UpgradeStatType.VisibilityCount:
                 case UpgradeStatType.VisibilityDuration:  return "Manifestation Pool";
                 case UpgradeStatType.DeadSummonCharges:   return "Necrotic Summons";
                 default: return stat.ToString();

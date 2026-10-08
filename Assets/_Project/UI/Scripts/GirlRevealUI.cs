@@ -52,7 +52,7 @@ public class GirlRevealUI : MonoBehaviour
     [Tooltip("TMP showing winner display name.")]
     public TextMeshProUGUI winnerNameText;
 
-    [Tooltip("Subtitle beneath winner name, e.g. 'VENGEFUL SPIRIT'.")]
+    [Tooltip("Subtitle beneath winner name, e.g. 'WRAITH'.")]
     public TextMeshProUGUI winnerSubtitleText;
 
     // -------------------------------------------------------------------------
@@ -192,7 +192,7 @@ public class GirlRevealUI : MonoBehaviour
         ShowSlotModal();
 
         if (headerTitleText != null)
-            headerTitleText.text = "SELECTING VENGEFUL SPIRIT";
+            headerTitleText.text = "SELECTING WRAITH";
 
         if (LobbyCameraController.Instance != null)
             LobbyCameraController.Instance.SetPhase(LobbyCameraController.CameraPhase.Reveal);
@@ -277,7 +277,7 @@ public class GirlRevealUI : MonoBehaviour
         SetBgColor(bgColorWinner);
 
         if (headerTitleText != null)
-            headerTitleText.text = "VENGEFUL SPIRIT REVEALED";
+            headerTitleText.text = "WRAITH REVEALED";
 
         PlaySound(winnerLockSound, 1.0f);
 
@@ -295,7 +295,7 @@ public class GirlRevealUI : MonoBehaviour
             if (winnerNameText != null)
                 winnerNameText.text = _playerNames[_girlNameIndex];
             if (winnerSubtitleText != null)
-                winnerSubtitleText.text = "THE VENGEFUL SPIRIT HAS AWAKENED";
+                winnerSubtitleText.text = "THE WRAITH HAS AWAKENED";
         }
 
         yield return new WaitForSecondsRealtime(winnerHoldDuration);

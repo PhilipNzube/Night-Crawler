@@ -50,13 +50,13 @@ public class GirlPlayerScreen : MonoBehaviour
     [Header("UI — Info Section")]
     [Tooltip("The parent GameObject/panel containing the girl's info and abilities. Hidden when READY is pressed.")]
     public GameObject girlInfoSection;
-    [Tooltip("Text label displaying the cheeky tagline for the Vengeful Spirit.")]
+    [Tooltip("Text label displaying the cheeky tagline for the Wraith.")]
     public TextMeshProUGUI girlTaglineText;
-    [Tooltip("Cheeky, atmospheric one-line description for the Vengeful Spirit.")]
+    [Tooltip("Cheeky, atmospheric one-line description for the Wraith.")]
     public string girlTaglineDescription = "Cute dress. Four monsters on speed dial.";
 
-    [Header("Stat Progress Bars (Girl / Vengeful Spirit)")]
-    [Tooltip("List of progress bars displaying the persistent upgrade stats of the Vengeful Spirit.")]
+    [Header("Stat Progress Bars (Wraith)")]
+    [Tooltip("List of progress bars displaying the persistent upgrade stats of the Wraith.")]
     public List<StatProgressBarItem> statProgressBars = new List<StatProgressBarItem>();
 
     // -------------------------------------------------------------------------
@@ -761,6 +761,13 @@ public class GirlPlayerScreen : MonoBehaviour
         foreach (var bar in statProgressBars)
         {
             if (bar == null) continue;
+
+            // Deprecated: Visibility is now solely timer-based (VisibilityDuration)
+            if (bar.statType == UpgradeStatType.VisibilityCount)
+            {
+                bar.SetVisible(false);
+                continue;
+            }
 
             bar.SetVisible(true);
             int level = CloudCharacterSaveManager.Instance != null
