@@ -118,13 +118,27 @@ namespace NightCrawler.UI
         public void OpenStakingModal()
         {
             if (stakingModalPanel != null) stakingModalPanel.SetActive(true);
-            if (heatStakingModal != null) heatStakingModal.OpenWindow();
 
             _currentBalance = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : 50;
 
             // Enforce minimum stake and max cap (60% balance)
             int minStake = CurrencyConfig.MinimumStake;
             _maxAllowedStake = Mathf.Max(minStake, Mathf.FloorToInt(_currentBalance * CurrencyConfig.MaxStakeCapPercentage));
+
+            if (heatStakingModal != null)
+            {
+                heatStakingModal.useLocalization = false;
+                heatStakingModal.titleKey = string.Empty;
+                heatStakingModal.descriptionKey = string.Empty;
+                string title = "MATCH STAKE";
+                string desc = $"Select your stake amount.\n<b>Available:</b> {_currentBalance} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {_maxAllowedStake} {CurrencyConfig.CurrencyPlural}";
+                heatStakingModal.titleText = title;
+                heatStakingModal.descriptionText = desc;
+                if (heatStakingModal.windowTitle != null) heatStakingModal.windowTitle.text = title;
+                if (heatStakingModal.windowDescription != null) heatStakingModal.windowDescription.text = desc;
+                try { heatStakingModal.UpdateUI(); } catch { }
+                heatStakingModal.OpenWindow();
+            }
 
             MichskyUIBridge.SetSliderLimits(stakeSlider, heatStakeSlider, minStake, _maxAllowedStake, true);
             MichskyUIBridge.SetSliderValue(stakeSlider, heatStakeSlider, minStake);
@@ -191,7 +205,7 @@ namespace NightCrawler.UI
         {
             if (balanceText != null)
             {
-                balanceText.text = $"Balance: {_currentBalance} {CurrencyConfig.CurrencySymbol}";
+                balanceText.text = $"Available: {_currentBalance} {CurrencyConfig.CurrencyPlural}";
             }
 
             if (stakeValueText != null)
@@ -217,6 +231,8 @@ namespace NightCrawler.UI
             {
                 CloudCharacterSaveManager.Instance.SpendCredits(_selectedStake);
             }
+            LobbyUI.Instance?.UpdateCreditsUI();
+            LobbyUI.Instance?.UpdateProfileUI();
 
             if (MatchEconomyManager.Instance != null)
             {

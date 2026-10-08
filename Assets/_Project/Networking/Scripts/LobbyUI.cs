@@ -315,6 +315,9 @@ public class LobbyUI : MonoBehaviour
         CloudCharacterSaveManager.OnCreditsChanged += HandleCreditsChanged;
         CloudCharacterSaveManager.OnUpgradeChanged += HandleUpgradeChanged;
 
+        UpdateProfileUI();
+        UpdateCreditsUI();
+
         if (_lobbyEllipsesCoroutine == null)
         {
             _lobbyEllipsesCoroutine = StartCoroutine(LobbyEllipsesRoutine());
@@ -776,6 +779,8 @@ public class LobbyUI : MonoBehaviour
                 : "Recruit";
             profileLevelText.text = $"Lv. {level} • {rank}";
         }
+
+        UpdateCreditsUI();
     }
 
     // =========================================================================

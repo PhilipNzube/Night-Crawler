@@ -24,6 +24,12 @@ namespace NightCrawler.UI
         [Tooltip("Michsky Heat UI ProgressBar component.")]
         public ProgressBar progressBar;
 
+        [Tooltip("Optional standard Unity Slider component fallback.")]
+        public UnityEngine.UI.Slider slider;
+
+        [Tooltip("Optional standard Unity Image with Filled type.")]
+        public UnityEngine.UI.Image fillImage;
+
         [Tooltip("Optional label displaying stat title (e.g. 'Armor Resistance'). If left empty, will use default display name.")]
         public TextMeshProUGUI titleText;
 
@@ -43,10 +49,15 @@ namespace NightCrawler.UI
             {
                 progressBar.gameObject.SetActive(visible);
             }
+            else if (slider != null)
+            {
+                slider.gameObject.SetActive(visible);
+            }
         }
 
         /// <summary>
         /// Updates the bar fill, title label, and effect text based on the exact upgrade level (1 to 5).
+        /// Beginners start with a filled baseline tier so progress bars are never empty.
         /// </summary>
         public void Refresh(int level)
         {
@@ -60,11 +71,22 @@ namespace NightCrawler.UI
                 valueText.text = UpgradeStatFormulas.GetStatEffectDescription(statType, level);
             }
 
-            float fraction = Mathf.Clamp01(level / 5f);
+            // Baseline: Level 0 or 1 displays at least 20% starting bar fill, scaling to 100% at Tier 5
+            float fraction = Mathf.Clamp(Mathf.Max(0.20f, level / 5f), 0.20f, 1.0f);
 
             if (progressBar != null)
             {
                 MichskyUIBridge.SetProgress(progressBar, fraction);
+            }
+
+            if (slider != null)
+            {
+                slider.value = Mathf.Lerp(slider.minValue, slider.maxValue, fraction);
+            }
+
+            if (fillImage != null)
+            {
+                fillImage.fillAmount = fraction;
             }
         }
     }

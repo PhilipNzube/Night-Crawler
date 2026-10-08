@@ -129,7 +129,8 @@ namespace NightCrawler.Economy.UI
                 string statTitle = UpgradeStatFormulas.GetStatDisplayName(item.statType);
                 string statEffect = UpgradeStatFormulas.GetStatEffectDescription(item.statType, currentLevel);
 
-                float progressFraction = currentLevel / 5f;
+                // Baseline: Level 0 or 1 displays at least 20% starting bar fill, scaling to 100% at Tier 5
+                float progressFraction = Mathf.Clamp(Mathf.Max(0.20f, currentLevel / 5f), 0.20f, 1.0f);
                 if (item.progressBar != null)
                 {
                     MichskyUIBridge.SetProgress(item.progressBar, progressFraction);
@@ -213,11 +214,20 @@ namespace NightCrawler.Economy.UI
                     purchaseConfirmModal.gameObject.SetActive(true);
                 }
 
-                purchaseConfirmModal.titleText = $"UPGRADE {statTitle.ToUpper()}";
-                purchaseConfirmModal.descriptionText = canAfford
-                    ? $"Upgrade to Level {currentLevel + 1} for {cost} {CurrencyConfig.CurrencySymbol}?\n\n<b>Next Tier:</b> {nextEffect}"
-                    : $"Requires {cost} {CurrencyConfig.CurrencySymbol} (You have {balance} {CurrencyConfig.CurrencySymbol}).\n\n<b>Next Tier:</b> {nextEffect}";
-                purchaseConfirmModal.UpdateUI();
+                purchaseConfirmModal.useLocalization = false;
+                purchaseConfirmModal.titleKey = string.Empty;
+                purchaseConfirmModal.descriptionKey = string.Empty;
+
+                string title = $"UPGRADE {statTitle.ToUpper()}";
+                string desc = canAfford
+                    ? $"Upgrade to Level {currentLevel + 1} for {cost} {CurrencyConfig.CurrencyPlural}?\n\n<b>Next Tier:</b> {nextEffect}"
+                    : $"Requires {cost} {CurrencyConfig.CurrencyPlural} (You have {balance} {CurrencyConfig.CurrencyPlural}).\n\n<b>Next Tier:</b> {nextEffect}";
+
+                purchaseConfirmModal.titleText = title;
+                purchaseConfirmModal.descriptionText = desc;
+                if (purchaseConfirmModal.windowTitle != null) purchaseConfirmModal.windowTitle.text = title;
+                if (purchaseConfirmModal.windowDescription != null) purchaseConfirmModal.windowDescription.text = desc;
+                try { purchaseConfirmModal.UpdateUI(); } catch { }
 
                 bool hasPurchased = false;
                 Action doPurchase = () =>
@@ -243,7 +253,7 @@ namespace NightCrawler.Economy.UI
                 {
                     purchaseConfirmModal.confirmButton.isInteractable = canAfford;
                     purchaseConfirmModal.confirmButton.buttonText = canAfford ? "Confirm" : "Not Enough";
-                    purchaseConfirmModal.confirmButton.UpdateUI();
+                    try { purchaseConfirmModal.confirmButton.UpdateUI(); } catch { }
 
                     var stdConfirm = purchaseConfirmModal.confirmButton.GetComponent<UnityEngine.UI.Button>();
                     if (stdConfirm != null)
@@ -260,26 +270,8 @@ namespace NightCrawler.Economy.UI
                     }
                 }
 
-                Action doCancel = () =>
-                {
-                    purchaseConfirmModal.CloseWindow();
-                };
-
-                purchaseConfirmModal.onCancel.RemoveAllListeners();
-                purchaseConfirmModal.onCancel.AddListener(() => doCancel());
-
-                if (purchaseConfirmModal.cancelButton != null)
-                {
-                    var stdCancel = purchaseConfirmModal.cancelButton.GetComponent<UnityEngine.UI.Button>();
-                    if (stdCancel != null)
-                    {
-                        stdCancel.onClick.RemoveAllListeners();
-                        stdCancel.onClick.AddListener(() => doCancel());
-                    }
-
-                    purchaseConfirmModal.cancelButton.onClick.RemoveAllListeners();
-                    purchaseConfirmModal.cancelButton.onClick.AddListener(() => doCancel());
-                }
+                var cg = purchaseConfirmModal.GetComponent<CanvasGroup>();
+                if (cg != null) cg.alpha = 1f;
 
                 purchaseConfirmModal.OpenWindow();
                 return;

@@ -191,8 +191,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     [Header("Anti-Stuck & Auto-Reroute")]
     [Tooltip("Enables smart obstacle avoidance and automatic rerouting when jammed against tunnel walls.")]
     public bool enableAntiStuck = true;
-    [Tooltip("Time in seconds the monster must be pushing forward without progress before triggering an auto-reroute. Kept short (<0.4s) so players never notice.")]
-    public float stuckDetectionDuration = 0.35f;
+    [Tooltip("Time in seconds the monster must be stuck before triggering an auto-reroute. Configured in seconds (e.g. 1.0s - 1.2s).")]
+    public float stuckDetectionDuration = 1.1f;
     [Tooltip("Duration in seconds the monster focuses on the escape path away from the wall before re-evaluating.")]
     public float rerouteDuration = 1.1f;
 
@@ -291,6 +291,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected float _rerouteTimer = 0f;
     protected Vector3 _rerouteWaypoint;
     protected Vector3 _lastStuckCheckPos;
+    protected Vector3 _stuckAnchorPos;
     protected float _stuckCheckInterval = 0.12f;
     protected float _stuckCheckTimer = 0f;
     protected int _consecutiveStuckCount = 0;
@@ -1635,6 +1636,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
 
         // State 2: Monster is actively walking towards its chosen waypoint
+        UpdateAntiStuck();
+
         if (_roamMinTravelTimer > 0f)
         {
             _roamMinTravelTimer -= Time.deltaTime;
@@ -1810,11 +1813,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     /// </summary>
     protected virtual IEnumerator RoamTurnTowardsDestinationRoutine(Vector3 destination, float patrolSpeed)
     {
-        // 1. Enter idle state: stop movement and locomotion animations immediately
+        // 1. Enter idle state: stop movement and reset path immediately to completely eliminate gliding
         if (_agent != null && _agent.isOnNavMesh && _agent.enabled)
         {
-            _agent.isStopped = true;
+            _agent.ResetPath();
             _agent.velocity = Vector3.zero;
+            _agent.isStopped = true;
         }
         PlayPatrolIdleLocomotion();
 
@@ -1833,19 +1837,23 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             UpdateTurningAnimation(turnDir);
 
             Quaternion targetRot = Quaternion.LookRotation(turnDir.normalized);
-            float elapsed = 0f;
-            float maxDuration = 1.1f;
-            float turnRate = (monsterType == MonsterType.Berserker) ? 140f : 120f;
+            float angleToTurn = Quaternion.Angle(transform.rotation, targetRot);
 
-            while (elapsed < maxDuration && Quaternion.Angle(transform.rotation, targetRot) > 10f)
+            // Play the turn animation completely before moving again
+            float turnAnimDuration = (monsterType == MonsterType.Berserker) ? 1.05f : 1.25f;
+            float turnRate = angleToTurn / Mathf.Max(0.1f, turnAnimDuration * 0.85f);
+
+            float elapsed = 0f;
+            while (elapsed < turnAnimDuration)
             {
                 transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRot, turnRate * Time.deltaTime);
                 elapsed += Time.deltaTime;
                 yield return null;
             }
 
+            transform.rotation = targetRot;
             StopTurningAnimation(true);
-            yield return new WaitForSeconds(0.12f); // Brief natural pause before stepping into forward walk
+            yield return new WaitForSeconds(0.18f); // Brief natural pause before stepping into forward walk
         }
 
         // 3. Resume locomotion forward along the new corridor path
@@ -2519,7 +2527,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected virtual void UpdateSteeringAndRotation()
     {
         if (!HasAuthority || currentState == AIState.Dead || !_hasLanded || isBeingPossessed) return;
-        if (_rerouteTurnCoroutine != null) return; // Smart reroute handles its own rotation
+        if (_rerouteTurnCoroutine != null || _roamTurnCoroutine != null) return; // Dedicated turn routines handle their own rotation & animation without glitching
 
         if (_turnActiveTimer > 0f) _turnActiveTimer -= Time.deltaTime;
 
@@ -2794,45 +2802,45 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     /// <summary>
     /// Detects when a monster is stuck against a cave wall or obstacle while trying to run forward.
-    /// Stops locomotion animation, figures out an alternate route, triggers turn animation, and reroutes.
+    /// Uses spatial anchor tracking to detect lack of progress in seconds (<1.2s), stops locomotion,
+    /// triggers turn animation away from the wall, and reroutes smartly into open cavern corridors.
     /// </summary>
     protected virtual void UpdateAntiStuck()
     {
-        if (!enableAntiStuck || _agent == null || !_agent.isOnNavMesh || !_agent.enabled || _agent.isStopped || _rerouteTurnCoroutine != null)
+        if (!enableAntiStuck || _agent == null || !_agent.isOnNavMesh || !_agent.enabled || _agent.isStopped || _rerouteTurnCoroutine != null || _roamTurnCoroutine != null)
         {
             _stuckTimer = 0f;
+            _stuckAnchorPos = transform.position;
             return;
         }
 
-        _stuckCheckTimer -= Time.deltaTime;
-        if (_stuckCheckTimer <= 0f)
+        // Only monitor when agent is actively expected to navigate
+        if (_agent.hasPath && !_isRoamWaiting)
         {
-            _stuckCheckTimer = _stuckCheckInterval;
-
-            if (_agent.hasPath && _agent.desiredVelocity.sqrMagnitude > 0.25f)
+            float distFromAnchor = Vector3.Distance(transform.position, _stuckAnchorPos);
+            if (distFromAnchor > 0.35f)
             {
-                float movedDist = Vector3.Distance(transform.position, _lastStuckCheckPos);
-                if (movedDist < 0.10f)
-                {
-                    _stuckTimer += _stuckCheckInterval;
-                    if (_stuckTimer >= stuckDetectionDuration)
-                    {
-                        ExecuteSmartReroute();
-                        _stuckTimer = 0f;
-                    }
-                }
-                else
-                {
-                    _stuckTimer = 0f;
-                    _consecutiveStuckCount = 0;
-                }
+                // Making genuine forward progress through the cavern — update anchor
+                _stuckAnchorPos = transform.position;
+                _stuckTimer = 0f;
+                _consecutiveStuckCount = 0;
             }
             else
             {
-                _stuckTimer = 0f;
+                // Stuck in roughly the same spot (< 35cm moved) while trying to follow a path
+                _stuckTimer += Time.deltaTime;
+                if (_stuckTimer >= stuckDetectionDuration)
+                {
+                    ExecuteSmartReroute();
+                    _stuckTimer = 0f;
+                    _stuckAnchorPos = transform.position;
+                }
             }
-
-            _lastStuckCheckPos = transform.position;
+        }
+        else
+        {
+            _stuckTimer = 0f;
+            _stuckAnchorPos = transform.position;
         }
     }
 
@@ -3099,8 +3107,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         if (_agent != null && _agent.isOnNavMesh && _agent.enabled)
         {
-            _agent.isStopped = true;
+            _agent.ResetPath();
             _agent.velocity = Vector3.zero;
+            _agent.isStopped = true;
         }
 
         // 2. Compute facing direction towards the new route waypoint
@@ -3113,18 +3122,21 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             UpdateTurningAnimation(turnDir);
 
             Quaternion targetRotation = Quaternion.LookRotation(turnDir.normalized);
-            float elapsed = 0f;
-            float maxDuration = 0.55f;
-            float rerouteTurnRate = (monsterType == MonsterType.Berserker) ? 140f : 110f;
+            float angleToTurn = Quaternion.Angle(transform.rotation, targetRotation);
+            float maxDuration = (monsterType == MonsterType.Berserker) ? 0.95f : 1.15f;
+            float rerouteTurnRate = angleToTurn / Mathf.Max(0.1f, maxDuration * 0.85f);
 
-            while (elapsed < maxDuration && Quaternion.Angle(transform.rotation, targetRotation) > 8f)
+            float elapsed = 0f;
+            while (elapsed < maxDuration)
             {
                 transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRotation, rerouteTurnRate * Time.deltaTime);
                 elapsed += Time.deltaTime;
                 yield return null;
             }
 
+            transform.rotation = targetRotation;
             StopTurningAnimation(true);
+            yield return new WaitForSeconds(0.12f);
         }
 
         // 4. Resume locomotion along the open route

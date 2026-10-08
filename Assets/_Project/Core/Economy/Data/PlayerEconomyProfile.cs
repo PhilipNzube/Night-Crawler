@@ -34,8 +34,8 @@ namespace NightCrawler.Economy
         // -----------------------------------------------------------------
         //  CHANGE YOUR CURRENCY NAME & SYMBOL HERE:
         // -----------------------------------------------------------------
-        public const string CurrencyName = "Credits";
-        public const string CurrencyPlural = "Credits";
+        public const string CurrencyName = "Cinders";
+        public const string CurrencyPlural = "Cinders";
         public const string CurrencySymbol = "C";
 
         // Economic Constants

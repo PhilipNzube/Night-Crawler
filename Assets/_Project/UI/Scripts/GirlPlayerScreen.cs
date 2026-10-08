@@ -453,6 +453,24 @@ public class GirlPlayerScreen : MonoBehaviour
             ? CloudCharacterSaveManager.Instance.CurrentCredits
             : 50;
 
+        int maxAllowedStake = Mathf.Max(CurrencyConfig.MinimumStake, Mathf.FloorToInt(balance * CurrencyConfig.MaxStakeCapPercentage));
+
+        if (matchStakeModal != null)
+        {
+            matchStakeModal.useLocalization = false;
+            matchStakeModal.titleKey = string.Empty;
+            matchStakeModal.descriptionKey = string.Empty;
+
+            string title = "MATCH STAKE";
+            string desc = $"Enter your stake to confirm deployment as Wraith.\n<b>Available:</b> {balance} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {maxAllowedStake} {CurrencyConfig.CurrencyPlural}";
+
+            matchStakeModal.titleText = title;
+            matchStakeModal.descriptionText = desc;
+            if (matchStakeModal.windowTitle != null) matchStakeModal.windowTitle.text = title;
+            if (matchStakeModal.windowDescription != null) matchStakeModal.windowDescription.text = desc;
+            try { matchStakeModal.UpdateUI(); } catch { }
+        }
+
         // Bind input typing validation
         MichskyUIBridge.BindInputField(null, heatStakeInputField, OnStakeInputChanged);
 
@@ -506,15 +524,17 @@ public class GirlPlayerScreen : MonoBehaviour
             ? CloudCharacterSaveManager.Instance.CurrentCredits
             : 50;
 
+        int maxAllowedStake = Mathf.Max(CurrencyConfig.MinimumStake, Mathf.FloorToInt(balance * CurrencyConfig.MaxStakeCapPercentage));
+
         if (balance < CurrencyConfig.MinimumStake)
         {
-            errorMessage = $"Insufficient credits! You need at least {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol} to participate (Balance: {balance} {CurrencyConfig.CurrencySymbol}).";
+            errorMessage = $"Insufficient {CurrencyConfig.CurrencyPlural}! You need at least {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol} to participate (Available: {balance} {CurrencyConfig.CurrencySymbol}).";
             return false;
         }
 
         if (string.IsNullOrWhiteSpace(raw))
         {
-            errorMessage = $"Enter stake amount ({CurrencyConfig.MinimumStake} - {balance} {CurrencyConfig.CurrencySymbol}) to confirm.";
+            errorMessage = $"Available: {balance} {CurrencyConfig.CurrencySymbol}. Enter stake ({CurrencyConfig.MinimumStake} - {maxAllowedStake} {CurrencyConfig.CurrencySymbol}, 60% limit).";
             return false;
         }
 
@@ -524,21 +544,15 @@ public class GirlPlayerScreen : MonoBehaviour
             return false;
         }
 
-        if (stake <= 0)
+        if (stake < CurrencyConfig.MinimumStake)
         {
             errorMessage = $"Stake must be at least {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.";
             return false;
         }
 
-        if (stake < CurrencyConfig.MinimumStake)
+        if (stake > maxAllowedStake)
         {
-            errorMessage = $"Stake too low! Minimum required is {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.";
-            return false;
-        }
-
-        if (stake > balance)
-        {
-            errorMessage = $"Insufficient credits! You cannot stake {stake} {CurrencyConfig.CurrencySymbol} with a balance of {balance} {CurrencyConfig.CurrencySymbol}.";
+            errorMessage = $"Exceeds 60% rule! Maximum allowed stake is {maxAllowedStake} {CurrencyConfig.CurrencySymbol} (60% of your {balance} {CurrencyConfig.CurrencySymbol}).";
             return false;
         }
 
@@ -595,6 +609,8 @@ public class GirlPlayerScreen : MonoBehaviour
         {
             CloudCharacterSaveManager.Instance.SpendCredits(stake);
         }
+        LobbyUI.Instance?.UpdateCreditsUI();
+        LobbyUI.Instance?.UpdateProfileUI();
 
         _readySent = true;
 

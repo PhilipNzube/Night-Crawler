@@ -487,8 +487,23 @@ namespace NightCrawler.UI
             if (heatBar != null)
             {
                 float targetMax = heatBar.maxValue > 0f ? heatBar.maxValue : 100f;
-                heatBar.currentValue = Mathf.Clamp01(fraction) * targetMax;
-                heatBar.UpdateUI();
+                float targetVal = Mathf.Clamp01(fraction) * targetMax;
+                heatBar.currentValue = targetVal;
+                try { heatBar.SetValue(targetVal); } catch { }
+                try { heatBar.UpdateUI(); } catch { }
+
+                // Also update any nested Unity Slider or Filled Image so bars fill regardless of internal architecture
+                var nestedSlider = heatBar.GetComponentInChildren<Slider>(true);
+                if (nestedSlider != null) nestedSlider.value = Mathf.Clamp01(fraction) * nestedSlider.maxValue;
+
+                var images = heatBar.GetComponentsInChildren<Image>(true);
+                foreach (var img in images)
+                {
+                    if (img != null && img.type == Image.Type.Filled)
+                    {
+                        img.fillAmount = Mathf.Clamp01(fraction);
+                    }
+                }
             }
         }
 
@@ -499,7 +514,8 @@ namespace NightCrawler.UI
                 heatBar.minValue = 0;
                 heatBar.maxValue = max;
                 heatBar.currentValue = current;
-                heatBar.UpdateUI();
+                try { heatBar.SetValue(current); } catch { }
+                try { heatBar.UpdateUI(); } catch { }
             }
         }
 
@@ -525,7 +541,8 @@ namespace NightCrawler.UI
                 heatBar.minValue = 0;
                 heatBar.maxValue = max;
                 heatBar.currentValue = current;
-                heatBar.UpdateUI();
+                try { heatBar.SetValue(current); } catch { }
+                try { heatBar.UpdateUI(); } catch { }
             }
         }
 
