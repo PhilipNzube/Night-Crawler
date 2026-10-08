@@ -31,7 +31,8 @@ public class ZombieAI : MonsterAI
         runAcceleration = 8.0f;
         if (attackDamage < 25f) attackDamage = 35f;
         if (attackRange <= 0f) attackRange = 2.0f;
-        if (screamDuration <= 0f) screamDuration = 2.2f;
+        screamAudioDelay = 0.18f;
+        screamDuration = 1.35f;
 
         // Apply ScriptableObject stats override if present
         if (stats != null)

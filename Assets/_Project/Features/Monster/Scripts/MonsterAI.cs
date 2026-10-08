@@ -260,6 +260,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected readonly int _stateZombieAttack = Animator.StringToHash("Zombie Attack");
     protected readonly int _stateTurnRight    = Animator.StringToHash("Turn Right");
     protected readonly int _stateTurnLeft     = Animator.StringToHash("Turn Left");
+    protected readonly int _stateBerserkerIdle = Animator.StringToHash("Berserker Idle");
 
     // Internal state timers & caches
     protected float _attackTimer;
@@ -1688,6 +1689,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         // Walk smoothly along the path
         _agent.isStopped = false;
+        _nominalAgentSpeed = patrolSpeed;
         _agent.speed = Mathf.MoveTowards(_agent.speed, patrolSpeed, Time.deltaTime * 3.5f);
         PlayPatrolWalkLocomotion(patrolSpeed);
     }
@@ -1853,12 +1855,19 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
             transform.rotation = targetRot;
             StopTurningAnimation(true);
-            yield return new WaitForSeconds(0.18f); // Brief natural pause before stepping into forward walk
+            yield return new WaitForSeconds(0.15f); // Brief natural pause before stepping into forward walk
         }
 
-        // 3. Resume locomotion forward along the new corridor path
+        // 3. Resume locomotion forward along the new corridor path smoothly:
+        // Set nominal speed and trigger walk locomotion FIRST so legs and stride begin blending BEFORE agent translates
+        PlayPatrolWalkLocomotion(patrolSpeed);
+        yield return new WaitForSeconds(0.12f); // Brief gait engagement pause completely eliminating floor gliding
+
         if (_agent != null && _agent.isOnNavMesh && _agent.enabled)
         {
+            _nominalAgentSpeed = patrolSpeed;
+            _agent.speed = patrolSpeed;
+            _agent.velocity = Vector3.zero;
             _agent.isStopped = false;
             _agent.SetDestination(destination);
             _roamTimer = Random.Range(14f, 22f);
@@ -2501,6 +2510,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (currentState == AIState.Attacking || currentState == AIState.SpawningScream) return false;
         if (currentState == AIState.Idle) return false;
         if (_isGuardIdling || _isRoamWaiting) return false;
+        if (_roamTurnCoroutine != null || _rerouteTurnCoroutine != null) return false;
 
         if (_agent != null && _agent.enabled && !_agent.isStopped)
         {
@@ -2633,7 +2643,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             if (!_isTurningRight)
             {
                 SafeSetTrigger(_turnRightHash);
-                SafeCrossFade(_stateTurnRight, "Turn Right", 0.12f);
+                SafeCrossFade(_stateTurnRight, "Turn Right", 0.10f, true);
             }
             _isTurningRight = true;
             _isTurningLeft = false;
@@ -2647,7 +2657,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             if (!_isTurningLeft)
             {
                 SafeSetTrigger(_turnLeftHash);
-                SafeCrossFade(_stateTurnLeft, "Turn Left", 0.12f);
+                SafeCrossFade(_stateTurnLeft, "Turn Left", 0.10f, true);
             }
             _isTurningLeft = true;
             _isTurningRight = false;
@@ -2679,7 +2689,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             {
                 if (monsterType == MonsterType.Zombie && currentPosture == ZombiePosture.Standing)
                 {
-                    SafeCrossFade(_stateIdle, "Zombie Idle", 0.15f);
+                    SafeCrossFade(_stateIdle, "Zombie Idle", 0.15f, true);
+                }
+                else if (monsterType == MonsterType.Berserker)
+                {
+                    SafeCrossFade(_stateBerserkerIdle, "Berserker Idle", 0.15f, true);
                 }
             }
         }

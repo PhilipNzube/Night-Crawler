@@ -25,7 +25,6 @@ public class BerserkerAI : MonsterAI
     protected readonly int _stateMutantRoar    = Animator.StringToHash("Mutant Roaring");
     protected readonly int _stateMutantRun     = Animator.StringToHash("Mutant Run");
     protected readonly int _stateMutantWalk    = Animator.StringToHash("Mutant Walk");
-    protected readonly int _stateBerserkerIdle = Animator.StringToHash("Berserker Idle");
     protected readonly int _stateMutantSwiping = Animator.StringToHash("Mutant Swiping");
     protected readonly int _stateMutantHit     = Animator.StringToHash("Mutant Reaction Hit");
 
@@ -50,9 +49,9 @@ public class BerserkerAI : MonsterAI
         }
     }
 
-    [Header("Roar Synchronization (Double Roar)")]
-    [Tooltip("If true, the Berserker plays the roar animation twice to rhyme with the double-roar audio clip. If false, cuts the audio after the first roar.")]
-    public bool doubleRoarSequence = true;
+    [Header("Roar Synchronization")]
+    [Tooltip("If true, the Berserker plays the roar animation twice to rhyme with the double-roar audio clip. If false, plays the single trimmed roar audio.")]
+    public bool doubleRoarSequence = false;
     [Tooltip("Optional custom audio clip for the second roar. If left empty, re-plays spawnScreamClip.")]
     public AudioClip secondRoarClip;
     [Tooltip("Delay in seconds before roar audio starts, allowing the animation wind-up to reach the open-mouth roar apex.")]
@@ -76,9 +75,10 @@ public class BerserkerAI : MonsterAI
         {
             screamDuration = totalRoarDuration;
         }
-        else if (screamDuration <= 0f)
+        else
         {
-            screamDuration = 2.6f;
+            float clipLength = (spawnScreamClip != null && spawnScreamClip.length > 0f) ? spawnScreamClip.length : 3.09f;
+            screamDuration = roarAudioDelay + clipLength;
         }
 
         // ScriptableObject stats override if present
@@ -145,6 +145,82 @@ public class BerserkerAI : MonsterAI
         PlayBerserkerIdleLocomotion();
     }
 
+    // =========================================================================
+    //  Turning Animation Drivers (Recognizes Turn Left & Turn Right in BerserkerAnim)
+    // =========================================================================
+
+    public void PlayBerserkerTurnRight()
+    {
+        SafeSetTrigger(_turnRightHash);
+        SafeCrossFade(_stateTurnRight, "Turn Right", 0.10f, true);
+    }
+
+    public void PlayBerserkerTurnLeft()
+    {
+        SafeSetTrigger(_turnLeftHash);
+        SafeCrossFade(_stateTurnLeft, "Turn Left", 0.10f, true);
+    }
+
+    public override void UpdateTurningAnimation(Vector3 desiredFacingDir)
+    {
+        if (IsMovingLocomotion())
+        {
+            StopTurningAnimation(true);
+            return;
+        }
+
+        desiredFacingDir.y = 0f;
+        if (desiredFacingDir.sqrMagnitude < 0.01f)
+        {
+            StopTurningAnimation(true);
+            return;
+        }
+
+        float signedAngle = Vector3.SignedAngle(transform.forward, desiredFacingDir.normalized, Vector3.up);
+        SafeSetFloat(_turnAngleHash, signedAngle);
+
+        if (signedAngle > turnAngleThreshold)
+        {
+            if (!_isTurningRight)
+            {
+                PlayBerserkerTurnRight();
+            }
+            _isTurningRight = true;
+            _isTurningLeft = false;
+            SafeSetBool(_isTurningRightHash, true);
+            SafeSetBool(_isTurningLeftHash, false);
+            _turnActiveTimer = Mathf.Max(_turnActiveTimer, minTurnDuration);
+        }
+        else if (signedAngle < -turnAngleThreshold)
+        {
+            if (!_isTurningLeft)
+            {
+                PlayBerserkerTurnLeft();
+            }
+            _isTurningLeft = true;
+            _isTurningRight = false;
+            SafeSetBool(_isTurningLeftHash, true);
+            SafeSetBool(_isTurningRightHash, false);
+            _turnActiveTimer = Mathf.Max(_turnActiveTimer, minTurnDuration);
+        }
+        else if (_turnActiveTimer <= 0f && Mathf.Abs(signedAngle) <= 15f)
+        {
+            StopTurningAnimation();
+        }
+    }
+
+    public override void StopTurningAnimation(bool force = false)
+    {
+        if (!force && _turnActiveTimer > 0f) return;
+
+        base.StopTurningAnimation(force);
+
+        if (!IsMovingLocomotion() && currentState != AIState.Dead && currentState != AIState.Attacking)
+        {
+            PlayBerserkerIdleLocomotion();
+        }
+    }
+
     protected override IEnumerator SpawnScreamRoutine()
     {
         _hasScreamed = true;
@@ -203,14 +279,9 @@ public class BerserkerAI : MonsterAI
         }
         else
         {
-            // Single roar mode: wait for first roar to finish, then cleanly cut audio
-            float singleDuration = Mathf.Max(0.5f, (secondRoarDelay > 0f ? secondRoarDelay : screamDuration) - delay);
-            yield return new WaitForSeconds(singleDuration);
-
-            if (audioSource != null && audioSource.isPlaying)
-            {
-                audioSource.Stop();
-            }
+            // Single roar mode: let trimmed audio and animation play to completion naturally
+            float clipLength = (spawnScreamClip != null && spawnScreamClip.length > 0f) ? spawnScreamClip.length : 3.09f;
+            yield return new WaitForSeconds(clipLength);
         }
 
         // Transition directly to relentless pursuit

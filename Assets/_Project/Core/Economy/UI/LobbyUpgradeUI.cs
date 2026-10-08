@@ -153,14 +153,16 @@ namespace NightCrawler.Economy.UI
                     // Directly wire the child purchase button (both Michsky & Unity standard Button)
                     if (pBtn != null)
                     {
-                        pBtn.isInteractable = canAfford;
+                        // The button on the card must always be interactable when not at MAX level
+                        // so tapping it opens the confirmation modal with cost & current balance details.
+                        pBtn.isInteractable = !isMaxLevel;
                         pBtn.buttonText = isMaxLevel ? "MAX" : "Purchase";
                         pBtn.UpdateUI();
 
                         var stdBtn = pBtn.GetComponent<UnityEngine.UI.Button>();
                         if (stdBtn != null)
                         {
-                            stdBtn.interactable = canAfford;
+                            stdBtn.interactable = !isMaxLevel;
                             stdBtn.onClick.RemoveAllListeners();
                             if (!isMaxLevel)
                             {
@@ -214,9 +216,21 @@ namespace NightCrawler.Economy.UI
                     purchaseConfirmModal.gameObject.SetActive(true);
                 }
 
+                purchaseConfirmModal.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
+                purchaseConfirmModal.isOn = false;
+                purchaseConfirmModal.useCustomContent = true;
                 purchaseConfirmModal.useLocalization = false;
                 purchaseConfirmModal.titleKey = string.Empty;
                 purchaseConfirmModal.descriptionKey = string.Empty;
+                purchaseConfirmModal.closeOnCancel = false;
+                purchaseConfirmModal.closeOnConfirm = false;
+
+                // Disable LocalizedObject components across children so dynamic strings are not wiped
+                var locObjs = purchaseConfirmModal.GetComponentsInChildren<LocalizedObject>(true);
+                foreach (var loc in locObjs)
+                {
+                    if (loc != null) loc.enabled = false;
+                }
 
                 string title = $"UPGRADE {statTitle.ToUpper()}";
                 string desc = canAfford
@@ -243,11 +257,19 @@ namespace NightCrawler.Economy.UI
                     }
                 };
 
+                Action doCancel = () =>
+                {
+                    purchaseConfirmModal.CloseWindow();
+                };
+
                 purchaseConfirmModal.onConfirm.RemoveAllListeners();
                 if (canAfford)
                 {
                     purchaseConfirmModal.onConfirm.AddListener(() => doPurchase());
                 }
+
+                purchaseConfirmModal.onCancel.RemoveAllListeners();
+                purchaseConfirmModal.onCancel.AddListener(() => doCancel());
 
                 if (purchaseConfirmModal.confirmButton != null)
                 {
@@ -270,8 +292,26 @@ namespace NightCrawler.Economy.UI
                     }
                 }
 
+                if (purchaseConfirmModal.cancelButton != null)
+                {
+                    var stdCancel = purchaseConfirmModal.cancelButton.GetComponent<UnityEngine.UI.Button>();
+                    if (stdCancel != null)
+                    {
+                        stdCancel.onClick.RemoveAllListeners();
+                        stdCancel.onClick.AddListener(() => doCancel());
+                    }
+
+                    purchaseConfirmModal.cancelButton.onClick.RemoveAllListeners();
+                    purchaseConfirmModal.cancelButton.onClick.AddListener(() => doCancel());
+                }
+
                 var cg = purchaseConfirmModal.GetComponent<CanvasGroup>();
-                if (cg != null) cg.alpha = 1f;
+                if (cg != null)
+                {
+                    cg.alpha = 1f;
+                    cg.interactable = true;
+                    cg.blocksRaycasts = true;
+                }
 
                 purchaseConfirmModal.OpenWindow();
                 return;
