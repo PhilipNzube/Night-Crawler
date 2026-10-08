@@ -462,7 +462,8 @@ public class PauseUI : MonoBehaviour
             {
                 try
                 {
-                    GameManager.Instance.NotifyHostLeavingClientRpc();
+                    bool isHostGirl = PersistentCharacterSelection.IsVengefulSpirit() || GameManager.Instance.IsHostTheGirl();
+                    GameManager.Instance.NotifyHostLeavingClientRpc(isHostGirl);
                 }
                 catch (System.Exception ex)
                 {

@@ -335,8 +335,19 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         }
         else if (_hasBufferedAttack && !_isReloading && HasWeapon && currentWeaponIndex.Value >= 0)
         {
-            _hasBufferedAttack = false;
-            PerformAttack();
+            if (currentWeaponIndex.Value == 0)
+            {
+                if (_meleeStrikeRoutine == null)
+                {
+                    _hasBufferedAttack = false;
+                    PerformAttack();
+                }
+            }
+            else
+            {
+                _hasBufferedAttack = false;
+                PerformAttack();
+            }
         }
 
         // Weapon hide/holster toggle [X] — only non-miners can hide
@@ -373,11 +384,12 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         // Attack (Left Click / Gamepad Trigger) — each combo step requires a deliberate click.
         // Intentionally do NOT use leftButton.isPressed: holding must not spam the full combo.
         bool clickDown = KeybindingManager.IsActionTriggered("Attack")
-            || (KeybindingManager.Instance == null && Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame);
+            || (Mouse.current != null && Mouse.current.leftButton.wasPressedThisFrame);
 
         if (clickDown && !_isReloading)
         {
-            if (UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
+            // Only block attack for UI when the cursor is free (menus/modals), never during locked gameplay!
+            if (Cursor.lockState != CursorLockMode.Locked && UnityEngine.EventSystems.EventSystem.current != null && UnityEngine.EventSystems.EventSystem.current.IsPointerOverGameObject())
             {
                 return;
             }
@@ -392,14 +404,11 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                 {
                     if (_meleeStrikeRoutine == null)
                     {
-                        if (_attackTimer <= 0)
-                        {
-                            PerformAttack();
-                        }
+                        PerformAttack(); // Immediate instantaneous response!
                     }
                     else
                     {
-                        // Melee attack is currently active: queue next combo strike if eligible
+                        // Melee attack is currently active: queue next combo strike or buffer next opening strike
                         QueueNextMeleeCombo();
                     }
                 }
@@ -535,17 +544,23 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         if (combatLayer < 0) combatLayer = 0;
 
         var curState = _animator.GetCurrentAnimatorStateInfo(combatLayer);
+        int activeIndex = GetAttackStateIndex(curState);
 
         // Can queue next combo strike if currently in Step 0 (Melee_Attack_1) or Step 1 (Melee_Combo)
         // and haven't already queued for this step!
-        if (!_comboQueued)
+        if (activeIndex == 0 || activeIndex == 1)
         {
-            int activeIndex = GetAttackStateIndex(curState);
-            if (activeIndex == 0 || activeIndex == 1)
+            if (!_comboQueued)
             {
                 _comboQueued = true;
                 SafeSetTrigger(_attackHash);
             }
+        }
+        else
+        {
+            // If in finisher (Step 2) or recovering to idle:
+            // Buffer the attack so the next attack begins IMMEDIATELY as the animation finishes!
+            _hasBufferedAttack = true;
         }
     }
 
@@ -602,8 +617,19 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         bool hitFiredForState = false;
         _comboQueued = false;
 
-        // Trigger opening strike
+        // Ensure combat layer weight is instantly 1.0f
+        if (combatLayer >= 0 && _animator != null)
+        {
+            _animator.SetLayerWeight(combatLayer, 1f);
+        }
+
+        // Trigger opening strike and crossfade directly so animation begins immediately on frame 0
+        SafeSetInteger(_comboStepHash, 0);
         SafeSetTrigger(_attackHash);
+        if (_animator != null)
+        {
+            _animator.CrossFadeInFixedTime("Melee_Attack_1", 0.05f, combatLayer);
+        }
 
         float timeout = 4.0f; // Absolute safety watchdog
         float elapsed = 0f;
@@ -640,9 +666,8 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                     _comboQueued = false; // Fresh step: allow queuing the NEXT step
                 }
 
-                // Play the swing whoosh audio and hit detection almost to the end of the animation
-                // (stroke apex between 0.65f and 0.72f), precisely before the 0.75f exit transition!
-                if (!hitFiredForState && curState.normalizedTime >= 0.65f)
+                // Play the swing whoosh audio and hit detection at swing stroke apex (between 0.40f and 0.48f)
+                if (!hitFiredForState && curState.normalizedTime >= 0.40f)
                 {
                     hitFiredForState = true;
 
@@ -663,9 +688,23 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
             else
             {
                 // We are not currently in an attack state
-                // If we were previously tracking an attack state, check if we are transitioning into the next one
                 if (currentTrackedIndex != -1)
                 {
+                    // If the animation is transitioning before reaching 0.40f, ensure swing sound and hit detection fire!
+                    if (!hitFiredForState)
+                    {
+                        hitFiredForState = true;
+                        if (stats != null && stats.fireSound != null && _audioSource != null)
+                        {
+                            float vol = Mathf.Clamp01(stats.fireSoundVolume);
+                            _audioSource.PlayOneShot(stats.fireSound, vol);
+                        }
+                        if (stats != null)
+                        {
+                            PerformMeleeHit(stats);
+                        }
+                    }
+
                     int nextIndex = GetAttackStateIndex(nextState);
                     if (nextIndex == -1 && combatLayer != 0)
                     {
@@ -691,8 +730,15 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         }
 
         _comboQueued = false;
-        _attackTimer = comboFinisherRecovery;
+        _attackTimer = 0f; // Completely eliminates post-animation lockout for immediate responsiveness!
         _meleeStrikeRoutine = null;
+
+        // If player clicked while the animation was ending or recovering, launch the buffered attack instantly!
+        if (_hasBufferedAttack && HasWeapon && currentWeaponIndex.Value == 0 && !_isReloading)
+        {
+            _hasBufferedAttack = false;
+            PerformAttack();
+        }
     }
 
     private static bool IsMeleeAttackState(AnimatorStateInfo state)
@@ -735,6 +781,15 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
             {
                 float finalDamage = CombatEconomyFilter.CalculateEffectiveDamage(stats.damage, attackerWpnLvl, 0, true);
                 receiver.TakeDamage(finalDamage);
+
+                // Show monster health bar exclusively to this player who inflicted the damage
+                var mHealthBar = hit.GetComponentInParent<NightCrawler.Monsters.MonsterHealthBar>()
+                              ?? hit.GetComponentInChildren<NightCrawler.Monsters.MonsterHealthBar>()
+                              ?? (receiver as Component)?.GetComponentInChildren<NightCrawler.Monsters.MonsterHealthBar>();
+                if (mHealthBar != null)
+                {
+                    mHealthBar.ShowToLocalAttacker();
+                }
 
                 // Audio feedback on successful melee contact
                 if (stats.impactSound != null && _audioSource != null)
@@ -798,6 +853,15 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
             {
                 float finalDamage = CombatEconomyFilter.CalculateEffectiveDamage(stats.damage, attackerWpnLvl, 0, true);
                 receiver.TakeDamage(finalDamage);
+
+                // Show monster health bar exclusively to this player who inflicted the damage
+                var mHealthBar = hit.collider.GetComponentInParent<NightCrawler.Monsters.MonsterHealthBar>()
+                              ?? hit.collider.GetComponentInChildren<NightCrawler.Monsters.MonsterHealthBar>()
+                              ?? (receiver as Component)?.GetComponentInChildren<NightCrawler.Monsters.MonsterHealthBar>();
+                if (mHealthBar != null)
+                {
+                    mHealthBar.ShowToLocalAttacker();
+                }
 
                 // Audio feedback on successful bullet impact
                 if (stats.impactSound != null && _audioSource != null)

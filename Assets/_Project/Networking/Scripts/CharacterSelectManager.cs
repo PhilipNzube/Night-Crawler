@@ -169,37 +169,37 @@ public class CharacterSelectManager : NetworkBehaviour
         {
             new InvestigatorCharacterData
             {
-                characterName = "Mine Worker",
+                characterName = "Breaker",
                 profession = InvestigatorProfession.MineWorker,
-                description = "Understands mine structures, machinery, and practical underground problems.",
+                description = "Speaks fluent pickaxe. Overtime approved.",
                 specialAbilities = "• Heavy Pickaxe Attack\n• Structural Inspection\n• Machine Repair"
             },
             new InvestigatorCharacterData
             {
                 characterName = "Hazard Specialist",
                 profession = InvestigatorProfession.HazardSpecialist,
-                description = "Wears a protective suit to handle environmental hazards and toxic gas without panic.",
+                description = "Allergic to dying. Prays the suit holds.",
                 specialAbilities = "• Toxic Gas Immunity\n• Hazard Filter Deployment\n• Heavy Armor"
             },
             new InvestigatorCharacterData
             {
-                characterName = "Explorer",
+                characterName = "Pathfinder",
                 profession = InvestigatorProfession.Explorer,
-                description = "Experienced with underground navigation, rappelling, and difficult terrain.",
+                description = "Fourteen caves mapped. Zero escape plans.",
                 specialAbilities = "• Stamina Boost\n• Terrain Traversal\n• Flare Marker"
             },
             new InvestigatorCharacterData
             {
-                characterName = "Cursed Priest",
+                characterName = "Exorcist",
                 profession = InvestigatorProfession.CursedPriest,
-                description = "Supernatural specialist whose unsettling presence makes the team wonder why he joined.",
+                description = "Nobody knows whose side he’s praying for.",
                 specialAbilities = "• Occult Sensing\n• Ward Placement\n• Presence Detection"
             },
             new InvestigatorCharacterData
             {
-                characterName = "Field Medic",
+                characterName = "Mender",
                 profession = InvestigatorProfession.FieldMedic,
-                description = "Examines injuries and determines if deaths were caused by accidents or violence.",
+                description = "Stitches you up. Judges your life choices.",
                 specialAbilities = "• First Aid Healing\n• Autopsy Examination\n• Revive Assistance"
             }
         };

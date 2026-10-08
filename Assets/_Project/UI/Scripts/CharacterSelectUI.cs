@@ -1688,31 +1688,38 @@ public class CharacterSelectUI : MonoBehaviour
         {
             new InvestigatorCharacterData
             {
-                characterName = "Mine Worker",
+                characterName = "Breaker",
                 profession = InvestigatorProfession.MineWorker,
-                description = "Understands mine structures, heavy machinery, and practical underground navigation.",
+                description = "Speaks fluent pickaxe. Overtime approved.",
                 specialAbilities = "• Heavy Pickaxe Attack\n• Structural Inspection\n• Machine Repair"
             },
             new InvestigatorCharacterData
             {
                 characterName = "Hazard Specialist",
                 profession = InvestigatorProfession.HazardSpecialist,
-                description = "Wears a heavy protective suit to handle environmental hazards and toxic gas without panic.",
+                description = "Allergic to dying. Prays the suit holds.",
                 specialAbilities = "• Toxic Gas Immunity\n• Hazard Filter Deployment\n• Heavy Armor"
             },
             new InvestigatorCharacterData
             {
-                characterName = "Explorer",
+                characterName = "Pathfinder",
                 profession = InvestigatorProfession.Explorer,
-                description = "Experienced with subterranean mapping, rappelling, and difficult terrain.",
+                description = "Fourteen caves mapped. Zero escape plans.",
                 specialAbilities = "• Stamina Boost\n• Terrain Traversal\n• Flare Marker"
             },
             new InvestigatorCharacterData
             {
-                characterName = "Cursed Priest",
+                characterName = "Exorcist",
                 profession = InvestigatorProfession.CursedPriest,
-                description = "Supernatural specialist whose unsettling presence makes the team wonder why he joined.",
+                description = "Nobody knows whose side he’s praying for.",
                 specialAbilities = "• Ward Aura\n• Curse Detection\n• Holy Blessing"
+            },
+            new InvestigatorCharacterData
+            {
+                characterName = "Mender",
+                profession = InvestigatorProfession.FieldMedic,
+                description = "Stitches you up. Judges your life choices.",
+                specialAbilities = "• First Aid Healing\n• Autopsy Examination\n• Revive Assistance"
             }
         };
     }
@@ -1784,17 +1791,17 @@ public class CharacterSelectUI : MonoBehaviour
         switch (profession)
         {
             case InvestigatorProfession.MineWorker:
-                return "Understands mine structures, heavy machinery, and practical underground navigation.";
+                return "Speaks fluent pickaxe. Overtime approved.";
             case InvestigatorProfession.HazardSpecialist:
-                return "Wears a heavy protective suit to handle environmental hazards and toxic gas without panic.";
+                return "Allergic to dying. Prays the suit holds.";
             case InvestigatorProfession.Explorer:
-                return "Experienced with subterranean mapping, rappelling, and difficult terrain.";
+                return "Fourteen caves mapped. Zero escape plans.";
             case InvestigatorProfession.CursedPriest:
-                return "Supernatural specialist whose unsettling presence makes the team wonder why he joined.";
+                return "Nobody knows whose side he’s praying for.";
             case InvestigatorProfession.FieldMedic:
-                return "Examines injuries and determines if deaths were caused by accidents or violence.";
+                return "Stitches you up. Judges your life choices.";
             default:
-                return "Investigator deployed to uncover the mysteries of the mine.";
+                return "Trapped in the dark. Questioning life choices.";
         }
     }
 }

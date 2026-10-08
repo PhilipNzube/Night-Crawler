@@ -304,11 +304,74 @@ public class BerserkerAI : MonsterAI
 
     /// <summary>
     /// Berserker Hunting Pursuit:
-    /// Charges straight at investigator targets at maximum running speed.
+    /// - Command.Roam: On its own, only engages if an investigator comes close (<=12m), and breaks off chase if they get too far (>16m).
+    /// - Command.Hunt: Relentless pursuit ordered by the Girl. Chases across any distance until caught or recalled.
     /// Pure standing sprint — no crawling transitions under any circumstances.
     /// </summary>
     protected override void HandleHuntingBehavior()
     {
+        // 1. ROAMING ON ITS OWN:
+        if (currentCommand == Command.Roam)
+        {
+            if (target != null && !IsTargetInvalidOrDead(target))
+            {
+                float distance = Vector3.Distance(transform.position, target.position);
+                bool hasLoS = HasLineOfSight(target);
+
+                // Roam Leash: if player runs too far (>16m, or >12m without LoS), return to roaming!
+                if (distance > 16.0f || (!hasLoS && distance > 12.0f))
+                {
+                    target = null;
+                    ExecuteRoam(walkSpeed);
+                    return;
+                }
+
+                if (distance <= attackRange && hasLoS)
+                {
+                    _agent.isStopped = true;
+                    PlayBerserkerIdleLocomotion();
+                    RotateTowardsTarget(target);
+
+                    if (_attackTimer <= 0f)
+                    {
+                        _attackCoroutine = StartCoroutine(PerformAttackRoutine());
+                    }
+                }
+                else
+                {
+                    _agent.isStopped = false;
+                    _agent.speed = runSpeed;
+                    _agent.SetDestination(target.position);
+                    PlayBerserkerRunLocomotion(runSpeed);
+                }
+                return;
+            }
+
+            // On its own: periodically check if an investigator comes close (<= 12m)
+            _retargetTimer -= Time.deltaTime;
+            if (_retargetTimer <= 0f)
+            {
+                _retargetTimer = 0.5f;
+                Transform candidate = EvaluateBestTarget(null);
+                if (candidate != null)
+                {
+                    float d = Vector3.Distance(transform.position, candidate.position);
+                    if (d <= 12.0f && HasLineOfSight(candidate))
+                    {
+                        target = candidate;
+                    }
+                }
+            }
+
+            if (target == null)
+            {
+                ExecuteRoam(walkSpeed);
+                return;
+            }
+        }
+
+        // 2. HUNT COMMAND ISSUED BY THE GIRL:
+        // Relentless pursuit! No matter how far away an investigator is, keep chasing until caught or recalled!
         _retargetTimer -= Time.deltaTime;
         if (_retargetTimer <= 0f)
         {
@@ -319,8 +382,9 @@ public class BerserkerAI : MonsterAI
         if (target != null && !IsTargetInvalidOrDead(target))
         {
             float distance = Vector3.Distance(transform.position, target.position);
+            bool hasLoS = HasLineOfSight(target);
 
-            if (distance <= attackRange)
+            if (distance <= attackRange && hasLoS)
             {
                 _agent.isStopped = true;
                 PlayBerserkerIdleLocomotion();
@@ -328,7 +392,7 @@ public class BerserkerAI : MonsterAI
 
                 if (_attackTimer <= 0f)
                 {
-                    StartCoroutine(PerformAttackRoutine());
+                    _attackCoroutine = StartCoroutine(PerformAttackRoutine());
                 }
             }
             else
@@ -349,7 +413,8 @@ public class BerserkerAI : MonsterAI
     /// <summary>
     /// Berserker Guarding Behavior:
     /// Maintains an aggressive combat perimeter around the Girl in an alert standing stance.
-    /// Immediately intercepts approaching investigators and runs alongside her without crawling.
+    /// - When called back: Ignores investigators and runs straight to the Girl.
+    /// - While guarding: Chases investigators that come close, but returns to the Girl if they run far away.
     /// </summary>
     protected override void HandleGuardingBehavior()
     {
@@ -361,71 +426,103 @@ public class BerserkerAI : MonsterAI
         }
 
         float angleOffset = (GetInstanceID() % 6) * 60f * Mathf.Deg2Rad;
-        Vector3 guardOffset = new Vector3(Mathf.Sin(angleOffset), 0f, Mathf.Cos(angleOffset)) * 2.4f;
+        Vector3 guardOffset = new Vector3(Mathf.Sin(angleOffset), 0f, Mathf.Cos(angleOffset)) * 4.2f;
         Vector3 targetSpot = leader.position + guardOffset;
 
         float distToGirl = Vector3.Distance(transform.position, leader.position);
         float distToSpot = Vector3.Distance(transform.position, targetSpot);
 
-        // 1. Defend against approaching investigators
-        Transform threat = FindBestTarget();
-        if (threat != null)
+        // 1. Recall Grace & Target Defense:
+        if (_recallGraceTimer > 0f)
         {
-            float distToThreat = Vector3.Distance(transform.position, threat.position);
-            float girlToThreat = Vector3.Distance(leader.position, threat.position);
-
-            if (distToThreat <= attackRange)
-            {
-                _agent.isStopped = true;
-                PlayBerserkerIdleLocomotion();
-                RotateTowardsTarget(threat);
-                if (_attackTimer <= 0f)
-                {
-                    StartCoroutine(PerformAttackRoutine());
-                }
-                return;
-            }
-            else if (girlToThreat <= 14f || distToThreat <= 12f)
-            {
-                _agent.isStopped = false;
-                _agent.speed = runSpeed;
-                _agent.SetDestination(threat.position);
-                PlayBerserkerRunLocomotion(runSpeed);
-                return;
-            }
+            _recallGraceTimer -= Time.deltaTime;
+            target = null;
         }
-
-        // 2. Follow / Guard the Girl in upright posture
-        if (distToSpot <= 1.2f || (distToGirl <= 2.2f && _agent.velocity.magnitude < 0.2f))
+        else
         {
-            _agent.isStopped = true;
-            PlayBerserkerIdleLocomotion();
-
-            Vector3 lookDir = leader.forward;
-            lookDir.y = 0f;
-            if (lookDir != Vector3.zero)
+            Transform threat = FindBestTarget();
+            if (threat != null)
             {
-                float angle = Vector3.Angle(transform.forward, lookDir);
-                if (angle > turnAngleThreshold)
+                float distToThreat = Vector3.Distance(transform.position, threat.position);
+                float girlToThreat = Vector3.Distance(leader.position, threat.position);
+                bool threatLoS = HasLineOfSight(threat);
+
+                if (target != null)
                 {
-                    UpdateTurningAnimation(lookDir);
-                    Quaternion targetRot = Quaternion.LookRotation(lookDir);
-                    transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRot, 120f * Time.deltaTime);
+                    // LEASH: if the chased player runs far away, drop chase and return to the Girl!
+                    if (distToThreat > 8.5f && girlToThreat > 8.0f)
+                    {
+                        target = null;
+                    }
+                    else if (distToThreat <= attackRange && threatLoS)
+                    {
+                        _agent.isStopped = true;
+                        PlayBerserkerIdleLocomotion();
+                        RotateTowardsTarget(threat);
+                        if (_attackTimer <= 0f)
+                        {
+                            _attackCoroutine = StartCoroutine(PerformAttackRoutine());
+                        }
+                        return;
+                    }
+                    else
+                    {
+                        _agent.isStopped = false;
+                        _agent.speed = runSpeed;
+                        _agent.SetDestination(threat.position);
+                        PlayBerserkerRunLocomotion(runSpeed);
+                        return;
+                    }
                 }
                 else
                 {
-                    if (_turnActiveTimer <= 0f) StopTurningAnimation();
+                    // New threat: only intercept if an investigator comes close!
+                    if (girlToThreat <= 5.5f || distToThreat <= 6.0f)
+                    {
+                        target = threat;
+                        _agent.isStopped = false;
+                        _agent.speed = runSpeed;
+                        _agent.SetDestination(threat.position);
+                        PlayBerserkerRunLocomotion(runSpeed);
+                        return;
+                    }
                 }
             }
             else
             {
-                if (_turnActiveTimer <= 0f) StopTurningAnimation();
+                target = null;
             }
+        }
+
+        // 2. Personal Space Buffer with the Girl:
+        // If the Girl approaches too close (< 3.2m), smoothly yield space and step back
+        if (distToGirl < 3.2f)
+        {
+            Vector3 pushBack = (transform.position - leader.position).normalized;
+            if (pushBack.sqrMagnitude < 0.01f) pushBack = -leader.forward;
+            Vector3 retreatSpot = leader.position + pushBack * 4.2f;
+            if (NavMesh.SamplePosition(retreatSpot, out NavMeshHit backHit, 2.5f, NavMesh.AllAreas))
+            {
+                _agent.isStopped = false;
+                _agent.speed = walkSpeed;
+                _agent.SetDestination(backHit.position);
+                PlayBerserkerWalkLocomotion(walkSpeed);
+                return;
+            }
+        }
+
+        // 3. Follow / Guard the Girl at respectful perimeter
+        if (distToSpot <= 1.5f)
+        {
+            _agent.isStopped = true;
+            PlayBerserkerIdleLocomotion();
+            // Natural stationary idle: DO NOT snap around to face the Girl!
+            if (_turnActiveTimer <= 0f) StopTurningAnimation();
         }
         else
         {
             _agent.isStopped = false;
-            if (distToGirl > 5.5f)
+            if (distToGirl > 6.0f)
             {
                 _agent.speed = runSpeed;
                 PlayBerserkerRunLocomotion(runSpeed);
@@ -437,41 +534,6 @@ public class BerserkerAI : MonsterAI
             }
 
             _agent.SetDestination(targetSpot);
-        }
-    }
-
-    protected override void ExecuteRoam(float patrolSpeed)
-    {
-        if (_isRoamWaiting)
-        {
-            _agent.isStopped = true;
-            PlayBerserkerIdleLocomotion();
-
-            _roamWaitTimer -= Time.deltaTime;
-            if (_roamWaitTimer <= 0f)
-            {
-                _isRoamWaiting = false;
-                PickNewRoamDestination();
-            }
-            return;
-        }
-
-        _roamTimer -= Time.deltaTime;
-        bool arrived = !_agent.pathPending && (_agent.remainingDistance <= 1.2f || (_agent.remainingDistance == 0f && !_agent.hasPath));
-        if (arrived || _roamTimer <= 0f)
-        {
-            _isRoamWaiting = true;
-            _roamWaitTimer = Random.Range(2.0f, 5.0f);
-            PlayBerserkerIdleLocomotion();
-            return;
-        }
-
-        _agent.isStopped = false;
-        _agent.speed = patrolSpeed;
-        PlayBerserkerWalkLocomotion(patrolSpeed);
-        if (!_agent.hasPath && _roamDestination != Vector3.zero)
-        {
-            _agent.SetDestination(_roamDestination);
         }
     }
 }

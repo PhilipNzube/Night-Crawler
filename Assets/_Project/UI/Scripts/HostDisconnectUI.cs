@@ -100,6 +100,24 @@ public class HostDisconnectUI : MonoBehaviour
                 {
                     // Server has disconnected or terminated!
                     Debug.Log("[HostDisconnectUI] Detected connection drop from Host server.");
+                    bool wasHostGirl = (GameManager.Instance != null && GameManager.Instance.IsHostTheGirl())
+                                    || (CharacterSelectManager.SavedVengefulSpiritClientId == NetworkManager.ServerClientId);
+
+                    if (wasHostGirl)
+                    {
+                        _hasTriggered = true;
+                        if (GameManager.Instance != null)
+                        {
+                            GameManager.Instance.ShowHostGirlLeftMatchResult();
+                        }
+                        else
+                        {
+                            var overlay = FindFirstObjectByType<MatchResultOverlay>(FindObjectsInactive.Include);
+                            overlay?.ShowResultDirectly("INVESTIGATORS VICTORIOUS\nThe Vengeful Spirit abandoned the hunt.");
+                        }
+                        return;
+                    }
+
                     TriggerHostDisconnect();
                 }
             }
@@ -125,6 +143,25 @@ public class HostDisconnectUI : MonoBehaviour
         if (clientId == NetworkManager.Singleton.LocalClientId || clientId == NetworkManager.ServerClientId)
         {
             Debug.Log($"[HostDisconnectUI] ClientDisconnectCallback fired for id={clientId}");
+
+            bool wasHostGirl = (GameManager.Instance != null && GameManager.Instance.IsHostTheGirl())
+                            || (CharacterSelectManager.SavedVengefulSpiritClientId == NetworkManager.ServerClientId);
+
+            if (wasHostGirl)
+            {
+                _hasTriggered = true;
+                if (GameManager.Instance != null)
+                {
+                    GameManager.Instance.ShowHostGirlLeftMatchResult();
+                }
+                else
+                {
+                    var overlay = FindFirstObjectByType<MatchResultOverlay>(FindObjectsInactive.Include);
+                    overlay?.ShowResultDirectly("INVESTIGATORS VICTORIOUS\nThe Vengeful Spirit abandoned the hunt.");
+                }
+                return;
+            }
+
             TriggerHostDisconnect();
         }
     }

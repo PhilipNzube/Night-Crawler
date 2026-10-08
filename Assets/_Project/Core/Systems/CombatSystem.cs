@@ -86,12 +86,14 @@ public class CombatSystem : NetworkBehaviour, ICombatHandler
                 damageReceiver.TakeDamage(damage);
                 OnDamageDealt?.Invoke(damage);
                 PlayAudio(hitSound);
+                hit.GetComponentInParent<NightCrawler.Monsters.MonsterHealthBar>()?.ShowToLocalAttacker();
             }
             else if (hit.TryGetComponent<TargetHealth>(out var targetHealth))
             {
                 targetHealth.TakeDamage(damage);
                 OnDamageDealt?.Invoke(damage);
                 PlayAudio(hitSound);
+                hit.GetComponentInParent<NightCrawler.Monsters.MonsterHealthBar>()?.ShowToLocalAttacker();
             }
         }
     }
@@ -114,12 +116,14 @@ public class CombatSystem : NetworkBehaviour, ICombatHandler
                 damageReceiver.TakeDamage(damage);
                 OnDamageDealt?.Invoke(damage);
                 PlayAudio(hitSound);
+                hit.collider.GetComponentInParent<NightCrawler.Monsters.MonsterHealthBar>()?.ShowToLocalAttacker();
             }
             else if (hit.collider.TryGetComponent<TargetHealth>(out var targetHealth))
             {
                 targetHealth.TakeDamage(damage);
                 OnDamageDealt?.Invoke(damage);
                 PlayAudio(hitSound);
+                hit.collider.GetComponentInParent<NightCrawler.Monsters.MonsterHealthBar>()?.ShowToLocalAttacker();
             }
         }
     }

@@ -156,15 +156,25 @@ namespace NightCrawler.Monsters
 
         private void HandleTargetHealthChanged(float previous, float current)
         {
-            if (current < previous)
+            // Health values and sliders update across all clients,
+            // but the overhead health bar is ONLY shown to the player who inflicted the damage.
+            UpdateHealthDirect(current, _targetHealth != null ? _targetHealth.MaxHealth : _maxHealth);
+        }
+
+        /// <summary>
+        /// Explicit trigger invoked exclusively on the local attacker's client when they damage this monster.
+        /// Only this player sees the floating health bar.
+        /// </summary>
+        public void ShowToLocalAttacker()
+        {
+            if (_targetHealth != null && _targetHealth.MaxHealth > 0)
             {
-                // Monster took damage -> show health bar
-                OnDamaged(current, _targetHealth.MaxHealth);
+                _maxHealth = _targetHealth.MaxHealth;
+                _currentDisplayedHealth = _targetHealth.CurrentHealth;
             }
-            else
-            {
-                UpdateHealthDirect(current, _targetHealth.MaxHealth);
-            }
+            _hideTimer = visibleDurationAfterDamage;
+            _isBarVisible = true;
+            if (canvasGroup != null) canvasGroup.alpha = 1f;
         }
 
         /// <summary>
@@ -176,6 +186,7 @@ namespace NightCrawler.Monsters
             _hideTimer = visibleDurationAfterDamage;
             _isBarVisible = true;
             UpdateHealthDirect(newHealth, _maxHealth);
+            if (canvasGroup != null) canvasGroup.alpha = 1f;
         }
 
         public void UpdateHealthDirect(float currentHp, float maxHp)

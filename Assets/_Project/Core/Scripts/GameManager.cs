@@ -51,6 +51,11 @@ public class GameManager : NetworkBehaviour
         NetworkVariableReadPermission.Everyone,
         NetworkVariableWritePermission.Server);
 
+    public NetworkVariable<ulong> girlClientId = new NetworkVariable<ulong>(
+        999,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server);
+
     // -------------------------------------------------------------------------
     //  Singleton
     // -------------------------------------------------------------------------
@@ -137,13 +142,101 @@ public class GameManager : NetworkBehaviour
         }
     }
 
+    public bool IsHostTheGirl()
+    {
+        if (_girlPlayer != null && _girlPlayer.OwnerClientId == NetworkManager.ServerClientId) return true;
+        if (girlClientId != null && girlClientId.Value != 999 && girlClientId.Value == NetworkManager.ServerClientId) return true;
+        if (CharacterSelectManager.SavedVengefulSpiritClientId == NetworkManager.ServerClientId) return true;
+        if (PersistentCharacterSelection.IsVengefulSpirit() && NetworkManager.Singleton != null && NetworkManager.Singleton.IsServer) return true;
+        return false;
+    }
+
+    [Rpc(SendTo.NotServer)]
+    public void NotifyHostLeavingClientRpc(bool isHostGirl)
+    {
+        Debug.Log($"[GameManager] Received NotifyHostLeavingClientRpc from Host! isHostGirl={isHostGirl}");
+        if (isHostGirl)
+        {
+            ShowHostGirlLeftMatchResult();
+        }
+        else
+        {
+            if (HostDisconnectUI.Instance != null)
+            {
+                HostDisconnectUI.Instance.TriggerHostDisconnect();
+            }
+        }
+    }
+
     [Rpc(SendTo.NotServer)]
     public void NotifyHostLeavingClientRpc()
     {
-        Debug.Log("[GameManager] Received NotifyHostLeavingClientRpc from Host!");
-        if (HostDisconnectUI.Instance != null)
+        NotifyHostLeavingClientRpc(IsHostTheGirl());
+    }
+
+    public void ShowHostGirlLeftMatchResult()
+    {
+        Debug.Log("[GameManager] Showing Match Result Overlay to survivors because Demon Host left!");
+        if (_cachedOverlay == null)
+            _cachedOverlay = FindFirstObjectByType<MatchResultOverlay>(FindObjectsInactive.Include);
+
+        if (NightCrawler.Economy.MatchEconomyManager.Instance != null)
         {
-            HostDisconnectUI.Instance.TriggerHostDisconnect();
+            NightCrawler.Economy.MatchEconomyManager.Instance.ResolveMatchEconomy(true);
+        }
+
+        if (_cachedOverlay != null)
+        {
+            _cachedOverlay.ShowResultDirectly("INVESTIGATORS VICTORIOUS\nThe Vengeful Spirit abandoned the hunt.");
+        }
+        else if (HostDisconnectUI.Instance != null)
+        {
+            HostDisconnectUI.Instance.TriggerSuccessOverlay(
+                "INVESTIGATORS VICTORIOUS",
+                "The Vengeful Spirit abandoned the hunt.",
+                "Returning to Lobby in {0}s...",
+                8f
+            );
+        }
+
+        Cursor.lockState = CursorLockMode.None;
+        Cursor.visible = true;
+
+        var controllers = FindObjectsByType<StarterAssets.ThirdPersonController>(FindObjectsSortMode.None);
+        foreach (var c in controllers) c.enabled = false;
+        var inputs = FindObjectsByType<StarterAssets.StarterAssetsInputs>(FindObjectsSortMode.None);
+        foreach (var i in inputs)
+        {
+            i.cursorLocked = false;
+            i.cursorInputForLook = false;
+            i.enabled = false;
+        }
+    }
+
+    [ClientRpc]
+    public void ShowGirlVictoryMatchResultClientRpc()
+    {
+        bool isLocalGirl = PersistentCharacterSelection.IsVengefulSpirit() 
+            || (NetworkManager.Singleton != null && (NetworkManager.Singleton.LocalClientId == girlClientId.Value || (_girlPlayer != null && NetworkManager.Singleton.LocalClientId == _girlPlayer.OwnerClientId)));
+
+        if (isLocalGirl)
+        {
+            if (_cachedOverlay == null)
+                _cachedOverlay = FindFirstObjectByType<MatchResultOverlay>(FindObjectsInactive.Include);
+
+            _cachedOverlay?.ShowResultDirectly("VENGEFUL SPIRIT VICTORIOUS\nAll investigators abandoned the cavern.");
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
+
+            var controllers = FindObjectsByType<StarterAssets.ThirdPersonController>(FindObjectsSortMode.None);
+            foreach (var c in controllers) c.enabled = false;
+            var inputs = FindObjectsByType<StarterAssets.StarterAssetsInputs>(FindObjectsSortMode.None);
+            foreach (var i in inputs)
+            {
+                i.cursorLocked = false;
+                i.cursorInputForLook = false;
+                i.enabled = false;
+            }
         }
     }
 
@@ -159,7 +252,12 @@ public class GameManager : NetworkBehaviour
             if (clientId == NetworkManager.Singleton.LocalClientId || clientId == NetworkManager.ServerClientId)
             {
                 Debug.Log($"[GameManager] Remote client detected host disconnect (clientId={clientId})");
-                if (HostDisconnectUI.Instance != null)
+                bool wasHostGirl = IsHostTheGirl();
+                if (wasHostGirl)
+                {
+                    ShowHostGirlLeftMatchResult();
+                }
+                else if (HostDisconnectUI.Instance != null)
                 {
                     HostDisconnectUI.Instance.TriggerHostDisconnect();
                 }
@@ -262,6 +360,34 @@ public class GameManager : NetworkBehaviour
                 playerObj.gameObject.tag = "Untagged";
                 BroadcastNotificationClientRpc($"{charName} (Fallen) has left the match. Body remains for looting.");
             }
+
+            // Check if this was the LAST investigator connected to the game:
+            int remainingInvestigators = 0;
+            if (NetworkManager.Singleton != null)
+            {
+                foreach (var c in NetworkManager.Singleton.ConnectedClientsList)
+                {
+                    if (c == null) continue;
+                    ulong cId = c.ClientId;
+                    if (cId == clientId) continue; // the one who just disconnected
+                    if (_girlPlayer != null && cId == _girlPlayer.OwnerClientId) continue;
+                    if (girlClientId != null && girlClientId.Value != 999 && cId == girlClientId.Value) continue;
+                    remainingInvestigators++;
+                }
+            }
+
+            if (remainingInvestigators == 0 && (_girlPlayer != null || (girlClientId != null && girlClientId.Value != 999)))
+            {
+                Debug.Log("[GameManager] The player that left was the last investigator connected! Showing Match Result Overlay for the Girl.");
+                gameEnded.Value = true;
+
+                if (NightCrawler.Economy.MatchEconomyManager.Instance != null)
+                {
+                    NightCrawler.Economy.MatchEconomyManager.Instance.ResolveMatchEconomy(false); // Demon / Girl won!
+                }
+
+                ShowGirlVictoryMatchResultClientRpc();
+            }
         }
     }
 
@@ -318,6 +444,10 @@ public class GameManager : NetworkBehaviour
         if (isGirl)
         {
             _girlPlayer = player;
+            if (IsServer && girlClientId != null)
+            {
+                girlClientId.Value = player.OwnerClientId;
+            }
             if (player.TryGetComponent<GirlStealth>(out var stealth))
             {
                 if (!_allGirlComponents.Contains(stealth))
