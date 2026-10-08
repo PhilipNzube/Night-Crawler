@@ -66,6 +66,25 @@ public class SpectatorController : MonoBehaviour
     [Tooltip("Text displaying total connected players in the game (e.g. '5').")]
     public TMP_Text totalConnectedPlayersText;
 
+    public enum DotBlinkStyle
+    {
+        CameraBlink,  // Classic on/off camera recording blink
+        SmoothPulse   // Subtle glowing pulse
+    }
+
+    [Header("Spectating Header & Camera REC Dot")]
+    [Tooltip("Text component displaying '● SPECTATING'. If left empty, auto-resolved from HUD children.")]
+    public TMP_Text spectatingLabelText;
+
+    [Tooltip("Color of the blinking recording dot when active (default: authentic camera REC red #FF2E2E).")]
+    public Color blinkingDotColor = new Color(1f, 0.18f, 0.18f, 1f);
+
+    [Tooltip("Blink cycle duration in seconds (default: 1.0s -> 0.5s ON, 0.5s OFF).")]
+    public float blinkCycleDuration = 1.0f;
+
+    [Tooltip("Blink style: CameraBlink (classic on/off camera recording light) or SmoothPulse.")]
+    public DotBlinkStyle blinkStyle = DotBlinkStyle.CameraBlink;
+
     [Header("Exit Hotkey")]
     [Tooltip("Keyboard key to exit spectator mode (default: C).")]
     public Key exitHotkey = Key.C;
@@ -211,6 +230,8 @@ public class SpectatorController : MonoBehaviour
     private CanvasGroup _toastCanvasGroup;
     private Coroutine _toastCoroutine;
     private int _maxMonstersSummoned = 0;
+    private string _cachedSpectatingTextSuffix = "SPECTATING";
+    private float _lastSpectatingLabelResolveTime = -999f;
 
     private void Awake()
     {
@@ -445,6 +466,8 @@ public class SpectatorController : MonoBehaviour
         }
 
         ShowToast("SPECTATOR MODE ENGAGED", new Color(0.2f, 0.9f, 1f, 1f));
+        ResolveSpectatingLabelText();
+        UpdateBlinkingDot();
     }
 
     /// <summary>
@@ -1082,6 +1105,8 @@ public class SpectatorController : MonoBehaviour
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
         }
+
+        ResetSpectatingLabel();
     }
 
     private void Update()
@@ -1834,6 +1859,9 @@ public class SpectatorController : MonoBehaviour
             if (_healthFillImage != null) _healthFillImage.fillAmount = 0f;
             NightCrawler.UI.MichskyUIBridge.SetProgress(heatHealthProgressBar, 0f);
         }
+
+        // 3. Update Camera REC Blinking Dot on Spectating Header
+        UpdateBlinkingDot();
     }
 
     private static bool IsMonsterTarget(TargetHealth th)
@@ -2043,6 +2071,7 @@ public class SpectatorController : MonoBehaviour
 
             _roleBadgeText = customRoleText;
             InitHotkeys();
+            ResolveSpectatingLabelText();
             return;
         }
 
@@ -2285,5 +2314,124 @@ public class SpectatorController : MonoBehaviour
         _toastText.text = "SPECTATING";
 
         _toastBanner.SetActive(false);
+        ResolveSpectatingLabelText();
+    }
+
+    // =========================================================================
+    //  Camera REC Blinking Dot System
+    // =========================================================================
+
+    private void ResolveSpectatingLabelText()
+    {
+        if (spectatingLabelText != null)
+        {
+            CacheSpectatingSuffix();
+            DisableLocalizationOnSpectatingLabel();
+            return;
+        }
+
+        if (Time.unscaledTime - _lastSpectatingLabelResolveTime < 0.75f) return;
+        _lastSpectatingLabelResolveTime = Time.unscaledTime;
+
+        GameObject root = customCanvasRoot != null ? customCanvasRoot : gameObject;
+        var allTexts = root.GetComponentsInChildren<TMP_Text>(true);
+        foreach (var t in allTexts)
+        {
+            if (t == null) continue;
+            string txt = t.text;
+            if (!string.IsNullOrEmpty(txt) && (txt.Contains("SPECTATING") || txt.Contains("\u25CF") || txt.Contains("●")))
+            {
+                // Ensure it's the header label, not target name, counter, or toast
+                if (t != cleanTargetNameText && t != cleanCountText && t != totalConnectedPlayersText && t != _toastText)
+                {
+                    spectatingLabelText = t;
+                    CacheSpectatingSuffix();
+                    DisableLocalizationOnSpectatingLabel();
+                    break;
+                }
+            }
+        }
+
+        if (spectatingLabelText == null && _targetNameText != null)
+        {
+            spectatingLabelText = _targetNameText;
+            CacheSpectatingSuffix();
+        }
+    }
+
+    private void CacheSpectatingSuffix()
+    {
+        if (spectatingLabelText == null) return;
+        string raw = spectatingLabelText.text;
+        if (!string.IsNullOrEmpty(raw))
+        {
+            // Strip any previous rich-text tags (<color=...>, </color>) and dot characters
+            string cleaned = System.Text.RegularExpressions.Regex.Replace(raw, "<.*?>", string.Empty);
+            cleaned = cleaned.Replace("\u25CF", "").Replace("●", "").Trim();
+            if (!string.IsNullOrEmpty(cleaned))
+            {
+                _cachedSpectatingTextSuffix = cleaned;
+            }
+        }
+    }
+
+    private void DisableLocalizationOnSpectatingLabel()
+    {
+        if (spectatingLabelText == null) return;
+        foreach (var mb in spectatingLabelText.GetComponents<MonoBehaviour>())
+        {
+            if (mb != null && mb != this && mb.GetType().Name.Contains("Localization"))
+            {
+                mb.enabled = false;
+            }
+        }
+    }
+
+    private void UpdateBlinkingDot()
+    {
+        if (spectatingLabelText == null)
+        {
+            ResolveSpectatingLabelText();
+            if (spectatingLabelText == null) return;
+        }
+
+        float cycle = blinkCycleDuration > 0.05f ? blinkCycleDuration : 1.0f;
+        string dotTag;
+
+        if (blinkStyle == DotBlinkStyle.CameraBlink)
+        {
+            // Camera REC blink: square wave ON / OFF (0.5 cycle on, 0.5 cycle off)
+            bool isOn = (Time.unscaledTime % cycle) < (cycle * 0.5f);
+            if (isOn)
+            {
+                string hex = ColorUtility.ToHtmlStringRGBA(blinkingDotColor);
+                dotTag = $"<color=#{hex}>\u25CF</color>";
+            }
+            else
+            {
+                // Transparent dot: keeps exact character width so text never jumps or jitters
+                dotTag = "<color=#00000000>\u25CF</color>";
+            }
+        }
+        else
+        {
+            // Smooth pulse
+            float sin = (Mathf.Sin(Time.unscaledTime * Mathf.PI * 2f / cycle) + 1f) * 0.5f;
+            Color c = blinkingDotColor;
+            c.a *= sin;
+            string hex = ColorUtility.ToHtmlStringRGBA(c);
+            dotTag = $"<color=#{hex}>\u25CF</color>";
+        }
+
+        spectatingLabelText.text = $"{dotTag} {_cachedSpectatingTextSuffix}";
+    }
+
+    private void ResetSpectatingLabel()
+    {
+        if (spectatingLabelText != null)
+        {
+            string hex = ColorUtility.ToHtmlStringRGBA(blinkingDotColor);
+            spectatingLabelText.text = $"<color=#{hex}>\u25CF</color> {_cachedSpectatingTextSuffix}";
+        }
     }
 }

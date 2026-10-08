@@ -117,6 +117,7 @@ public class LobbyUI : MonoBehaviour
 
     private float _emergencyTimer = 0f;
     private bool  _emergencyTimerActive = false;
+    private float _stipendJustGrantedTimer = 0f;
 
     [Tooltip("The main PanelManager for top tab navigation (Main Content). If unassigned, will be auto-found.")]
     public PanelManager mainPanelManager;
@@ -365,6 +366,10 @@ public class LobbyUI : MonoBehaviour
                 int grantAmount = 25;
                 cindersBalanceText.text = $"{bal} {CurrencyConfig.CurrencyPlural}  <color=#FFD700><size=80%>(+{grantAmount} in {timerStr})</size></color>";
             }
+            else if (_stipendJustGrantedTimer > 0f)
+            {
+                cindersBalanceText.text = $"{bal} {CurrencyConfig.CurrencyPlural}  <color=#00FF88><size=85%>(+25 Added!)</size></color>";
+            }
             else
             {
                 cindersBalanceText.text = CurrencyConfig.FormatBalance(bal);
@@ -487,6 +492,7 @@ public class LobbyUI : MonoBehaviour
                 }
                 _emergencyTimerActive = false;
                 _emergencyTimer = 0f;
+                _stipendJustGrantedTimer = 3.5f;
 
                 if (NotificationManager.Instance != null)
                 {
@@ -523,6 +529,16 @@ public class LobbyUI : MonoBehaviour
                     creditEmergencyTimerText.gameObject.SetActive(false);
                 }
                 UpdateCreditsUI();
+            }
+
+            if (_stipendJustGrantedTimer > 0f)
+            {
+                _stipendJustGrantedTimer -= Time.deltaTime;
+                if (_stipendJustGrantedTimer <= 0f)
+                {
+                    _stipendJustGrantedTimer = 0f;
+                    UpdateCreditsUI();
+                }
             }
         }
     }
