@@ -357,7 +357,7 @@ public class LobbyUI : MonoBehaviour
     {
         if (cindersBalanceText != null)
         {
-            int bal = newBalance >= 0 ? newBalance : (CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : 60);
+            int bal = newBalance >= 0 ? newBalance : (CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance);
             if (_emergencyTimerActive && _emergencyTimer > 0f)
             {
                 int mins = Mathf.Max(0, Mathf.FloorToInt(_emergencyTimer / 60f));
@@ -464,7 +464,7 @@ public class LobbyUI : MonoBehaviour
 
     private void UpdateEmergencyCreditsRelief()
     {
-        int bal = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : 60;
+        int bal = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
 
         // Condition: Timer appears when 60% of total Cinders cannot be used or isn't up to 2 Cinders (cannot meet minimum stake)
         bool cannotStake = !CurrencyConfig.CanMeetMinimumStake(bal);

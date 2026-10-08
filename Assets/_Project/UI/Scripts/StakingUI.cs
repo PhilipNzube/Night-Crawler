@@ -119,7 +119,7 @@ namespace NightCrawler.UI
         {
             if (stakingModalPanel != null) stakingModalPanel.SetActive(true);
 
-            _currentBalance = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : 50;
+            _currentBalance = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
 
             // Enforce minimum stake and max cap (60% balance)
             int minStake = CurrencyConfig.MinimumStake;

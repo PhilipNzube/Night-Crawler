@@ -31,7 +31,28 @@ public class PlayerProfileData
 /// </summary>
 public class CloudCharacterSaveManager : MonoBehaviour
 {
-    public static CloudCharacterSaveManager Instance { get; private set; }
+    private static CloudCharacterSaveManager _instance;
+    public static CloudCharacterSaveManager Instance
+    {
+        get
+        {
+            if (_instance == null)
+            {
+                _instance = FindFirstObjectByType<CloudCharacterSaveManager>();
+                if (_instance == null)
+                {
+                    var go = new GameObject("CloudCharacterSaveManager");
+                    _instance = go.AddComponent<CloudCharacterSaveManager>();
+                    if (Application.isPlaying)
+                    {
+                        DontDestroyOnLoad(go);
+                    }
+                }
+            }
+            return _instance;
+        }
+        private set => _instance = value;
+    }
 
     private const string LOCAL_SAVE_KEY = "NightCrawler_LocalPlayerProfile";
     private const string CLOUD_PROFILE_KEY = "PlayerProfile";
@@ -55,14 +76,14 @@ public class CloudCharacterSaveManager : MonoBehaviour
 
     private void Awake()
     {
-        if (Instance != null && Instance != this)
+        if (_instance != null && _instance != this)
         {
             Destroy(gameObject);
             return;
         }
-        Instance = this;
+        _instance = this;
 
-        if (transform.parent == null)
+        if (transform.parent == null && Application.isPlaying)
             DontDestroyOnLoad(gameObject);
 
         // 1. Instant local load on boot

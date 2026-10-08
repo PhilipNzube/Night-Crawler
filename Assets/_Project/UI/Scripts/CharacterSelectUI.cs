@@ -540,7 +540,7 @@ public class CharacterSelectUI : MonoBehaviour
 
         int balance = CloudCharacterSaveManager.Instance != null
             ? CloudCharacterSaveManager.Instance.CurrentCredits
-            : 50;
+            : CurrencyConfig.DefaultStartingBalance;
 
         bool canStake = CurrencyConfig.CanMeetMinimumStake(balance);
         int maxAllowedStake = canStake ? CurrencyConfig.GetMaxStake(balance) : CurrencyConfig.MinimumStake;
@@ -614,7 +614,7 @@ public class CharacterSelectUI : MonoBehaviour
 
         int balance = CloudCharacterSaveManager.Instance != null
             ? CloudCharacterSaveManager.Instance.CurrentCredits
-            : 50;
+            : CurrencyConfig.DefaultStartingBalance;
 
         if (!CurrencyConfig.CanMeetMinimumStake(balance))
         {
