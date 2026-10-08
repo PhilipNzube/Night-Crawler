@@ -620,7 +620,7 @@ public class AdventurerMinimapSetup : MonoBehaviour
 
         // 2. Name check fallback
         string pName = playerObj.name.ToLower();
-        if (pName.Contains("adventure") || pName.Contains("explorer")) return true;
+        if (pName.Contains("adventure") || pName.Contains("explorer") || pName.Contains("pathfinder")) return true;
 
         // 3. CharacterSelectManager fallback
         if (CharacterSelectManager.Instance != null && NetworkManager.Singleton != null)

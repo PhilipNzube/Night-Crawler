@@ -1998,6 +1998,8 @@ public class HeatSettingsBridge : MonoBehaviour
             foreach (var inp in inputFields)
             {
                 if (inp == null) continue;
+                inp.interactable = false;
+                inp.readOnly = true;
                 inp.contentType = TMP_InputField.ContentType.Standard;
                 inp.characterValidation = TMP_InputField.CharacterValidation.None;
                 inp.SetTextWithoutNotify(displayStr);
@@ -2023,25 +2025,22 @@ public class HeatSettingsBridge : MonoBehaviour
             onChanged?.Invoke(val);
         });
 
-        // Hook up manual typing into the input field if the user edits it directly
+        // Ensure all value text input fields are strictly non-editable and non-interactable (read-only display like Deal modal)
         var inps = s.GetComponentsInChildren<TMP_InputField>(true);
         foreach (var inp in inps)
         {
             if (inp == null) continue;
             inp.onEndEdit.RemoveAllListeners();
-            inp.onEndEdit.AddListener(str =>
+            inp.interactable = false;
+            inp.readOnly = true;
+            if (inp.targetGraphic != null)
             {
-                if (string.IsNullOrEmpty(str)) return;
-                string clean = str.Replace("%", "").Trim();
-                if (float.TryParse(clean, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out float parsedVal))
-                {
-                    if (maxVal <= 1.01f && minVal >= 0f && parsedVal > 1.01f)
-                    {
-                        parsedVal = parsedVal / 100f;
-                    }
-                    s.value = Mathf.Clamp(parsedVal, minVal, maxVal);
-                }
-            });
+                inp.targetGraphic.raycastTarget = false;
+            }
+            if (inp.textComponent != null)
+            {
+                inp.textComponent.raycastTarget = false;
+            }
         }
 
         updateTextAction(initialValue);

@@ -928,10 +928,11 @@ public class CharacterSelectUI : MonoBehaviour
 
             // Check character name to ensure correct profession
             string charName = (so.characterName + " " + so.name).ToLowerInvariant();
-            if (charName.Contains("medic")) profession = InvestigatorProfession.FieldMedic;
-            else if (charName.Contains("explorer")) profession = InvestigatorProfession.Explorer;
-            else if (charName.Contains("hazard")) profession = InvestigatorProfession.HazardSpecialist;
-            else if (charName.Contains("priest")) profession = InvestigatorProfession.CursedPriest;
+            if (charName.Contains("medic") || charName.Contains("mender") || charName.Contains("doctor")) profession = InvestigatorProfession.FieldMedic;
+            else if (charName.Contains("explorer") || charName.Contains("pathfinder") || charName.Contains("adventurer")) profession = InvestigatorProfession.Explorer;
+            else if (charName.Contains("hazard") || charName.Contains("protector")) profession = InvestigatorProfession.HazardSpecialist;
+            else if (charName.Contains("priest") || charName.Contains("exorcist") || charName.Contains("cursed")) profession = InvestigatorProfession.CursedPriest;
+            else if (charName.Contains("miner") || charName.Contains("breaker") || charName.Contains("worker")) profession = InvestigatorProfession.MineWorker;
 
             // Only use SO relevantStats if it contains valid, non-corrupted investigator stats
             if (so.relevantStats != null && so.relevantStats.Count > 0)
@@ -967,10 +968,11 @@ public class CharacterSelectUI : MonoBehaviour
                 if (profession == InvestigatorProfession.MineWorker && !string.IsNullOrEmpty(data.characterName))
                 {
                     string charName = data.characterName.ToLowerInvariant();
-                    if (charName.Contains("medic")) profession = InvestigatorProfession.FieldMedic;
-                    else if (charName.Contains("explorer")) profession = InvestigatorProfession.Explorer;
-                    else if (charName.Contains("hazard")) profession = InvestigatorProfession.HazardSpecialist;
-                    else if (charName.Contains("priest")) profession = InvestigatorProfession.CursedPriest;
+                    if (charName.Contains("medic") || charName.Contains("mender") || charName.Contains("doctor")) profession = InvestigatorProfession.FieldMedic;
+                    else if (charName.Contains("explorer") || charName.Contains("pathfinder") || charName.Contains("adventurer")) profession = InvestigatorProfession.Explorer;
+                    else if (charName.Contains("hazard") || charName.Contains("protector")) profession = InvestigatorProfession.HazardSpecialist;
+                    else if (charName.Contains("priest") || charName.Contains("exorcist") || charName.Contains("cursed")) profession = InvestigatorProfession.CursedPriest;
+                    else if (charName.Contains("miner") || charName.Contains("breaker") || charName.Contains("worker")) profession = InvestigatorProfession.MineWorker;
                 }
             }
         }
@@ -1101,11 +1103,26 @@ public class CharacterSelectUI : MonoBehaviour
         string t = target.ToLowerInvariant();
 
         if (s.Contains(t) || t.Contains(s)) return true;
-        if ((s.Contains("adventurer") || s.Contains("explorer")) && (t.Contains("adventurer") || t.Contains("explorer"))) return true;
-        if ((s.Contains("miner") || s.Contains("mine")) && (t.Contains("miner") || t.Contains("mine"))) return true;
-        if ((s.Contains("medic") || s.Contains("doctor")) && (t.Contains("medic") || t.Contains("doctor"))) return true;
-        if ((s.Contains("priest") || s.Contains("cursed")) && (t.Contains("priest") || t.Contains("cursed"))) return true;
-        if (s.Contains("hazard") && t.Contains("hazard")) return true;
+
+        bool sAdv = s.Contains("adventurer") || s.Contains("explorer") || s.Contains("pathfinder");
+        bool tAdv = t.Contains("adventurer") || t.Contains("explorer") || t.Contains("pathfinder");
+        if (sAdv && tAdv) return true;
+
+        bool sMin = s.Contains("miner") || s.Contains("mine") || s.Contains("breaker") || s.Contains("worker");
+        bool tMin = t.Contains("miner") || t.Contains("mine") || t.Contains("breaker") || t.Contains("worker");
+        if (sMin && tMin) return true;
+
+        bool sMed = s.Contains("medic") || s.Contains("doctor") || s.Contains("mender");
+        bool tMed = t.Contains("medic") || t.Contains("doctor") || t.Contains("mender");
+        if (sMed && tMed) return true;
+
+        bool sPri = s.Contains("priest") || s.Contains("cursed") || s.Contains("exorcist");
+        bool tPri = t.Contains("priest") || t.Contains("cursed") || t.Contains("exorcist");
+        if (sPri && tPri) return true;
+
+        bool sHaz = s.Contains("hazard") || s.Contains("protector") || s.Contains("specialist");
+        bool tHaz = t.Contains("hazard") || t.Contains("protector") || t.Contains("specialist");
+        if (sHaz && tHaz) return true;
 
         return false;
     }
@@ -1735,11 +1752,11 @@ public class CharacterSelectUI : MonoBehaviour
                 if (!string.IsNullOrEmpty(charName))
                 {
                     string lower = charName.ToLowerInvariant();
-                    if (lower.Contains("miner") || lower.Contains("mine")) return "• Heavy Pickaxe Attack\n• Structural Inspection\n• Machine Repair";
+                    if (lower.Contains("miner") || lower.Contains("mine") || lower.Contains("breaker")) return "• Heavy Pickaxe Attack\n• Structural Inspection\n• Machine Repair";
                     if (lower.Contains("hazard")) return "• Toxic Gas Immunity\n• Hazard Filter Deployment\n• Heavy Armor";
-                    if (lower.Contains("explorer") || lower.Contains("adventurer")) return "• Tactical Stamina\n• Terrain Traversal\n• Flare Marker";
-                    if (lower.Contains("priest") || lower.Contains("cursed")) return "• Occult Sensing\n• Ward Placement\n• Presence Detection";
-                    if (lower.Contains("medic") || lower.Contains("doctor")) return "• First Aid Healing\n• Autopsy Examination\n• Revive Assistance";
+                    if (lower.Contains("explorer") || lower.Contains("adventurer") || lower.Contains("pathfinder")) return "• Tactical Stamina\n• Terrain Traversal\n• Flare Marker";
+                    if (lower.Contains("priest") || lower.Contains("cursed") || lower.Contains("exorcist")) return "• Occult Sensing\n• Ward Placement\n• Presence Detection";
+                    if (lower.Contains("medic") || lower.Contains("doctor") || lower.Contains("mender")) return "• First Aid Healing\n• Autopsy Examination\n• Revive Assistance";
                 }
                 return "• Tactical Investigation\n• Team Communication\n• Survival Knowledge";
         }

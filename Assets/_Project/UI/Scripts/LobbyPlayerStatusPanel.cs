@@ -336,11 +336,11 @@ public class LobbyPlayerStatusPanel : MonoBehaviour
         if (!string.IsNullOrEmpty(charName))
         {
             string lower = charName.ToLower();
-            if (lower.Contains("priest")) return priestRoleName;
-            if (lower.Contains("miner") || lower.Contains("mine")) return minerRoleName;
-            if (lower.Contains("medic")) return medicRoleName;
-            if (lower.Contains("hazard") || lower.Contains("protector")) return hazardRoleName;
-            if (lower.Contains("explorer") || lower.Contains("adventurer")) return explorerRoleName;
+            if (lower.Contains("priest") || lower.Contains("exorcist") || lower.Contains("cursed")) return priestRoleName;
+            if (lower.Contains("miner") || lower.Contains("mine") || lower.Contains("breaker") || lower.Contains("worker")) return minerRoleName;
+            if (lower.Contains("medic") || lower.Contains("mender") || lower.Contains("doctor")) return medicRoleName;
+            if (lower.Contains("hazard") || lower.Contains("protector") || lower.Contains("specialist")) return hazardRoleName;
+            if (lower.Contains("explorer") || lower.Contains("adventurer") || lower.Contains("pathfinder")) return explorerRoleName;
         }
 
         switch (profession)

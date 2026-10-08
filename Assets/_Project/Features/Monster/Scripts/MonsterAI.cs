@@ -1782,6 +1782,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     private void PlayZombieCrawlingLocomotion()
     {
+        float currentSpeed = (_agent != null && _agent.enabled) ? _agent.velocity.magnitude : crawlSpeed;
+        float animSpeedRatio = crawlSpeed > 0.05f ? Mathf.Clamp(currentSpeed / crawlSpeed, 0.6f, 1.4f) : 1.0f;
+        SetLocomotionAnimSpeed(animSpeedRatio);
+
         SafeSetFloat(_speedHash, crawlSpeed);
         SafeSetBool(_isRunningHash, true);
         SafeSetBool(_isWalkingHash, false);
@@ -1792,6 +1796,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     private void PlayZombieStandingRunLocomotion()
     {
+        float currentSpeed = (_agent != null && _agent.enabled) ? _agent.velocity.magnitude : standRunSpeed;
+        float animSpeedRatio = standRunSpeed > 0.05f ? Mathf.Clamp(currentSpeed / standRunSpeed, 0.6f, 1.4f) : 1.0f;
+        SetLocomotionAnimSpeed(animSpeedRatio);
+
         SafeSetFloat(_speedHash, standRunSpeed);
         SafeSetBool(_isRunningHash, true);
         SafeSetBool(_isWalkingHash, false);
@@ -1802,6 +1810,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     private void PlayZombieStandingWalkLocomotion()
     {
+        float currentSpeed = (_agent != null && _agent.enabled) ? _agent.velocity.magnitude : walkSpeed;
+        float animSpeedRatio = walkSpeed > 0.05f ? Mathf.Clamp(currentSpeed / walkSpeed, 0.5f, 1.3f) : 1.0f;
+        SetLocomotionAnimSpeed(animSpeedRatio);
+
         SafeSetFloat(_speedHash, walkSpeed);
         SafeSetBool(_isRunningHash, false);
         SafeSetBool(_isWalkingHash, true);

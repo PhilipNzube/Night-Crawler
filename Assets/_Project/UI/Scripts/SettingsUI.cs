@@ -620,6 +620,10 @@ public class SettingsUI : MonoBehaviour
         foreach (var inp in inps)
         {
             if (inp == null) continue;
+            inp.interactable = false;
+            inp.readOnly = true;
+            if (inp.targetGraphic != null) inp.targetGraphic.raycastTarget = false;
+            if (inp.textComponent != null) inp.textComponent.raycastTarget = false;
             inp.contentType = TMP_InputField.ContentType.Standard;
             inp.characterValidation = TMP_InputField.CharacterValidation.None;
             inp.SetTextWithoutNotify(displayStr);

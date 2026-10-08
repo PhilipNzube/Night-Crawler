@@ -488,6 +488,23 @@ public class GameManager : NetworkBehaviour
         }
     }
 
+    private static InvestigatorProfession? ResolveProfessionFromString(string name)
+    {
+        if (string.IsNullOrEmpty(name)) return null;
+        string lower = name.ToLowerInvariant();
+        if (lower.Contains("pathfinder") || lower.Contains("explorer") || lower.Contains("adventurer"))
+            return InvestigatorProfession.Explorer;
+        if (lower.Contains("breaker") || lower.Contains("miner") || lower.Contains("mine") || lower.Contains("worker"))
+            return InvestigatorProfession.MineWorker;
+        if (lower.Contains("mender") || lower.Contains("medic") || lower.Contains("doctor"))
+            return InvestigatorProfession.FieldMedic;
+        if (lower.Contains("exorcist") || lower.Contains("priest") || lower.Contains("cursed"))
+            return InvestigatorProfession.CursedPriest;
+        if (lower.Contains("hazard") || lower.Contains("protector") || lower.Contains("specialist"))
+            return InvestigatorProfession.HazardSpecialist;
+        return null;
+    }
+
     private GameObject GetInvestigatorPrefabForClient(ulong clientId, int characterIndex, string characterName = null)
     {
         // 1. Resolve by explicitly requested character name (from client RPC) or local saved name
@@ -499,12 +516,31 @@ public class GameManager : NetworkBehaviour
 
         if (!string.IsNullOrEmpty(targetName) && explorerPrefabs != null)
         {
+            // Pass 1: Direct name or alias match
             foreach (var p in explorerPrefabs)
             {
                 if (p != null && CharacterSelectUI.IsNameMatch(p.name, targetName))
                 {
                     Debug.Log($"[GameManager] Matched player prefab '{p.name}' for Client {clientId} using requested/saved name '{targetName}'.");
                     return p;
+                }
+            }
+
+            // Pass 2: Match by InvestigatorProfession
+            var targetProf = ResolveProfessionFromString(targetName);
+            if (targetProf.HasValue)
+            {
+                foreach (var p in explorerPrefabs)
+                {
+                    if (p != null)
+                    {
+                        var ab = p.GetComponent<InvestigatorAbilities>() ?? p.GetComponentInChildren<InvestigatorAbilities>();
+                        if (ab != null && ab.profession == targetProf.Value)
+                        {
+                            Debug.Log($"[GameManager] Matched player prefab '{p.name}' for Client {clientId} via profession '{targetProf.Value}' from name '{targetName}'.");
+                            return p;
+                        }
+                    }
                 }
             }
         }
@@ -522,7 +558,26 @@ public class GameManager : NetworkBehaviour
             }
         }
 
-        // 2. Try explorerPrefabs by index
+        // 2. Try matching via CharacterSelectManager's filtered availableCharacters (resolves profession & avoids index shifts)
+        if (CharacterSelectManager.Instance != null && CharacterSelectManager.Instance.availableCharacters != null &&
+            selectedIndex >= 0 && selectedIndex < CharacterSelectManager.Instance.availableCharacters.Count)
+        {
+            var charData = CharacterSelectManager.Instance.availableCharacters[selectedIndex];
+            if (charData != null && explorerPrefabs != null)
+            {
+                foreach (var p in explorerPrefabs)
+                {
+                    if (p == null) continue;
+                    if (CharacterSelectUI.IsNameMatch(p.name, charData.characterName))
+                        return p;
+                    var ab = p.GetComponent<InvestigatorAbilities>() ?? p.GetComponentInChildren<InvestigatorAbilities>();
+                    if (ab != null && ab.profession == charData.profession)
+                        return p;
+                }
+            }
+        }
+
+        // 3. Try explorerPrefabs by raw index
         if (explorerPrefabs != null && explorerPrefabs.Count > 0)
         {
             int clamped = Mathf.Clamp(selectedIndex, 0, explorerPrefabs.Count - 1);
@@ -530,14 +585,14 @@ public class GameManager : NetworkBehaviour
                 return explorerPrefabs[clamped];
         }
 
-        // 3. Try CharacterSelectManager availableCharacters
+        // 4. Try CharacterSelectManager prefab directly
         if (CharacterSelectManager.Instance != null)
         {
             GameObject mgrPrefab = CharacterSelectManager.Instance.GetInvestigatorPrefab(selectedIndex);
             if (mgrPrefab != null) return mgrPrefab;
         }
 
-        // 4. Fallback
+        // 5. Fallback
         return GetRandomExplorerPrefab();
     }
 

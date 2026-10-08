@@ -41,15 +41,15 @@ public class InvestigatorAbilities : NetworkBehaviour
     private void AutoDetectProfession()
     {
         string objName = gameObject.name.ToLower();
-        if (objName.Contains("miner") || objName.Contains("worker"))
+        if (objName.Contains("miner") || objName.Contains("worker") || objName.Contains("breaker"))
             profession = InvestigatorProfession.MineWorker;
-        else if (objName.Contains("medic"))
+        else if (objName.Contains("medic") || objName.Contains("mender") || objName.Contains("doctor"))
             profession = InvestigatorProfession.FieldMedic;
-        else if (objName.Contains("hazard") || objName.Contains("protector"))
+        else if (objName.Contains("hazard") || objName.Contains("protector") || objName.Contains("specialist"))
             profession = InvestigatorProfession.HazardSpecialist;
-        else if (objName.Contains("priest"))
+        else if (objName.Contains("priest") || objName.Contains("exorcist") || objName.Contains("cursed"))
             profession = InvestigatorProfession.CursedPriest;
-        else if (objName.Contains("adventure") || objName.Contains("explorer"))
+        else if (objName.Contains("adventure") || objName.Contains("explorer") || objName.Contains("pathfinder"))
             profession = InvestigatorProfession.Explorer;
     }
 

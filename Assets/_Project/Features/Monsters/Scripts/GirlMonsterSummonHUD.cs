@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.UI;
+using UnityEngine.EventSystems;
 using TMPro;
 using Unity.Netcode;
 using UnityEngine.InputSystem;
@@ -71,8 +72,8 @@ namespace NightCrawler.Monsters
         public Button monsterSpectateButton;
         [Tooltip("Optional Michsky ButtonManager component to spectate monsters.")]
         public Michsky.UI.Heat.ButtonManager heatMonsterSpectateButton;
-        [Tooltip("Hotkey to trigger spectating monsters while HUD is open (default: Space).")]
-        public Key spectateKey = Key.Space;
+        [Tooltip("Hotkey to trigger spectating monsters while HUD is open (default: U).")]
+        public Key spectateKey = Key.U;
 
         [Header("Progression & Inspector Testing")]
         [Tooltip("If checked, immediately unlocks the Berserker regardless of level (for quick testing in the editor).")]
@@ -156,11 +157,12 @@ namespace NightCrawler.Monsters
             // Wire MonsterSpectateHotkey if assigned in inspector
             if (monsterSpectateHotkeyEvent != null)
             {
-                // CRITICAL: Prevent monsterSpectateHotkeyEvent from hijacking Escape!
-                // Its prefab originally had <Keyboard>/escape bound in the scene. Rebind it to Space.
+                // CRITICAL: Prevent monsterSpectateHotkeyEvent from hijacking Escape or Space!
                 monsterSpectateHotkeyEvent.hotkey.Disable();
-                monsterSpectateHotkeyEvent.hotkey = new InputAction("SpectateHotkey", InputActionType.Button, "<Keyboard>/space");
-                monsterSpectateHotkeyEvent.keyID = "Space";
+                Key boundKey = KeybindingManager.GetBoundKey("SpectateMonster", spectateKey);
+                string keyPath = boundKey != Key.None ? $"<Keyboard>/{boundKey.ToString().ToLower()}" : "<Keyboard>/u";
+                monsterSpectateHotkeyEvent.hotkey = new InputAction("SpectateHotkey", InputActionType.Button, keyPath);
+                monsterSpectateHotkeyEvent.keyID = KeybindingManager.GetBoundKeyString("SpectateMonster", boundKey != Key.None ? boundKey.ToString().ToUpper() : "U");
                 monsterSpectateHotkeyEvent.hotkeyLabel = "SPECTATE MONSTERS";
                 monsterSpectateHotkeyEvent.SetLabel("SPECTATE MONSTERS");
                 monsterSpectateHotkeyEvent.onHotkeyPress.RemoveListener(OnSpectateMonstersClicked);
@@ -233,7 +235,14 @@ namespace NightCrawler.Monsters
         public void UpdateSpectateHotkeyVisual()
         {
             if (monsterSpectateHotkeyEvent == null) return;
-            string keyStr = KeybindingManager.GetBoundKeyString("SpectateMonster", spectateKey.ToString().ToUpper());
+            Key boundKey = KeybindingManager.GetBoundKey("SpectateMonster", spectateKey);
+            string keyStr = KeybindingManager.GetBoundKeyString("SpectateMonster", boundKey != Key.None ? boundKey.ToString().ToUpper() : "U");
+            string keyPath = boundKey != Key.None ? $"<Keyboard>/{boundKey.ToString().ToLower()}" : "<Keyboard>/u";
+
+            monsterSpectateHotkeyEvent.hotkey.Disable();
+            monsterSpectateHotkeyEvent.hotkey = new InputAction("SpectateHotkey", InputActionType.Button, keyPath);
+            if (_isOpen && monsterSpectateHotkeyEvent.enabled) monsterSpectateHotkeyEvent.hotkey.Enable();
+
             monsterSpectateHotkeyEvent.keyID = keyStr;
             monsterSpectateHotkeyEvent.hotkeyLabel = "SPECTATE MONSTERS";
             monsterSpectateHotkeyEvent.SetLabel("SPECTATE MONSTERS");
@@ -317,12 +326,13 @@ namespace NightCrawler.Monsters
             }
             else if (_isOpen)
             {
+                Key boundKey = KeybindingManager.GetBoundKey("SpectateMonster", spectateKey);
                 if (KeybindingManager.IsActionTriggered("SpectateExit") || (Keyboard.current != null && Keyboard.current.escapeKey.wasPressedThisFrame))
                 {
                     CloseHUD();
                 }
                 else if (KeybindingManager.IsActionTriggered("SpectateMonster")
-                         || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current[spectateKey].wasPressedThisFrame))
+                         || (KeybindingManager.Instance == null && Keyboard.current != null && boundKey != Key.None && Keyboard.current[boundKey].wasPressedThisFrame))
                 {
                     OnSpectateMonstersClicked();
                 }
@@ -376,6 +386,11 @@ namespace NightCrawler.Monsters
             UpdateChargesDisplay();
             SelectCard(_selectedMonsterIndex);
             UpdateSpectateHotkeyVisual();
+
+            if (EventSystem.current != null)
+            {
+                EventSystem.current.SetSelectedGameObject(null);
+            }
 
             if (monsterSpectateHotkeyEvent != null)
             {

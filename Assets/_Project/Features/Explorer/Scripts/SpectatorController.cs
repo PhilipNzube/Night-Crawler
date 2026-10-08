@@ -1928,9 +1928,10 @@ public class SpectatorController : MonoBehaviour
         }
 
         string name = th.gameObject.name.ToLower();
-        if (name.Contains("miner")) return "Miner";
-        if (name.Contains("adventurer")) return "Adventurer";
-        if (name.Contains("doctor") || name.Contains("medic")) return "Medic";
+        if (name.Contains("miner") || name.Contains("breaker")) return "Breaker";
+        if (name.Contains("adventurer") || name.Contains("explorer") || name.Contains("pathfinder")) return "Pathfinder";
+        if (name.Contains("doctor") || name.Contains("medic") || name.Contains("mender")) return "Mender";
+        if (name.Contains("priest") || name.Contains("exorcist")) return "Exorcist";
         if (name.Contains("detective")) return "Detective";
         return "Investigator";
     }

@@ -184,7 +184,7 @@ public class CorpseLootableNet : NetworkBehaviour
         hasHazardFilter.Value = isHazard || _hasInheritedHazardMask;
 
         // 5. Minimap Gear: Explorer / Adventurer or investigator who inherited Minimap gear
-        bool isAdventurer = charName.Contains("adventure") || charName.Contains("explorer");
+        bool isAdventurer = charName.Contains("adventure") || charName.Contains("explorer") || charName.Contains("pathfinder");
         if (!isAdventurer && CharacterSelectManager.Instance != null)
         {
             int idx = CharacterSelectManager.Instance.GetSelectedCharacterIndex(OwnerClientId);
