@@ -363,7 +363,7 @@ public class LobbyUI : MonoBehaviour
                 _emergencyTimerActive = true;
                 _emergencyTimer = remSec;
                 int grantAmount = CurrencyConfig.EmergencyStipendAmount;
-                cindersBalanceText.text = $"{bal} {CurrencyConfig.CurrencyPlural}  <color=#FFE81A><b><size=80%>(+{grantAmount} in {timerStr})</size></b></color>";
+                cindersBalanceText.text = $"{bal} {CurrencyConfig.CurrencyPlural}  <color=#FF2A00><b><size=80%>(+{grantAmount} in {timerStr})</size></b></color>";
             }
             else if (_stipendJustGrantedTimer > 0f)
             {
@@ -482,16 +482,16 @@ public class LobbyUI : MonoBehaviour
             _emergencyTimer = remainingSeconds;
             int displayGrantAmount = CurrencyConfig.EmergencyStipendAmount;
 
-            // Radiant neon-gold timer directly on the Cinders display
+            // Radiant burning flame timer with razor-sharp contrast against white and dark backgrounds
             if (cindersBalanceText != null)
             {
-                cindersBalanceText.text = $"{bal} {CurrencyConfig.CurrencyPlural}  <color=#FFE81A><b><size=80%>(+{displayGrantAmount} in {timerStr})</size></b></color>";
+                cindersBalanceText.text = $"{bal} {CurrencyConfig.CurrencyPlural}  <color=#FF2A00><b><size=80%>(+{displayGrantAmount} in {timerStr})</size></b></color>";
             }
 
             if (creditEmergencyTimerText != null)
             {
                 if (!creditEmergencyTimerText.gameObject.activeSelf) creditEmergencyTimerText.gameObject.SetActive(true);
-                creditEmergencyTimerText.text = $"<color=#FFE81A><b>Stipend in {timerStr}</b></color>";
+                creditEmergencyTimerText.text = $"<color=#FF2A00><b>Stipend in {timerStr}</b></color>";
             }
         }
         else

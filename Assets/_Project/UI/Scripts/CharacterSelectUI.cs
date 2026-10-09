@@ -303,17 +303,32 @@ public class CharacterSelectUI : MonoBehaviour
 
             if (isPoverty)
             {
+                string povertyDesc = $"<color=#FF5555>Insufficient {CurrencyConfig.CurrencyPlural}!</color>\n60% of balance ({bal} {CurrencyConfig.CurrencySymbol}) is below {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.\n<color=#FF2A00><b>Emergency Stipend in {timerStr} (+{CurrencyConfig.EmergencyStipendAmount} {CurrencyConfig.CurrencyPlural})</b></color>";
+
+                matchStakeModal.descriptionText = povertyDesc;
+                if (matchStakeModal.windowDescription != null)
+                {
+                    matchStakeModal.windowDescription.text = povertyDesc;
+                }
+
                 if (stakeErrorText != null)
                 {
-                    stakeErrorText.text = $"Insufficient {CurrencyConfig.CurrencyPlural}! 60% of balance ({bal} {CurrencyConfig.CurrencySymbol}) is below {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.\n<color=#FFE81A><b>Emergency Stipend in {timerStr} (+{CurrencyConfig.EmergencyStipendAmount} {CurrencyConfig.CurrencyPlural})</b></color>";
+                    stakeErrorText.text = povertyDesc;
                     stakeErrorText.gameObject.SetActive(true);
                 }
                 SetStakeConfirmInteractable(false);
             }
             else
             {
-                if (stakeErrorText != null && stakeErrorText.gameObject.activeSelf && stakeErrorText.text.Contains("Emergency Stipend"))
+                if ((stakeErrorText != null && stakeErrorText.gameObject.activeSelf && stakeErrorText.text.Contains("Emergency Stipend")) ||
+                    (matchStakeModal.descriptionText != null && matchStakeModal.descriptionText.Contains("Emergency Stipend")))
                 {
+                    int maxAllowed = CurrencyConfig.GetMaxStake(bal);
+                    string normalDesc = $"Enter your stake to confirm deployment.\n<b>Available:</b> {bal} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {maxAllowed} {CurrencyConfig.CurrencyPlural}";
+                    matchStakeModal.descriptionText = normalDesc;
+                    if (matchStakeModal.windowDescription != null)
+                        matchStakeModal.windowDescription.text = normalDesc;
+
                     OnStakeInputChanged(MichskyUIBridge.GetInputText(null, heatStakeInputField));
                 }
             }
@@ -746,9 +761,18 @@ public class CharacterSelectUI : MonoBehaviour
             }
             else
             {
-                desc = canStake
-                    ? $"Enter your stake to confirm deployment.\n<b>Available:</b> {balance} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {maxAllowedStake} {CurrencyConfig.CurrencyPlural}"
-                    : $"<color=#FF5555>Insufficient {CurrencyConfig.CurrencyPlural}!</color>\n60% of your total balance ({balance} {CurrencyConfig.CurrencySymbol}) is below the minimum stake of {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.";
+                if (canStake)
+                {
+                    desc = $"Enter your stake to confirm deployment.\n<b>Available:</b> {balance} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {maxAllowedStake} {CurrencyConfig.CurrencyPlural}";
+                }
+                else if (CurrencyConfig.CheckEmergencyStipendStatus(balance, out float remSec, out string timerStr))
+                {
+                    desc = $"<color=#FF5555>Insufficient {CurrencyConfig.CurrencyPlural}!</color>\n60% of your total balance ({balance} {CurrencyConfig.CurrencySymbol}) is below the minimum stake of {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.\n<color=#FF2A00><b>Emergency Stipend in {timerStr} (+{CurrencyConfig.EmergencyStipendAmount} {CurrencyConfig.CurrencyPlural})</b></color>";
+                }
+                else
+                {
+                    desc = $"<color=#FF5555>Insufficient {CurrencyConfig.CurrencyPlural}!</color>\n60% of your total balance ({balance} {CurrencyConfig.CurrencySymbol}) is below the minimum stake of {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.";
+                }
             }
 
             matchStakeModal.titleText = title;
@@ -814,7 +838,14 @@ public class CharacterSelectUI : MonoBehaviour
 
         if (!CurrencyConfig.CanMeetMinimumStake(balance))
         {
-            errorMessage = $"Insufficient {CurrencyConfig.CurrencyPlural}! 60% of your total balance ({balance} {CurrencyConfig.CurrencySymbol}) is below the minimum stake of {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.";
+            if (CurrencyConfig.CheckEmergencyStipendStatus(balance, out float remSec, out string timerStr))
+            {
+                errorMessage = $"Insufficient {CurrencyConfig.CurrencyPlural}! 60% of your total balance ({balance} {CurrencyConfig.CurrencySymbol}) is below the minimum stake of {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.\n<color=#FF2A00><b>Emergency Stipend in {timerStr} (+{CurrencyConfig.EmergencyStipendAmount} {CurrencyConfig.CurrencyPlural})</b></color>";
+            }
+            else
+            {
+                errorMessage = $"Insufficient {CurrencyConfig.CurrencyPlural}! 60% of your total balance ({balance} {CurrencyConfig.CurrencySymbol}) is below the minimum stake of {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.";
+            }
             return false;
         }
 

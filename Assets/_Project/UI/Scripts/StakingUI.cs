@@ -125,7 +125,21 @@ namespace NightCrawler.UI
 
                 if (isPoverty)
                 {
-                    SetErrorText($"Insufficient {CurrencyConfig.CurrencyPlural}! 60% of balance ({curBal} {CurrencyConfig.CurrencySymbol}) is below {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.\n<color=#FFE81A><b>Emergency Stipend in {timerStr} (+{CurrencyConfig.EmergencyStipendAmount} {CurrencyConfig.CurrencyPlural})</b></color>", false);
+                    string povertyDesc = $"<color=#FF5555>Insufficient {CurrencyConfig.CurrencyPlural}!</color>\n60% of balance ({curBal} {CurrencyConfig.CurrencySymbol}) is below {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.\n<color=#FF2A00><b>Emergency Stipend in {timerStr} (+{CurrencyConfig.EmergencyStipendAmount} {CurrencyConfig.CurrencyPlural})</b></color>";
+
+                    if (heatStakingModal != null)
+                    {
+                        heatStakingModal.descriptionText = povertyDesc;
+                        if (heatStakingModal.windowDescription != null)
+                            heatStakingModal.windowDescription.text = povertyDesc;
+                    }
+
+                    if (balanceText != null)
+                    {
+                        balanceText.text = $"Available: {curBal} {CurrencyConfig.CurrencyPlural} | <color=#FF2A00><b>Stipend in {timerStr}</b></color>";
+                    }
+
+                    SetErrorText(povertyDesc, false);
                     MichskyUIBridge.SetAnyButtonInteractable(false, confirmStakeButton, heatConfirmStakeButton, heatBoxConfirmStakeButton, heatConfirmStakeButtonObject);
                 }
                 else
@@ -133,7 +147,7 @@ namespace NightCrawler.UI
                     // If balance reached >= 2 Cinders at 60%, immediately remove timer error and enable staking!
                     if (CurrencyConfig.CanMeetMinimumStake(curBal))
                     {
-                        if (_currentBalance != curBal || (stakeErrorText != null && stakeErrorText.gameObject.activeSelf && stakeErrorText.text.Contains("Emergency Stipend")))
+                        if (_currentBalance != curBal || (stakeErrorText != null && stakeErrorText.gameObject.activeSelf && stakeErrorText.text.Contains("Emergency Stipend")) || (heatStakingModal != null && heatStakingModal.descriptionText.Contains("Emergency Stipend")))
                         {
                             _currentBalance = curBal;
                             int minStake = CurrencyConfig.MinimumStake;
@@ -141,6 +155,15 @@ namespace NightCrawler.UI
                             MichskyUIBridge.SetSliderLimits(stakeSlider, heatStakeSlider, minStake, _maxAllowedStake, true);
                             MichskyUIBridge.SetAnyButtonInteractable(true, confirmStakeButton, heatConfirmStakeButton, heatBoxConfirmStakeButton, heatConfirmStakeButtonObject);
                             ClearErrorText();
+
+                            if (heatStakingModal != null)
+                            {
+                                string normalDesc = $"Select your stake amount.\n<b>Available:</b> {_currentBalance} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {_maxAllowedStake} {CurrencyConfig.CurrencyPlural}";
+                                heatStakingModal.descriptionText = normalDesc;
+                                if (heatStakingModal.windowDescription != null)
+                                    heatStakingModal.windowDescription.text = normalDesc;
+                            }
+
                             UpdateDisplay();
                         }
                     }
@@ -165,9 +188,20 @@ namespace NightCrawler.UI
                 heatStakingModal.titleKey = string.Empty;
                 heatStakingModal.descriptionKey = string.Empty;
                 string title = "MATCH STAKE";
-                string desc = canStake
-                    ? $"Select your stake amount.\n<b>Available:</b> {_currentBalance} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {_maxAllowedStake} {CurrencyConfig.CurrencyPlural}"
-                    : $"<color=#FF5555>Insufficient {CurrencyConfig.CurrencyPlural}!</color>\n60% of your total balance ({_currentBalance} {CurrencyConfig.CurrencySymbol}) is below the minimum stake of {minStake} {CurrencyConfig.CurrencySymbol}.";
+                string desc;
+
+                if (canStake)
+                {
+                    desc = $"Select your stake amount.\n<b>Available:</b> {_currentBalance} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {_maxAllowedStake} {CurrencyConfig.CurrencyPlural}";
+                }
+                else if (CurrencyConfig.CheckEmergencyStipendStatus(_currentBalance, out float remSec, out string timerStr))
+                {
+                    desc = $"<color=#FF5555>Insufficient {CurrencyConfig.CurrencyPlural}!</color>\n60% of your total balance ({_currentBalance} {CurrencyConfig.CurrencySymbol}) is below the minimum stake of {minStake} {CurrencyConfig.CurrencySymbol}.\n<color=#FF2A00><b>Emergency Stipend in {timerStr} (+{CurrencyConfig.EmergencyStipendAmount} {CurrencyConfig.CurrencyPlural})</b></color>";
+                }
+                else
+                {
+                    desc = $"<color=#FF5555>Insufficient {CurrencyConfig.CurrencyPlural}!</color>\n60% of your total balance ({_currentBalance} {CurrencyConfig.CurrencySymbol}) is below the minimum stake of {minStake} {CurrencyConfig.CurrencySymbol}.";
+                }
 
                 heatStakingModal.titleText = title;
                 heatStakingModal.descriptionText = desc;
@@ -188,7 +222,11 @@ namespace NightCrawler.UI
             {
                 if (CurrencyConfig.CheckEmergencyStipendStatus(_currentBalance, out float remSec, out string timerStr))
                 {
-                    SetErrorText($"Insufficient {CurrencyConfig.CurrencyPlural}! 60% of balance ({_currentBalance} {CurrencyConfig.CurrencySymbol}) is below {minStake} {CurrencyConfig.CurrencySymbol}.\n<color=#FFE81A><b>Emergency Stipend in {timerStr} (+{CurrencyConfig.EmergencyStipendAmount} {CurrencyConfig.CurrencyPlural})</b></color>", false);
+                    SetErrorText($"Insufficient {CurrencyConfig.CurrencyPlural}! 60% of balance ({_currentBalance} {CurrencyConfig.CurrencySymbol}) is below {minStake} {CurrencyConfig.CurrencySymbol}.\n<color=#FF2A00><b>Emergency Stipend in {timerStr} (+{CurrencyConfig.EmergencyStipendAmount} {CurrencyConfig.CurrencyPlural})</b></color>", false);
+                    if (balanceText != null)
+                    {
+                        balanceText.text = $"Available: {_currentBalance} {CurrencyConfig.CurrencyPlural} | <color=#FF2A00><b>Stipend in {timerStr}</b></color>";
+                    }
                 }
                 else
                 {

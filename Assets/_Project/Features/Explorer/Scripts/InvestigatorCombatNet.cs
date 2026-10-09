@@ -71,6 +71,7 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
 
     private readonly int _weaponIdHash     = Animator.StringToHash("WeaponID");
     private readonly int _hasWeaponHash    = Animator.StringToHash("HasWeapon");
+    private readonly int _speedHash        = Animator.StringToHash("Speed");
     private readonly int _switchWeaponHash = Animator.StringToHash("SwitchWeapon");
     private readonly int _disarmHash       = Animator.StringToHash("Disarm");
     private readonly int _attackHash       = Animator.StringToHash("Attack");
@@ -439,11 +440,53 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         {
             StartCoroutine(ReloadRoutine());
         }
+
+        CheckFidgetLocomotionTransition();
     }
 
     private void LateUpdate()
     {
         UpdateUpperBodyLayerWeight();
+    }
+
+    /// <summary>
+    /// Intercepts the transition out of Idle_Looking fidget state.
+    /// In StarterAssetsThirdPerson.controller, Idle_Looking has an unarmed walk transition evaluated
+    /// before Armed_Locomotion. When the player moves while armed during a fidget, this method
+    /// immediately crossfades straight to Armed_Locomotion so the character NEVER briefly reverts
+    /// to the unarmed walk!
+    /// </summary>
+    private void CheckFidgetLocomotionTransition()
+    {
+        if (_animator == null || !_animator.isInitialized) return;
+
+        bool hasWeapon = HasWeapon && currentWeaponIndex.Value >= 0;
+        if (!hasWeapon) return;
+
+        var baseState = _animator.GetCurrentAnimatorStateInfo(0);
+        var nextState = _animator.GetNextAnimatorStateInfo(0);
+        float currentSpeed = _animator.GetFloat(_speedHash);
+
+        bool isFidgeting = baseState.IsName("Idle_Looking") || nextState.IsName("Idle_Looking");
+        bool isUnarmedWalk = baseState.IsName("Idle Walk Run Blend") || nextState.IsName("Idle Walk Run Blend");
+
+        if (currentSpeed > 0.05f)
+        {
+            // Moving with weapon: if currently fidgeting or if controller erroneously transitioned to unarmed walk blend
+            if (isFidgeting || isUnarmedWalk)
+            {
+                _animator.CrossFadeInFixedTime("Armed_Locomotion", 0.10f, 0);
+                int combatLayer = _animator.GetLayerIndex("UpperBody_Combat");
+                if (combatLayer >= 0) _animator.SetLayerWeight(combatLayer, 1f);
+            }
+        }
+        else if (baseState.IsName("Idle_Looking") && baseState.normalizedTime >= 0.88f && !_animator.IsInTransition(0))
+        {
+            // Fidget ending naturally while stationary: return directly to Armed_Locomotion (armed idle)
+            _animator.CrossFadeInFixedTime("Armed_Locomotion", 0.15f, 0);
+            int combatLayer = _animator.GetLayerIndex("UpperBody_Combat");
+            if (combatLayer >= 0) _animator.SetLayerWeight(combatLayer, 1f);
+        }
     }
 
     private void UpdateUpperBodyLayerWeight()
@@ -460,28 +503,21 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
             return;
         }
 
+        CheckFidgetLocomotionTransition();
+
         var baseState = _animator.GetCurrentAnimatorStateInfo(0);
-        bool isFidgeting = baseState.IsName("Idle_Looking") ||
-                           _animator.GetNextAnimatorStateInfo(0).IsName("Idle_Looking");
+        var nextState = _animator.GetNextAnimatorStateInfo(0);
+        bool isFidgeting = baseState.IsName("Idle_Looking") || nextState.IsName("Idle_Looking");
 
         bool hasWeapon = HasWeapon && currentWeaponIndex.Value >= 0;
+        float currentSpeed = _animator.GetFloat(_speedHash);
 
-        // When the Idle_Looking fidget animation is nearing its end (normalizedTime >= 0.88f)
-        // and the player is holding a weapon, immediately crossfade straight to Armed_Locomotion on Layer 0!
-        // This completely bypasses the controller's default transition to unarmed Idle Walk Run Blend!
-        if (hasWeapon && baseState.IsName("Idle_Looking") && baseState.normalizedTime >= 0.88f && !_animator.IsInTransition(0))
-        {
-            _animator.CrossFade("Armed_Locomotion", 0.12f, 0);
-            _animator.SetLayerWeight(combatLayer, 1f);
-            return;
-        }
-
-        // While fidgeting, fade UpperBody_Combat weight to 0 so full-body fidget is visible.
-        // As soon as fidgeting is done (or transitioning back), immediately restore UpperBody_Combat weight to 1!
-        float targetWeight = (isFidgeting && baseState.normalizedTime < 0.88f) ? 0f : 1f;
+        // While fidgeting AND stationary, fade UpperBody_Combat weight to 0 so full-body fidget is visible.
+        // As soon as the player moves (or fidget finishes), immediately restore UpperBody_Combat weight to 1!
+        float targetWeight = (isFidgeting && baseState.normalizedTime < 0.88f && currentSpeed <= 0.05f) ? 0f : 1f;
         float currentWeight = _animator.GetLayerWeight(combatLayer);
 
-        if (!isFidgeting)
+        if (!isFidgeting || currentSpeed > 0.05f)
         {
             // Instantly snap to 1 so there is never a single frame showing unarmed idle arms
             _animator.SetLayerWeight(combatLayer, 1f);
