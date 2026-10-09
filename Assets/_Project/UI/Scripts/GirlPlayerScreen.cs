@@ -195,17 +195,10 @@ public class GirlPlayerScreen : MonoBehaviour
     {
         bool isLocked = IsTransitionOrDescentLocked();
 
-        // Control visibility of the exit hotkey indicator
-        if (exitHotkey != null)
+        // Control visibility of the exit hotkey indicator — always visible and tappable
+        if (exitHotkey != null && !exitHotkey.gameObject.activeSelf && gameObject.activeInHierarchy)
         {
-            if (isLocked && exitHotkey.gameObject.activeSelf)
-            {
-                exitHotkey.gameObject.SetActive(false);
-            }
-            else if (!isLocked && !exitHotkey.gameObject.activeSelf && gameObject.activeInHierarchy)
-            {
-                exitHotkey.gameObject.SetActive(true);
-            }
+            exitHotkey.gameObject.SetActive(true);
         }
 
         // Real-time Emergency Stipend & Balance Synchronization for Match Stake Modal
@@ -280,6 +273,39 @@ public class GirlPlayerScreen : MonoBehaviour
 
         if (exitHotkey != null)
         {
+            exitHotkey.gameObject.SetActive(true);
+            exitHotkey.enabled = true;
+
+            var graphic = exitHotkey.GetComponent<UnityEngine.UI.Graphic>();
+            if (graphic == null)
+            {
+                var img = exitHotkey.gameObject.AddComponent<UnityEngine.UI.Image>();
+                img.color = new Color(0, 0, 0, 0);
+                img.raycastTarget = true;
+            }
+            else
+            {
+                graphic.raycastTarget = true;
+            }
+
+            var buttons = exitHotkey.GetComponentsInChildren<UnityEngine.UI.Button>(true);
+            foreach (var btn in buttons)
+            {
+                if (btn != null)
+                {
+                    btn.onClick.RemoveListener(HandleExitHotkey);
+                    btn.onClick.AddListener(HandleExitHotkey);
+                }
+            }
+            var btnMgrs = exitHotkey.GetComponentsInChildren<Michsky.UI.Heat.ButtonManager>(true);
+            foreach (var bm in btnMgrs)
+            {
+                if (bm != null)
+                {
+                    MichskyUIBridge.BindButton(null, bm, HandleExitHotkey);
+                }
+            }
+
             exitHotkey.onHotkeyPress.RemoveListener(HandleExitHotkey);
             exitHotkey.onHotkeyPress.AddListener(HandleExitHotkey);
         }

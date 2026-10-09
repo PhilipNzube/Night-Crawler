@@ -174,9 +174,21 @@ public class PossessionBlackoutOverlay : MonoBehaviour
         }
         Instance = this;
 
+        EnsureCanvasSorting();
         EnsureQTEReferences();
         UpdateKeyIndicatorDisplay();
         SetBlackout(false);
+    }
+
+    public void EnsureCanvasSorting()
+    {
+        Canvas canvas = GetComponent<Canvas>();
+        if (canvas == null) canvas = gameObject.AddComponent<Canvas>();
+        canvas.overrideSorting = true;
+        canvas.sortingOrder = 32767; // Highest possible stack layer in Unity UI
+
+        GraphicRaycaster gr = GetComponent<GraphicRaycaster>();
+        if (gr == null) gr = gameObject.AddComponent<GraphicRaycaster>();
     }
 
     private void OnDestroy()
@@ -561,6 +573,8 @@ public class PossessionBlackoutOverlay : MonoBehaviour
         if (active)
         {
             _possessionStartTime = Time.time;
+            EnsureCanvasSorting();
+            transform.SetAsLastSibling();
         }
         else
         {
@@ -581,6 +595,21 @@ public class PossessionBlackoutOverlay : MonoBehaviour
         {
             possessMessageText.text = !string.IsNullOrEmpty(customMessage) ? customMessage : defaultMessage;
             possessMessageText.gameObject.SetActive(active);
+        }
+    }
+
+    private void LateUpdate()
+    {
+        if (_isBlackoutActive)
+        {
+            EnsureCanvasSorting();
+            transform.SetAsLastSibling();
+            if (blackoutCanvasGroup != null)
+            {
+                blackoutCanvasGroup.alpha = 1f;
+                blackoutCanvasGroup.blocksRaycasts = true;
+                blackoutCanvasGroup.interactable = true;
+            }
         }
     }
 }

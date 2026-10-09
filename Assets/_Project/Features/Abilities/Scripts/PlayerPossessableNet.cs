@@ -588,6 +588,52 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             {
                 PlayerHUD.Instance.BindToPossessedTarget(gameObject);
             }
+
+            // Remote mirroring: if victim has any open modals before possession, display on Girl screen
+            if (isDealPromptOpen.Value && DealNotificationUI.Instance != null)
+            {
+                DealNotificationUI.Instance.DisplayDealOffer(
+                    dealPromptSenderId.Value,
+                    dealPromptTitle.Value.ToString(),
+                    dealPromptTerms.Value.ToString(),
+                    dealPromptReward.Value.ToString(),
+                    dealPromptGrantWeapon.Value,
+                    dealPromptTimeLimit.Value,
+                    dealPromptPenalty.Value
+                );
+            }
+
+            if (isCompletionModalOpen.Value && NightCrawler.UI.DealCompletionModalUI.Instance != null)
+            {
+                NightCrawler.UI.DealCompletionModalUI.Instance.Show(
+                    completionDealTitle.Value.ToString(),
+                    completionReward.Value,
+                    completionPenalty.Value,
+                    completionRewardLeft.Value,
+                    completionDesc.Value.ToString()
+                );
+            }
+
+            if (isFailureModalOpen.Value && NightCrawler.UI.DealFailureModalUI.Instance != null)
+            {
+                NightCrawler.UI.DealFailureModalUI.Instance.Show(
+                    failureDealTitle.Value.ToString(),
+                    failurePenalty.Value,
+                    failureDesc.Value.ToString()
+                );
+            }
+
+            if (hasActiveDeal.Value && NightCrawler.UI.ActiveDealMissionHUD.Instance != null)
+            {
+                NightCrawler.UI.ActiveDealMissionHUD.Instance.StartPossessedMirror(
+                    activeDealTitle.Value.ToString(),
+                    activeDealTerms.Value.ToString(),
+                    activeDealDuration.Value,
+                    activeDealPenalty.Value,
+                    activeDealReward.Value,
+                    activeDealTimeRemaining.Value
+                );
+            }
         }
     }
 
@@ -1414,5 +1460,81 @@ public class PlayerPossessableNet : NetworkBehaviour, IPossessable
             }
         }
         Release();
+    }
+
+    [Rpc(SendTo.Server)]
+    public void RemoteRespondToDealServerRpc(ulong girlSenderId, bool accepted, bool grantWeapon)
+    {
+        ulong victimId = originalOwnerClientId.Value;
+        if (victimId == ulong.MaxValue) victimId = OwnerClientId;
+
+        if (DealSystemNet.Instance != null)
+        {
+            DealSystemNet.Instance.HandleDealResponseOnServer(victimId, girlSenderId, accepted, grantWeapon);
+        }
+
+        isDealPromptOpen.Value = false;
+        RemoteDealResponseToVictimClientRpc(victimId, girlSenderId, accepted, grantWeapon);
+    }
+
+    [Rpc(SendTo.ClientsAndHost)]
+    private void RemoteDealResponseToVictimClientRpc(ulong victimId, ulong girlSenderId, bool accepted, bool grantWeapon)
+    {
+        if (NetworkManager.Singleton == null) return;
+        ulong localId = NetworkManager.Singleton.LocalClientId;
+
+        if (localId == victimId)
+        {
+            if (DealNotificationUI.Instance != null)
+            {
+                DealNotificationUI.Instance.HideLocalOnly();
+            }
+
+            if (accepted)
+            {
+                if (grantWeapon)
+                {
+                    var combat = GetComponent<InvestigatorCombatNet>();
+                    if (combat != null)
+                    {
+                        combat.GrantMeleeWeapon(true);
+                    }
+                }
+
+                if (NightCrawler.UI.ActiveDealMissionHUD.Instance != null)
+                {
+                    string tTitle = dealPromptTitle.Value.ToString();
+                    string tTerms = dealPromptTerms.Value.ToString();
+                    int tLimit = dealPromptTimeLimit.Value;
+                    int tPen = dealPromptPenalty.Value;
+                    int tRew = int.TryParse(dealPromptReward.Value.ToString(), out int r) ? r : 30;
+
+                    NightCrawler.UI.ActiveDealMissionHUD.Instance.StartMission(
+                        tTitle, tTerms, tLimit, tPen, tRew, girlSenderId, ulong.MaxValue, ""
+                    );
+                }
+            }
+        }
+        else if (isPossessed.Value && possessingClientId.Value == localId)
+        {
+            // Possessing Girl client
+            if (DealNotificationUI.Instance != null)
+            {
+                DealNotificationUI.Instance.HideLocalOnly();
+            }
+
+            if (accepted && NightCrawler.UI.ActiveDealMissionHUD.Instance != null)
+            {
+                string tTitle = dealPromptTitle.Value.ToString();
+                string tTerms = dealPromptTerms.Value.ToString();
+                int tLimit = dealPromptTimeLimit.Value;
+                int tPen = dealPromptPenalty.Value;
+                int tRew = int.TryParse(dealPromptReward.Value.ToString(), out int r) ? r : 30;
+
+                NightCrawler.UI.ActiveDealMissionHUD.Instance.StartPossessedMirror(
+                    tTitle, tTerms, tLimit, tPen, tRew, tLimit
+                );
+            }
+        }
     }
 }

@@ -186,6 +186,9 @@ public class CharacterSelectUI : MonoBehaviour
     [Tooltip("Root GameObject or Transform for Current Bid display inside Bid_Modal (CurrentBid).")]
     public GameObject currentBidRoot;
 
+    [Tooltip("Explicit reference or fallback for CurrentBidForCharacter GameObject inside Bid_Modal.")]
+    public GameObject currentBidForCharacter;
+
     [Tooltip("Text label displaying current highest bid inside Bid_Modal.")]
     public TextMeshProUGUI currentBidText;
 
@@ -282,17 +285,10 @@ public class CharacterSelectUI : MonoBehaviour
     {
         bool isLocked = IsTransitionOrDescentLocked();
 
-        // Control visibility of the exit hotkey indicator
-        if (exitHotkey != null)
+        // Control visibility of the exit hotkey indicator — always visible and tappable
+        if (exitHotkey != null && !exitHotkey.gameObject.activeSelf && gameObject.activeInHierarchy)
         {
-            if (isLocked && exitHotkey.gameObject.activeSelf)
-            {
-                exitHotkey.gameObject.SetActive(false);
-            }
-            else if (!isLocked && !exitHotkey.gameObject.activeSelf && gameObject.activeInHierarchy)
-            {
-                exitHotkey.gameObject.SetActive(true);
-            }
+            exitHotkey.gameObject.SetActive(true);
         }
 
         // Real-time Emergency Stipend & Balance Synchronization for Match Stake Modal
@@ -375,6 +371,39 @@ public class CharacterSelectUI : MonoBehaviour
 
         if (exitHotkey != null)
         {
+            exitHotkey.gameObject.SetActive(true);
+            exitHotkey.enabled = true;
+
+            var graphic = exitHotkey.GetComponent<UnityEngine.UI.Graphic>();
+            if (graphic == null)
+            {
+                var img = exitHotkey.gameObject.AddComponent<UnityEngine.UI.Image>();
+                img.color = new Color(0, 0, 0, 0);
+                img.raycastTarget = true;
+            }
+            else
+            {
+                graphic.raycastTarget = true;
+            }
+
+            var buttons = exitHotkey.GetComponentsInChildren<UnityEngine.UI.Button>(true);
+            foreach (var btn in buttons)
+            {
+                if (btn != null)
+                {
+                    btn.onClick.RemoveListener(HandleExitHotkey);
+                    btn.onClick.AddListener(HandleExitHotkey);
+                }
+            }
+            var btnMgrs = exitHotkey.GetComponentsInChildren<Michsky.UI.Heat.ButtonManager>(true);
+            foreach (var bm in btnMgrs)
+            {
+                if (bm != null)
+                {
+                    MichskyUIBridge.BindButton(null, bm, HandleExitHotkey);
+                }
+            }
+
             exitHotkey.onHotkeyPress.RemoveListener(HandleExitHotkey);
             exitHotkey.onHotkeyPress.AddListener(HandleExitHotkey);
         }
@@ -979,6 +1008,17 @@ public class CharacterSelectUI : MonoBehaviour
         if (!_isVengefulSpirit && CharacterSelectManager.Instance != null)
         {
             CharacterSelectManager.Instance.RequestSelectCharacterServerRpc(_selectedIndex);
+        }
+
+        // Claim character in CharacterBiddingNet now that the player has officially pressed READY
+        if (CharacterBiddingNet.Instance != null)
+        {
+            ulong localId = NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0;
+            if (!CharacterBiddingNet.Instance.TryGetCharacterOwner(_selectedIndex, out ulong currentOwner, out _, out _) || currentOwner == localId)
+            {
+                string localName = ResolveLocalPlayerName();
+                CharacterBiddingNet.Instance.ClaimCharacterInitial(_selectedIndex, localName);
+            }
         }
 
         // Hide selection controls & ready button
@@ -2132,13 +2172,13 @@ public class CharacterSelectUI : MonoBehaviour
                 }
                 else
                 {
-                    // Another player holds/claimed this character!
+                    // Another player holds/claimed this character (they pressed READY or placed winning bid)!
                     _isCurrentContestedByOther = true;
-                    MichskyUIBridge.SetButtonText(null, heatConfirmButton, "BID");
 
                     if (_hasLocalYieldedCurrent)
                     {
-                        // Player yielded on this character — cannot bid anymore
+                        // Player yielded on this character — button says READY and is disabled
+                        MichskyUIBridge.SetButtonText(null, heatConfirmButton, "READY");
                         if (heatConfirmButton != null)
                         {
                             heatConfirmButton.isInteractable = false;
@@ -2154,7 +2194,8 @@ public class CharacterSelectUI : MonoBehaviour
                     }
                     else
                     {
-                        // Can place a bid
+                        // Greedy player can place a bid to take the operative!
+                        MichskyUIBridge.SetButtonText(null, heatConfirmButton, "BID");
                         if (heatConfirmButton != null)
                         {
                             heatConfirmButton.isInteractable = true;
@@ -2164,24 +2205,36 @@ public class CharacterSelectUI : MonoBehaviour
 
                         if (characterOwnedByText != null)
                         {
-                            characterOwnedByText.text = $"CLAIMED BY: <color=#FFDD44>{ownerName.ToUpper()}</color> (BID: {currentBid} CINDERS)";
+                            string bidSuffix = currentBid > 0 ? $" (BID: {currentBid} CINDERS)" : string.Empty;
+                            characterOwnedByText.text = $"CLAIMED BY: <color=#FFDD44>{ownerName.ToUpper()}</color>{bidSuffix}";
                             characterOwnedByText.gameObject.SetActive(true);
                         }
                     }
                     return;
                 }
             }
-            else
-            {
-                // Unclaimed! If local player hasn't yielded, claim it initially
-                if (!_hasLocalYieldedCurrent)
-                {
-                    CharacterBiddingNet.Instance.ClaimCharacterInitial(_selectedIndex, localName);
-                }
-            }
         }
 
-        // Default unowned / claimed by local fallback
+        // Check if local player yielded on an unowned or contested operative
+        if (_hasLocalYieldedCurrent)
+        {
+            MichskyUIBridge.SetButtonText(null, heatConfirmButton, "READY");
+            if (heatConfirmButton != null)
+            {
+                heatConfirmButton.isInteractable = false;
+                heatConfirmButton.UpdateUI();
+            }
+            MichskyUIBridge.SetButtonInteractable(null, heatConfirmButton, false);
+
+            if (characterOwnedByText != null)
+            {
+                characterOwnedByText.text = "YOU YIELDED ON THIS OPERATIVE";
+                characterOwnedByText.gameObject.SetActive(true);
+            }
+            return;
+        }
+
+        // Default unowned operative: ready to be selected and readied up by any player
         MichskyUIBridge.SetButtonText(null, heatConfirmButton, "READY");
         if (heatConfirmButton != null)
         {
@@ -2229,11 +2282,26 @@ public class CharacterSelectUI : MonoBehaviour
         _contestedCharacterIndex = charIndex;
         int currentBid = CharacterBiddingNet.Instance != null ? CharacterBiddingNet.Instance.GetCurrentBid(charIndex) : 0;
 
+        if (currentBidForCharacter != null)
+        {
+            currentBidForCharacter.SetActive(true);
+            EnsureHierarchyAndContainersActive(currentBidForCharacter.transform);
+        }
+
         if (currentBidRoot != null)
+        {
             currentBidRoot.SetActive(true);
+            EnsureHierarchyAndContainersActive(currentBidRoot.transform);
+        }
 
         if (currentBidText != null)
+        {
             currentBidText.text = $"{currentBid} CINDERS";
+            currentBidText.richText = true;
+            var umt = currentBidText.GetComponent<Michsky.UI.Heat.UIManagerText>();
+            if (umt != null) umt.useCustomColor = true;
+            EnsureHierarchyAndContainersActive(currentBidText);
+        }
 
         int balance = CloudCharacterSaveManager.Instance != null
             ? CloudCharacterSaveManager.Instance.CurrentCredits
@@ -2242,6 +2310,7 @@ public class CharacterSelectUI : MonoBehaviour
 
         if (bidModal != null)
         {
+            bidModal.useCustomContent = true;
             bidModal.useLocalization = false;
             bidModal.titleKey = string.Empty;
             bidModal.descriptionKey = string.Empty;
@@ -2254,6 +2323,24 @@ public class CharacterSelectUI : MonoBehaviour
             if (bidModal.windowDescription != null) bidModal.windowDescription.text = desc;
             try { bidModal.UpdateUI(); } catch { }
 
+            ActivateAllBidModalCustomContainers();
+
+            if (currentBidForCharacter != null)
+            {
+                currentBidForCharacter.SetActive(true);
+                EnsureHierarchyAndContainersActive(currentBidForCharacter.transform);
+            }
+            if (currentBidRoot != null)
+            {
+                currentBidRoot.SetActive(true);
+                EnsureHierarchyAndContainersActive(currentBidRoot.transform);
+            }
+            if (currentBidText != null)
+            {
+                currentBidText.text = $"{currentBid} CINDERS";
+                EnsureHierarchyAndContainersActive(currentBidText);
+            }
+
             MichskyUIBridge.BindInputField(null, heatBidInputField, OnBidInputChanged);
             MichskyUIBridge.BindButton(null, heatPlaceBidButton, OnPlaceBidClicked);
             if (heatBidModalYieldButton != null)
@@ -2262,7 +2349,87 @@ public class CharacterSelectUI : MonoBehaviour
             MichskyUIBridge.SetInputText(null, heatBidInputField, string.Empty);
             OnBidInputChanged(string.Empty);
 
+            RebuildBidModalLayouts();
             bidModal.OpenWindow();
+            StartCoroutine(EnsureBidModalVisibleRoutine(currentBid));
+        }
+    }
+
+    private void EnsureHierarchyAndContainersActive(Component target)
+    {
+        if (target == null) return;
+        Transform cur = target.transform;
+        while (cur != null && cur != transform.parent)
+        {
+            if (!cur.gameObject.activeSelf) cur.gameObject.SetActive(true);
+            var cg = cur.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 1f;
+                cg.interactable = true;
+                cg.blocksRaycasts = true;
+            }
+            cur = cur.parent;
+        }
+    }
+
+    private void ActivateAllBidModalCustomContainers()
+    {
+        if (bidModal == null) return;
+        var allTransforms = bidModal.GetComponentsInChildren<Transform>(true);
+        foreach (var t in allTransforms)
+        {
+            if (t == null) continue;
+            if (bidModal.cancelButton != null && t == bidModal.cancelButton.transform) continue;
+
+            if (!t.gameObject.activeSelf)
+            {
+                t.gameObject.SetActive(true);
+            }
+            var cg = t.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 1f;
+                cg.interactable = true;
+                cg.blocksRaycasts = true;
+            }
+        }
+    }
+
+    private System.Collections.IEnumerator EnsureBidModalVisibleRoutine(int currentBid)
+    {
+        for (int i = 0; i < 20; i++)
+        {
+            if (bidModal == null || !bidModal.isOn) yield break;
+            if (currentBidForCharacter != null)
+            {
+                if (!currentBidForCharacter.activeSelf) currentBidForCharacter.SetActive(true);
+                EnsureHierarchyAndContainersActive(currentBidForCharacter.transform);
+            }
+            if (currentBidRoot != null)
+            {
+                if (!currentBidRoot.activeSelf) currentBidRoot.SetActive(true);
+                EnsureHierarchyAndContainersActive(currentBidRoot.transform);
+            }
+            if (currentBidText != null)
+            {
+                currentBidText.text = $"{currentBid} CINDERS";
+                EnsureHierarchyAndContainersActive(currentBidText);
+            }
+            yield return null;
+        }
+    }
+
+    private void RebuildBidModalLayouts()
+    {
+        if (bidModal == null) return;
+        var rts = bidModal.GetComponentsInChildren<RectTransform>(true);
+        for (int i = rts.Length - 1; i >= 0; i--)
+        {
+            if (rts[i] != null)
+            {
+                UnityEngine.UI.LayoutRebuilder.ForceRebuildLayoutImmediate(rts[i]);
+            }
         }
     }
 
@@ -2486,55 +2653,42 @@ public class CharacterSelectUI : MonoBehaviour
             _localConfirmed = false;
             ulong localId = NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0;
             PlayerReadyTracker.Instance?.ReportInvestigatorUnconfirmed(localId);
-
-            if (lobbyPlayerStatusPanel != null)
-                lobbyPlayerStatusPanel.Hide();
-            else if (playerStatusPanel != null)
-                playerStatusPanel.SetActive(false);
-
-            if (characterSelectPanel != null) characterSelectPanel.SetActive(true);
-            if (investigatorPanel != null) investigatorPanel.SetActive(true);
-            if (sideDetailsPanel != null) sideDetailsPanel.SetActive(true);
-            if (detailsTitleText != null) detailsTitleText.gameObject.SetActive(true);
-            if (detailsAbilitiesText != null) detailsAbilitiesText.gameObject.SetActive(true);
-            if (detailsDescriptionText != null) detailsDescriptionText.gameObject.SetActive(true);
-
-            ApplySelectionStyle();
-
-            if (heatConfirmButton != null)
-            {
-                heatConfirmButton.gameObject.SetActive(true);
-                MichskyUIBridge.SetButtonText(null, heatConfirmButton, "BID");
-                heatConfirmButton.isInteractable = false;
-                heatConfirmButton.UpdateUI();
-            }
-            MichskyUIBridge.SetButtonInteractable(null, heatConfirmButton, false);
-
-            if (characterOwnedByText != null)
-            {
-                characterOwnedByText.text = "YOU YIELDED ON THIS OPERATIVE";
-                characterOwnedByText.gameObject.SetActive(true);
-            }
         }
-        else
+
+        // Always return to the initial character selection view even if on the player status UI
+        if (lobbyPlayerStatusPanel != null)
+            lobbyPlayerStatusPanel.Hide();
+        else if (playerStatusPanel != null)
+            playerStatusPanel.SetActive(false);
+
+        if (characterSelectPanel != null) characterSelectPanel.SetActive(true);
+        if (investigatorPanel != null) investigatorPanel.SetActive(true);
+        if (sideDetailsPanel != null) sideDetailsPanel.SetActive(true);
+        if (slotCardContainer != null) slotCardContainer.gameObject.SetActive(true);
+        if (characterSelector != null) characterSelector.gameObject.SetActive(true);
+        if (detailsTitleText != null) detailsTitleText.gameObject.SetActive(true);
+        if (detailsAbilitiesText != null) detailsAbilitiesText.gameObject.SetActive(true);
+        if (detailsDescriptionText != null) detailsDescriptionText.gameObject.SetActive(true);
+
+        ApplySelectionStyle();
+
+        // The button must display "READY", but remain disabled for this yielded operative
+        if (heatConfirmButton != null)
         {
-            if (_selectedIndex == _contestedCharacterIndex)
-            {
-                MichskyUIBridge.SetButtonText(null, heatConfirmButton, "BID");
-                if (heatConfirmButton != null)
-                {
-                    heatConfirmButton.isInteractable = false;
-                    heatConfirmButton.UpdateUI();
-                }
-                MichskyUIBridge.SetButtonInteractable(null, heatConfirmButton, false);
-
-                if (characterOwnedByText != null)
-                {
-                    characterOwnedByText.text = "YOU YIELDED ON THIS OPERATIVE";
-                    characterOwnedByText.gameObject.SetActive(true);
-                }
-            }
+            heatConfirmButton.gameObject.SetActive(true);
+            MichskyUIBridge.SetButtonText(null, heatConfirmButton, "READY");
+            heatConfirmButton.isInteractable = false;
+            heatConfirmButton.UpdateUI();
         }
+        MichskyUIBridge.SetButtonInteractable(null, heatConfirmButton, false);
+
+        if (characterOwnedByText != null)
+        {
+            characterOwnedByText.text = "YOU YIELDED ON THIS OPERATIVE";
+            characterOwnedByText.gameObject.SetActive(true);
+        }
+
+        UpdateCharacterOwnershipUI();
     }
 
     private void HandleCharacterBidUpdated(int charIndex, ulong ownerId, string ownerName, int bid)

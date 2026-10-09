@@ -617,6 +617,17 @@ public class DealNotificationUI : MonoBehaviour
 
         _isActive = false;
 
+        // Remote possession handling: if Girl is possessing this victim, act like a remote control
+        var possessedNet = PlayerPossessableNet.GetPossessedByLocalClient();
+        if (possessedNet != null)
+        {
+            Debug.Log($"[DealNotificationUI] Girl remotely ACCEPTED deal for possessed victim {possessedNet.originalOwnerClientId.Value}!");
+            possessedNet.RemoteRespondToDealServerRpc(_currentGirlSenderId, true, _grantWeapon);
+            ClearDealPromptNetState();
+            SetVisible(false, modifyCursor: true);
+            return;
+        }
+
         Debug.Log($"[DealNotificationUI] Local player ACCEPTED deal from Girl {_currentGirlSenderId} (grantWeapon={_grantWeapon})");
 
         // Immediately grant and equip weapon on the local investigator character if requested
@@ -669,6 +680,17 @@ public class DealNotificationUI : MonoBehaviour
     {
         if (!_isActive) return;
         _isActive = false;
+
+        // Remote possession handling: if Girl is possessing this victim, act like a remote control
+        var possessedNet = PlayerPossessableNet.GetPossessedByLocalClient();
+        if (possessedNet != null)
+        {
+            Debug.Log($"[DealNotificationUI] Girl remotely DECLINED deal for possessed victim {possessedNet.originalOwnerClientId.Value}!");
+            possessedNet.RemoteRespondToDealServerRpc(_currentGirlSenderId, false, _grantWeapon);
+            ClearDealPromptNetState();
+            SetVisible(false, modifyCursor: true);
+            return;
+        }
 
         Debug.Log($"[DealNotificationUI] Local player DECLINED deal from Girl {_currentGirlSenderId}");
         if (DealSystemNet.Instance != null)

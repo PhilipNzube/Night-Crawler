@@ -398,7 +398,7 @@ public class DealSystemNet : MonoBehaviour
         HandleDealResponseOnServer(senderClientId, girlClientId, accepted, grantWeapon);
     }
 
-    private void HandleDealResponseOnServer(ulong responderId, ulong girlClientId, bool accepted, bool grantWeapon)
+    public void HandleDealResponseOnServer(ulong responderId, ulong girlClientId, bool accepted, bool grantWeapon)
     {
         _pendingTargetClientIds.Remove(responderId);
 

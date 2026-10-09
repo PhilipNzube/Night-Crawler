@@ -66,7 +66,7 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
     public bool allowFidgetWithWeapon = true;
 
     [Tooltip("Allow playing IdleFidget while unarmed.")]
-    public bool allowFidgetUnarmed = true;
+    public bool allowFidgetUnarmed = false;
 
     public override void OnStateEnter(Animator animator, AnimatorStateInfo stateInfo, int layerIndex)
     {
@@ -75,7 +75,7 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
         int animId = animator.GetInstanceID();
 
         bool hasWeapon = IsHoldingWeapon(animator);
-        if (IsGirl(animator, animId) || (hasWeapon && !allowFidgetWithWeapon) || (!hasWeapon && !allowFidgetUnarmed))
+        if (IsGirl(animator, animId) || !hasWeapon || !allowFidgetWithWeapon)
         {
             animator.ResetTrigger(_triggerHash);
             return;
@@ -103,9 +103,9 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
             return;
         }
 
-        // 2. Check weapon rules
+        // 2. Check weapon rules — idle fidget ONLY plays when wielding a weapon
         bool hasWeapon = IsHoldingWeapon(animator);
-        if ((hasWeapon && !allowFidgetWithWeapon) || (!hasWeapon && !allowFidgetUnarmed))
+        if (!hasWeapon || !allowFidgetWithWeapon)
         {
             _timers[animId] = Random.Range(minIdleTime, maxIdleTime);
             animator.ResetTrigger(_triggerHash);
