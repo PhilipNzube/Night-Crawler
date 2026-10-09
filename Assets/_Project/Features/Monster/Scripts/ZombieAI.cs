@@ -31,8 +31,8 @@ public class ZombieAI : MonsterAI
         runAcceleration = 8.0f;
         if (attackDamage < 25f) attackDamage = 35f;
         if (attackRange <= 0f) attackRange = 2.0f;
-        screamAudioDelay = 0.18f;
-        screamDuration = 1.35f;
+        screamAudioDelay = 0.20f;
+        screamDuration = 2.80f;
 
         // Apply ScriptableObject stats override if present
         if (stats != null)
@@ -56,5 +56,6 @@ public class ZombieAI : MonsterAI
     protected override void TriggerScreamAnimation()
     {
         SafeSetTrigger(_screamHash);
+        SafeCrossFade(Animator.StringToHash("Zombie Scream"), "Zombie Scream", 0.15f, true);
     }
 }

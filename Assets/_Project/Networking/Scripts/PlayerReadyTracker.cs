@@ -150,6 +150,30 @@ public class PlayerReadyTracker : NetworkBehaviour
         }
     }
 
+    public void ReportInvestigatorUnconfirmed(ulong clientId = 0)
+    {
+        if (IsSpawned)
+        {
+            ReportInvestigatorUnconfirmedServerRpc();
+        }
+        else
+        {
+            _investigatorReady[clientId] = false;
+            string pName = ResolvePlayerName(clientId);
+            _snapshot[clientId] = (pName, false);
+            if (_lobbySnapshot.TryGetValue(clientId, out var info))
+            {
+                info.isReady = false;
+                _lobbySnapshot[clientId] = info;
+            }
+
+            OnReadyStatesUpdated?.Invoke(_snapshot);
+            OnPlayerLobbyStatesUpdated?.Invoke(_lobbySnapshot);
+            Debug.Log($"[PlayerReadyTracker] Investigator {clientId} unconfirmed (unspawned/local).");
+            CheckAllReady();
+        }
+    }
+
     public void ReportGirlReady(int playerLevel = 1)
     {
         if (IsSpawned)
@@ -195,6 +219,17 @@ public class PlayerReadyTracker : NetworkBehaviour
         _playerLevels[senderId] = playerLevel;
         _characterIndices[senderId] = characterIndex;
         Debug.Log($"[PlayerReadyTracker] Investigator {senderId} confirmed (Lv. {playerLevel}, Operative: {characterIndex}).");
+        BroadcastSnapshot();
+        CheckAllReady();
+    }
+
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    public void ReportInvestigatorUnconfirmedServerRpc(RpcParams rpcParams = default)
+    {
+        if (!_trackingStarted) return;
+        ulong senderId = rpcParams.Receive.SenderClientId;
+        _investigatorReady[senderId] = false;
+        Debug.Log($"[PlayerReadyTracker] Investigator {senderId} unconfirmed.");
         BroadcastSnapshot();
         CheckAllReady();
     }

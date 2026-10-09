@@ -30,6 +30,8 @@ namespace NightCrawler.UI
         private int _penaltyAmount = 15;
         private int _rewardAmount = 30;
         private ulong _girlSenderClientId = 0;
+        private ulong _markClientId = ulong.MaxValue;
+        private string _markPlayerName = string.Empty;
         private bool _isMissionActive = false;
         private string _activeMissionTitle = string.Empty;
         private AudioSource _audioSource;
@@ -199,7 +201,7 @@ namespace NightCrawler.UI
             if (DealFailureModalUI.Instance != null) DealFailureModalUI.Instance.Hide();
         }
 
-        public void StartMission(string title, string terms, int durationSeconds, int penaltyAmount, int rewardAmount = 30, ulong girlClientId = 0)
+        public void StartMission(string title, string terms, int durationSeconds, int penaltyAmount, int rewardAmount = 30, ulong girlClientId = 0, ulong markClientId = ulong.MaxValue, string markPlayerName = "")
         {
             if (!gameObject.activeSelf)
             {
@@ -212,13 +214,22 @@ namespace NightCrawler.UI
             _penaltyAmount = penaltyAmount;
             _rewardAmount = rewardAmount;
             _girlSenderClientId = girlClientId;
+            _markClientId = markClientId;
+            _markPlayerName = markPlayerName;
             _isMissionActive = true;
             _isMirroredPossession = false;
 
-            // Only show the mission of the deal at the top, no extra nonsense texts
+            // Only show the mission of the deal at the top
             if (missionTitleText != null)
             {
-                missionTitleText.text = !string.IsNullOrWhiteSpace(title) ? title.ToUpper() : "DARK DEAL";
+                if (IsKillMission && !string.IsNullOrEmpty(markPlayerName))
+                {
+                    missionTitleText.text = $"ELIMINATE {markPlayerName.ToUpper()}";
+                }
+                else
+                {
+                    missionTitleText.text = !string.IsNullOrWhiteSpace(title) ? title.ToUpper() : "DARK DEAL";
+                }
             }
 
             // Sync active deal state onto local player's PlayerPossessableNet
@@ -229,7 +240,7 @@ namespace NightCrawler.UI
             }
 
             SetVisible(true);
-            Debug.Log($"[ActiveDealMissionHUD] Started deal mission '{title}' with {durationSeconds}s timer, {penaltyAmount} penalty, and {rewardAmount} reward.");
+            Debug.Log($"[ActiveDealMissionHUD] Started deal mission '{title}' with {durationSeconds}s timer, {penaltyAmount} penalty, {rewardAmount} reward (mark={markPlayerName}).");
         }
 
         /// <summary>
@@ -246,14 +257,20 @@ namespace NightCrawler.UI
         }
 
         /// <summary>
-        /// Called when the local player eliminates another player. Completes the Kill Player deal if active.
+        /// Called when the local player eliminates another player. Completes the Kill Player deal if active and matching mark.
         /// </summary>
-        public void NotifyPlayerKilled()
+        public void NotifyPlayerKilled(ulong victimClientId = ulong.MaxValue)
         {
             if (!_isMissionActive) return;
             if (IsKillMission)
             {
-                Debug.Log("[ActiveDealMissionHUD] Target player eliminated! Completing Kill Player deal.");
+                if (_markClientId != ulong.MaxValue && victimClientId != ulong.MaxValue && _markClientId != victimClientId)
+                {
+                    Debug.Log($"[ActiveDealMissionHUD] Eliminated player {victimClientId}, but deal mark was {_markClientId}. Deal not satisfied.");
+                    return;
+                }
+
+                Debug.Log("[ActiveDealMissionHUD] Target mark eliminated! Completing Kill Player deal.");
                 CompleteMission();
             }
         }

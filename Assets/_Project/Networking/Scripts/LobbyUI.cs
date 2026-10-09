@@ -462,6 +462,8 @@ public class LobbyUI : MonoBehaviour
             RefreshLobbyPanels();
     }
 
+    private const string EmergencyCindersUtcKey = "NightCrawler_EmergencyCindersTargetUtc";
+
     private void UpdateEmergencyCreditsRelief()
     {
         int bal = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
@@ -471,28 +473,43 @@ public class LobbyUI : MonoBehaviour
 
         if (cannotStake)
         {
-            if (!_emergencyTimerActive)
+            DateTime targetUtc;
+            float cooldownSecs = emergencyGrantCooldown > 0f ? emergencyGrantCooldown : 60f;
+
+            if (PlayerPrefs.HasKey(EmergencyCindersUtcKey) &&
+                DateTime.TryParse(PlayerPrefs.GetString(EmergencyCindersUtcKey), null, System.Globalization.DateTimeStyles.RoundtripKind, out DateTime savedUtc))
             {
-                _emergencyTimerActive = true;
-                _emergencyTimer = emergencyGrantCooldown > 0f ? emergencyGrantCooldown : 60f;
+                targetUtc = savedUtc;
+            }
+            else
+            {
+                targetUtc = DateTime.UtcNow.AddSeconds(cooldownSecs);
+                PlayerPrefs.SetString(EmergencyCindersUtcKey, targetUtc.ToString("o"));
+                PlayerPrefs.Save();
             }
 
-            _emergencyTimer -= Time.deltaTime;
+            TimeSpan remaining = targetUtc - DateTime.UtcNow;
+            float remainingSeconds = (float)remaining.TotalSeconds;
 
-            int mins = Mathf.Max(0, Mathf.FloorToInt(_emergencyTimer / 60f));
-            int secs = Mathf.Max(0, Mathf.FloorToInt(_emergencyTimer % 60f));
-            string timerStr = $"{mins:00}:{secs:00}";
-            int grantAmount = 25;
-
-            if (_emergencyTimer <= 0f)
+            if (remainingSeconds <= 0f)
             {
+                int grantAmount = 25;
                 if (CloudCharacterSaveManager.Instance != null)
                 {
                     CloudCharacterSaveManager.Instance.AddCredits(grantAmount);
                 }
+
+                PlayerPrefs.DeleteKey(EmergencyCindersUtcKey);
+                PlayerPrefs.Save();
+
                 _emergencyTimerActive = false;
                 _emergencyTimer = 0f;
                 _stipendJustGrantedTimer = 3.5f;
+
+                if (creditEmergencyTimerText != null && creditEmergencyTimerText.gameObject.activeSelf)
+                {
+                    creditEmergencyTimerText.gameObject.SetActive(false);
+                }
 
                 if (NotificationManager.Instance != null)
                 {
@@ -506,10 +523,18 @@ public class LobbyUI : MonoBehaviour
                 return;
             }
 
+            _emergencyTimerActive = true;
+            _emergencyTimer = remainingSeconds;
+
+            int mins = Mathf.Max(0, Mathf.FloorToInt(_emergencyTimer / 60f));
+            int secs = Mathf.Max(0, Mathf.FloorToInt(_emergencyTimer % 60f));
+            string timerStr = $"{mins:00}:{secs:00}";
+            int displayGrantAmount = 25;
+
             // The text that shows the total Cinders amount directly displays the timer!
             if (cindersBalanceText != null)
             {
-                cindersBalanceText.text = $"{bal} {CurrencyConfig.CurrencyPlural}  <color=#FFD700><size=80%>(+{grantAmount} in {timerStr})</size></color>";
+                cindersBalanceText.text = $"{bal} {CurrencyConfig.CurrencyPlural}  <color=#FFD700><size=80%>(+{displayGrantAmount} in {timerStr})</size></color>";
             }
 
             if (creditEmergencyTimerText != null)
@@ -520,6 +545,12 @@ public class LobbyUI : MonoBehaviour
         }
         else
         {
+            if (PlayerPrefs.HasKey(EmergencyCindersUtcKey))
+            {
+                PlayerPrefs.DeleteKey(EmergencyCindersUtcKey);
+                PlayerPrefs.Save();
+            }
+
             if (_emergencyTimerActive)
             {
                 _emergencyTimerActive = false;

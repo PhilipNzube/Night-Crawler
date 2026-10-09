@@ -39,8 +39,14 @@ public class GirlDealUI : MonoBehaviour
     public ModalWindowManager errorModal;
 
     [Header("Deal Modal Config Controls")]
-    [Tooltip("Horizontal Selector for selecting the target living investigator.")]
+    [Tooltip("Horizontal Selector for selecting the target living investigator (Legacy fallback).")]
     public HorizontalSelector playerSelector;
+
+    [Tooltip("Horizontal Selector for who the offer is sent to ('Offer To').")]
+    public HorizontalSelector offerToSelector;
+
+    [Tooltip("Horizontal Selector for who the action of this deal is carried out on ('Mark').")]
+    public HorizontalSelector markSelector;
 
     [Tooltip("SliderManager for the deal reward amount.")]
     public SliderManager rewardSlider;
@@ -80,7 +86,11 @@ public class GirlDealUI : MonoBehaviour
     [Tooltip("Toggle hotkey (default [B] for Bargain/Deals).")]
     public Key toggleKey = Key.B;
 
-    private readonly List<ulong> _livingPlayerIds = new List<ulong>();
+    private readonly List<ulong> _livingPlayerIds    = new List<ulong>();
+    private readonly List<ulong> _deadPlayerIds      = new List<ulong>();
+    private readonly List<ulong> _offerRecipientIds  = new List<ulong>();
+    private readonly List<ulong> _markTargetIds      = new List<ulong>();
+    private readonly Dictionary<ulong, string> _livingPlayerNames = new Dictionary<ulong, string>();
     private string _currentCardTitle = "DARK DEAL";
     private string _currentCardDesc = "";
     private bool _isOpen = false;
@@ -153,7 +163,17 @@ public class GirlDealUI : MonoBehaviour
         if (rewardSlider != null) rewardSlider.useRoundValue = true;
         if (penaltySlider != null) penaltySlider.useRoundValue = true;
 
-
+        // Hook selectors
+        if (offerToSelector != null)
+        {
+            offerToSelector.onValueChanged.RemoveListener(OnOfferToSelectorChanged);
+            offerToSelector.onValueChanged.AddListener(OnOfferToSelectorChanged);
+        }
+        if (playerSelector != null)
+        {
+            playerSelector.onValueChanged.RemoveListener(OnOfferToSelectorChanged);
+            playerSelector.onValueChanged.AddListener(OnOfferToSelectorChanged);
+        }
 
         // Clean up any default ExitGame calls on Modals
         SanitizeModal(dealModal);
@@ -511,6 +531,37 @@ public class GirlDealUI : MonoBehaviour
         _currentCardTitle = cardTitle;
         _currentCardDesc = cardDesc;
 
+        RefreshLivingPlayers();
+
+        bool isLootDeal = IsLootDeal(cardTitle, cardDesc);
+        bool isKillDeal = !isLootDeal && IsKillDeal(cardTitle, cardDesc);
+        int livingCount = GetLivingInvestigatorCount();
+
+        // Limiter 1: Zero investigators or only one investigator alive
+        if (isKillDeal)
+        {
+            if (livingCount == 0)
+            {
+                ShowError("ZERO INVESTIGATORS", 
+                    "There are zero living investigators in the mine.\n\nYou cannot offer an elimination deal when there are zero players in the game.");
+                return;
+            }
+            if (livingCount == 1)
+            {
+                ShowError("ONLY ONE SURVIVOR", 
+                    "You cannot offer an elimination deal when only one investigator is alive.\n\nThere are no other investigators left for them to eliminate.");
+                return;
+            }
+        }
+
+        // Limiter 2: Cannot send a loot body deal when no player is dead
+        if (isLootDeal && GetDeadInvestigatorCount() == 0)
+        {
+            ShowError("NO FALLEN PLAYERS", 
+                "You cannot offer a corpse looting deal when no investigators have died.\n\nWait until an investigator has fallen before offering this deal.");
+            return;
+        }
+
         OpenDealModal();
     }
 
@@ -652,10 +703,14 @@ public class GirlDealUI : MonoBehaviour
     private void RefreshLivingPlayers()
     {
         _livingPlayerIds.Clear();
+        _deadPlayerIds.Clear();
+        _offerRecipientIds.Clear();
+        _livingPlayerNames.Clear();
 
-        if (playerSelector == null || NetworkManager.Singleton == null) return;
+        if (NetworkManager.Singleton == null) return;
 
-        playerSelector.items.Clear();
+        if (playerSelector != null) playerSelector.items.Clear();
+        if (offerToSelector != null) offerToSelector.items.Clear();
 
         ulong localId = NetworkManager.Singleton.LocalClientId;
         var candidateIds = new HashSet<ulong>();
@@ -727,12 +782,19 @@ public class GirlDealUI : MonoBehaviour
                 }
             }
 
+            bool isDead = false;
             if (clientObj != null)
             {
                 if (clientObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0))
-                    continue;
+                    isDead = true;
                 if (clientObj.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead)
-                    continue;
+                    isDead = true;
+            }
+
+            if (isDead)
+            {
+                if (!_deadPlayerIds.Contains(id)) _deadPlayerIds.Add(id);
+                continue;
             }
 
             string pName = PlayerNameManager.GetPlayerName(id);
@@ -747,17 +809,131 @@ public class GirlDealUI : MonoBehaviour
             if (string.IsNullOrEmpty(pName)) pName = $"Investigator {id}";
 
             _livingPlayerIds.Add(id);
-            playerSelector.CreateNewItem(pName);
+            _offerRecipientIds.Add(id);
+            _livingPlayerNames[id] = pName;
+
+            if (playerSelector != null) playerSelector.CreateNewItem(pName);
+            if (offerToSelector != null) offerToSelector.CreateNewItem(pName);
         }
 
-        if (playerSelector.items.Count == 0)
+        // Also inspect SpawnedObjects in SpawnManager for any investigator corpses in the mine
+        if (NetworkManager.Singleton.SpawnManager != null && NetworkManager.Singleton.SpawnManager.SpawnedObjects != null)
         {
-            playerSelector.CreateNewItem("No Living Investigators");
+            foreach (var netObj in NetworkManager.Singleton.SpawnManager.SpawnedObjects.Values)
+            {
+                if (netObj == null) continue;
+                if (netObj.OwnerClientId == localId) continue;
+                if (netObj.GetComponent<GirlPossession>() != null || netObj.GetComponent<GirlStealth>() != null) continue;
+                if (netObj.GetComponent<MonsterAI>() != null || netObj.GetComponent<MonsterController>() != null) continue;
+
+                bool isDeadBody = false;
+                if (netObj.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0))
+                {
+                    isDeadBody = true;
+                }
+                else if (netObj.TryGetComponent<CorpseLootableNet>(out _))
+                {
+                    isDeadBody = true;
+                }
+
+                if (isDeadBody && !_deadPlayerIds.Contains(netObj.OwnerClientId))
+                {
+                    _deadPlayerIds.Add(netObj.OwnerClientId);
+                }
+            }
         }
 
-        playerSelector.useLocalization = false;
-        playerSelector.index = 0;
-        playerSelector.UpdateUI();
+        if (playerSelector != null)
+        {
+            if (playerSelector.items.Count == 0)
+            {
+                playerSelector.CreateNewItem("No Living Investigators");
+            }
+
+            playerSelector.useLocalization = false;
+            playerSelector.index = 0;
+            playerSelector.UpdateUI();
+        }
+
+        if (offerToSelector != null)
+        {
+            if (offerToSelector.items.Count == 0)
+            {
+                offerToSelector.CreateNewItem("No Living Investigators");
+            }
+
+            offerToSelector.useLocalization = false;
+            offerToSelector.index = 0;
+            offerToSelector.UpdateUI();
+        }
+
+        // Dynamically populate markSelector excluding the recipient selected in offerToSelector
+        UpdateMarkSelector();
+    }
+
+    private void OnOfferToSelectorChanged(int index)
+    {
+        UpdateMarkSelector();
+    }
+
+    private void UpdateMarkSelector()
+    {
+        _markTargetIds.Clear();
+        if (markSelector == null) return;
+
+        markSelector.items.Clear();
+
+        ulong selectedRecipientId = ulong.MaxValue;
+        int offerIdx = offerToSelector != null ? offerToSelector.index : (playerSelector != null ? playerSelector.index : 0);
+        if (_offerRecipientIds.Count > 0 && offerIdx >= 0 && offerIdx < _offerRecipientIds.Count)
+        {
+            selectedRecipientId = _offerRecipientIds[offerIdx];
+        }
+
+        foreach (ulong id in _livingPlayerIds)
+        {
+            // Rule: The selected player in "Offer To" must NEVER appear in "Mark"
+            if (id == selectedRecipientId) continue;
+
+            string pName = _livingPlayerNames.TryGetValue(id, out var n) ? n : $"Investigator {id}";
+            _markTargetIds.Add(id);
+            markSelector.CreateNewItem(pName);
+        }
+
+        if (markSelector.items.Count == 0)
+        {
+            markSelector.CreateNewItem("No Available Marks");
+        }
+
+        markSelector.useLocalization = false;
+        markSelector.index = 0;
+        markSelector.UpdateUI();
+    }
+
+    public int GetLivingInvestigatorCount()
+    {
+        return _livingPlayerIds.Count;
+    }
+
+    public int GetDeadInvestigatorCount()
+    {
+        return _deadPlayerIds.Count;
+    }
+
+    public static bool IsKillDeal(string title, string desc)
+    {
+        string t = (title ?? "").ToLowerInvariant();
+        string d = (desc ?? "").ToLowerInvariant();
+        return t.Contains("kill") || t.Contains("eliminate") || t.Contains("assassin") ||
+               d.Contains("kill") || d.Contains("eliminate") || d.Contains("assassin");
+    }
+
+    public static bool IsLootDeal(string title, string desc)
+    {
+        string t = (title ?? "").ToLowerInvariant();
+        string d = (desc ?? "").ToLowerInvariant();
+        return t.Contains("loot") || t.Contains("corpse") || t.Contains("body") ||
+               d.Contains("loot") || d.Contains("corpse") || d.Contains("body");
     }
 
     // =========================================================================
@@ -768,23 +944,77 @@ public class GirlDealUI : MonoBehaviour
     {
         if (NetworkManager.Singleton == null) return;
 
-        if (_livingPlayerIds.Count == 0)
+        int livingCount = GetLivingInvestigatorCount();
+        if (livingCount == 0)
         {
-            ShowError("NO INVESTIGATORS", "There are no living investigators available to receive a dark deal.");
+            ShowError("ZERO INVESTIGATORS", "There are zero players in the game to receive a dark deal.");
             return;
         }
 
-        int selectedIdx = playerSelector != null ? playerSelector.index : 0;
-        if (selectedIdx < 0 || selectedIdx >= _livingPlayerIds.Count)
+        bool isLootDeal = IsLootDeal(_currentCardTitle, _currentCardDesc);
+        bool isKillDeal = !isLootDeal && IsKillDeal(_currentCardTitle, _currentCardDesc);
+        bool grantWeapon = !isLootDeal;
+
+        // Limiter Guard: Kill deal cannot be sent when 0 or only 1 living investigator remains
+        if (isKillDeal)
         {
-            ShowError("INVALID TARGET", "Please select a valid living investigator.");
+            if (livingCount == 0)
+            {
+                ShowError("ZERO INVESTIGATORS", "There are zero living investigators in the mine.\n\nYou cannot offer an elimination deal when there are zero players in the game.");
+                return;
+            }
+            if (livingCount == 1)
+            {
+                ShowError("ONLY ONE SURVIVOR", "You cannot offer an elimination deal when only one investigator is alive.\n\nThere are no other investigators left for them to eliminate.");
+                return;
+            }
+        }
+
+        // Limiter Guard: Loot body deal cannot be sent when no investigator has died
+        if (isLootDeal && GetDeadInvestigatorCount() == 0)
+        {
+            ShowError("NO FALLEN PLAYERS", 
+                "You cannot offer a corpse looting deal when no investigators have died.\n\nWait until an investigator has fallen before offering this deal.");
             return;
         }
 
-        ulong targetRecipientId = _livingPlayerIds[selectedIdx];
-        string targetPlayerName = playerSelector != null && playerSelector.items.Count > selectedIdx
-            ? playerSelector.items[selectedIdx].itemTitle
-            : $"Investigator {targetRecipientId}";
+        // 1. Determine target recipient (Offer To)
+        int selectedOfferIdx = offerToSelector != null ? offerToSelector.index : (playerSelector != null ? playerSelector.index : 0);
+        if (_offerRecipientIds.Count == 0 || selectedOfferIdx < 0 || selectedOfferIdx >= _offerRecipientIds.Count)
+        {
+            ShowError("INVALID RECIPIENT", "Please select a valid living investigator to offer the deal to.");
+            return;
+        }
+
+        ulong targetRecipientId = _offerRecipientIds[selectedOfferIdx];
+        string targetPlayerName = _livingPlayerNames.TryGetValue(targetRecipientId, out var rName)
+            ? rName
+            : (offerToSelector != null && offerToSelector.items.Count > selectedOfferIdx ? offerToSelector.items[selectedOfferIdx].itemTitle : $"Investigator {targetRecipientId}");
+
+        // 2. Determine target mark (Mark) for elimination deals
+        ulong targetMarkId = ulong.MaxValue;
+        string targetMarkName = string.Empty;
+
+        if (isKillDeal)
+        {
+            int markIdx = markSelector != null ? markSelector.index : 0;
+            if (_markTargetIds.Count == 0 || markIdx < 0 || markIdx >= _markTargetIds.Count)
+            {
+                ShowError("NO VALID MARK", "There is no other living investigator available to mark for elimination.");
+                return;
+            }
+
+            targetMarkId = _markTargetIds[markIdx];
+            if (targetMarkId == targetRecipientId)
+            {
+                ShowError("INVALID MARK", "The investigator receiving the deal cannot also be the mark!");
+                return;
+            }
+
+            targetMarkName = _livingPlayerNames.TryGetValue(targetMarkId, out var mName)
+                ? mName
+                : (markSelector != null && markSelector.items.Count > markIdx ? markSelector.items[markIdx].itemTitle : $"Investigator {targetMarkId}");
+        }
 
         // Rule: If target player already has a pending offer, block sending until they accept or decline
         if (DealSystemNet.Instance != null && DealSystemNet.Instance.HasPendingOffer(targetRecipientId))
@@ -800,7 +1030,7 @@ public class GirlDealUI : MonoBehaviour
             return;
         }
 
-        // 1. Read input values
+        // 3. Read input values
         int rewardAmount = rewardSlider != null && rewardSlider.mainSlider != null
             ? Mathf.RoundToInt(rewardSlider.mainSlider.value)
             : 30;
@@ -813,7 +1043,7 @@ public class GirlDealUI : MonoBehaviour
             ? Mathf.RoundToInt(timeSlider.mainSlider.value)
             : 120;
 
-        // 2. Validate Rule 1: Reward cannot exceed 60% of Girl's total Cinder amount
+        // 4. Validate Rule 1: Reward cannot exceed 60% of Girl's total Cinder amount
         int girlCredits = GetGirlTotalCredits();
         int maxAllowedReward = Mathf.FloorToInt(girlCredits * 0.60f);
 
@@ -824,7 +1054,7 @@ public class GirlDealUI : MonoBehaviour
             return;
         }
 
-        // 3. Validate Rule 2: Penalty cannot exceed 50% of the reward amount
+        // 5. Validate Rule 2: Penalty cannot exceed 50% of the reward amount
         int maxAllowedPenalty = Mathf.FloorToInt(rewardAmount * 0.50f);
 
         if (penaltyAmount > maxAllowedPenalty)
@@ -834,7 +1064,7 @@ public class GirlDealUI : MonoBehaviour
             return;
         }
 
-        // 4. Validate Rule 3: Completion time must be between 30s and 180s (3 minutes)
+        // 6. Validate Rule 3: Completion time must be between 30s and 180s (3 minutes)
         if (completionTime < 30 || completionTime > 180)
         {
             ShowError("INVALID TIME LIMIT", 
@@ -852,11 +1082,6 @@ public class GirlDealUI : MonoBehaviour
             return;
         }
 
-        // CRITICAL: Loot Body deal must NOT grant any weapon abilities! Only assassination/kill deals grant weapons.
-        bool isLootDeal = (!string.IsNullOrEmpty(_currentCardTitle) && _currentCardTitle.ToLower().Contains("loot"))
-            || (!string.IsNullOrEmpty(_currentCardDesc) && _currentCardDesc.ToLower().Contains("loot"));
-        bool grantWeapon = !isLootDeal;
-
         // All constraints passed! Dispatch deal
         string dealTitle = !string.IsNullOrWhiteSpace(_currentCardTitle) 
             ? _currentCardTitle 
@@ -866,13 +1091,13 @@ public class GirlDealUI : MonoBehaviour
             ? _currentCardDesc 
             : (isLootDeal 
                 ? "Locate and loot a fallen investigator's corpse to claim your bounty." 
-                : "Eliminate an investigator to claim your reward.");
+                : (!string.IsNullOrEmpty(targetMarkName) ? $"Eliminate {targetMarkName} to claim your reward." : "Eliminate an investigator to claim your reward."));
 
         string rewardStr = $"{rewardAmount} {CurrencyConfig.CurrencyPlural}";
 
         if (DealSystemNet.Instance != null)
         {
-            DealSystemNet.Instance.SendDeal(targetRecipientId, dealTitle, dealTerms, rewardStr, grantWeapon, completionTime, penaltyAmount);
+            DealSystemNet.Instance.SendDeal(targetRecipientId, dealTitle, dealTerms, rewardStr, grantWeapon, completionTime, penaltyAmount, targetMarkId, targetMarkName);
         }
 
         _dealsSentThisMatch++;
@@ -880,7 +1105,8 @@ public class GirlDealUI : MonoBehaviour
 
         if (NotificationManager.Instance != null)
         {
-            NotificationManager.Instance.ShowNotification($"Dark Deal dispatched to {targetPlayerName} ({completionTime}s timer, {rewardAmount}cr reward)!", 3.5f);
+            string markSuffix = isKillDeal && !string.IsNullOrEmpty(targetMarkName) ? $" [Mark: {targetMarkName}]" : "";
+            NotificationManager.Instance.ShowNotification($"Dark Deal dispatched to {targetPlayerName}{markSuffix} ({completionTime}s timer, {rewardAmount}cr reward)!", 3.5f);
         }
 
         // Close modals and panel
@@ -916,6 +1142,9 @@ public class GirlDealUI : MonoBehaviour
         if (errorModal.windowDescription != null) errorModal.windowDescription.text = message;
 
         try { errorModal.UpdateUI(); } catch { }
+
+        if (!errorModal.gameObject.activeSelf)
+            errorModal.gameObject.SetActive(true);
 
         errorModal.OpenWindow();
 

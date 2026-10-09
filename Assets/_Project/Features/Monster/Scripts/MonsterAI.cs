@@ -170,6 +170,29 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     [Tooltip("Audio clip for screech or hurt groan when damaged.")]
     public AudioClip hurtSoundClip;
 
+    [Header("Monster Footsteps & Surface Audio")]
+    [Tooltip("AudioSource used to play footstep sounds. If empty, uses main audioSource or adds one.")]
+    public AudioSource footstepAudioSource;
+    [Tooltip("Clips played when stepping on dirt, rock, gravel, or mine floors.")]
+    public AudioClip[] mineFootstepClips;
+    [Tooltip("Clips played when stepping on metal floors, railway tracks, iron grating, or carts.")]
+    public AudioClip[] metalFootstepClips;
+    [Tooltip("Clips played when the Zombie places its crawling hands on the ground.")]
+    public AudioClip[] zombieHandClips;
+    [Tooltip("Base volume for monster footsteps.")]
+    [Range(0f, 2.5f)] public float footstepVolume = 1.0f;
+    [Tooltip("Volume multiplier for Berserker heavy stomps.")]
+    public float berserkerFootstepMultiplier = 1.55f;
+    [Tooltip("Pitch multiplier for Berserker footsteps (lower pitch = heavier mass).")]
+    public float berserkerFootstepPitch = 0.82f;
+    [Tooltip("Raycast distance to detect floor surface material.")]
+    public float surfaceCheckDistance = 1.4f;
+    [Tooltip("Tag marking metal surfaces.")]
+    public string metalTag = "Metal";
+
+    protected float _footstepDistanceCounter = 0f;
+    protected float _handstepDistanceCounter = 0f;
+
     [Header("Targeting & Threat Aggro")]
     [Tooltip("Current target being pursued.")]
     public Transform target;
@@ -286,6 +309,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected float _guardIdleTimer = 2.0f;
     protected float _guardWalkTimer = 0f;
     protected Vector3 _guardWanderDestination;
+    protected Coroutine _guardBlockageCoroutine;
+    protected bool _isGuardBlockageTurning = false;
+    protected float _guardStuckTimer = 0f;
+    protected bool _isRoamRunningBurst = false;
+    protected float _roamBurstTimer = 0f;
 
     // Smart pathing & Anti-Stuck state
     protected float _stuckTimer = 0f;
@@ -638,6 +666,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             ApplyLocomotionFriction();
         }
 
+        UpdateFootstepCadence();
         UpdateDynamicStrideSync();
     }
 
@@ -844,8 +873,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         // Find initial closest player to look at while screaming
         target = FindBestTarget();
 
-        // 1. Trigger Animation first
+        // 1. Trigger Animation first (Server & Client sync)
         TriggerScreamAnimation();
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            TriggerScreamAnimationClientRpc();
+        }
 
         SetLocomotionAnimSpeed(1.0f);
         SafeSetFloat(_speedHash, 0f);
@@ -869,17 +902,24 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
     }
 
+    [ClientRpc]
+    protected void TriggerScreamAnimationClientRpc()
+    {
+        if (IsServer) return;
+        TriggerScreamAnimation();
+    }
+
     protected virtual void Play3DScream()
     {
         if (spawnScreamClip != null && audioSource != null)
         {
-            audioSource.pitch = monsterType == MonsterType.Berserker ? Random.Range(0.85f, 0.95f) : Random.Range(1.05f, 1.20f);
+            audioSource.pitch = 1.0f;
             audioSource.clip = spawnScreamClip;
             audioSource.volume = GameSettingsManager.SFXVolume;
             audioSource.Play();
         }
 
-        // Broadcast to clients via RPC if networked
+        // Broadcast audio trigger to clients via RPC if networked
         if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
         {
             PlaySpawnScreamClientRpc();
@@ -889,17 +929,15 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     [ClientRpc]
     protected void PlaySpawnScreamClientRpc()
     {
-        if (IsServer) return; // Already played locally
+        if (IsServer) return; // Already played locally on server
 
         if (audioSource != null && spawnScreamClip != null)
         {
-            audioSource.pitch = monsterType == MonsterType.Berserker ? 0.90f : 1.15f;
+            audioSource.pitch = 1.0f;
             audioSource.clip = spawnScreamClip;
             audioSource.volume = GameSettingsManager.SFXVolume;
             audioSource.Play();
         }
-
-        TriggerScreamAnimation();
     }
 
     protected virtual void TriggerScreamAnimation()
@@ -1010,6 +1048,139 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         HandleHuntingBehavior();
     }
 
+    /// <summary>
+    /// Finds a valid NavMesh guard spot on the perimeter of the leader (Vengeful Spirit / Girl)
+    /// that does NOT pierce through solid cavern walls or cross unreachable NavMesh islands.
+    /// Prioritizes rear and flank positions to maintain clear camera sightlines for the player.
+    /// </summary>
+    public Vector3 FindUnobstructedPerimeterSpot(Transform leader, float preferredDist = 4.2f, float minClearance = 3.0f)
+    {
+        if (leader == null) return transform.position;
+        if (_pathCalc == null) _pathCalc = new NavMeshPath();
+
+        // Flanking & rear angles tested first: 180 (rear), +/-145, +/-115, +/-85, +/-55, +/-25, 0 (front)
+        float[] candidateAngles = { 180f, 145f, -145f, 115f, -115f, 85f, -85f, 55f, -55f, 25f, -25f, 0f };
+        float[] candidateDistances = { preferredDist, preferredDist * 0.85f, preferredDist * 1.15f, minClearance };
+
+        Vector3 leaderPos = leader.position;
+        Vector3 leaderFwd = leader.forward;
+        if (leaderFwd.sqrMagnitude < 0.01f) leaderFwd = Vector3.forward;
+
+        LayerMask mask = (wallObstacleMask != 0) ? wallObstacleMask : LayerMask.GetMask("Default", "Environment", "Obstacle");
+
+        foreach (float dist in candidateDistances)
+        {
+            foreach (float angle in candidateAngles)
+            {
+                Vector3 dir = Quaternion.Euler(0f, angle, 0f) * leaderFwd;
+                Vector3 testPoint = leaderPos + dir * dist;
+
+                // 1. Must be on walkable NavMesh
+                if (NavMesh.SamplePosition(testPoint, out NavMeshHit navHit, 2.5f, NavMesh.AllAreas))
+                {
+                    // 2. Direct line from leader to spot must not cross NavMesh boundaries / cave walls
+                    if (!NavMesh.Raycast(leaderPos, navHit.position, out _, NavMesh.AllAreas))
+                    {
+                        // 3. Physical linecast check: ensure no rock or wall colliders between leader and spot
+                        Vector3 rayStart = leaderPos + Vector3.up * 0.6f;
+                        Vector3 rayEnd = navHit.position + Vector3.up * 0.6f;
+                        if (!Physics.Linecast(rayStart, rayEnd, mask, QueryTriggerInteraction.Ignore))
+                        {
+                            // 4. Monster must have a complete, navigable path to this spot
+                            if (_agent != null && _agent.isOnNavMesh)
+                            {
+                                if (_agent.CalculatePath(navHit.position, _pathCalc) && _pathCalc.status == NavMeshPathStatus.PathComplete)
+                                {
+                                    return navHit.position;
+                                }
+                            }
+                            else
+                            {
+                                return navHit.position;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Fallback: Sample closest valid navmesh point along vector to leader without piercing walls
+        Vector3 fallbackDir = (transform.position - leaderPos).normalized;
+        if (fallbackDir.sqrMagnitude < 0.01f) fallbackDir = -leaderFwd;
+        Vector3 fallbackCandidate = leaderPos + fallbackDir * Mathf.Max(minClearance, 3.2f);
+        if (NavMesh.SamplePosition(fallbackCandidate, out NavMeshHit fallHit, 3.0f, NavMesh.AllAreas))
+        {
+            return fallHit.position;
+        }
+
+        return leaderPos;
+    }
+
+    /// <summary>
+    /// Smoothly pauses when a guard path encounters a blockage (wall, obstacle, or stuck),
+    /// plays authentic turning animation to completion towards a clear alternate perimeter direction,
+    /// and then resumes walking.
+    /// </summary>
+    protected virtual IEnumerator GuardBlockageTurnRoutine(Vector3 alternateSpot, float resumeSpeed)
+    {
+        _isGuardBlockageTurning = true;
+        _guardStuckTimer = 0f;
+
+        if (_agent != null && _agent.isOnNavMesh && _agent.enabled)
+        {
+            _agent.isStopped = true;
+            _agent.velocity = Vector3.zero;
+        }
+
+        PlayPatrolIdleLocomotion();
+
+        Vector3 turnDir = alternateSpot - transform.position;
+        turnDir.y = 0f;
+
+        if (turnDir.sqrMagnitude > 0.05f)
+        {
+            if (monsterType == MonsterType.Zombie && currentPosture == ZombiePosture.Crawling)
+            {
+                yield return StartCoroutine(StandUpRoutine());
+            }
+
+            UpdateTurningAnimation(turnDir);
+
+            Quaternion targetRot = Quaternion.LookRotation(turnDir.normalized);
+            float angleToTurn = Quaternion.Angle(transform.rotation, targetRot);
+            float turnAnimDuration = (monsterType == MonsterType.Berserker) ? 1.05f : 1.25f;
+            float turnRate = angleToTurn / Mathf.Max(0.1f, turnAnimDuration * 0.85f);
+
+            float elapsed = 0f;
+            while (elapsed < turnAnimDuration)
+            {
+                transform.rotation = Quaternion.RotateTowards(transform.rotation, targetRot, turnRate * Time.deltaTime);
+                elapsed += Time.deltaTime;
+                yield return null;
+            }
+
+            transform.rotation = targetRot;
+            StopTurningAnimation(true);
+            yield return new WaitForSeconds(0.12f);
+        }
+
+        PlayPatrolWalkLocomotion(resumeSpeed);
+        yield return new WaitForSeconds(0.10f);
+
+        if (_agent != null && _agent.isOnNavMesh && _agent.enabled)
+        {
+            _nominalAgentSpeed = resumeSpeed;
+            _agent.speed = resumeSpeed;
+            _agent.velocity = Vector3.zero;
+            _agent.isStopped = false;
+            _agent.SetDestination(alternateSpot);
+            _guardWalkTimer = Random.Range(3.5f, 6.0f);
+        }
+
+        _isGuardBlockageTurning = false;
+        _guardBlockageCoroutine = null;
+    }
+
     protected virtual void HandleGuardingBehavior()
     {
         Transform leader = _commandLeader != null ? _commandLeader : (GameManager.Instance != null ? GameManager.Instance.GirlTransform : null);
@@ -1025,21 +1196,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             return;
         }
 
-        // --- Berserker Guard Behavior ---
-        float angleOffset = (GetInstanceID() % 6) * 60f * Mathf.Deg2Rad;
-        Vector3 guardOffset = new Vector3(Mathf.Sin(angleOffset), 0f, Mathf.Cos(angleOffset)) * 4.2f;
-        Vector3 targetSpot = leader.position + guardOffset;
-
+        // --- Berserker Guard Behavior Fallback in base ---
+        Vector3 targetSpot = FindUnobstructedPerimeterSpot(leader, 4.2f, 3.2f);
         float distToGirl = Vector3.Distance(transform.position, leader.position);
-
-        // Respectful personal space: if the Girl walks into the monster (< 3.2m), yield space and step back
-        if (distToGirl < 3.2f)
-        {
-            Vector3 pushBackDir = (transform.position - leader.position).normalized;
-            if (pushBackDir.sqrMagnitude < 0.01f) pushBackDir = -leader.forward;
-            targetSpot = leader.position + pushBackDir * 4.2f;
-        }
-
         float distToSpot = Vector3.Distance(transform.position, targetSpot);
 
         if (_recallGraceTimer > 0f)
@@ -1058,7 +1217,6 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
                 if (target != null)
                 {
-                    // LEASH: if player runs far away, return to the girl!
                     if (distToThreat > 8.5f && girlToThreat > 8.0f)
                     {
                         target = null;
@@ -1079,7 +1237,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                     {
                         _agent.isStopped = false;
                         _agent.speed = runSpeed;
-                        _agent.SetDestination(threat.position);
+                        _agent.SetDestination(CalculatePredictiveChaseTarget(threat));
                         SafeSetFloat(_speedHash, runSpeed);
                         SafeSetBool(_isRunningHash, true);
                         return;
@@ -1087,13 +1245,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 }
                 else
                 {
-                    // New threat: only chase if an investigator comes close!
                     if (girlToThreat <= 5.5f || distToThreat <= 6.0f)
                     {
                         target = threat;
                         _agent.isStopped = false;
                         _agent.speed = runSpeed;
-                        _agent.SetDestination(threat.position);
+                        _agent.SetDestination(CalculatePredictiveChaseTarget(threat));
                         SafeSetFloat(_speedHash, runSpeed);
                         SafeSetBool(_isRunningHash, true);
                         return;
@@ -1106,43 +1263,44 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             }
         }
 
+        // Personal space buffer: step back if leader walks directly into monster (< 3.0m)
+        if (distToGirl < 3.0f)
+        {
+            Vector3 pushBackDir = (transform.position - leader.position).normalized;
+            if (pushBackDir.sqrMagnitude < 0.01f) pushBackDir = -leader.forward;
+            Vector3 yieldSpot = leader.position + pushBackDir * 4.2f;
+            if (NavMesh.SamplePosition(yieldSpot, out NavMeshHit backHit, 2.0f, NavMesh.AllAreas))
+            {
+                _isGuardIdling = false;
+                _agent.isStopped = false;
+                _agent.speed = walkSpeed;
+                _agent.SetDestination(backHit.position);
+                PlayPatrolWalkLocomotion(walkSpeed);
+                return;
+            }
+        }
+
         if (distToSpot <= 1.2f || (distToGirl <= 4.2f && _agent.velocity.magnitude < 0.2f))
         {
             _agent.isStopped = true;
             SafeSetFloat(_speedHash, 0f);
             SafeSetBool(_isRunningHash, false);
-
-            // Natural stationary idle: DO NOT snap around to face the Girl!
             if (_turnActiveTimer <= 0f) StopTurningAnimation();
         }
         else
         {
             _agent.isStopped = false;
-            if (distToGirl > 5.5f)
-            {
-                _agent.speed = runSpeed;
-                SafeSetFloat(_speedHash, runSpeed);
-                SafeSetBool(_isRunningHash, true);
-            }
-            else
-            {
-                float trotSpeed = 3.2f;
-                _agent.speed = trotSpeed;
-                SafeSetFloat(_speedHash, trotSpeed);
-                SafeSetBool(_isRunningHash, false);
-            }
-
+            float spd = (distToGirl > 6.0f) ? runSpeed : 3.2f;
+            _agent.speed = spd;
+            SafeSetFloat(_speedHash, spd);
+            SafeSetBool(_isRunningHash, distToGirl > 6.0f);
             _agent.SetDestination(targetSpot);
         }
     }
 
     /// <summary>
     /// Handles Zombie Guarding behavior:
-    /// - Close to Girl (<=2.5m): Stands up, walks randomly, stops, idles, walks again.
-    /// - Moving with Girl (2.5m - 6m): Stands up and walks alongside her.
-    /// - Far from Girl (6m - 16m): Stands up and runs.
-    /// - Quite Far from Girl (>16m): Crawls rapidly on all fours to catch up.
-    /// - Threat approaching: Crawls if far, stands up when close and attacks!
+    /// Follows the Girl with tiered locomotion and hysteretic idle/wander guard routines near her.
     /// </summary>
     private void HandleZombieGuardingBehavior(Transform leader)
     {
@@ -1164,7 +1322,6 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
                 if (target != null)
                 {
-                    // LEASH: if player runs far away, drop chase and return to the girl!
                     if (distToThreat > 8.5f && girlToThreat > 8.0f)
                     {
                         target = null;
@@ -1179,7 +1336,6 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 }
                 else
                 {
-                    // New threat: only chase if an investigator comes close!
                     if (distToThreat <= 6.0f || girlToThreat <= 5.5f)
                     {
                         target = threat;
@@ -1196,33 +1352,31 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             }
         }
 
-        // 2. No threat: follow / guard the Girl with tiered locomotion
+        // 2. Guarding State Machine with clear Hysteresis:
         if (currentPosture == ZombiePosture.StandingUp)
         {
             RotateTowardsTarget(leader);
             return;
         }
 
-        // TIER 1: Quite Far (> crawlTransitionDistance, ~16m) -> Drop to all fours and crawl sprint
+        // Far away (> crawlTransitionDistance, ~16m) -> Drop to crawl sprint
         if (distToGirl > crawlTransitionDistance)
         {
             _isGuardIdling = false;
             _guardIdleTimer = 0f;
-
             DropToCrawl();
             _agent.isStopped = false;
             _agent.speed = crawlSpeed;
-            _agent.SetDestination(leader.position);
+            _agent.SetDestination(FindUnobstructedPerimeterSpot(leader, 4.0f, 3.0f));
             PlayZombieCrawlingLocomotion();
             return;
         }
 
-        // TIER 2: Too Far (6m - 16m) -> Stand up and run standing
-        if (distToGirl > 6.0f)
+        // Moderate distance (7.5m - 16m) -> Stand up and run standing
+        if (distToGirl > 7.5f)
         {
             _isGuardIdling = false;
             _guardIdleTimer = 0f;
-
             if (currentPosture == ZombiePosture.Crawling)
             {
                 StartStandUp();
@@ -1231,32 +1385,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
             _agent.isStopped = false;
             _agent.speed = standRunSpeed;
-            _agent.SetDestination(leader.position);
+            _agent.SetDestination(FindUnobstructedPerimeterSpot(leader, 4.2f, 3.0f));
             PlayZombieStandingRunLocomotion();
             return;
         }
 
-        // TIER 3: Moving with her (4.2m - 6.5m) -> Stand up and walk with her
-        if (distToGirl > 4.2f)
-        {
-            _isGuardIdling = false;
-            _guardIdleTimer = 0f;
-
-            if (currentPosture == ZombiePosture.Crawling)
-            {
-                StartStandUp();
-                return;
-            }
-
-            _agent.isStopped = false;
-            _agent.speed = walkSpeed;
-            Vector3 approachSpot = leader.position + (transform.position - leader.position).normalized * 4.2f;
-            _agent.SetDestination(approachSpot);
-            PlayZombieStandingWalkLocomotion();
-            return;
-        }
-
-        // TIER 4: Close with the Girl (<= 4.2m) -> Maintain personal space, wander perimeter, stop, idle, repeat
+        // Close to the Girl (<= 7.5m) -> Hysteresis Guard Routine
         if (currentPosture == ZombiePosture.Crawling)
         {
             StartStandUp();
@@ -1268,9 +1402,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     private void HandleZombieCloseGuardRoutine(Transform leader)
     {
+        if (_isGuardBlockageTurning || _guardBlockageCoroutine != null) return;
+
         float distToGirl = Vector3.Distance(transform.position, leader.position);
 
-        // Personal space buffer: if the Girl walks directly into the zombie (< 3.0m), gently step back to 4.2m
+        // Personal space buffer: if the Girl walks directly into the monster (< 3.0m), gently step back
         if (distToGirl < 3.0f)
         {
             _isGuardIdling = false;
@@ -1290,9 +1426,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (_isGuardIdling)
         {
             _agent.isStopped = true;
+            _agent.velocity = Vector3.zero;
             PlayZombieIdleLocomotion();
 
-            // Natural stationary idle: DO NOT snap around to face the Girl!
             if (_turnActiveTimer <= 0f) StopTurningAnimation();
 
             _guardIdleTimer -= Time.deltaTime;
@@ -1305,6 +1441,27 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         else
         {
             _guardWalkTimer -= Time.deltaTime;
+
+            // Blockage check: if trying to walk but velocity is near zero for > 0.85s or forward wall detected
+            if (_agent.hasPath && !_agent.isStopped)
+            {
+                if (_agent.velocity.sqrMagnitude < 0.04f)
+                {
+                    _guardStuckTimer += Time.deltaTime;
+                }
+                else
+                {
+                    _guardStuckTimer = 0f;
+                }
+
+                if (_guardStuckTimer > 0.85f || CheckForwardObstacleInChase(_guardWanderDestination))
+                {
+                    Vector3 altSpot = FindUnobstructedPerimeterSpot(leader, Random.Range(3.5f, 4.8f), 3.0f);
+                    _guardBlockageCoroutine = StartCoroutine(GuardBlockageTurnRoutine(altSpot, walkSpeed * 0.85f));
+                    return;
+                }
+            }
+
             bool arrived = !_agent.pathPending && _agent.hasPath && _agent.remainingDistance <= 1.0f;
 
             if (arrived || _guardWalkTimer <= 0f)
@@ -1312,6 +1469,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 _isGuardIdling = true;
                 _guardIdleTimer = Random.Range(3.5f, 6.5f);
                 _agent.isStopped = true;
+                _agent.velocity = Vector3.zero;
                 PlayZombieIdleLocomotion();
                 if (_turnActiveTimer <= 0f) StopTurningAnimation();
             }
@@ -1326,22 +1484,16 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     private void PickNewGuardWanderSpot(Transform leader)
     {
-        _guardWalkTimer = Random.Range(3.5f, 6.5f);
+        _guardWalkTimer = Random.Range(3.5f, 6.0f);
+        _guardStuckTimer = 0f;
 
-        float randomAngle = Random.Range(0f, 360f) * Mathf.Deg2Rad;
-        // Wander along a respectful perimeter 3.8m to 5.2m from the Girl
-        float randomDist = Random.Range(3.8f, 5.2f);
-        Vector3 offset = new Vector3(Mathf.Sin(randomAngle), 0f, Mathf.Cos(randomAngle)) * randomDist;
-        Vector3 candidateSpot = leader.position + offset;
+        Vector3 candidateSpot = FindUnobstructedPerimeterSpot(leader, Random.Range(3.8f, 5.2f), 3.0f);
+        _guardWanderDestination = candidateSpot;
 
-        if (NavMesh.SamplePosition(candidateSpot, out NavMeshHit hit, 2.5f, NavMesh.AllAreas))
+        if (_agent != null && _agent.isOnNavMesh)
         {
-            _guardWanderDestination = hit.position;
-            if (_agent != null && _agent.isOnNavMesh)
-            {
-                _agent.isStopped = false;
-                _agent.SetDestination(_guardWanderDestination);
-            }
+            _agent.isStopped = false;
+            _agent.SetDestination(_guardWanderDestination);
         }
     }
 
@@ -1570,6 +1722,22 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         ExecuteRoam(walkSpeed);
     }
 
+    protected virtual void PlayPatrolRunLocomotion(float speed)
+    {
+        if (monsterType == MonsterType.Zombie)
+        {
+            if (currentPosture == ZombiePosture.Crawling) PlayZombieCrawlingLocomotion();
+            else PlayZombieStandingRunLocomotion();
+        }
+        else
+        {
+            float curSpeed = _animator != null ? _animator.GetFloat(_speedHash) : 0f;
+            SafeSetFloat(_speedHash, Mathf.MoveTowards(curSpeed, speed, Time.deltaTime * 5f));
+            SafeSetBool(_isRunningHash, true);
+            SafeSetBool(_isWalkingHash, false);
+        }
+    }
+
     protected virtual void PlayPatrolWalkLocomotion(float speed)
     {
         if (monsterType == MonsterType.Zombie)
@@ -1623,6 +1791,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         // State 1: Monster is resting / idling realistically before moving
         if (_isRoamWaiting)
         {
+            _isRoamRunningBurst = false;
             _agent.isStopped = true;
             _agent.velocity = Vector3.MoveTowards(_agent.velocity, Vector3.zero, stopFriction * Time.deltaTime);
             PlayPatrolIdleLocomotion();
@@ -1636,7 +1805,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             return;
         }
 
-        // State 2: Monster is actively walking towards its chosen waypoint
+        // State 2: Monster is actively walking or sprint bursting towards its chosen waypoint
         UpdateAntiStuck();
 
         if (_roamMinTravelTimer > 0f)
@@ -1670,15 +1839,26 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 if (cornerAngle > 60f && _agent.remainingDistance > 2.0f)
                 {
                     if (_roamTurnCoroutine != null) StopCoroutine(_roamTurnCoroutine);
-                    _roamTurnCoroutine = StartCoroutine(RoamTurnTowardsDestinationRoutine(_agent.steeringTarget, patrolSpeed));
+                    Vector3 resumeDest = _roamDestination != Vector3.zero ? _roamDestination : _agent.destination;
+                    _roamTurnCoroutine = StartCoroutine(RoamTurnTowardsDestinationRoutine(resumeDest, patrolSpeed));
                     return;
                 }
+            }
+        }
+
+        if (_isRoamRunningBurst)
+        {
+            _roamBurstTimer -= Time.deltaTime;
+            if (_roamBurstTimer <= 0f || (_agent.hasPath && _agent.remainingDistance <= 2.2f))
+            {
+                _isRoamRunningBurst = false;
             }
         }
 
         // Reached destination or timer expired -> smooth stop and enter realistic idle pause
         if (hasArrived || _roamTimer <= 0f)
         {
+            _isRoamRunningBurst = false;
             _isRoamWaiting = true;
             _roamWaitTimer = Random.Range(4.0f, 7.5f);
             _agent.isStopped = true;
@@ -1687,11 +1867,21 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             return;
         }
 
-        // Walk smoothly along the path
+        // Move along the path (walk or organic running burst)
         _agent.isStopped = false;
-        _nominalAgentSpeed = patrolSpeed;
-        _agent.speed = Mathf.MoveTowards(_agent.speed, patrolSpeed, Time.deltaTime * 3.5f);
-        PlayPatrolWalkLocomotion(patrolSpeed);
+        if (_isRoamRunningBurst)
+        {
+            float burstSpeed = (monsterType == MonsterType.Zombie) ? standRunSpeed : runSpeed;
+            _nominalAgentSpeed = burstSpeed;
+            _agent.speed = Mathf.MoveTowards(_agent.speed, burstSpeed, Time.deltaTime * 5f);
+            PlayPatrolRunLocomotion(burstSpeed);
+        }
+        else
+        {
+            _nominalAgentSpeed = patrolSpeed;
+            _agent.speed = Mathf.MoveTowards(_agent.speed, patrolSpeed, Time.deltaTime * 3.5f);
+            PlayPatrolWalkLocomotion(patrolSpeed);
+        }
     }
 
     protected void PickNewRoamDestination(float patrolSpeed = -1f)
@@ -1787,6 +1977,18 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             toDest.y = 0f;
             float turnAngle = Vector3.Angle(transform.forward, toDest);
 
+            // 40% chance of an organic sprint burst down the corridor so roaming doesn't look like a loop
+            if (Vector3.Distance(transform.position, bestPoint) >= 6.5f && Random.value < 0.40f)
+            {
+                _isRoamRunningBurst = true;
+                _roamBurstTimer = Random.Range(3.5f, 5.5f);
+            }
+            else
+            {
+                _isRoamRunningBurst = false;
+                _roamBurstTimer = 0f;
+            }
+
             // If angle requires turning, go into idle state and take time to turn properly with turning animation
             if (turnAngle > 25f && toDest.sqrMagnitude > 0.1f)
             {
@@ -1859,14 +2061,21 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
 
         // 3. Resume locomotion forward along the new corridor path smoothly:
-        // Set nominal speed and trigger walk locomotion FIRST so legs and stride begin blending BEFORE agent translates
-        PlayPatrolWalkLocomotion(patrolSpeed);
+        float resumeSpd = _isRoamRunningBurst ? ((monsterType == MonsterType.Zombie) ? standRunSpeed : runSpeed) : patrolSpeed;
+        if (_isRoamRunningBurst)
+        {
+            PlayPatrolRunLocomotion(resumeSpd);
+        }
+        else
+        {
+            PlayPatrolWalkLocomotion(patrolSpeed);
+        }
         yield return new WaitForSeconds(0.12f); // Brief gait engagement pause completely eliminating floor gliding
 
         if (_agent != null && _agent.isOnNavMesh && _agent.enabled)
         {
-            _nominalAgentSpeed = patrolSpeed;
-            _agent.speed = patrolSpeed;
+            _nominalAgentSpeed = resumeSpd;
+            _agent.speed = resumeSpd;
             _agent.velocity = Vector3.zero;
             _agent.isStopped = false;
             _agent.SetDestination(destination);
@@ -1874,6 +2083,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             _roamMinTravelTimer = 1.2f;
         }
 
+        yield return null;
         _roamTurnCoroutine = null;
     }
 
@@ -1938,9 +2148,32 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                         }
 
                         var animState = _animator.GetCurrentAnimatorStateInfo(0);
-                        bool isStandingWalk = (animState.shortNameHash == _stateWalk || animState.IsName("Zombie Walk"));
+                        bool isInTransition = _animator.IsInTransition(0);
+                        var nextState = isInTransition ? _animator.GetNextAnimatorStateInfo(0) : default;
 
-                        if (isStandingWalk)
+                        bool isStandingWalk = (animState.shortNameHash == _stateWalk || animState.IsName("Zombie Walk")
+                            || (isInTransition && (nextState.shortNameHash == _stateWalk || nextState.IsName("Zombie Walk"))));
+
+                        bool isStandingRun = (animState.shortNameHash == _stateRun || animState.IsName("Zombie Run")
+                            || (isInTransition && (nextState.shortNameHash == _stateRun || nextState.IsName("Zombie Run"))));
+
+                        bool isCrawlingState = (currentPosture == ZombiePosture.Crawling) && 
+                            (animState.shortNameHash == _stateRunningCrawl || animState.IsName("Running Crawl") || animState.IsName("Zombie Crawl")
+                            || (isInTransition && (nextState.shortNameHash == _stateRunningCrawl || nextState.IsName("Running Crawl") || nextState.IsName("Zombie Crawl"))));
+
+                        bool isStationary = (animState.shortNameHash == _stateIdle || animState.IsName("Zombie Idle")
+                            || animState.shortNameHash == _stateBerserkerIdle || animState.IsName("Berserker Idle")
+                            || _isTurningRight || _isTurningLeft 
+                            || animState.shortNameHash == _stateTurnRight || animState.shortNameHash == _stateTurnLeft
+                            || animState.IsName("Turn Right") || animState.IsName("Turn Left")
+                            || _roamTurnCoroutine != null || _isGuardBlockageTurning);
+
+                        if (isStationary || (!isStandingWalk && !isStandingRun && !isCrawlingState))
+                        {
+                            // Strictly prevent any artificial forward sliding while monster is idle, turning, or in transition
+                            delta = Vector3.zero;
+                        }
+                        else if (isStandingWalk)
                         {
                             // Mixamo Zombie Walk cycle:
                             // Stride phase: Lead leg drives and swings forward (moves forward).
@@ -1949,9 +2182,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                             float norm = animState.normalizedTime % 1.0f;
                             bool isDraggingRearLeg = (norm >= legDragStartNormalizedTime && norm <= legDragEndNormalizedTime);
 
-                            if (isDraggingRearLeg)
+                            if (isDraggingRearLeg || isInTransition)
                             {
-                                // Back leg dragging: zero forward movement, perfectly planted!
+                                // Back leg dragging or blending: zero forward movement, perfectly planted!
                                 delta = Vector3.zero;
                             }
                             else
@@ -1963,13 +2196,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                                 }
                                 else
                                 {
-                                    delta = moveDir * (walkSpeed * Time.deltaTime * 2.2f);
+                                    delta = moveDir * (walkSpeed * Time.deltaTime);
                                 }
                             }
                         }
-                        else
+                        else if (isStandingRun)
                         {
-                            // Crawling or running: continuous forward motion
                             float forwardMagnitude = Vector3.Dot(delta, transform.forward);
                             if (forwardMagnitude > 0.001f)
                             {
@@ -1977,9 +2209,24 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                             }
                             else
                             {
-                                float spd = (currentPosture == ZombiePosture.Crawling) ? crawlSpeed : standRunSpeed;
-                                delta = moveDir * (spd * Time.deltaTime);
+                                delta = moveDir * (standRunSpeed * Time.deltaTime);
                             }
+                        }
+                        else if (isCrawlingState)
+                        {
+                            float forwardMagnitude = Vector3.Dot(delta, transform.forward);
+                            if (forwardMagnitude > 0.001f)
+                            {
+                                delta = moveDir * forwardMagnitude;
+                            }
+                            else
+                            {
+                                delta = moveDir * (crawlSpeed * Time.deltaTime);
+                            }
+                        }
+                        else
+                        {
+                            delta = Vector3.zero;
                         }
                     }
                     else if (_agent.isStopped)
@@ -2516,12 +2763,13 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         {
             if (_agent.velocity.sqrMagnitude > 0.04f) return true;
             if (_agent.hasPath && _agent.remainingDistance > 0.35f && _agent.desiredVelocity.sqrMagnitude > 0.04f) return true;
+            if (_agent.pathPending && _nominalAgentSpeed > 0.1f) return true;
         }
 
         if (_animator != null)
         {
-            if (_animator.GetBool(_isRunningHash) || _animator.GetBool(_isWalkingHash)) return true;
-            if (_animator.GetFloat(_speedHash) > 0.1f) return true;
+            if (SafeGetBool(_isRunningHash) || SafeGetBool(_isWalkingHash)) return true;
+            if (SafeGetFloat(_speedHash) > 0.1f) return true;
         }
 
         return false;
@@ -2675,25 +2923,26 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         if (!force && _turnActiveTimer > 0f) return;
 
+        bool wasTurning = _isTurningRight || _isTurningLeft;
         _turnActiveTimer = 0f;
-        if (_isTurningRight || _isTurningLeft)
-        {
-            _isTurningRight = false;
-            _isTurningLeft = false;
-            SafeSetBool(_isTurningRightHash, false);
-            SafeSetBool(_isTurningLeftHash, false);
-            SafeSetFloat(_turnAngleHash, 0f);
+        _isTurningRight = false;
+        _isTurningLeft = false;
+        SafeSetBool(_isTurningRightHash, false);
+        SafeSetBool(_isTurningLeftHash, false);
+        SafeSetFloat(_turnAngleHash, 0f);
 
-            // If we are stationary idle and just finished turning, return smoothly to idle pose
+        // ONLY transition to idle if the monster was ACTUALLY playing a turning animation!
+        if (wasTurning)
+        {
             if (!IsMovingLocomotion() && currentState != AIState.Dead && currentState != AIState.Attacking)
             {
                 if (monsterType == MonsterType.Zombie && currentPosture == ZombiePosture.Standing)
                 {
-                    SafeCrossFade(_stateIdle, "Zombie Idle", 0.15f, true);
+                    SafeCrossFade(_stateIdle, "Zombie Idle", 0.15f, false);
                 }
                 else if (monsterType == MonsterType.Berserker)
                 {
-                    SafeCrossFade(_stateBerserkerIdle, "Berserker Idle", 0.15f, true);
+                    SafeCrossFade(_stateBerserkerIdle, "Berserker Idle", 0.15f, false);
                 }
             }
         }
@@ -3504,6 +3753,24 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
     }
 
+    protected bool SafeGetBool(int hash)
+    {
+        if (_animator != null && _animParams.Contains(hash))
+        {
+            return _animator.GetBool(hash);
+        }
+        return false;
+    }
+
+    protected float SafeGetFloat(int hash)
+    {
+        if (_animator != null && _animParams.Contains(hash))
+        {
+            return _animator.GetFloat(hash);
+        }
+        return 0f;
+    }
+
     protected void SafeSetTrigger(int hash)
     {
         if (_animator == null) _animator = GetComponentInChildren<Animator>();
@@ -3540,6 +3807,210 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 {
                     _animator.CrossFadeInFixedTime(stateHash, transitionDuration);
                 }
+            }
+        }
+    }
+
+    // =========================================================================
+    //  Predictive Intercept Chase Calculation
+    // =========================================================================
+
+    /// <summary>
+    /// Calculates a predictive intercept target position ahead of fleeing investigators.
+    /// Cuts corners organically through tunnel junctions instead of lagging behind their heels.
+    /// </summary>
+    public Vector3 CalculatePredictiveChaseTarget(Transform targetTransform)
+    {
+        if (targetTransform == null) return transform.position;
+
+        Vector3 targetVelocity = Vector3.zero;
+        if (targetTransform.TryGetComponent<CharacterController>(out var cc))
+        {
+            targetVelocity = cc.velocity;
+        }
+        else if (targetTransform.TryGetComponent<Rigidbody>(out var rb))
+        {
+            targetVelocity = rb.linearVelocity;
+        }
+
+        float dist = Vector3.Distance(transform.position, targetTransform.position);
+        if (dist <= 2.2f || targetVelocity.sqrMagnitude < 0.2f)
+        {
+            return targetTransform.position;
+        }
+
+        float mySpeed = Mathf.Max(2.0f, _agent != null ? _agent.speed : 3.5f);
+        float leadTime = Mathf.Clamp(dist / mySpeed, 0.20f, 0.75f);
+        Vector3 predicted = targetTransform.position + targetVelocity * leadTime;
+
+        if (NavMesh.SamplePosition(predicted, out NavMeshHit hit, 2.5f, NavMesh.AllAreas))
+        {
+            if (!NavMesh.Raycast(targetTransform.position, hit.position, out _, NavMesh.AllAreas))
+            {
+                return hit.position;
+            }
+        }
+
+        return targetTransform.position;
+    }
+
+    // =========================================================================
+    //  Footsteps & Surface Audio
+    // =========================================================================
+
+    public bool IsMetalSurfaceUnderfoot()
+    {
+        Vector3 origin = transform.position + Vector3.up * 0.2f;
+        LayerMask mask = (groundMask != 0) ? groundMask : ~LayerMask.GetMask("Monster", "Player", "Ignore Raycast", "UI");
+
+        if (Physics.Raycast(origin, Vector3.down, out RaycastHit hit, surfaceCheckDistance, mask, QueryTriggerInteraction.Ignore))
+        {
+            string objName = hit.collider.gameObject.name.ToLower();
+            if (objName.Contains("rail") || objName.Contains("metal") || objName.Contains("iron") || 
+                objName.Contains("steel") || objName.Contains("track") || objName.Contains("cart"))
+            {
+                return true;
+            }
+
+            if (hit.collider.transform.parent != null)
+            {
+                string parentName = hit.collider.transform.parent.name.ToLower();
+                if (parentName.Contains("rail") || parentName.Contains("metal") || parentName.Contains("iron") || 
+                    parentName.Contains("steel") || parentName.Contains("track") || parentName.Contains("cart"))
+                {
+                    return true;
+                }
+            }
+
+            if (hit.collider.sharedMaterial != null)
+            {
+                string matName = hit.collider.sharedMaterial.name.ToLower();
+                if (matName.Contains("metal") || matName.Contains("iron") || matName.Contains("steel"))
+                {
+                    return true;
+                }
+            }
+
+            try
+            {
+                if (!string.IsNullOrEmpty(metalTag) && hit.collider.CompareTag(metalTag))
+                {
+                    return true;
+                }
+            }
+            catch { }
+        }
+
+        return false;
+    }
+
+    public void PlayMonsterFootstep(bool isHand = false)
+    {
+        AudioClip[] pool = null;
+
+        if (isHand && monsterType == MonsterType.Zombie && zombieHandClips != null && zombieHandClips.Length > 0)
+        {
+            pool = zombieHandClips;
+        }
+        else
+        {
+            bool isMetal = IsMetalSurfaceUnderfoot();
+            if (isMetal && metalFootstepClips != null && metalFootstepClips.Length > 0)
+            {
+                pool = metalFootstepClips;
+            }
+            else if (mineFootstepClips != null && mineFootstepClips.Length > 0)
+            {
+                pool = mineFootstepClips;
+            }
+        }
+
+        if (pool == null || pool.Length == 0) return;
+
+        AudioClip clip = pool[Random.Range(0, pool.Length)];
+        if (clip == null) return;
+
+        AudioSource src = (footstepAudioSource != null) ? footstepAudioSource : audioSource;
+        if (src == null) return;
+
+        float vol = footstepVolume * GameSettingsManager.SFXVolume;
+        float pitch = 1.0f;
+
+        if (monsterType == MonsterType.Berserker)
+        {
+            vol *= berserkerFootstepMultiplier;
+            pitch = berserkerFootstepPitch + Random.Range(-0.04f, 0.04f);
+        }
+        else
+        {
+            vol *= (isHand ? 0.75f : 0.95f);
+            pitch = Random.Range(0.92f, 1.08f);
+        }
+
+        src.pitch = pitch;
+        src.PlayOneShot(clip, Mathf.Clamp(vol, 0f, 2.5f));
+    }
+
+    /// <summary>
+    /// Animation Event hook for monster footstep.
+    /// Can be added directly on foot impact frames in Unity Animation Window.
+    /// </summary>
+    public void OnFootstep(AnimationEvent animationEvent = null)
+    {
+        PlayMonsterFootstep(false);
+        _footstepDistanceCounter = 0f;
+    }
+
+    /// <summary>
+    /// Animation Event hook for crawling zombie hand placement.
+    /// Can be added directly on hand contact frames in Zombie Crawl animation.
+    /// </summary>
+    public void OnHandstep(AnimationEvent animationEvent = null)
+    {
+        PlayMonsterFootstep(true);
+        _handstepDistanceCounter = 0f;
+    }
+
+    protected bool _crawlingStepIsHand = false;
+
+    protected virtual void UpdateFootstepCadence()
+    {
+        if (_agent == null || !_agent.isOnNavMesh || !_agent.enabled || _agent.isStopped) return;
+        if (currentState == AIState.Dead || currentState == AIState.SpawningScream) return;
+
+        float speed = _agent.velocity.magnitude;
+        if (speed < 0.2f) return;
+
+        _footstepDistanceCounter += speed * Time.deltaTime;
+
+        float stepInterval = 1.25f;
+        if (monsterType == MonsterType.Berserker)
+        {
+            stepInterval = (speed > 2.2f) ? 1.55f : 1.15f;
+        }
+        else if (monsterType == MonsterType.Zombie)
+        {
+            if (currentPosture == ZombiePosture.Crawling)
+            {
+                stepInterval = 0.72f;
+            }
+            else
+            {
+                stepInterval = (speed > 2.2f) ? 1.40f : 1.05f;
+            }
+        }
+
+        if (_footstepDistanceCounter >= stepInterval)
+        {
+            _footstepDistanceCounter = 0f;
+            if (monsterType == MonsterType.Zombie && currentPosture == ZombiePosture.Crawling)
+            {
+                _crawlingStepIsHand = !_crawlingStepIsHand;
+                PlayMonsterFootstep(_crawlingStepIsHand);
+            }
+            else
+            {
+                PlayMonsterFootstep(false);
             }
         }
     }

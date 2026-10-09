@@ -66,6 +66,8 @@ public class DealNotificationUI : MonoBehaviour
     private int _currentRewardCredits = 30;
     private string _currentTitle = "DARK DEAL";
     private string _currentTerms = "";
+    private ulong _currentMarkClientId = ulong.MaxValue;
+    private string _currentMarkPlayerName = "";
 
     [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
     private static void HookSceneLoaded()
@@ -381,12 +383,12 @@ public class DealNotificationUI : MonoBehaviour
         }
     }
 
-    public void Show(ulong senderId, string title, string terms, string reward, bool grantWeapon, int timeLimitSeconds = 120, int penaltyCredits = 15)
+    public void Show(ulong senderId, string title, string terms, string reward, bool grantWeapon, int timeLimitSeconds = 120, int penaltyCredits = 15, ulong markClientId = ulong.MaxValue, string markPlayerName = "")
     {
-        DisplayDealOffer(senderId, title, terms, reward, grantWeapon, timeLimitSeconds, penaltyCredits);
+        DisplayDealOffer(senderId, title, terms, reward, grantWeapon, timeLimitSeconds, penaltyCredits, markClientId, markPlayerName);
     }
 
-    public void DisplayDealOffer(ulong senderId, string title, string terms, string reward, bool grantWeapon, int timeLimitSeconds = 120, int penaltyCredits = 15)
+    public void DisplayDealOffer(ulong senderId, string title, string terms, string reward, bool grantWeapon, int timeLimitSeconds = 120, int penaltyCredits = 15, ulong markClientId = ulong.MaxValue, string markPlayerName = "")
     {
         // If local player is dead, reject/ignore immediately
         Unity.Netcode.NetworkObject localObj = null;
@@ -419,6 +421,8 @@ public class DealNotificationUI : MonoBehaviour
         _currentPenaltyCredits = penaltyCredits;
         _currentTitle = title;
         _currentTerms = terms;
+        _currentMarkClientId = markClientId;
+        _currentMarkPlayerName = markPlayerName;
         _timer = timeoutSeconds;
         _isOutcomeMode = false;
 
@@ -449,6 +453,12 @@ public class DealNotificationUI : MonoBehaviour
         if (penaltyIdx >= 0)
         {
             cleanTerms = cleanTerms.Substring(0, penaltyIdx).TrimEnd();
+        }
+
+        // Show Mark prominently if specified
+        if (!string.IsNullOrEmpty(markPlayerName) && markClientId != ulong.MaxValue)
+        {
+            cleanTerms = $"<b>TARGET MARK:</b> <color=#FFDD44>{markPlayerName}</color>\n\n{cleanTerms}";
         }
 
         // Only show the deal name and the reward offered
@@ -643,7 +653,7 @@ public class DealNotificationUI : MonoBehaviour
         // Start active deal timer HUD
         if (ActiveDealMissionHUD.Instance != null)
         {
-            ActiveDealMissionHUD.Instance.StartMission(_currentTitle, _currentTerms, _currentTimeLimitSeconds, _currentPenaltyCredits, _currentRewardCredits, _currentGirlSenderId);
+            ActiveDealMissionHUD.Instance.StartMission(_currentTitle, _currentTerms, _currentTimeLimitSeconds, _currentPenaltyCredits, _currentRewardCredits, _currentGirlSenderId, _currentMarkClientId, _currentMarkPlayerName);
         }
 
         if (DealSystemNet.Instance != null)

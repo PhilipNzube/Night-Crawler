@@ -844,9 +844,11 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                                       || (hs != null && (hs.IsDead || hs.CurrentHealth <= finalDamage));
                     if (isVictimDying)
                     {
+                        var victimNet = hit.GetComponentInParent<Unity.Netcode.NetworkObject>();
+                        ulong victimId = victimNet != null ? victimNet.OwnerClientId : ulong.MaxValue;
                         if (NightCrawler.UI.ActiveDealMissionHUD.Instance != null && NightCrawler.UI.ActiveDealMissionHUD.Instance.IsMissionActive)
                         {
-                            NightCrawler.UI.ActiveDealMissionHUD.Instance.NotifyPlayerKilled();
+                            NightCrawler.UI.ActiveDealMissionHUD.Instance.NotifyPlayerKilled(victimId);
                         }
                     }
                 }
@@ -914,9 +916,11 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                                       || (hs != null && (hs.IsDead || hs.CurrentHealth <= finalDamage));
                     if (isVictimDying)
                     {
+                        var victimNet = hit.collider.GetComponentInParent<Unity.Netcode.NetworkObject>();
+                        ulong victimId = victimNet != null ? victimNet.OwnerClientId : ulong.MaxValue;
                         if (NightCrawler.UI.ActiveDealMissionHUD.Instance != null && NightCrawler.UI.ActiveDealMissionHUD.Instance.IsMissionActive)
                         {
-                            NightCrawler.UI.ActiveDealMissionHUD.Instance.NotifyPlayerKilled();
+                            NightCrawler.UI.ActiveDealMissionHUD.Instance.NotifyPlayerKilled(victimId);
                         }
                     }
                 }

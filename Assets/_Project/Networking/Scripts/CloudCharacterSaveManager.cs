@@ -68,7 +68,36 @@ public class CloudCharacterSaveManager : MonoBehaviour
     [Tooltip("Set your credit balance here in the Inspector before testing (e.g. 50, 100, 500, 0). If set to 0 or greater, you will start with this amount. Set to -1 to use normal saved credits.")]
     public int testCredits = -1;
 
-    public int CurrentCredits => CurrentProfile?.economy?.credits ?? 0;
+    [Header("Cinders Inspector Override (Dev / Testing)")]
+    [Tooltip("If checked, the custom balance specified below overrides your real in-game Cinders balance.")]
+    public bool overrideCindersBalance = false;
+
+    [Tooltip("Custom Cinders balance to use when 'Override Cinders Balance' is checked (e.g. 0 to test poverty/emergency relief, or 99999 to test high bids).")]
+    public int customCindersOverride = 0;
+
+    public int CurrentCredits
+    {
+        get
+        {
+            if (overrideCindersBalance)
+            {
+                return Mathf.Max(0, customCindersOverride);
+            }
+            return CurrentProfile?.economy?.credits ?? 0;
+        }
+    }
+
+    /// <summary>
+    /// Gets the current player profile name. Checks current profile first, then PlayerNameManager.
+    /// </summary>
+    public string GetPlayerName()
+    {
+        if (CurrentProfile != null && !string.IsNullOrWhiteSpace(CurrentProfile.playerName))
+            return CurrentProfile.playerName;
+        if (PlayerNameManager.HasSavedName())
+            return PlayerNameManager.GetPlayerName();
+        return "Investigator";
+    }
 
     /// <summary>
     /// Safe check to determine if Unity Gaming Services is initialized and authenticated without throwing.
@@ -177,8 +206,7 @@ public class CloudCharacterSaveManager : MonoBehaviour
     /// </summary>
     public bool CanAfford(int amount)
     {
-        if (CurrentProfile == null || CurrentProfile.economy == null) return false;
-        return CurrentProfile.economy.credits >= amount;
+        return CurrentCredits >= amount;
     }
 
     /// <summary>
@@ -188,6 +216,13 @@ public class CloudCharacterSaveManager : MonoBehaviour
     {
         if (amount <= 0) return true;
         if (!CanAfford(amount)) return false;
+
+        if (overrideCindersBalance)
+        {
+            customCindersOverride = Mathf.Max(0, customCindersOverride - amount);
+            OnCreditsChanged?.Invoke(CurrentCredits);
+            return true;
+        }
 
         CurrentProfile.economy.credits -= amount;
         OnCreditsChanged?.Invoke(CurrentProfile.economy.credits);
@@ -218,11 +253,27 @@ public class CloudCharacterSaveManager : MonoBehaviour
     /// </summary>
     public void AddCredits(int amount)
     {
-        if (amount <= 0 || CurrentProfile == null || CurrentProfile.economy == null) return;
+        if (amount <= 0) return;
 
+        if (overrideCindersBalance)
+        {
+            customCindersOverride += amount;
+            OnCreditsChanged?.Invoke(CurrentCredits);
+            return;
+        }
+
+        if (CurrentProfile == null || CurrentProfile.economy == null) return;
         CurrentProfile.economy.credits += amount;
         OnCreditsChanged?.Invoke(CurrentProfile.economy.credits);
         _ = SaveProfileAsync(CurrentProfile);
+    }
+
+    private void OnValidate()
+    {
+        if (Application.isPlaying && overrideCindersBalance)
+        {
+            OnCreditsChanged?.Invoke(CurrentCredits);
+        }
     }
 
     /// <summary>

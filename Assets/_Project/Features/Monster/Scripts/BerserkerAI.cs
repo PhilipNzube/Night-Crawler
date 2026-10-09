@@ -59,7 +59,7 @@ public class BerserkerAI : MonsterAI
     [Tooltip("Time in seconds before triggering the second roar animation to rhyme with the second roar in the audio.")]
     public float secondRoarDelay = 2.6f;
     [Tooltip("Total duration of the entire double-roar spawn sequence before running.")]
-    public float totalRoarDuration = 5.4f;
+    public float totalRoarDuration = 5.37f;
 
     protected override void ConfigureMonsterDefaults()
     {
@@ -70,16 +70,9 @@ public class BerserkerAI : MonsterAI
         runAcceleration = 8.5f;
         if (attackDamage < 50f) attackDamage = 65f;
         if (attackRange < 2.0f) attackRange = 2.2f;
-
-        if (doubleRoarSequence)
-        {
-            screamDuration = totalRoarDuration;
-        }
-        else
-        {
-            float clipLength = (spawnScreamClip != null && spawnScreamClip.length > 0f) ? spawnScreamClip.length : 3.09f;
-            screamDuration = roarAudioDelay + clipLength;
-        }
+        roarAudioDelay = 0.35f;
+        secondRoarDelay = 3.0f;
+        screamDuration = totalRoarDuration;
 
         // ScriptableObject stats override if present
         if (stats != null)
@@ -108,20 +101,14 @@ public class BerserkerAI : MonsterAI
     {
         SafeSetFloat(_speedHash, speed);
         SafeSetBool(_isRunningHash, true);
-        SafeSetBool(_isWalkingHash, false);
-        SafeSetBool(_isStandingHash, true);
-        SafeSetBool(_isCrawlingHash, false);
-        SafeCrossFade(_stateMutantRun, "Mutant Run", 0.2f);
+        SafeCrossFade(_stateMutantRun, "Mutant Run", 0.2f, false);
     }
 
     public void PlayBerserkerWalkLocomotion(float speed)
     {
         SafeSetFloat(_speedHash, speed);
         SafeSetBool(_isRunningHash, false);
-        SafeSetBool(_isWalkingHash, true);
-        SafeSetBool(_isStandingHash, true);
-        SafeSetBool(_isCrawlingHash, false);
-        SafeCrossFade(_stateMutantWalk, "Mutant Walk", 0.2f);
+        SafeCrossFade(_stateMutantWalk, "Mutant Walk", 0.2f, false);
     }
 
     public void PlayBerserkerIdleLocomotion()
@@ -129,10 +116,7 @@ public class BerserkerAI : MonsterAI
         SetLocomotionAnimSpeed(1.0f);
         SafeSetFloat(_speedHash, 0f);
         SafeSetBool(_isRunningHash, false);
-        SafeSetBool(_isWalkingHash, false);
-        SafeSetBool(_isStandingHash, true);
-        SafeSetBool(_isCrawlingHash, false);
-        SafeCrossFade(_stateBerserkerIdle, "Berserker Idle", 0.25f);
+        SafeCrossFade(_stateBerserkerIdle, "Berserker Idle", 0.25f, false);
     }
 
     protected override void PlayPatrolWalkLocomotion(float speed)
@@ -152,13 +136,13 @@ public class BerserkerAI : MonsterAI
     public void PlayBerserkerTurnRight()
     {
         SafeSetTrigger(_turnRightHash);
-        SafeCrossFade(_stateTurnRight, "Turn Right", 0.10f, true);
+        SafeCrossFade(_stateTurnRight, "Turn Right", 0.10f, false);
     }
 
     public void PlayBerserkerTurnLeft()
     {
         SafeSetTrigger(_turnLeftHash);
-        SafeCrossFade(_stateTurnLeft, "Turn Left", 0.10f, true);
+        SafeCrossFade(_stateTurnLeft, "Turn Left", 0.10f, false);
     }
 
     public override void UpdateTurningAnimation(Vector3 desiredFacingDir)
@@ -213,9 +197,10 @@ public class BerserkerAI : MonsterAI
     {
         if (!force && _turnActiveTimer > 0f) return;
 
+        bool wasTurning = _isTurningRight || _isTurningLeft;
         base.StopTurningAnimation(force);
 
-        if (!IsMovingLocomotion() && currentState != AIState.Dead && currentState != AIState.Attacking)
+        if (wasTurning && !IsMovingLocomotion() && currentState != AIState.Dead && currentState != AIState.Attacking)
         {
             PlayBerserkerIdleLocomotion();
         }
@@ -322,7 +307,9 @@ public class BerserkerAI : MonsterAI
         AudioClip clip = secondRoarClip != null ? secondRoarClip : spawnScreamClip;
         if (clip != null && audioSource != null)
         {
+            audioSource.pitch = 1.0f;
             audioSource.clip = clip;
+            audioSource.volume = GameSettingsManager.SFXVolume;
             audioSource.Play();
         }
 
@@ -339,7 +326,9 @@ public class BerserkerAI : MonsterAI
         AudioClip clip = secondRoarClip != null ? secondRoarClip : spawnScreamClip;
         if (audioSource != null && clip != null)
         {
+            audioSource.pitch = 1.0f;
             audioSource.clip = clip;
+            audioSource.volume = GameSettingsManager.SFXVolume;
             audioSource.Play();
         }
     }
@@ -418,7 +407,7 @@ public class BerserkerAI : MonsterAI
 
                     _agent.isStopped = false;
                     _agent.speed = runSpeed;
-                    _agent.SetDestination(target.position);
+                    _agent.SetDestination(CalculatePredictiveChaseTarget(target));
                     PlayBerserkerRunLocomotion(runSpeed);
                 }
                 return;
@@ -482,7 +471,7 @@ public class BerserkerAI : MonsterAI
 
                 _agent.isStopped = false;
                 _agent.speed = runSpeed;
-                _agent.SetDestination(target.position);
+                _agent.SetDestination(CalculatePredictiveChaseTarget(target));
                 PlayBerserkerRunLocomotion(runSpeed);
             }
             return;
@@ -493,11 +482,18 @@ public class BerserkerAI : MonsterAI
         ExecuteRoam(walkSpeed);
     }
 
+    protected override void PlayPatrolRunLocomotion(float speed)
+    {
+        PlayBerserkerRunLocomotion(speed);
+    }
+
     /// <summary>
     /// Berserker Guarding Behavior:
     /// Maintains an aggressive combat perimeter around the Girl in an alert standing stance.
-    /// - When called back: Ignores investigators and runs straight to the Girl.
-    /// - While guarding: Chases investigators that come close, but returns to the Girl if they run far away.
+    /// - Unobstructed perimeter spots: Never routes through solid rock walls or mine tunnels.
+    /// - Hysteretic state commitment: stays idle for a while, walks for a while.
+    /// - Blockage handling: if an obstacle or wall blocks its path, pauses, plays turn animation, and continues walking!
+    /// - Leashed defense: intercepts close threats, returns to Girl if they run away.
     /// </summary>
     protected override void HandleGuardingBehavior()
     {
@@ -508,12 +504,9 @@ public class BerserkerAI : MonsterAI
             return;
         }
 
-        float angleOffset = (GetInstanceID() % 6) * 60f * Mathf.Deg2Rad;
-        Vector3 guardOffset = new Vector3(Mathf.Sin(angleOffset), 0f, Mathf.Cos(angleOffset)) * 4.2f;
-        Vector3 targetSpot = leader.position + guardOffset;
+        if (_isGuardBlockageTurning || _guardBlockageCoroutine != null) return;
 
         float distToGirl = Vector3.Distance(transform.position, leader.position);
-        float distToSpot = Vector3.Distance(transform.position, targetSpot);
 
         // 1. Recall Grace & Target Defense:
         if (_recallGraceTimer > 0f)
@@ -552,7 +545,7 @@ public class BerserkerAI : MonsterAI
                     {
                         _agent.isStopped = false;
                         _agent.speed = runSpeed;
-                        _agent.SetDestination(threat.position);
+                        _agent.SetDestination(CalculatePredictiveChaseTarget(threat));
                         PlayBerserkerRunLocomotion(runSpeed);
                         return;
                     }
@@ -565,7 +558,7 @@ public class BerserkerAI : MonsterAI
                         target = threat;
                         _agent.isStopped = false;
                         _agent.speed = runSpeed;
-                        _agent.SetDestination(threat.position);
+                        _agent.SetDestination(CalculatePredictiveChaseTarget(threat));
                         PlayBerserkerRunLocomotion(runSpeed);
                         return;
                     }
@@ -578,14 +571,15 @@ public class BerserkerAI : MonsterAI
         }
 
         // 2. Personal Space Buffer with the Girl:
-        // If the Girl approaches too close (< 3.2m), smoothly yield space and step back
-        if (distToGirl < 3.2f)
+        // If the Girl approaches too close (< 3.0m), smoothly yield space and step back
+        if (distToGirl < 3.0f)
         {
             Vector3 pushBack = (transform.position - leader.position).normalized;
             if (pushBack.sqrMagnitude < 0.01f) pushBack = -leader.forward;
             Vector3 retreatSpot = leader.position + pushBack * 4.2f;
             if (NavMesh.SamplePosition(retreatSpot, out NavMeshHit backHit, 2.5f, NavMesh.AllAreas))
             {
+                _isGuardIdling = false;
                 _agent.isStopped = false;
                 _agent.speed = walkSpeed;
                 _agent.SetDestination(backHit.position);
@@ -594,29 +588,82 @@ public class BerserkerAI : MonsterAI
             }
         }
 
-        // 3. Follow / Guard the Girl at respectful perimeter
-        if (distToSpot <= 1.5f)
+        // 3. Far distance (> 7.5m) -> Sprint directly to unobstructed perimeter spot
+        if (distToGirl > 7.5f)
+        {
+            _isGuardIdling = false;
+            _guardIdleTimer = 0f;
+            Vector3 farSpot = FindUnobstructedPerimeterSpot(leader, 4.2f, 3.2f);
+            _agent.isStopped = false;
+            _agent.speed = runSpeed;
+            _agent.SetDestination(farSpot);
+            PlayBerserkerRunLocomotion(runSpeed);
+            return;
+        }
+
+        // 4. Close perimeter (<= 7.5m) -> Hysteretic Idle / Wander Guard
+        if (_isGuardIdling)
         {
             _agent.isStopped = true;
+            _agent.velocity = Vector3.zero;
             PlayBerserkerIdleLocomotion();
-            // Natural stationary idle: DO NOT snap around to face the Girl!
             if (_turnActiveTimer <= 0f) StopTurningAnimation();
+
+            _guardIdleTimer -= Time.deltaTime;
+            if (_guardIdleTimer <= 0f)
+            {
+                _isGuardIdling = false;
+                _guardWalkTimer = Random.Range(3.5f, 6.0f);
+                _guardStuckTimer = 0f;
+                _guardWanderDestination = FindUnobstructedPerimeterSpot(leader, Random.Range(3.8f, 5.2f), 3.0f);
+                if (_agent != null && _agent.isOnNavMesh)
+                {
+                    _agent.isStopped = false;
+                    _agent.SetDestination(_guardWanderDestination);
+                }
+            }
         }
         else
         {
-            _agent.isStopped = false;
-            if (distToGirl > 6.0f)
+            _guardWalkTimer -= Time.deltaTime;
+
+            // Blockage check: if velocity is near zero while trying to walk, or forward obstacle detected
+            if (_agent.hasPath && !_agent.isStopped)
             {
-                _agent.speed = runSpeed;
-                PlayBerserkerRunLocomotion(runSpeed);
+                if (_agent.velocity.sqrMagnitude < 0.04f)
+                {
+                    _guardStuckTimer += Time.deltaTime;
+                }
+                else
+                {
+                    _guardStuckTimer = 0f;
+                }
+
+                if (_guardStuckTimer > 0.85f || CheckForwardObstacleInChase(_guardWanderDestination))
+                {
+                    Vector3 altSpot = FindUnobstructedPerimeterSpot(leader, Random.Range(3.5f, 4.8f), 3.0f);
+                    _guardBlockageCoroutine = StartCoroutine(GuardBlockageTurnRoutine(altSpot, walkSpeed));
+                    return;
+                }
+            }
+
+            bool arrived = !_agent.pathPending && _agent.hasPath && _agent.remainingDistance <= 1.2f;
+
+            if (arrived || _guardWalkTimer <= 0f)
+            {
+                _isGuardIdling = true;
+                _guardIdleTimer = Random.Range(3.5f, 6.5f);
+                _agent.isStopped = true;
+                _agent.velocity = Vector3.zero;
+                PlayBerserkerIdleLocomotion();
+                if (_turnActiveTimer <= 0f) StopTurningAnimation();
             }
             else
             {
+                _agent.isStopped = false;
                 _agent.speed = walkSpeed;
                 PlayBerserkerWalkLocomotion(walkSpeed);
             }
-
-            _agent.SetDestination(targetSpot);
         }
     }
 }

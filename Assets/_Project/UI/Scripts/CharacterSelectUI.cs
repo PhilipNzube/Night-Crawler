@@ -166,6 +166,59 @@ public class CharacterSelectUI : MonoBehaviour
     [Tooltip("Optional explicit reference to the Exit Hotkey indicator/button (e.g. ExitHotKey under InvestigatorFlow).")]
     public HotkeyEvent exitHotkey;
 
+    // =========================================================================
+    //  Inspector — Character Selection Bidding System (Manual Wiring — No Auto-Find)
+    // =========================================================================
+
+    [Header("Character Selection Bidding — Bid Modal")]
+    [Tooltip("Modal window where players place bids on a contested operative (Bid_Modal).")]
+    public ModalWindowManager bidModal;
+
+    [Tooltip("Input field inside Bid_Modal to enter bid amount.")]
+    public InputFieldManager heatBidInputField;
+
+    [Tooltip("Button inside Bid_Modal to submit the bid (Place Bid).")]
+    public ButtonManager heatPlaceBidButton;
+
+    [Tooltip("Yield button inside Bid_Modal.")]
+    public ButtonManager heatBidModalYieldButton;
+
+    [Tooltip("Root GameObject or Transform for Current Bid display inside Bid_Modal (CurrentBid).")]
+    public GameObject currentBidRoot;
+
+    [Tooltip("Text label displaying current highest bid inside Bid_Modal.")]
+    public TextMeshProUGUI currentBidText;
+
+    [Tooltip("Error / Hint label inside Bid_Modal.")]
+    public TextMeshProUGUI bidErrorText;
+
+    [Header("Character Selection Bidding — Outbid Notification Modal")]
+    [Tooltip("Modal window shown when another player outbids the local player (BidNotificationModal ).")]
+    public ModalWindowManager bidNotificationModal;
+
+    [Tooltip("Button inside BidNotificationModal to open Bid_Modal and place counter-bid (Bid).")]
+    public ButtonManager heatOutbidCounterBidButton;
+
+    [Tooltip("Button inside BidNotificationModal to yield on the contested operative (Yield).")]
+    public ButtonManager heatOutbidYieldButton;
+
+    [Tooltip("Text description inside BidNotificationModal showing outbid details.")]
+    public TextMeshProUGUI outbidDescriptionText;
+
+    [Header("Character Selection Bidding — Exit / Yield Confirmation Modal")]
+    [Tooltip("Modal window asking confirmation to yield on an operative (ExitBidNotificationModal).")]
+    public ModalWindowManager exitBidNotificationModal;
+
+    [Tooltip("Confirm Yield (Yes) button inside ExitBidNotificationModal.")]
+    public ButtonManager heatExitBidYesButton;
+
+    [Tooltip("Cancel Yield (No) button inside ExitBidNotificationModal.")]
+    public ButtonManager heatExitBidNoButton;
+
+    [Header("Character Selection Bidding — Ownership Indicator")]
+    [Tooltip("Text label on character selection showing ownership status (e.g. 'Claimed By: [PlayerName]').")]
+    public TextMeshProUGUI characterOwnedByText;
+
     // -------------------------------------------------------------------------
     //  Private State
     // -------------------------------------------------------------------------
@@ -182,6 +235,9 @@ public class CharacterSelectUI : MonoBehaviour
     private Coroutine                 _swapCoroutine;
     private bool                      _localConfirmed         = false;
     private int                       _lastEscapeFrame        = -1;
+    private int                       _contestedCharacterIndex = 0;
+    private bool                      _isCurrentContestedByOther = false;
+    private bool                      _hasLocalYieldedCurrent  = false;
 
     // =========================================================================
     //  Unity Lifecycle
@@ -191,6 +247,7 @@ public class CharacterSelectUI : MonoBehaviour
     {
         Instance = this;
         InitExitBindings();
+        InitBiddingBindings();
     }
 
     private bool _isAllPlayersReady = false;
@@ -273,6 +330,38 @@ public class CharacterSelectUI : MonoBehaviour
         }
     }
 
+    public void InitBiddingBindings()
+    {
+        if (heatPlaceBidButton != null)
+            MichskyUIBridge.BindButton(null, heatPlaceBidButton, OnPlaceBidClicked);
+
+        if (heatBidModalYieldButton != null)
+            MichskyUIBridge.BindButton(null, heatBidModalYieldButton, OpenExitBidConfirmModal);
+
+        if (heatBidInputField != null)
+            MichskyUIBridge.BindInputField(null, heatBidInputField, OnBidInputChanged);
+
+        if (heatOutbidCounterBidButton != null)
+            MichskyUIBridge.BindButton(null, heatOutbidCounterBidButton, OnOutbidCounterBidClicked);
+
+        if (heatOutbidYieldButton != null)
+            MichskyUIBridge.BindButton(null, heatOutbidYieldButton, OpenExitBidConfirmModal);
+
+        if (heatExitBidYesButton != null)
+            MichskyUIBridge.BindButton(null, heatExitBidYesButton, OnExitBidConfirmedYes);
+
+        if (heatExitBidNoButton != null)
+            MichskyUIBridge.BindButton(null, heatExitBidNoButton, OnExitBidConfirmedNo);
+
+        if (exitBidNotificationModal != null)
+        {
+            exitBidNotificationModal.onConfirm.RemoveListener(OnExitBidConfirmedYes);
+            exitBidNotificationModal.onConfirm.AddListener(OnExitBidConfirmedYes);
+            exitBidNotificationModal.onCancel.RemoveListener(OnExitBidConfirmedNo);
+            exitBidNotificationModal.onCancel.AddListener(OnExitBidConfirmedNo);
+        }
+    }
+
     /// <summary>
     /// Handles hotkey press (Esc or UI HotKey button).
     /// Prevents double-firing in the same frame if both HotkeyEvent and Keyboard fire.
@@ -283,21 +372,42 @@ public class CharacterSelectUI : MonoBehaviour
         if (Time.frameCount == _lastEscapeFrame) return;
         _lastEscapeFrame = Time.frameCount;
 
-        // 1. If Exit Confirm Modal is open, cancel/close it
+        // 1. If Exit Bid Notification Modal is open, cancel/close it
+        if (exitBidNotificationModal != null && exitBidNotificationModal.isOn)
+        {
+            OnExitBidConfirmedNo();
+            return;
+        }
+
+        // 2. If Bid Modal is open, hotkey activates ExitBidNotificationModal (as requested)
+        if (bidModal != null && bidModal.isOn)
+        {
+            OpenExitBidConfirmModal();
+            return;
+        }
+
+        // 3. If Bid Notification Modal is open, hotkey activates ExitBidNotificationModal (as requested)
+        if (bidNotificationModal != null && bidNotificationModal.isOn)
+        {
+            OpenExitBidConfirmModal();
+            return;
+        }
+
+        // 4. If Exit Confirm Modal is open, cancel/close it
         if (exitConfirmModal != null && exitConfirmModal.isOn)
         {
             exitConfirmModal.CloseWindow();
             return;
         }
 
-        // 2. If Match Stake Modal is open, close/cancel it
+        // 5. If Match Stake Modal is open, close/cancel it
         if (matchStakeModal != null && matchStakeModal.isOn)
         {
             OnStakeModalCancelled();
             return;
         }
 
-        // 3. Otherwise, prompt the exit modal if assigned
+        // 6. Otherwise, prompt the exit modal if assigned
         RequestExitToHome();
     }
 
@@ -416,12 +526,27 @@ public class CharacterSelectUI : MonoBehaviour
             PlayerReadyTracker.Instance.OnAllPlayersReady += HandleAllPlayersReady;
         }
 
+        // Subscribe to live character bidding events
+        if (CharacterBiddingNet.Instance != null)
+        {
+            CharacterBiddingNet.Instance.OnCharacterBidUpdated += HandleCharacterBidUpdated;
+            CharacterBiddingNet.Instance.OnLocalOutbid += HandleLocalOutbid;
+            CharacterBiddingNet.Instance.OnLocalYieldConfirmed += HandleLocalYieldConfirmed;
+        }
+
         CloudCharacterSaveManager.OnUpgradeChanged += HandleStatUpgradeChanged;
     }
 
     void OnDisable()
     {
         CloudCharacterSaveManager.OnUpgradeChanged -= HandleStatUpgradeChanged;
+
+        if (CharacterBiddingNet.Instance != null)
+        {
+            CharacterBiddingNet.Instance.OnCharacterBidUpdated -= HandleCharacterBidUpdated;
+            CharacterBiddingNet.Instance.OnLocalOutbid -= HandleLocalOutbid;
+            CharacterBiddingNet.Instance.OnLocalYieldConfirmed -= HandleLocalYieldConfirmed;
+        }
 
         if (exitHotkey != null && IsTransitionOrDescentLocked())
         {
@@ -497,6 +622,17 @@ public class CharacterSelectUI : MonoBehaviour
     {
         if (_localConfirmed) return;
 
+        if (_isCurrentContestedByOther && !_hasLocalYieldedCurrent)
+        {
+            OpenBidModal(_selectedIndex);
+            return;
+        }
+
+        if (_hasLocalYieldedCurrent)
+        {
+            return;
+        }
+
         if (matchStakeModal != null)
         {
             OpenStakeModal();
@@ -534,6 +670,20 @@ public class CharacterSelectUI : MonoBehaviour
         }
     }
 
+    private int GetWinningBidForSelectedCharacter()
+    {
+        if (CharacterBiddingNet.Instance != null &&
+            CharacterBiddingNet.Instance.TryGetCharacterOwner(_selectedIndex, out ulong oId, out _, out int bid))
+        {
+            ulong localId = NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0;
+            if (oId == localId && bid > 0)
+            {
+                return bid;
+            }
+        }
+        return 0;
+    }
+
     private void OpenStakeModal()
     {
         EnsureStakeReferences();
@@ -545,6 +695,9 @@ public class CharacterSelectUI : MonoBehaviour
         bool canStake = CurrencyConfig.CanMeetMinimumStake(balance);
         int maxAllowedStake = canStake ? CurrencyConfig.GetMaxStake(balance) : CurrencyConfig.MinimumStake;
 
+        int winningBid = GetWinningBidForSelectedCharacter();
+        int minRequiredStake = winningBid > 0 ? winningBid : CurrencyConfig.MinimumStake;
+
         if (matchStakeModal != null)
         {
             matchStakeModal.useLocalization = false;
@@ -552,9 +705,19 @@ public class CharacterSelectUI : MonoBehaviour
             matchStakeModal.descriptionKey = string.Empty;
 
             string title = "MATCH STAKE";
-            string desc = canStake
-                ? $"Enter your stake to confirm deployment.\n<b>Available:</b> {balance} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {maxAllowedStake} {CurrencyConfig.CurrencyPlural}"
-                : $"<color=#FF5555>Insufficient {CurrencyConfig.CurrencyPlural}!</color>\n60% of your total balance ({balance} {CurrencyConfig.CurrencySymbol}) is below the minimum stake of {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.";
+            string desc;
+            if (winningBid > 0)
+            {
+                desc = $"Winning Bid on Operative: <b>{winningBid} {CurrencyConfig.CurrencyPlural}</b> (Covered from your stake)\n" +
+                       $"Your minimum stake is <b>{winningBid} {CurrencyConfig.CurrencyPlural}</b> to deploy.\n" +
+                       $"<b>Available:</b> {balance} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {maxAllowedStake} {CurrencyConfig.CurrencyPlural}";
+            }
+            else
+            {
+                desc = canStake
+                    ? $"Enter your stake to confirm deployment.\n<b>Available:</b> {balance} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {maxAllowedStake} {CurrencyConfig.CurrencyPlural}"
+                    : $"<color=#FF5555>Insufficient {CurrencyConfig.CurrencyPlural}!</color>\n60% of your total balance ({balance} {CurrencyConfig.CurrencySymbol}) is below the minimum stake of {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.";
+            }
 
             matchStakeModal.titleText = title;
             matchStakeModal.descriptionText = desc;
@@ -623,10 +786,14 @@ public class CharacterSelectUI : MonoBehaviour
         }
 
         int maxAllowedStake = CurrencyConfig.GetMaxStake(balance);
+        int winningBid = GetWinningBidForSelectedCharacter();
+        int minRequiredStake = winningBid > 0 ? winningBid : CurrencyConfig.MinimumStake;
 
         if (string.IsNullOrWhiteSpace(raw))
         {
-            errorMessage = $"Available: {balance} {CurrencyConfig.CurrencySymbol}. Enter stake ({CurrencyConfig.MinimumStake} - {maxAllowedStake} {CurrencyConfig.CurrencySymbol}, 60% limit).";
+            errorMessage = winningBid > 0
+                ? $"Available: {balance} {CurrencyConfig.CurrencySymbol}. Enter stake (Min {winningBid} to cover bid - Max {maxAllowedStake} {CurrencyConfig.CurrencySymbol}, 60% limit)."
+                : $"Available: {balance} {CurrencyConfig.CurrencySymbol}. Enter stake ({CurrencyConfig.MinimumStake} - {maxAllowedStake} {CurrencyConfig.CurrencySymbol}, 60% limit).";
             return false;
         }
 
@@ -636,9 +803,16 @@ public class CharacterSelectUI : MonoBehaviour
             return false;
         }
 
-        if (stake < CurrencyConfig.MinimumStake)
+        if (stake < minRequiredStake)
         {
-            errorMessage = $"Stake must be at least {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.";
+            if (winningBid > 0)
+            {
+                errorMessage = $"Stake must be at least {winningBid} {CurrencyConfig.CurrencySymbol} to cover your winning bid of {winningBid} {CurrencyConfig.CurrencySymbol} on this operative.";
+            }
+            else
+            {
+                errorMessage = $"Stake must be at least {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.";
+            }
             return false;
         }
 
@@ -939,6 +1113,8 @@ public class CharacterSelectUI : MonoBehaviour
         UpdateCharacterStatProgressBars(_selectedIndex);
 
         SyncSelectionToServer(_selectedIndex);
+
+        UpdateCharacterOwnershipUI();
 
         if (CharacterSceneController.Instance != null)
             CharacterSceneController.Instance.ResetIdleTimer();
@@ -1834,6 +2010,458 @@ public class CharacterSelectUI : MonoBehaviour
                 return "Stitches you up. Judges your life choices.";
             default:
                 return "Trapped in the dark. Questioning life choices.";
+        }
+    }
+
+    // =========================================================================
+    //  Character Selection Bidding System Logic
+    // =========================================================================
+
+    public void UpdateCharacterOwnershipUI()
+    {
+        ulong localId = NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0;
+        string localName = ResolveLocalPlayerName();
+
+        _hasLocalYieldedCurrent = false;
+        _isCurrentContestedByOther = false;
+
+        if (CharacterBiddingNet.Instance != null)
+        {
+            _hasLocalYieldedCurrent = CharacterBiddingNet.Instance.HasLocalYielded(_selectedIndex);
+
+            if (CharacterBiddingNet.Instance.TryGetCharacterOwner(_selectedIndex, out ulong ownerId, out string ownerName, out int currentBid))
+            {
+                if (ownerId == localId)
+                {
+                    // Local player holds this character!
+                    _isCurrentContestedByOther = false;
+                    MichskyUIBridge.SetButtonText(null, heatConfirmButton, "READY");
+                    if (heatConfirmButton != null)
+                    {
+                        heatConfirmButton.isInteractable = true;
+                        heatConfirmButton.UpdateUI();
+                    }
+                    MichskyUIBridge.SetButtonInteractable(null, heatConfirmButton, true);
+
+                    if (characterOwnedByText != null)
+                    {
+                        characterOwnedByText.text = currentBid > 0
+                            ? $"<color=#55FF55>HOLDING HIGH BID: {currentBid} CINDERS</color>"
+                            : "<color=#55FF55>RESERVED BY YOU</color>";
+                        characterOwnedByText.gameObject.SetActive(true);
+                    }
+                    return;
+                }
+                else
+                {
+                    // Another player holds/claimed this character!
+                    _isCurrentContestedByOther = true;
+                    MichskyUIBridge.SetButtonText(null, heatConfirmButton, "BID");
+
+                    if (_hasLocalYieldedCurrent)
+                    {
+                        // Player yielded on this character — cannot bid anymore
+                        if (heatConfirmButton != null)
+                        {
+                            heatConfirmButton.isInteractable = false;
+                            heatConfirmButton.UpdateUI();
+                        }
+                        MichskyUIBridge.SetButtonInteractable(null, heatConfirmButton, false);
+
+                        if (characterOwnedByText != null)
+                        {
+                            characterOwnedByText.text = $"CLAIMED BY <color=#FFDD44>{ownerName.ToUpper()}</color> — <color=#FF5555>YOU YIELDED</color>";
+                            characterOwnedByText.gameObject.SetActive(true);
+                        }
+                    }
+                    else
+                    {
+                        // Can place a bid
+                        if (heatConfirmButton != null)
+                        {
+                            heatConfirmButton.isInteractable = true;
+                            heatConfirmButton.UpdateUI();
+                        }
+                        MichskyUIBridge.SetButtonInteractable(null, heatConfirmButton, true);
+
+                        if (characterOwnedByText != null)
+                        {
+                            characterOwnedByText.text = $"CLAIMED BY: <color=#FFDD44>{ownerName.ToUpper()}</color> (BID: {currentBid} CINDERS)";
+                            characterOwnedByText.gameObject.SetActive(true);
+                        }
+                    }
+                    return;
+                }
+            }
+            else
+            {
+                // Unclaimed! If local player hasn't yielded, claim it initially
+                if (!_hasLocalYieldedCurrent)
+                {
+                    CharacterBiddingNet.Instance.ClaimCharacterInitial(_selectedIndex, localName);
+                }
+            }
+        }
+
+        // Default unowned / claimed by local fallback
+        MichskyUIBridge.SetButtonText(null, heatConfirmButton, "READY");
+        if (heatConfirmButton != null)
+        {
+            heatConfirmButton.isInteractable = true;
+            heatConfirmButton.UpdateUI();
+        }
+        MichskyUIBridge.SetButtonInteractable(null, heatConfirmButton, true);
+
+        if (characterOwnedByText != null)
+        {
+            characterOwnedByText.text = string.Empty;
+            characterOwnedByText.gameObject.SetActive(false);
+        }
+    }
+
+    private string ResolveLocalPlayerName()
+    {
+        ulong localId = NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0;
+        string registered = GirlRevealManager.GetRegisteredPlayerName(localId);
+        if (!string.IsNullOrEmpty(registered) && !registered.StartsWith("Player "))
+            return registered;
+
+        if (PlayerNameManager.HasSavedName())
+        {
+            string pName = PlayerNameManager.GetPlayerName();
+            if (!string.IsNullOrEmpty(pName)) return pName;
+        }
+
+        if (CloudCharacterSaveManager.Instance != null)
+        {
+            string cloudName = CloudCharacterSaveManager.Instance.GetPlayerName();
+            if (!string.IsNullOrEmpty(cloudName))
+                return cloudName;
+        }
+
+        string pref = PlayerPrefs.GetString("PlayerName", "");
+        if (!string.IsNullOrEmpty(pref))
+            return pref;
+
+        return $"Player {localId}";
+    }
+
+    public void OpenBidModal(int charIndex)
+    {
+        _contestedCharacterIndex = charIndex;
+        int currentBid = CharacterBiddingNet.Instance != null ? CharacterBiddingNet.Instance.GetCurrentBid(charIndex) : 0;
+
+        if (currentBidRoot != null)
+            currentBidRoot.SetActive(true);
+
+        if (currentBidText != null)
+            currentBidText.text = $"{currentBid} CINDERS";
+
+        int balance = CloudCharacterSaveManager.Instance != null
+            ? CloudCharacterSaveManager.Instance.CurrentCredits
+            : CurrencyConfig.DefaultStartingBalance;
+        int maxBid = (int)(balance * 0.60f);
+
+        if (bidModal != null)
+        {
+            bidModal.useLocalization = false;
+            bidModal.titleKey = string.Empty;
+            bidModal.descriptionKey = string.Empty;
+
+            string title = "PLACE BID";
+            string desc = $"Current Bid: {currentBid} Cinders.\nOutbid to claim this operative. Max bid (60%): {maxBid} Cinders.";
+            bidModal.titleText = title;
+            bidModal.descriptionText = desc;
+            if (bidModal.windowTitle != null) bidModal.windowTitle.text = title;
+            if (bidModal.windowDescription != null) bidModal.windowDescription.text = desc;
+            try { bidModal.UpdateUI(); } catch { }
+
+            MichskyUIBridge.BindInputField(null, heatBidInputField, OnBidInputChanged);
+            MichskyUIBridge.BindButton(null, heatPlaceBidButton, OnPlaceBidClicked);
+            if (heatBidModalYieldButton != null)
+                MichskyUIBridge.BindButton(null, heatBidModalYieldButton, OpenExitBidConfirmModal);
+
+            MichskyUIBridge.SetInputText(null, heatBidInputField, string.Empty);
+            OnBidInputChanged(string.Empty);
+
+            bidModal.OpenWindow();
+        }
+    }
+
+    private void OnBidInputChanged(string raw)
+    {
+        int balance = CloudCharacterSaveManager.Instance != null
+            ? CloudCharacterSaveManager.Instance.CurrentCredits
+            : CurrencyConfig.DefaultStartingBalance;
+        int maxBid = (int)(balance * 0.60f);
+        int currentBid = CharacterBiddingNet.Instance != null
+            ? CharacterBiddingNet.Instance.GetCurrentBid(_contestedCharacterIndex)
+            : 0;
+        int minBid = currentBid > 0 ? currentBid + 1 : 2;
+
+        bool isValid = false;
+        string message = "";
+
+        if (string.IsNullOrWhiteSpace(raw))
+        {
+            message = $"Enter bid higher than {currentBid} Cinders (Min: {minBid}, Max 60%: {maxBid}).";
+            isValid = false;
+        }
+        else if (!int.TryParse(raw.Trim(), out int bid))
+        {
+            message = "Please enter a valid whole number.";
+            isValid = false;
+        }
+        else if (bid <= currentBid)
+        {
+            message = $"Bid must exceed current bid of {currentBid} Cinders.";
+            isValid = false;
+        }
+        else if (bid < 2)
+        {
+            message = "Minimum bid is 2 Cinders.";
+            isValid = false;
+        }
+        else if (bid > maxBid)
+        {
+            message = $"Cannot bid more than 60% of total credits! (Max: {maxBid} Cinders).";
+            isValid = false;
+        }
+        else if (bid > balance)
+        {
+            message = $"Insufficient Cinders balance ({balance}).";
+            isValid = false;
+        }
+        else
+        {
+            isValid = true;
+            message = $"Ready to place bid of {bid} Cinders.";
+        }
+
+        if (bidErrorText != null)
+        {
+            bidErrorText.richText = true;
+            bidErrorText.text = isValid ? $"<color=#33FF33>{message}</color>" : $"<color=#FF5555>{message}</color>";
+            bidErrorText.gameObject.SetActive(true);
+        }
+
+        if (heatPlaceBidButton != null)
+        {
+            heatPlaceBidButton.isInteractable = isValid;
+            heatPlaceBidButton.UpdateUI();
+        }
+        MichskyUIBridge.SetButtonInteractable(null, heatPlaceBidButton, isValid);
+    }
+
+    private void OnPlaceBidClicked()
+    {
+        string raw = MichskyUIBridge.GetInputText(null, heatBidInputField);
+        if (!int.TryParse(raw.Trim(), out int bid) || bid < 2)
+            return;
+
+        int balance = CloudCharacterSaveManager.Instance != null
+            ? CloudCharacterSaveManager.Instance.CurrentCredits
+            : CurrencyConfig.DefaultStartingBalance;
+        int maxBid = (int)(balance * 0.60f);
+        int curBid = CharacterBiddingNet.Instance != null
+            ? CharacterBiddingNet.Instance.GetCurrentBid(_contestedCharacterIndex)
+            : 0;
+
+        if (bid <= curBid || bid > maxBid || bid > balance)
+            return;
+
+        string pName = ResolveLocalPlayerName();
+        CharacterBiddingNet.Instance?.PlaceBid(_contestedCharacterIndex, bid, pName);
+
+        if (bidModal != null)
+            bidModal.CloseWindow();
+
+        if (_localConfirmed)
+        {
+            int currentStake = PersistentCharacterSelection.GetSavedMatchStake();
+            if (bid > currentStake)
+            {
+                int diff = bid - currentStake;
+                if (CloudCharacterSaveManager.Instance != null)
+                {
+                    CloudCharacterSaveManager.Instance.SpendCredits(diff);
+                }
+                PersistentCharacterSelection.SetSavedMatchStake(bid);
+                LobbyUI.Instance?.UpdateCreditsUI();
+                LobbyUI.Instance?.UpdateProfileUI();
+            }
+        }
+        else
+        {
+            MichskyUIBridge.SetButtonText(null, heatConfirmButton, "READY");
+            if (heatConfirmButton != null)
+            {
+                heatConfirmButton.isInteractable = true;
+                heatConfirmButton.UpdateUI();
+            }
+            MichskyUIBridge.SetButtonInteractable(null, heatConfirmButton, true);
+
+            UpdateCharacterOwnershipUI();
+        }
+    }
+
+    public void HandleLocalOutbid(int charIndex, int newBid, string outbidderName)
+    {
+        _contestedCharacterIndex = charIndex;
+
+        if (charIndex == _selectedIndex)
+        {
+            UpdateCharacterOwnershipUI();
+        }
+
+        if (bidNotificationModal != null)
+        {
+            bidNotificationModal.useLocalization = false;
+            bidNotificationModal.titleKey = string.Empty;
+            bidNotificationModal.descriptionKey = string.Empty;
+
+            string title = "YOU'VE BEEN OUTBID";
+            string desc = $"{outbidderName} placed a bid of {newBid} Cinders on this operative.";
+            bidNotificationModal.titleText = title;
+            bidNotificationModal.descriptionText = desc;
+            if (bidNotificationModal.windowTitle != null) bidNotificationModal.windowTitle.text = title;
+            if (bidNotificationModal.windowDescription != null) bidNotificationModal.windowDescription.text = desc;
+            if (outbidDescriptionText != null) outbidDescriptionText.text = desc;
+            try { bidNotificationModal.UpdateUI(); } catch { }
+
+            MichskyUIBridge.BindButton(null, heatOutbidCounterBidButton, OnOutbidCounterBidClicked);
+            MichskyUIBridge.BindButton(null, heatOutbidYieldButton, OpenExitBidConfirmModal);
+
+            bidNotificationModal.OpenWindow();
+        }
+    }
+
+    private void OnOutbidCounterBidClicked()
+    {
+        if (bidNotificationModal != null)
+            bidNotificationModal.CloseWindow();
+
+        OpenBidModal(_contestedCharacterIndex);
+    }
+
+    public void OpenExitBidConfirmModal()
+    {
+        if (exitBidNotificationModal != null)
+        {
+            exitBidNotificationModal.useLocalization = false;
+            exitBidNotificationModal.titleKey = string.Empty;
+            exitBidNotificationModal.descriptionKey = string.Empty;
+
+            string title = "YIELD BID";
+            string desc = "Are you sure you want to yield? You will not be able to bid on this operative again.";
+            exitBidNotificationModal.titleText = title;
+            exitBidNotificationModal.descriptionText = desc;
+            if (exitBidNotificationModal.windowTitle != null) exitBidNotificationModal.windowTitle.text = title;
+            if (exitBidNotificationModal.windowDescription != null) exitBidNotificationModal.windowDescription.text = desc;
+            try { exitBidNotificationModal.UpdateUI(); } catch { }
+
+            MichskyUIBridge.BindButton(null, heatExitBidYesButton, OnExitBidConfirmedYes);
+            MichskyUIBridge.BindButton(null, heatExitBidNoButton, OnExitBidConfirmedNo);
+
+            exitBidNotificationModal.OpenWindow();
+        }
+    }
+
+    private void OnExitBidConfirmedNo()
+    {
+        if (exitBidNotificationModal != null)
+            exitBidNotificationModal.CloseWindow();
+    }
+
+    private void OnExitBidConfirmedYes()
+    {
+        if (exitBidNotificationModal != null)
+            exitBidNotificationModal.CloseWindow();
+        if (bidModal != null)
+            bidModal.CloseWindow();
+        if (bidNotificationModal != null)
+            bidNotificationModal.CloseWindow();
+
+        CharacterBiddingNet.Instance?.YieldCharacter(_contestedCharacterIndex);
+
+        if (_localConfirmed)
+        {
+            int savedStake = PersistentCharacterSelection.GetSavedMatchStake();
+            if (savedStake > 0 && CloudCharacterSaveManager.Instance != null)
+            {
+                CloudCharacterSaveManager.Instance.AddCredits(savedStake);
+                PersistentCharacterSelection.SetSavedMatchStake(0);
+                LobbyUI.Instance?.UpdateCreditsUI();
+                LobbyUI.Instance?.UpdateProfileUI();
+            }
+
+            _localConfirmed = false;
+            ulong localId = NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0;
+            PlayerReadyTracker.Instance?.ReportInvestigatorUnconfirmed(localId);
+
+            if (lobbyPlayerStatusPanel != null)
+                lobbyPlayerStatusPanel.Hide();
+            else if (playerStatusPanel != null)
+                playerStatusPanel.SetActive(false);
+
+            if (characterSelectPanel != null) characterSelectPanel.SetActive(true);
+            if (investigatorPanel != null) investigatorPanel.SetActive(true);
+            if (sideDetailsPanel != null) sideDetailsPanel.SetActive(true);
+            if (detailsTitleText != null) detailsTitleText.gameObject.SetActive(true);
+            if (detailsAbilitiesText != null) detailsAbilitiesText.gameObject.SetActive(true);
+            if (detailsDescriptionText != null) detailsDescriptionText.gameObject.SetActive(true);
+
+            ApplySelectionStyle();
+
+            if (heatConfirmButton != null)
+            {
+                heatConfirmButton.gameObject.SetActive(true);
+                MichskyUIBridge.SetButtonText(null, heatConfirmButton, "BID");
+                heatConfirmButton.isInteractable = false;
+                heatConfirmButton.UpdateUI();
+            }
+            MichskyUIBridge.SetButtonInteractable(null, heatConfirmButton, false);
+
+            if (characterOwnedByText != null)
+            {
+                characterOwnedByText.text = "YOU YIELDED ON THIS OPERATIVE";
+                characterOwnedByText.gameObject.SetActive(true);
+            }
+        }
+        else
+        {
+            if (_selectedIndex == _contestedCharacterIndex)
+            {
+                MichskyUIBridge.SetButtonText(null, heatConfirmButton, "BID");
+                if (heatConfirmButton != null)
+                {
+                    heatConfirmButton.isInteractable = false;
+                    heatConfirmButton.UpdateUI();
+                }
+                MichskyUIBridge.SetButtonInteractable(null, heatConfirmButton, false);
+
+                if (characterOwnedByText != null)
+                {
+                    characterOwnedByText.text = "YOU YIELDED ON THIS OPERATIVE";
+                    characterOwnedByText.gameObject.SetActive(true);
+                }
+            }
+        }
+    }
+
+    private void HandleCharacterBidUpdated(int charIndex, ulong ownerId, string ownerName, int bid)
+    {
+        if (charIndex == _selectedIndex)
+        {
+            UpdateCharacterOwnershipUI();
+        }
+    }
+
+    private void HandleLocalYieldConfirmed(int charIndex)
+    {
+        if (charIndex == _selectedIndex)
+        {
+            UpdateCharacterOwnershipUI();
         }
     }
 }
