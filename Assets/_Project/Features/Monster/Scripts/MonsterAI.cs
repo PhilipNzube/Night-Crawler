@@ -3891,11 +3891,16 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 }
             }
 
+            // Safe tag comparison: reading .gameObject.tag does NOT throw if custom tag isn't registered in TagManager
             try
             {
-                if (!string.IsNullOrEmpty(metalTag) && hit.collider.CompareTag(metalTag))
+                if (!string.IsNullOrEmpty(metalTag))
                 {
-                    return true;
+                    string curTag = hit.collider.gameObject.tag;
+                    if (string.Equals(curTag, metalTag, System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        return true;
+                    }
                 }
             }
             catch { }

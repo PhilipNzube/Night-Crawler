@@ -64,6 +64,65 @@ namespace NightCrawler.Economy
             if (balance < MinimumStake) return false;
             return GetMaxStake(balance) >= MinimumStake;
         }
+
+        public const string EmergencyCindersUtcKey = "NightCrawler_EmergencyCindersTargetUtc";
+        public const int EmergencyStipendAmount = 25;
+        public const float EmergencyStipendCooldownSeconds = 60f;
+
+        /// <summary>
+        /// Evaluates emergency poverty relief in real time.
+        /// Returns true if emergency timer is currently counting down, providing remaining seconds and formatted string.
+        /// If 60% of total balance can meet the minimum stake (>= 2 Cinders), immediately cleans up saved key and returns false.
+        /// </summary>
+        public static bool CheckEmergencyStipendStatus(int currentBalance, out float remainingSeconds, out string formattedTimer)
+        {
+            remainingSeconds = 0f;
+            formattedTimer = string.Empty;
+
+            if (CanMeetMinimumStake(currentBalance))
+            {
+                if (PlayerPrefs.HasKey(EmergencyCindersUtcKey))
+                {
+                    PlayerPrefs.DeleteKey(EmergencyCindersUtcKey);
+                    PlayerPrefs.Save();
+                }
+                return false;
+            }
+
+            DateTime targetUtc;
+            if (PlayerPrefs.HasKey(EmergencyCindersUtcKey) &&
+                DateTime.TryParse(PlayerPrefs.GetString(EmergencyCindersUtcKey), null, System.Globalization.DateTimeStyles.RoundtripKind, out DateTime savedUtc))
+            {
+                targetUtc = savedUtc;
+            }
+            else
+            {
+                targetUtc = DateTime.UtcNow.AddSeconds(EmergencyStipendCooldownSeconds);
+                PlayerPrefs.SetString(EmergencyCindersUtcKey, targetUtc.ToString("o"));
+                PlayerPrefs.Save();
+            }
+
+            TimeSpan diff = targetUtc - DateTime.UtcNow;
+            remainingSeconds = (float)diff.TotalSeconds;
+
+            if (remainingSeconds <= 0f)
+            {
+                if (CloudCharacterSaveManager.Instance != null)
+                {
+                    CloudCharacterSaveManager.Instance.AddCredits(EmergencyStipendAmount);
+                }
+
+                PlayerPrefs.DeleteKey(EmergencyCindersUtcKey);
+                PlayerPrefs.Save();
+                remainingSeconds = 0f;
+                return false;
+            }
+
+            int mins = Mathf.Max(0, Mathf.FloorToInt(remainingSeconds / 60f));
+            int secs = Mathf.Max(0, Mathf.FloorToInt(remainingSeconds % 60f));
+            formattedTimer = $"{mins:00}:{secs:00}";
+            return true;
+        }
     }
 
     /// <summary>

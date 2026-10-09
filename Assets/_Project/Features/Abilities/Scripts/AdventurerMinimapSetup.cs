@@ -141,20 +141,38 @@ public class AdventurerMinimapSetup : MonoBehaviour
         }
     }
 
+    [Header("Stats & Progression Upgrades")]
+    [Tooltip("If true, automatically reads UpgradeStatType.MapPower from CloudCharacterSaveManager to boost the minimap range.")]
+    public bool upgradeFromStats = true;
+
+    [Tooltip("Extra orthographic view range added per MapPower upgrade level.")]
+    public float rangePerUpgradeLevel = 4.0f;
+
     /// <summary>
     /// Configures the minimap camera with solid black background, close clipping, and reasonable zoom
     /// to avoid rendering distant skybox, global fog, or clipping outside the mine walls.
+    /// Incorporates MapPower upgrade stat to expand the Pathfinder's map vision.
     /// </summary>
     public void ConfigureMinimapCamera()
     {
         if (aaMinimapManager == null) return;
+
+        float effectiveRange = tunnelOrthographicSize;
+        if (upgradeFromStats && CloudCharacterSaveManager.Instance != null)
+        {
+            int lvl = CloudCharacterSaveManager.Instance.GetUpgradeLevel(NightCrawler.Economy.UpgradeStatType.MapPower);
+            if (lvl > 0)
+            {
+                effectiveRange += (lvl * rangePerUpgradeLevel);
+            }
+        }
 
         aaMinimapManager.rotateWithTarget = rotateMapWithPlayer;
         aaMinimapManager.clearFlags = AAMAP.MinimapClearFlags.SolidColor;
         aaMinimapManager.backgroundColor = Color.black;
         aaMinimapManager.nearClippingPlane = 0.1f;
         aaMinimapManager.farClippingPlane = 35f;
-        aaMinimapManager.minimapRange = tunnelOrthographicSize;
+        aaMinimapManager.minimapRange = effectiveRange;
         aaMinimapManager.minimapHeight = cameraHeightAbovePlayer;
 
         if (aaMinimapManager.minimapCamera != null)
@@ -166,7 +184,7 @@ public class AdventurerMinimapSetup : MonoBehaviour
                 cam.backgroundColor = Color.black;
                 cam.nearClipPlane = 0.1f;
                 cam.farClipPlane = 35f;
-                cam.orthographicSize = tunnelOrthographicSize;
+                cam.orthographicSize = effectiveRange;
 
                 int minimapLayer = LayerMask.NameToLayer("Minimap");
                 if (minimapLayer != -1)

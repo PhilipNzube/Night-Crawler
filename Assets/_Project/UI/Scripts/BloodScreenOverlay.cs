@@ -24,12 +24,22 @@ public class BloodScreenOverlay : MonoBehaviour
     [Tooltip("Optional CanvasGroup if alpha is controlled via CanvasGroup instead of Image color.")]
     public CanvasGroup canvasGroup;
 
+    [Header("Blur / Distortion")]
+    [Tooltip("Optional Image overlay displaying blur texture (e.g. Blood_Blur_1 / Blur Camera Output / UI blur).")]
+    public Image blurOverlayImage;
+
+    [Tooltip("Optional CanvasGroup specifically controlling the blur layer opacity.")]
+    public CanvasGroup blurCanvasGroup;
+
+    [Tooltip("Maximum opacity of the blur effect when health is near zero.")]
+    [Range(0f, 1f)] public float maxBlurAlpha = 0.85f;
+
     [Header("Health Thresholds")]
     [Tooltip("Health fraction below which blood starts appearing (default 0.85 = starts at 85% HP).")]
     [Range(0f, 1f)] public float bloodStartThreshold = 0.85f;
 
     [Tooltip("Maximum opacity/alpha of the blood screen when player is at 0 HP.")]
-    [Range(0f, 1f)] public float maxBloodAlpha = 0.8f;
+    [Range(0f, 1f)] public float maxBloodAlpha = 0.85f;
 
     [Tooltip("Exponent curve controlling how slowly blood builds up. Higher = slower initial build up.")]
     [Range(1f, 4f)] public float progressionCurvePower = 2.2f;
@@ -37,38 +47,81 @@ public class BloodScreenOverlay : MonoBehaviour
     [Tooltip("Speed at which the blood overlay fades in or out.")]
     public float fadeSpeed = 1.5f;
 
-    [Header("Low Health Pulse")]
+    [Header("Intense Low Health Pulse")]
     [Tooltip("Enable a heartbeat pulsing effect when critically low on health.")]
     public bool enablePulse = true;
 
-    [Tooltip("Health fraction below which the heartbeat pulse activates (e.g. 0.25 = 25% HP).")]
-    [Range(0f, 1f)] public float pulseThreshold = 0.25f;
+    [Tooltip("Health fraction below which the heartbeat pulse activates (e.g. 0.30 = 30% HP).")]
+    [Range(0f, 1f)] public float pulseThreshold = 0.30f;
 
-    [Tooltip("Frequency/speed of the heartbeat pulse.")]
-    public float pulseSpeed = 3.5f;
+    [Tooltip("Base frequency/speed of the heartbeat pulse.")]
+    public float pulseSpeed = 4.2f;
 
-    [Tooltip("Intensity fluctuation of the pulse.")]
-    public float pulseIntensity = 0.12f;
+    [Tooltip("Intensity fluctuation of the pulse alpha.")]
+    [Range(0.05f, 0.6f)]
+    public float pulseIntensity = 0.35f;
+
+    [Tooltip("Double-thump physiological heartbeat simulation (lub-dub bi-phasic pulse).")]
+    public bool useDoubleBeatPulse = true;
+
+    [Tooltip("Dynamic breathing/zoom scale bounce on the RectTransform during heartbeat.")]
+    public bool enableScalePulse = true;
+
+    [Tooltip("Maximum scale bounce during pulse.")]
+    public float maxPulseScale = 1.05f;
+
+    [Header("Audio Effects (Heartbeat & Muffled Audio)")]
+    [Tooltip("Heartbeat audio clip (e.g. Heartbeat.mp3 / Heartbeat.wav in Audio folder).")]
+    public AudioClip heartbeatClip;
+
+    [Tooltip("Dedicated AudioSource for the looping heartbeat. If left null, one is automatically created.")]
+    public AudioSource heartbeatAudioSource;
+
+    [Tooltip("Max volume of the heartbeat at critical low health.")]
+    [Range(0f, 1f)] public float maxHeartbeatVolume = 0.95f;
+
+    [Tooltip("Pitch scaling range as health drops towards zero (faster heart rate as player approaches death).")]
+    public Vector2 heartbeatPitchRange = new Vector2(0.95f, 1.35f);
+
+    [Tooltip("Enable realistic muffled audio (low pass filter) when low on health.")]
+    public bool enableMuffledAudio = true;
+
+    [Tooltip("AudioLowPassFilter component. Wire this to the AudioListener on your Main/Player Camera.")]
+    public AudioLowPassFilter lowPassFilter;
+
+    [Tooltip("Cutoff frequency when healthy (22000Hz = full audio clarity).")]
+    public float normalCutoffFrequency = 22000f;
+
+    [Tooltip("Muffled cutoff frequency at near 0 HP (realistic underwater / shell-shock rumble, e.g. 750-900Hz).")]
+    public float criticalCutoffFrequency = 800f;
 
     // -------------------------------------------------------------------------
     //  Private State
     // -------------------------------------------------------------------------
-    private TargetHealth _localTargetHealth;
-    private HealthSystem _localHealthSystem;
-    private bool         _isBound               = false;
-    private float        _maxHealth             = 100f;
-    private float        _currentHealthFraction = 1f;
-    private float        _targetAlpha           = 0f;
-    private float        _currentAlpha          = 0f;
+    private TargetHealth  _localTargetHealth;
+    private HealthSystem  _localHealthSystem;
+    private RectTransform _rectTransform;
+    private Vector3       _initialScale          = Vector3.one;
+    private bool          _isBound               = false;
+    private float         _maxHealth             = 100f;
+    private float         _currentHealthFraction = 1f;
+    private float         _targetAlpha           = 0f;
+    private float         _currentAlpha          = 0f;
+    private bool          _createdAudioSource    = false;
 
     // =========================================================================
     //  Unity Lifecycle
     // =========================================================================
     private void Awake()
     {
+        _rectTransform = GetComponent<RectTransform>();
+        if (_rectTransform != null) _initialScale = _rectTransform.localScale;
+
         // Auto-assign references if on the same GameObject
         if (bloodImage == null)  bloodImage  = GetComponent<Image>();
         if (canvasGroup == null) canvasGroup = GetComponent<CanvasGroup>();
+
+        SetupHeartbeatAudioSource();
 
         // Start completely invisible
         SetAlphaImmediate(0f);
@@ -78,6 +131,10 @@ public class BloodScreenOverlay : MonoBehaviour
     {
         if (bloodImage == null)  bloodImage  = GetComponent<Image>();
         if (canvasGroup == null) canvasGroup = GetComponent<CanvasGroup>();
+        if (_rectTransform == null) _rectTransform = GetComponent<RectTransform>();
+        if (_rectTransform != null) _initialScale = _rectTransform.localScale;
+
+        SetupHeartbeatAudioSource();
         if (!_isBound) TryBindToLocalPlayer();
     }
 
@@ -86,15 +143,67 @@ public class BloodScreenOverlay : MonoBehaviour
         // Smoothly update the visual alpha every frame
         UpdateOverlayAlpha();
 
+        // Update audio (heartbeat & low-pass muffled filter)
+        UpdateLowHealthAudio();
+
         if (!_isBound)
         {
             TryBindToLocalPlayer();
         }
     }
 
+    private void OnDisable()
+    {
+        ResetAudioAndEffects();
+    }
+
     private void OnDestroy()
     {
         UnbindFromPlayer();
+        ResetAudioAndEffects();
+    }
+
+    private void SetupHeartbeatAudioSource()
+    {
+        if (heartbeatAudioSource == null)
+        {
+            heartbeatAudioSource = GetComponent<AudioSource>();
+            if (heartbeatAudioSource == null)
+            {
+                heartbeatAudioSource = gameObject.AddComponent<AudioSource>();
+                _createdAudioSource = true;
+            }
+        }
+
+        if (heartbeatAudioSource != null)
+        {
+            heartbeatAudioSource.playOnAwake = false;
+            heartbeatAudioSource.loop = true;
+            heartbeatAudioSource.spatialBlend = 0f; // 2D Stereo sound straight in player's ears
+            if (heartbeatClip != null && heartbeatAudioSource.clip == null)
+            {
+                heartbeatAudioSource.clip = heartbeatClip;
+            }
+        }
+    }
+
+    private void ResetAudioAndEffects()
+    {
+        if (heartbeatAudioSource != null && heartbeatAudioSource.isPlaying)
+        {
+            heartbeatAudioSource.Stop();
+        }
+
+        if (lowPassFilter != null)
+        {
+            lowPassFilter.cutoffFrequency = normalCutoffFrequency;
+            lowPassFilter.enabled = false;
+        }
+
+        if (_rectTransform != null)
+        {
+            _rectTransform.localScale = _initialScale;
+        }
     }
 
     // =========================================================================
@@ -255,13 +364,43 @@ public class BloodScreenOverlay : MonoBehaviour
         _currentAlpha = Mathf.MoveTowards(_currentAlpha, _targetAlpha, Time.deltaTime * fadeSpeed);
 
         float renderAlpha = _currentAlpha;
+        float pulseWave = 0f;
+        float pulseScale = 0f;
 
-        // Heartbeat pulsing activates only when critically low on health (< 25%)
+        // Heartbeat pulsing activates only when critically low on health (< pulseThreshold)
         if (enablePulse && _currentHealthFraction <= pulseThreshold && _targetAlpha > 0.05f)
         {
-            float pulseScale = Mathf.Clamp01((pulseThreshold - _currentHealthFraction) / pulseThreshold);
-            float pulse = (Mathf.Sin(Time.time * pulseSpeed) * 0.5f + 0.5f) * pulseIntensity * pulseScale;
+            pulseScale = Mathf.Clamp01((pulseThreshold - _currentHealthFraction) / pulseThreshold);
+
+            // Heart rate accelerates as health drops closer to death
+            float currentRate = pulseSpeed * (1f + pulseScale * 0.45f);
+
+            if (useDoubleBeatPulse)
+            {
+                // Physiological bi-phasic lub-dub waveform
+                float phase = (Time.time * currentRate) % (Mathf.PI * 2f);
+                float lub = Mathf.Pow(Mathf.Max(0f, Mathf.Sin(phase)), 4f);
+                float dub = Mathf.Pow(Mathf.Max(0f, Mathf.Sin(phase * 1.8f - 0.4f)), 6f) * 0.65f;
+                pulseWave = Mathf.Clamp01(lub + dub);
+            }
+            else
+            {
+                pulseWave = Mathf.Sin(Time.time * currentRate) * 0.5f + 0.5f;
+            }
+
+            float pulse = pulseWave * pulseIntensity * pulseScale;
             renderAlpha = Mathf.Clamp01(_currentAlpha + pulse);
+
+            // Scale zoom pulsation
+            if (enableScalePulse && _rectTransform != null)
+            {
+                float targetScaleMult = 1f + (pulseWave * (maxPulseScale - 1f) * pulseScale);
+                _rectTransform.localScale = Vector3.Lerp(_rectTransform.localScale, _initialScale * targetScaleMult, Time.deltaTime * 12f);
+            }
+        }
+        else if (_rectTransform != null)
+        {
+            _rectTransform.localScale = Vector3.MoveTowards(_rectTransform.localScale, _initialScale, Time.deltaTime * 2f);
         }
 
         ApplyAlpha(renderAlpha);
@@ -287,6 +426,87 @@ public class BloodScreenOverlay : MonoBehaviour
         if (canvasGroup != null)
         {
             canvasGroup.alpha = alpha;
+        }
+
+        // Synchronize blur overlay with blood alpha
+        if (blurOverlayImage != null)
+        {
+            Color bc = blurOverlayImage.color;
+            bc.a = alpha * maxBlurAlpha;
+            blurOverlayImage.color = bc;
+            blurOverlayImage.enabled = (bc.a > 0.001f);
+        }
+
+        if (blurCanvasGroup != null)
+        {
+            blurCanvasGroup.alpha = alpha * maxBlurAlpha;
+        }
+    }
+
+    // =========================================================================
+    //  Low-Health Audio Feedback (Heartbeat Loop & Low-Pass Muffled Filter)
+    // =========================================================================
+    private void UpdateLowHealthAudio()
+    {
+        bool isCritical = _currentHealthFraction <= pulseThreshold && _targetAlpha > 0.05f;
+        float criticalFraction = isCritical ? Mathf.Clamp01((pulseThreshold - _currentHealthFraction) / pulseThreshold) : 0f;
+
+        // 1. Looping Heartbeat Sound
+        if (heartbeatAudioSource != null && (heartbeatClip != null || heartbeatAudioSource.clip != null))
+        {
+            if (heartbeatAudioSource.clip == null && heartbeatClip != null)
+            {
+                heartbeatAudioSource.clip = heartbeatClip;
+            }
+
+            if (isCritical)
+            {
+                if (!heartbeatAudioSource.isPlaying && heartbeatAudioSource.clip != null)
+                {
+                    heartbeatAudioSource.Play();
+                }
+
+                float targetVol = Mathf.Lerp(0.15f, maxHeartbeatVolume, criticalFraction);
+                heartbeatAudioSource.volume = Mathf.MoveTowards(heartbeatAudioSource.volume, targetVol, Time.deltaTime * 2.5f);
+
+                float targetPitch = Mathf.Lerp(heartbeatPitchRange.x, heartbeatPitchRange.y, criticalFraction);
+                heartbeatAudioSource.pitch = Mathf.MoveTowards(heartbeatAudioSource.pitch, targetPitch, Time.deltaTime * 1.5f);
+            }
+            else
+            {
+                if (heartbeatAudioSource.isPlaying)
+                {
+                    heartbeatAudioSource.volume = Mathf.MoveTowards(heartbeatAudioSource.volume, 0f, Time.deltaTime * 3.5f);
+                    if (heartbeatAudioSource.volume <= 0.01f)
+                    {
+                        heartbeatAudioSource.Stop();
+                    }
+                }
+            }
+        }
+
+        // 2. Realistic Low-Pass Muffled Audio Filter (Shell-Shock / Underwater Feeling)
+        if (enableMuffledAudio && lowPassFilter != null)
+        {
+            if (isCritical)
+            {
+                if (!lowPassFilter.enabled) lowPassFilter.enabled = true;
+
+                float targetCutoff = Mathf.Lerp(normalCutoffFrequency, criticalCutoffFrequency, criticalFraction);
+                lowPassFilter.cutoffFrequency = Mathf.MoveTowards(lowPassFilter.cutoffFrequency, targetCutoff, Time.deltaTime * 14000f);
+            }
+            else
+            {
+                if (lowPassFilter.enabled)
+                {
+                    lowPassFilter.cutoffFrequency = Mathf.MoveTowards(lowPassFilter.cutoffFrequency, normalCutoffFrequency, Time.deltaTime * 16000f);
+                    if (lowPassFilter.cutoffFrequency >= normalCutoffFrequency - 50f)
+                    {
+                        lowPassFilter.cutoffFrequency = normalCutoffFrequency;
+                        lowPassFilter.enabled = false;
+                    }
+                }
+            }
         }
     }
 }

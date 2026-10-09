@@ -251,6 +251,7 @@ public class CharacterSelectUI : MonoBehaviour
     }
 
     private bool _isAllPlayersReady = false;
+    private int  _requiredStakeOverride = 0;
 
     /// <summary>
     /// Returns true once the squad scene has loaded, all players are confirmed ready,
@@ -291,6 +292,30 @@ public class CharacterSelectUI : MonoBehaviour
             else if (!isLocked && !exitHotkey.gameObject.activeSelf && gameObject.activeInHierarchy)
             {
                 exitHotkey.gameObject.SetActive(true);
+            }
+        }
+
+        // Real-time Emergency Stipend & Balance Synchronization for Match Stake Modal
+        if (matchStakeModal != null && matchStakeModal.isOn)
+        {
+            int bal = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
+            bool isPoverty = CurrencyConfig.CheckEmergencyStipendStatus(bal, out float remSec, out string timerStr);
+
+            if (isPoverty)
+            {
+                if (stakeErrorText != null)
+                {
+                    stakeErrorText.text = $"Insufficient {CurrencyConfig.CurrencyPlural}! 60% of balance ({bal} {CurrencyConfig.CurrencySymbol}) is below {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.\n<color=#FFE81A><b>Emergency Stipend in {timerStr} (+{CurrencyConfig.EmergencyStipendAmount} {CurrencyConfig.CurrencyPlural})</b></color>";
+                    stakeErrorText.gameObject.SetActive(true);
+                }
+                SetStakeConfirmInteractable(false);
+            }
+            else
+            {
+                if (stakeErrorText != null && stakeErrorText.gameObject.activeSelf && stakeErrorText.text.Contains("Emergency Stipend"))
+                {
+                    OnStakeInputChanged(MichskyUIBridge.GetInputText(null, heatStakeInputField));
+                }
             }
         }
 
@@ -672,6 +697,8 @@ public class CharacterSelectUI : MonoBehaviour
 
     private int GetWinningBidForSelectedCharacter()
     {
+        if (_requiredStakeOverride > 0) return _requiredStakeOverride;
+
         if (CharacterBiddingNet.Instance != null &&
             CharacterBiddingNet.Instance.TryGetCharacterOwner(_selectedIndex, out ulong oId, out _, out int bid))
         {
@@ -684,9 +711,10 @@ public class CharacterSelectUI : MonoBehaviour
         return 0;
     }
 
-    private void OpenStakeModal()
+    private void OpenStakeModal(string customDescription = null, int requiredMinStake = -1)
     {
         EnsureStakeReferences();
+        _requiredStakeOverride = requiredMinStake > 0 ? requiredMinStake : 0;
 
         int balance = CloudCharacterSaveManager.Instance != null
             ? CloudCharacterSaveManager.Instance.CurrentCredits
@@ -704,9 +732,13 @@ public class CharacterSelectUI : MonoBehaviour
             matchStakeModal.titleKey = string.Empty;
             matchStakeModal.descriptionKey = string.Empty;
 
-            string title = "MATCH STAKE";
+            string title = requiredMinStake > 0 ? "UPDATE MATCH STAKE" : "MATCH STAKE";
             string desc;
-            if (winningBid > 0)
+            if (!string.IsNullOrEmpty(customDescription))
+            {
+                desc = customDescription;
+            }
+            else if (winningBid > 0)
             {
                 desc = $"Winning Bid on Operative: <b>{winningBid} {CurrencyConfig.CurrencyPlural}</b> (Covered from your stake)\n" +
                        $"Your minimum stake is <b>{winningBid} {CurrencyConfig.CurrencyPlural}</b> to deploy.\n" +
@@ -735,9 +767,10 @@ public class CharacterSelectUI : MonoBehaviour
         if (heatStakeCancelButton != null)
             MichskyUIBridge.BindButton(null, heatStakeCancelButton, OnStakeModalCancelled);
 
-        // Clear input text initially and run initial validation & error state
-        MichskyUIBridge.SetInputText(null, heatStakeInputField, string.Empty);
-        OnStakeInputChanged(string.Empty);
+        // Pre-fill input text if requiredMinStake > 0, otherwise clear
+        string initialInput = requiredMinStake > 0 ? requiredMinStake.ToString() : string.Empty;
+        MichskyUIBridge.SetInputText(null, heatStakeInputField, initialInput);
+        OnStakeInputChanged(initialInput);
 
         matchStakeModal.OpenWindow();
     }
@@ -837,6 +870,7 @@ public class CharacterSelectUI : MonoBehaviour
 
     private void OnStakeModalCancelled()
     {
+        _requiredStakeOverride = 0;
         if (matchStakeModal != null)
             matchStakeModal.CloseWindow();
 
@@ -870,15 +904,19 @@ public class CharacterSelectUI : MonoBehaviour
     {
         if (_localConfirmed) return;
 
+        int prevStake = PersistentCharacterSelection.GetSavedMatchStake();
+        int toDeduct = Mathf.Max(0, stake - prevStake);
+
         PersistentCharacterSelection.SetSavedMatchStake(stake);
-        if (CloudCharacterSaveManager.Instance != null)
+        if (CloudCharacterSaveManager.Instance != null && toDeduct > 0)
         {
-            CloudCharacterSaveManager.Instance.SpendCredits(stake);
+            CloudCharacterSaveManager.Instance.SpendCredits(toDeduct);
         }
         LobbyUI.Instance?.UpdateCreditsUI();
         LobbyUI.Instance?.UpdateProfileUI();
 
         _localConfirmed = true;
+        _requiredStakeOverride = 0;
         PersistentCharacterSelection.SetSelectedCharacterIndex(_selectedIndex);
 
         string resolvedCharName = string.Empty;
@@ -2043,12 +2081,11 @@ public class CharacterSelectUI : MonoBehaviour
                     }
                     MichskyUIBridge.SetButtonInteractable(null, heatConfirmButton, true);
 
+                    // The Owner text is NOT supposed to appear to the player who owns it
                     if (characterOwnedByText != null)
                     {
-                        characterOwnedByText.text = currentBid > 0
-                            ? $"<color=#55FF55>HOLDING HIGH BID: {currentBid} CINDERS</color>"
-                            : "<color=#55FF55>RESERVED BY YOU</color>";
-                        characterOwnedByText.gameObject.SetActive(true);
+                        characterOwnedByText.text = string.Empty;
+                        characterOwnedByText.gameObject.SetActive(false);
                     }
                     return;
                 }
@@ -2276,22 +2313,32 @@ public class CharacterSelectUI : MonoBehaviour
         if (bidModal != null)
             bidModal.CloseWindow();
 
-        if (_localConfirmed)
+        int currentStake = PersistentCharacterSelection.GetSavedMatchStake();
+
+        // If player has already staked and someone else outbids them, once they place their counter-bid:
+        // if the new bid is bigger than their previous stake, show them the stake modal with an explanatory message!
+        if (_localConfirmed || currentStake > 0)
         {
-            int currentStake = PersistentCharacterSelection.GetSavedMatchStake();
             if (bid > currentStake)
             {
-                int diff = bid - currentStake;
-                if (CloudCharacterSaveManager.Instance != null)
+                if (_localConfirmed)
                 {
-                    CloudCharacterSaveManager.Instance.SpendCredits(diff);
+                    _localConfirmed = false;
+                    ulong localId = NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0;
+                    PlayerReadyTracker.Instance?.ReportInvestigatorUnconfirmed(localId);
                 }
-                PersistentCharacterSelection.SetSavedMatchStake(bid);
-                LobbyUI.Instance?.UpdateCreditsUI();
-                LobbyUI.Instance?.UpdateProfileUI();
+
+                string msg = $"<color=#FFE81A><b>NEW HIGH BID PLACED!</b></color>\n" +
+                             $"Your new bid of <b>{bid} {CurrencyConfig.CurrencyPlural}</b> exceeds your previous stake of <b>{currentStake} {CurrencyConfig.CurrencyPlural}</b>.\n" +
+                             $"Because match stakes cover winning bids, you must update your stake to at least <b>{bid} {CurrencyConfig.CurrencyPlural}</b> to secure deployment.\n" +
+                             $"<b>Available:</b> {balance} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60%):</b> {maxBid} {CurrencyConfig.CurrencyPlural}";
+
+                OpenStakeModal(msg, bid);
+                return;
             }
         }
-        else
+
+        if (!_localConfirmed)
         {
             MichskyUIBridge.SetButtonText(null, heatConfirmButton, "READY");
             if (heatConfirmButton != null)

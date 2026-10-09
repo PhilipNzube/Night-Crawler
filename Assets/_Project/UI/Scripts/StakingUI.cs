@@ -113,6 +113,39 @@ namespace NightCrawler.UI
                     stakingModalPanel.SetActive(false);
                 }
             }
+
+            // Real-time Emergency Stipend & 60% Balance Threshold Synchronization
+            bool isModalOpen = (stakingModalPanel != null && stakingModalPanel.activeSelf) ||
+                               (heatStakingModal != null && heatStakingModal.isOn);
+
+            if (isModalOpen && !_hasConfirmed)
+            {
+                int curBal = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
+                bool isPoverty = CurrencyConfig.CheckEmergencyStipendStatus(curBal, out float remSec, out string timerStr);
+
+                if (isPoverty)
+                {
+                    SetErrorText($"Insufficient {CurrencyConfig.CurrencyPlural}! 60% of balance ({curBal} {CurrencyConfig.CurrencySymbol}) is below {CurrencyConfig.MinimumStake} {CurrencyConfig.CurrencySymbol}.\n<color=#FFE81A><b>Emergency Stipend in {timerStr} (+{CurrencyConfig.EmergencyStipendAmount} {CurrencyConfig.CurrencyPlural})</b></color>", false);
+                    MichskyUIBridge.SetAnyButtonInteractable(false, confirmStakeButton, heatConfirmStakeButton, heatBoxConfirmStakeButton, heatConfirmStakeButtonObject);
+                }
+                else
+                {
+                    // If balance reached >= 2 Cinders at 60%, immediately remove timer error and enable staking!
+                    if (CurrencyConfig.CanMeetMinimumStake(curBal))
+                    {
+                        if (_currentBalance != curBal || (stakeErrorText != null && stakeErrorText.gameObject.activeSelf && stakeErrorText.text.Contains("Emergency Stipend")))
+                        {
+                            _currentBalance = curBal;
+                            int minStake = CurrencyConfig.MinimumStake;
+                            _maxAllowedStake = CurrencyConfig.GetMaxStake(_currentBalance);
+                            MichskyUIBridge.SetSliderLimits(stakeSlider, heatStakeSlider, minStake, _maxAllowedStake, true);
+                            MichskyUIBridge.SetAnyButtonInteractable(true, confirmStakeButton, heatConfirmStakeButton, heatBoxConfirmStakeButton, heatConfirmStakeButtonObject);
+                            ClearErrorText();
+                            UpdateDisplay();
+                        }
+                    }
+                }
+            }
         }
 
         public void OpenStakingModal()
@@ -153,7 +186,14 @@ namespace NightCrawler.UI
 
             if (!canStake)
             {
-                SetErrorText($"Insufficient {CurrencyConfig.CurrencyPlural}! 60% of your balance ({_currentBalance} {CurrencyConfig.CurrencySymbol}) is below the minimum stake of {minStake} {CurrencyConfig.CurrencySymbol}.", false);
+                if (CurrencyConfig.CheckEmergencyStipendStatus(_currentBalance, out float remSec, out string timerStr))
+                {
+                    SetErrorText($"Insufficient {CurrencyConfig.CurrencyPlural}! 60% of balance ({_currentBalance} {CurrencyConfig.CurrencySymbol}) is below {minStake} {CurrencyConfig.CurrencySymbol}.\n<color=#FFE81A><b>Emergency Stipend in {timerStr} (+{CurrencyConfig.EmergencyStipendAmount} {CurrencyConfig.CurrencyPlural})</b></color>", false);
+                }
+                else
+                {
+                    SetErrorText($"Insufficient {CurrencyConfig.CurrencyPlural}! 60% of your balance ({_currentBalance} {CurrencyConfig.CurrencySymbol}) is below the minimum stake of {minStake} {CurrencyConfig.CurrencySymbol}.", false);
+                }
             }
 
             // Reset error text to warning color when modal opens (user hasn't adjusted slider yet)

@@ -358,20 +358,21 @@ public class LobbyUI : MonoBehaviour
         if (cindersBalanceText != null)
         {
             int bal = newBalance >= 0 ? newBalance : (CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance);
-            if (_emergencyTimerActive && _emergencyTimer > 0f)
+            if (CurrencyConfig.CheckEmergencyStipendStatus(bal, out float remSec, out string timerStr))
             {
-                int mins = Mathf.Max(0, Mathf.FloorToInt(_emergencyTimer / 60f));
-                int secs = Mathf.Max(0, Mathf.FloorToInt(_emergencyTimer % 60f));
-                string timerStr = $"{mins:00}:{secs:00}";
-                int grantAmount = 25;
-                cindersBalanceText.text = $"{bal} {CurrencyConfig.CurrencyPlural}  <color=#FFD700><size=80%>(+{grantAmount} in {timerStr})</size></color>";
+                _emergencyTimerActive = true;
+                _emergencyTimer = remSec;
+                int grantAmount = CurrencyConfig.EmergencyStipendAmount;
+                cindersBalanceText.text = $"{bal} {CurrencyConfig.CurrencyPlural}  <color=#FFE81A><b><size=80%>(+{grantAmount} in {timerStr})</size></b></color>";
             }
             else if (_stipendJustGrantedTimer > 0f)
             {
-                cindersBalanceText.text = $"{bal} {CurrencyConfig.CurrencyPlural}  <color=#00FF88><size=85%>(+25 Added!)</size></color>";
+                cindersBalanceText.text = $"{bal} {CurrencyConfig.CurrencyPlural}  <color=#00FF88><b><size=85%>(+25 Added!)</size></b></color>";
             }
             else
             {
+                _emergencyTimerActive = false;
+                _emergencyTimer = 0f;
                 cindersBalanceText.text = CurrencyConfig.FormatBalance(bal);
             }
         }
@@ -462,95 +463,39 @@ public class LobbyUI : MonoBehaviour
             RefreshLobbyPanels();
     }
 
-    private const string EmergencyCindersUtcKey = "NightCrawler_EmergencyCindersTargetUtc";
+    public bool TryGetEmergencyTimer(out string timerStr, out float remainingSeconds)
+    {
+        int bal = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
+        return CurrencyConfig.CheckEmergencyStipendStatus(bal, out remainingSeconds, out timerStr);
+    }
 
     private void UpdateEmergencyCreditsRelief()
     {
         int bal = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
 
-        // Condition: Timer appears when 60% of total Cinders cannot be used or isn't up to 2 Cinders (cannot meet minimum stake)
-        bool cannotStake = !CurrencyConfig.CanMeetMinimumStake(bal);
+        // Condition: Real-time detection. When 60% of total credit reaches >= 2 Cinders, immediately disappears!
+        bool isPoverty = CurrencyConfig.CheckEmergencyStipendStatus(bal, out float remainingSeconds, out string timerStr);
 
-        if (cannotStake)
+        if (isPoverty)
         {
-            DateTime targetUtc;
-            float cooldownSecs = emergencyGrantCooldown > 0f ? emergencyGrantCooldown : 60f;
-
-            if (PlayerPrefs.HasKey(EmergencyCindersUtcKey) &&
-                DateTime.TryParse(PlayerPrefs.GetString(EmergencyCindersUtcKey), null, System.Globalization.DateTimeStyles.RoundtripKind, out DateTime savedUtc))
-            {
-                targetUtc = savedUtc;
-            }
-            else
-            {
-                targetUtc = DateTime.UtcNow.AddSeconds(cooldownSecs);
-                PlayerPrefs.SetString(EmergencyCindersUtcKey, targetUtc.ToString("o"));
-                PlayerPrefs.Save();
-            }
-
-            TimeSpan remaining = targetUtc - DateTime.UtcNow;
-            float remainingSeconds = (float)remaining.TotalSeconds;
-
-            if (remainingSeconds <= 0f)
-            {
-                int grantAmount = 25;
-                if (CloudCharacterSaveManager.Instance != null)
-                {
-                    CloudCharacterSaveManager.Instance.AddCredits(grantAmount);
-                }
-
-                PlayerPrefs.DeleteKey(EmergencyCindersUtcKey);
-                PlayerPrefs.Save();
-
-                _emergencyTimerActive = false;
-                _emergencyTimer = 0f;
-                _stipendJustGrantedTimer = 3.5f;
-
-                if (creditEmergencyTimerText != null && creditEmergencyTimerText.gameObject.activeSelf)
-                {
-                    creditEmergencyTimerText.gameObject.SetActive(false);
-                }
-
-                if (NotificationManager.Instance != null)
-                {
-                    NotificationManager.Instance.ShowNotification(
-                        $"EMERGENCY STIPEND: +{grantAmount} {CurrencyConfig.CurrencyPlural} added!", 
-                        4.0f
-                    );
-                }
-
-                UpdateCreditsUI();
-                return;
-            }
-
             _emergencyTimerActive = true;
             _emergencyTimer = remainingSeconds;
+            int displayGrantAmount = CurrencyConfig.EmergencyStipendAmount;
 
-            int mins = Mathf.Max(0, Mathf.FloorToInt(_emergencyTimer / 60f));
-            int secs = Mathf.Max(0, Mathf.FloorToInt(_emergencyTimer % 60f));
-            string timerStr = $"{mins:00}:{secs:00}";
-            int displayGrantAmount = 25;
-
-            // The text that shows the total Cinders amount directly displays the timer!
+            // Radiant neon-gold timer directly on the Cinders display
             if (cindersBalanceText != null)
             {
-                cindersBalanceText.text = $"{bal} {CurrencyConfig.CurrencyPlural}  <color=#FFD700><size=80%>(+{displayGrantAmount} in {timerStr})</size></color>";
+                cindersBalanceText.text = $"{bal} {CurrencyConfig.CurrencyPlural}  <color=#FFE81A><b><size=80%>(+{displayGrantAmount} in {timerStr})</size></b></color>";
             }
 
             if (creditEmergencyTimerText != null)
             {
                 if (!creditEmergencyTimerText.gameObject.activeSelf) creditEmergencyTimerText.gameObject.SetActive(true);
-                creditEmergencyTimerText.text = $"Stipend in {timerStr}";
+                creditEmergencyTimerText.text = $"<color=#FFE81A><b>Stipend in {timerStr}</b></color>";
             }
         }
         else
         {
-            if (PlayerPrefs.HasKey(EmergencyCindersUtcKey))
-            {
-                PlayerPrefs.DeleteKey(EmergencyCindersUtcKey);
-                PlayerPrefs.Save();
-            }
-
             if (_emergencyTimerActive)
             {
                 _emergencyTimerActive = false;
@@ -560,6 +505,10 @@ public class LobbyUI : MonoBehaviour
                     creditEmergencyTimerText.gameObject.SetActive(false);
                 }
                 UpdateCreditsUI();
+            }
+            else if (creditEmergencyTimerText != null && creditEmergencyTimerText.gameObject.activeSelf)
+            {
+                creditEmergencyTimerText.gameObject.SetActive(false);
             }
 
             if (_stipendJustGrantedTimer > 0f)
