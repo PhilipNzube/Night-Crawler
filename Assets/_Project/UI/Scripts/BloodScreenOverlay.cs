@@ -80,8 +80,8 @@ public class BloodScreenOverlay : MonoBehaviour
     [Tooltip("Max volume of the heartbeat at critical low health.")]
     [Range(0f, 1f)] public float maxHeartbeatVolume = 0.95f;
 
-    [Tooltip("Pitch scaling range as health drops towards zero (faster heart rate as player approaches death).")]
-    public Vector2 heartbeatPitchRange = new Vector2(0.95f, 1.35f);
+    [Tooltip("Pitch scaling range as health drops towards zero (faster heart rate as player approaches death). Up to 2.05x for racing tachycardia!")]
+    public Vector2 heartbeatPitchRange = new Vector2(0.95f, 2.05f);
 
     [Tooltip("Enable realistic muffled audio (low pass filter) when low on health.")]
     public bool enableMuffledAudio = true;
@@ -92,8 +92,8 @@ public class BloodScreenOverlay : MonoBehaviour
     [Tooltip("Cutoff frequency when healthy (22000Hz = full audio clarity).")]
     public float normalCutoffFrequency = 22000f;
 
-    [Tooltip("Muffled cutoff frequency at near 0 HP (realistic underwater / shell-shock rumble, e.g. 750-900Hz).")]
-    public float criticalCutoffFrequency = 800f;
+    [Tooltip("Muffled cutoff frequency at near 0 HP (realistic underwater / shell-shock rumble, e.g. 550-700Hz).")]
+    public float criticalCutoffFrequency = 650f;
 
     // -------------------------------------------------------------------------
     //  Private State
@@ -136,6 +136,14 @@ public class BloodScreenOverlay : MonoBehaviour
 
         SetupHeartbeatAudioSource();
         if (!_isBound) TryBindToLocalPlayer();
+    }
+
+    private void Start()
+    {
+        if (enableMuffledAudio && lowPassFilter == null)
+        {
+            Debug.LogWarning("[BloodScreenOverlay] Low Pass Filter is not assigned. To enable muffled audio when health is low: Add an AudioLowPassFilter component to your Camera with AudioListener and drag it into BloodScreenOverlay's 'Low Pass Filter' field in the Inspector.");
+        }
     }
 
     private void Update()
@@ -372,8 +380,8 @@ public class BloodScreenOverlay : MonoBehaviour
         {
             pulseScale = Mathf.Clamp01((pulseThreshold - _currentHealthFraction) / pulseThreshold);
 
-            // Heart rate accelerates as health drops closer to death
-            float currentRate = pulseSpeed * (1f + pulseScale * 0.45f);
+            // Heart rate accelerates aggressively as health drops closer to death (up to 2.2x speed)
+            float currentRate = pulseSpeed * (1f + Mathf.Pow(pulseScale, 0.7f) * 1.2f);
 
             if (useDoubleBeatPulse)
             {
@@ -451,7 +459,7 @@ public class BloodScreenOverlay : MonoBehaviour
         bool isCritical = _currentHealthFraction <= pulseThreshold && _targetAlpha > 0.05f;
         float criticalFraction = isCritical ? Mathf.Clamp01((pulseThreshold - _currentHealthFraction) / pulseThreshold) : 0f;
 
-        // 1. Looping Heartbeat Sound
+        // 1. Looping Heartbeat Sound — accelerates drastically as health nears death
         if (heartbeatAudioSource != null && (heartbeatClip != null || heartbeatAudioSource.clip != null))
         {
             if (heartbeatAudioSource.clip == null && heartbeatClip != null)
@@ -469,8 +477,10 @@ public class BloodScreenOverlay : MonoBehaviour
                 float targetVol = Mathf.Lerp(0.15f, maxHeartbeatVolume, criticalFraction);
                 heartbeatAudioSource.volume = Mathf.MoveTowards(heartbeatAudioSource.volume, targetVol, Time.deltaTime * 2.5f);
 
-                float targetPitch = Mathf.Lerp(heartbeatPitchRange.x, heartbeatPitchRange.y, criticalFraction);
-                heartbeatAudioSource.pitch = Mathf.MoveTowards(heartbeatAudioSource.pitch, targetPitch, Time.deltaTime * 1.5f);
+                // Accelerate pitch non-linearly so heart races frantic and loud in single-digit HP
+                float pitchCurve = Mathf.Pow(criticalFraction, 0.75f);
+                float targetPitch = Mathf.Lerp(heartbeatPitchRange.x, heartbeatPitchRange.y, pitchCurve);
+                heartbeatAudioSource.pitch = Mathf.MoveTowards(heartbeatAudioSource.pitch, targetPitch, Time.deltaTime * 3.5f);
             }
             else
             {
@@ -490,7 +500,11 @@ public class BloodScreenOverlay : MonoBehaviour
         {
             if (isCritical)
             {
-                if (!lowPassFilter.enabled) lowPassFilter.enabled = true;
+                if (!lowPassFilter.enabled)
+                {
+                    lowPassFilter.enabled = true;
+                    lowPassFilter.lowpassResonanceQ = 1.35f; // Gives that muffled ear pressure resonance
+                }
 
                 float targetCutoff = Mathf.Lerp(normalCutoffFrequency, criticalCutoffFrequency, criticalFraction);
                 lowPassFilter.cutoffFrequency = Mathf.MoveTowards(lowPassFilter.cutoffFrequency, targetCutoff, Time.deltaTime * 14000f);

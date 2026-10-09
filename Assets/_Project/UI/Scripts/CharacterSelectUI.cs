@@ -300,6 +300,9 @@ public class CharacterSelectUI : MonoBehaviour
         {
             int bal = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
             bool isPoverty = CurrencyConfig.CheckEmergencyStipendStatus(bal, out float remSec, out string timerStr);
+            // CRITICAL: Refresh bal immediately so if CheckEmergencyStipendStatus granted +25 credits this frame,
+            // we use the actual NEW balance!
+            bal = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
 
             if (isPoverty)
             {
@@ -324,10 +327,17 @@ public class CharacterSelectUI : MonoBehaviour
                     (matchStakeModal.descriptionText != null && matchStakeModal.descriptionText.Contains("Emergency Stipend")))
                 {
                     int maxAllowed = CurrencyConfig.GetMaxStake(bal);
-                    string normalDesc = $"Enter your stake to confirm deployment.\n<b>Available:</b> {bal} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {maxAllowed} {CurrencyConfig.CurrencyPlural}";
+                    int winningBid = GetWinningBidForSelectedCharacter();
+                    string normalDesc = winningBid > 0
+                        ? $"Winning Bid on Operative: <b>{winningBid} {CurrencyConfig.CurrencyPlural}</b> (Covered from your stake)\n" +
+                          $"Your minimum stake is <b>{winningBid} {CurrencyConfig.CurrencyPlural}</b> to deploy.\n" +
+                          $"<b>Available:</b> {bal} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {maxAllowed} {CurrencyConfig.CurrencyPlural}"
+                        : $"Enter your stake to confirm deployment.\n<b>Available:</b> {bal} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {maxAllowed} {CurrencyConfig.CurrencyPlural}";
+
                     matchStakeModal.descriptionText = normalDesc;
                     if (matchStakeModal.windowDescription != null)
                         matchStakeModal.windowDescription.text = normalDesc;
+                    try { matchStakeModal.UpdateUI(); } catch { }
 
                     OnStakeInputChanged(MichskyUIBridge.GetInputText(null, heatStakeInputField));
                 }

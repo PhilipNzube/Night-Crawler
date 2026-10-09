@@ -122,6 +122,9 @@ namespace NightCrawler.UI
             {
                 int curBal = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
                 bool isPoverty = CurrencyConfig.CheckEmergencyStipendStatus(curBal, out float remSec, out string timerStr);
+                // CRITICAL: Refresh curBal immediately so if CheckEmergencyStipendStatus granted +25 credits this frame,
+                // we use the actual NEW balance!
+                curBal = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentCredits : CurrencyConfig.DefaultStartingBalance;
 
                 if (isPoverty)
                 {
@@ -162,6 +165,7 @@ namespace NightCrawler.UI
                                 heatStakingModal.descriptionText = normalDesc;
                                 if (heatStakingModal.windowDescription != null)
                                     heatStakingModal.windowDescription.text = normalDesc;
+                                try { heatStakingModal.UpdateUI(); } catch { }
                             }
 
                             UpdateDisplay();

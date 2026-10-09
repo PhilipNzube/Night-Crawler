@@ -317,6 +317,7 @@ public class LobbyUI : MonoBehaviour
 
     private void OnEnable()
     {
+        _isHidden = false;
         CloudCharacterSaveManager.OnProfileLoaded += HandleProfileLoaded;
         CloudCharacterSaveManager.OnCreditsChanged += HandleCreditsChanged;
         CloudCharacterSaveManager.OnUpgradeChanged += HandleUpgradeChanged;
@@ -436,6 +437,10 @@ public class LobbyUI : MonoBehaviour
 
     void Update()
     {
+        // Emergency poverty relief timer when balance is below stake threshold (< 4 credits)
+        // MUST run unconditionally so the lobby profile section timer never freezes!
+        UpdateEmergencyCreditsRelief();
+
         if (_isHidden) return;
 
         // Escape Key Handling for Lobby Modals / Panels
@@ -449,9 +454,6 @@ public class LobbyUI : MonoBehaviour
         {
             loadingSpinner.transform.Rotate(0f, 0f, -spinnerRotationSpeed * Time.deltaTime);
         }
-
-        // Emergency poverty relief timer when balance is below stake threshold (< 4 credits)
-        UpdateEmergencyCreditsRelief();
 
         _refreshTimer -= Time.deltaTime;
         if (_refreshTimer > 0f) return;
@@ -1734,6 +1736,7 @@ public class LobbyUI : MonoBehaviour
             }
         }
 
+        _isHidden = false;
         SetConnectionButtonsInteractable(true);
         UnlockCursor();
 
