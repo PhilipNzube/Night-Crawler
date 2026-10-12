@@ -630,34 +630,35 @@ public class DealNotificationUI : MonoBehaviour
 
         Debug.Log($"[DealNotificationUI] Local player ACCEPTED deal from Girl {_currentGirlSenderId} (grantWeapon={_grantWeapon})");
 
-        // Immediately grant and equip weapon on the local investigator character if requested
-        if (_grantWeapon)
+        // Immediately flag combat net as having accepted deal and grant weapon if requested
+        Unity.Netcode.NetworkObject localObj = null;
+        if (Unity.Netcode.NetworkManager.Singleton != null)
         {
-            Unity.Netcode.NetworkObject localObj = null;
-            if (Unity.Netcode.NetworkManager.Singleton != null)
+            if (Unity.Netcode.NetworkManager.Singleton.SpawnManager != null)
             {
-                if (Unity.Netcode.NetworkManager.Singleton.SpawnManager != null)
-                {
-                    localObj = Unity.Netcode.NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
-                }
-                if (localObj == null && Unity.Netcode.NetworkManager.Singleton.LocalClient != null)
-                {
-                    localObj = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject;
-                }
+                localObj = Unity.Netcode.NetworkManager.Singleton.SpawnManager.GetLocalPlayerObject();
             }
-
-            if (localObj != null)
+            if (localObj == null && Unity.Netcode.NetworkManager.Singleton.LocalClient != null)
             {
-                var combat = localObj.GetComponent<InvestigatorCombatNet>();
-                if (combat != null)
+                localObj = Unity.Netcode.NetworkManager.Singleton.LocalClient.PlayerObject;
+            }
+        }
+
+        if (localObj != null)
+        {
+            var combat = localObj.GetComponent<InvestigatorCombatNet>();
+            if (combat != null)
+            {
+                combat.SetAcceptedDeal(true);
+                if (_grantWeapon)
                 {
                     combat.GrantMeleeWeapon(true);
                 }
+            }
 
-                if (NotificationManager.Instance != null)
-                {
-                    NotificationManager.Instance.ShowNotification("DEAL SEALED", "Weapon granted!", 4.5f);
-                }
+            if (_grantWeapon && NotificationManager.Instance != null)
+            {
+                NotificationManager.Instance.ShowNotification("DEAL SEALED", "Weapon granted!", 4.5f);
             }
         }
 

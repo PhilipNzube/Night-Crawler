@@ -24,6 +24,7 @@ public class DealSystemNet : MonoBehaviour
     private const string MSG_PLAY_LAUGH = "NC_Deal_PlayLaugh";
     private const string MSG_NOTIFY_GIRL = "NC_Deal_NotifyGirl";
     private const string MSG_NOTIFY_OUTCOME = "NC_Deal_NotifyOutcome";
+    private const string MSG_NOTIFY_TRAITOR = "NC_Deal_NotifyTraitor";
 
     private static DealSystemNet _instance;
     public static DealSystemNet Instance
@@ -47,6 +48,19 @@ public class DealSystemNet : MonoBehaviour
     [Header("Audio (Sinister Laughter)")]
     [Tooltip("Audio clip of sinister laughter played privately to the player who accepts the deal.")]
     public AudioClip sinisterLaughterClip;
+
+    [Header("Traitor Alert Broadcast")]
+    [Tooltip("Header shown to all players when someone accepts a deal.")]
+    public string traitorAlertHeader = "DARK PACT SEALED";
+
+    [Tooltip("Message shown to all players when someone accepts a deal.")]
+    public string traitorAlertMessage = "There is a traitor amongst you...";
+
+    [Tooltip("Duration in seconds for the traitor notification.")]
+    public float traitorAlertDuration = 5f;
+
+    [Tooltip("Accent color for the traitor alert banner.")]
+    public Color traitorAlertColor = new Color(0.95f, 0.15f, 0.15f, 1f);
 
     private AudioSource _audioSource;
     private bool _isRegistered = false;
@@ -162,6 +176,7 @@ public class DealSystemNet : MonoBehaviour
         cm.RegisterNamedMessageHandler(MSG_PLAY_LAUGH, OnClientReceivedPlayLaugh);
         cm.RegisterNamedMessageHandler(MSG_NOTIFY_GIRL, OnClientReceivedNotifyGirl);
         cm.RegisterNamedMessageHandler(MSG_NOTIFY_OUTCOME, OnClientReceivedNotifyOutcome);
+        cm.RegisterNamedMessageHandler(MSG_NOTIFY_TRAITOR, OnClientReceivedNotifyTraitor);
 
         _isRegistered = true;
         Debug.Log("[DealSystemNet] Registered CustomMessagingManager deal handlers successfully.");
@@ -178,6 +193,7 @@ public class DealSystemNet : MonoBehaviour
         cm.UnregisterNamedMessageHandler(MSG_PLAY_LAUGH);
         cm.UnregisterNamedMessageHandler(MSG_NOTIFY_GIRL);
         cm.UnregisterNamedMessageHandler(MSG_NOTIFY_OUTCOME);
+        cm.UnregisterNamedMessageHandler(MSG_NOTIFY_TRAITOR);
 
         _isRegistered = false;
     }
@@ -409,13 +425,27 @@ public class DealSystemNet : MonoBehaviour
         {
             _activeDealClientIds.Add(responderId);
 
-            // 1. Grant weapon if applicable (flagged as DealGranted so it cannot harm monsters)
-            if (grantWeapon && NetworkManager.Singleton.ConnectedClients.TryGetValue(responderId, out var client))
+            // 1. Tag InvestigatorCombatNet as having accepted deal & grant weapon if applicable
+            NetworkObject responderPlayer = null;
+            if (NetworkManager.Singleton != null)
             {
-                if (client.PlayerObject != null)
+                if (NetworkManager.Singleton.ConnectedClients != null &&
+                    NetworkManager.Singleton.ConnectedClients.TryGetValue(responderId, out var client) && client.PlayerObject != null)
                 {
-                    var combat = client.PlayerObject.GetComponent<InvestigatorCombatNet>();
-                    if (combat != null)
+                    responderPlayer = client.PlayerObject;
+                }
+                if (responderPlayer == null && NetworkManager.Singleton.SpawnManager != null)
+                {
+                    responderPlayer = NetworkManager.Singleton.SpawnManager.GetPlayerNetworkObject(responderId);
+                }
+            }
+            if (responderPlayer != null)
+            {
+                var combat = responderPlayer.GetComponent<InvestigatorCombatNet>();
+                if (combat != null)
+                {
+                    combat.SetAcceptedDeal(true);
+                    if (grantWeapon)
                     {
                         combat.GrantMeleeWeapon(true);
                     }
@@ -453,6 +483,9 @@ public class DealSystemNet : MonoBehaviour
                 notifyWriter.WriteValueSafe(responderId);
                 NetworkManager.Singleton.CustomMessagingManager.SendNamedMessage(MSG_NOTIFY_GIRL, girlClientId, notifyWriter);
             }
+
+            // 4. Broadcast ominous traitor alert notification to all players in the match
+            BroadcastTraitorAlert();
         }
         else
         {
@@ -538,6 +571,64 @@ public class DealSystemNet : MonoBehaviour
         else if (DeathUI.Instance != null)
         {
             DeathUI.Instance.PostDealResponse(responderName, accepted);
+        }
+    }
+
+    /// <summary>
+    /// Broadcasts an ominous traitor alert to all connected players across the network.
+    /// </summary>
+    public void BroadcastTraitorAlert()
+    {
+        // Display immediately on server / local host
+        ShowTraitorAlertLocal(traitorAlertHeader, traitorAlertMessage);
+
+        if (NetworkManager.Singleton == null || !NetworkManager.Singleton.IsServer || NetworkManager.Singleton.CustomMessagingManager == null)
+            return;
+
+        using var writer = new FastBufferWriter(256, Allocator.Temp);
+        writer.WriteValueSafe(traitorAlertHeader ?? "DARK PACT SEALED");
+        writer.WriteValueSafe(traitorAlertMessage ?? "There is a traitor amongst you...");
+
+        if (NetworkManager.Singleton.ConnectedClients != null)
+        {
+            foreach (var kvp in NetworkManager.Singleton.ConnectedClients)
+            {
+                ulong targetId = kvp.Key;
+                // Avoid redundant display on server / host since already shown locally
+                if (targetId == NetworkManager.ServerClientId) continue;
+
+                NetworkManager.Singleton.CustomMessagingManager.SendNamedMessage(MSG_NOTIFY_TRAITOR, targetId, writer);
+            }
+        }
+    }
+
+    private void OnClientReceivedNotifyTraitor(ulong senderClientId, FastBufferReader reader)
+    {
+        string header = traitorAlertHeader;
+        string message = traitorAlertMessage;
+        if (reader.Length > reader.Position)
+        {
+            reader.ReadValueSafe(out header);
+            reader.ReadValueSafe(out message);
+        }
+
+        ShowTraitorAlertLocal(header, message);
+    }
+
+    private void ShowTraitorAlertLocal(string header = null, string message = null)
+    {
+        string h = !string.IsNullOrEmpty(header) ? header : traitorAlertHeader;
+        string m = !string.IsNullOrEmpty(message) ? message : traitorAlertMessage;
+
+        Debug.Log($"[DealSystemNet] TRAITOR ALERT BROADCAST: {h} - {m}");
+
+        if (NotificationManager.Instance != null)
+        {
+            AudioClip alertSound = NotificationManager.Instance.hazardSound != null
+                ? NotificationManager.Instance.hazardSound
+                : NotificationManager.Instance.notificationSound;
+
+            NotificationManager.Instance.ShowStyledWarning(h, m, traitorAlertColor, traitorAlertDuration, alertSound, isPulsing: true);
         }
     }
 

@@ -213,7 +213,37 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
     [Tooltip("Tracks whether this investigator currently carries/unlocked a weapon.")]
     public bool hasUnlockedWeapon = false;
 
-    public bool IsMiner => startArmed || gameObject.name.ToLower().Contains("miner") || gameObject.name.ToLower().Contains("worker");
+    [Header("Deal & Traitor State")]
+    public NetworkVariable<bool> hasAcceptedDeal = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
+    public bool HasAcceptedDeal => hasAcceptedDeal.Value ||
+                                   (weaponOrigin == WeaponOrigin.DealGranted) ||
+                                   (DealSystemNet.Instance != null && DealSystemNet.Instance.HasActiveDeal(OwnerClientId)) ||
+                                   (TryGetComponent<PlayerPossessableNet>(out var p) && p.hasActiveDeal.Value);
+
+    private bool _hasWarnedMinerFriendlyFire = false;
+
+    public bool IsMiner
+    {
+        get
+        {
+            if (startArmed) return true;
+            string n = gameObject.name.ToLower();
+            if (n.Contains("miner") || n.Contains("worker") || n.Contains("breaker")) return true;
+            if (TryGetComponent<InvestigatorAbilities>(out var ab) && ab.profession == InvestigatorProfession.MineWorker) return true;
+            if (CharacterSelectManager.Instance != null)
+            {
+                int idx = CharacterSelectManager.Instance.GetSelectedCharacterIndex(OwnerClientId);
+                if (idx >= 0 && CharacterSelectManager.Instance.availableCharacters != null && idx < CharacterSelectManager.Instance.availableCharacters.Count)
+                {
+                    var data = CharacterSelectManager.Instance.availableCharacters[idx];
+                    if (data != null && data.profession == InvestigatorProfession.MineWorker) return true;
+                }
+            }
+            return false;
+        }
+    }
 
     public bool HasWeapon => currentWeaponIndex.Value >= 0;
     public bool IsAttacking => _meleeStrikeRoutine != null;
@@ -312,6 +342,28 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
         {
             SwitchWeapon(0);
         }
+    }
+
+    /// <summary>
+    /// Sets whether this player has accepted a dark deal.
+    /// Synchronizes across all clients and server so the miner's axe can harm players.
+    /// </summary>
+    public void SetAcceptedDeal(bool accepted)
+    {
+        if (IsServer)
+        {
+            hasAcceptedDeal.Value = accepted;
+        }
+        else
+        {
+            SetAcceptedDealServerRpc(accepted);
+        }
+    }
+
+    [Rpc(SendTo.Server)]
+    public void SetAcceptedDealServerRpc(bool accepted)
+    {
+        hasAcceptedDeal.Value = accepted;
     }
 
     /// <summary>
@@ -825,29 +877,53 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
 
         int attackerWpnLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.WeaponDamage) : 0;
 
+        bool isMelee = (currentWeaponIndex.Value == 0 || (stats != null && !stats.isRanged));
+        bool acceptedDeal = HasAcceptedDeal;
+
         foreach (var hit in hits)
         {
             if (hit.gameObject == gameObject) continue;
 
-            // Combat Economy Check: Deal-granted weapons cannot harm monsters (warn once)
-            if (!CombatEconomyFilter.CanDealDamage(weaponOrigin, hit.gameObject))
+            // Combat Economy & Friendly Fire Check
+            if (!CombatEconomyFilter.CanDealDamage(weaponOrigin, hit.gameObject, IsMiner, acceptedDeal, isMelee))
             {
-                if (IsOwner && !_hasWarnedMonsterDealWeapon)
+                if (IsOwner)
                 {
-                    _hasWarnedMonsterDealWeapon = true;
-                    if (NotificationManager.Instance != null)
+                    bool isTargetMonster = hit.GetComponentInParent<MonsterAI>() != null || hit.GetComponentInParent<MonsterController>() != null || hit.name.ToLower().Contains("monster");
+                    if (isTargetMonster && !_hasWarnedMonsterDealWeapon)
                     {
-                        NotificationManager.Instance.ShowNotification("Deal weapon cannot harm cave monsters!", 3.5f);
+                        _hasWarnedMonsterDealWeapon = true;
+                        if (NotificationManager.Instance != null)
+                        {
+                            NotificationManager.Instance.ShowNotification("Deal weapon cannot harm cave monsters!", 3.5f);
+                        }
+                    }
+                    else if (!isTargetMonster && IsMiner && isMelee && !acceptedDeal && !_hasWarnedMinerFriendlyFire)
+                    {
+                        _hasWarnedMinerFriendlyFire = true;
+                        if (NotificationManager.Instance != null)
+                        {
+                            NotificationManager.Instance.ShowNotification("PEACEFUL WEAPON", "Your pickaxe only harms monsters... unless a dark pact is accepted.", 3.5f);
+                        }
                     }
                 }
                 continue;
             }
 
             var receiver = hit.GetComponentInParent<IDamageReceiver>();
-            if (receiver != null)
+            var hs = hit.GetComponentInParent<HealthSystem>();
+
+            if (hs != null || receiver != null)
             {
                 float finalDamage = CombatEconomyFilter.CalculateEffectiveDamage(stats.damage, attackerWpnLvl, 0, true);
-                receiver.TakeDamage(finalDamage);
+                if (hs != null)
+                {
+                    hs.TakeDamage(finalDamage);
+                }
+                else if (receiver != null)
+                {
+                    receiver.TakeDamage(finalDamage);
+                }
 
                 // Show monster health bar exclusively to this player who inflicted the damage
                 var mHealthBar = hit.GetComponentInParent<NightCrawler.Monsters.MonsterHealthBar>()
@@ -901,27 +977,42 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
 
         int attackerWpnLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.WeaponDamage) : 0;
 
+        bool acceptedDeal = HasAcceptedDeal;
+
         if (Physics.Raycast(rayOrigin, rayDir, out RaycastHit hit, stats.range))
         {
-            // Combat Economy Check: Deal-granted weapons cannot harm monsters (warn once)
-            if (!CombatEconomyFilter.CanDealDamage(weaponOrigin, hit.collider.gameObject))
+            // Combat Economy & Friendly Fire Check
+            if (!CombatEconomyFilter.CanDealDamage(weaponOrigin, hit.collider.gameObject, IsMiner, acceptedDeal, false))
             {
                 if (IsOwner && !_hasWarnedMonsterDealWeapon)
                 {
-                    _hasWarnedMonsterDealWeapon = true;
-                    if (NotificationManager.Instance != null)
+                    bool isTargetMonster = hit.collider.GetComponentInParent<MonsterAI>() != null || hit.collider.GetComponentInParent<MonsterController>() != null || hit.collider.name.ToLower().Contains("monster");
+                    if (isTargetMonster)
                     {
-                        NotificationManager.Instance.ShowNotification("Deal weapon cannot harm cave monsters!", 3.5f);
+                        _hasWarnedMonsterDealWeapon = true;
+                        if (NotificationManager.Instance != null)
+                        {
+                            NotificationManager.Instance.ShowNotification("Deal weapon cannot harm cave monsters!", 3.5f);
+                        }
                     }
                 }
                 return;
             }
 
             var receiver = hit.collider.GetComponentInParent<IDamageReceiver>();
-            if (receiver != null)
+            var hs = hit.collider.GetComponentInParent<HealthSystem>();
+
+            if (hs != null || receiver != null)
             {
                 float finalDamage = CombatEconomyFilter.CalculateEffectiveDamage(stats.damage, attackerWpnLvl, 0, true);
-                receiver.TakeDamage(finalDamage);
+                if (hs != null)
+                {
+                    hs.TakeDamage(finalDamage);
+                }
+                else if (receiver != null)
+                {
+                    receiver.TakeDamage(finalDamage);
+                }
 
                 // Show monster health bar exclusively to this player who inflicted the damage
                 var mHealthBar = hit.collider.GetComponentInParent<NightCrawler.Monsters.MonsterHealthBar>()

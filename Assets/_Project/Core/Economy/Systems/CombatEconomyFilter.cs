@@ -16,9 +16,11 @@ namespace NightCrawler.Economy
     {
         /// <summary>
         /// Evaluates whether an attack is permitted to deal damage to the target.
-        /// Returns false if attacking a monster with a Deal-granted weapon.
+        /// - The Miner's axe can only damage monsters normally; it cannot hurt other players unless the Miner accepted a deal.
+        /// - The Miner's axe can always damage monsters, even after accepting a deal.
+        /// - Deal-granted weapons from other sources cannot harm monsters (only investigators).
         /// </summary>
-        public static bool CanDealDamage(WeaponOrigin origin, GameObject target)
+        public static bool CanDealDamage(WeaponOrigin origin, GameObject target, bool isMiner = false, bool hasAcceptedDeal = false, bool isMelee = false)
         {
             if (target == null) return false;
 
@@ -28,14 +30,72 @@ namespace NightCrawler.Economy
                              target.name.ToLower().Contains("creep") ||
                              (target.name.ToLower().Contains("demon") && !target.name.ToLower().Contains("girl"));
 
-            // Deal-granted weapons CANNOT damage monsters!
-            if (origin == WeaponOrigin.DealGranted && isMonster)
+            bool isPlayer = !isMonster && (
+                target.GetComponentInParent<global::InvestigatorCombatNet>() != null ||
+                target.GetComponentInParent<global::HealthSystem>() != null ||
+                target.GetComponentInParent<global::PlayerPossessableNet>() != null ||
+                target.GetComponentInParent<global::NetworkPlayerName>() != null ||
+                target.CompareTag("Player") ||
+                (target.transform.root != null && target.transform.root.CompareTag("Player"))
+            );
+
+            // Case A: Target is a Monster
+            if (isMonster)
             {
-                Debug.Log("[CombatEconomyFilter] Deal-granted weapon attack suppressed against monster! (Deals only harm investigators)");
+                // The Miner's axe ALWAYS harms monsters (even if that miner accepted a deal)
+                if (isMiner && isMelee)
+                {
+                    return true;
+                }
+
+                // Non-miner deal-granted weapons CANNOT damage monsters!
+                if (origin == WeaponOrigin.DealGranted)
+                {
+                    Debug.Log("[CombatEconomyFilter] Deal-granted weapon attack suppressed against monster! (Deals only harm investigators)");
+                    return false;
+                }
+
+                return true;
+            }
+
+            // Case B: Target is another Player / Investigator
+            if (isPlayer)
+            {
+                // The axe weapon wielded by the miner:
+                // Cannot hurt another player, only monsters.
+                // The only time that it would hurt a player is when that miner accepts a deal.
+                if (isMiner && isMelee)
+                {
+                    if (!hasAcceptedDeal)
+                    {
+                        Debug.Log("[CombatEconomyFilter] Miner's axe attack suppressed against teammate! (Miner has not accepted a deal)");
+                        return false;
+                    }
+
+                    // Miner accepted a deal -> Traitor axe CAN hurt other players!
+                    return true;
+                }
+
+                // Non-miner weapon logic:
+                // Only players with a deal weapon or active deal can hurt other players
+                if (origin == WeaponOrigin.DealGranted || hasAcceptedDeal)
+                {
+                    return true;
+                }
+
+                // Friendly fire blocked for uncorrupted investigators
                 return false;
             }
 
             return true;
+        }
+
+        /// <summary>
+        /// Backward-compatible overload for standard weapon origin checks.
+        /// </summary>
+        public static bool CanDealDamage(WeaponOrigin origin, GameObject target)
+        {
+            return CanDealDamage(origin, target, isMiner: false, hasAcceptedDeal: false, isMelee: false);
         }
 
         /// <summary>
