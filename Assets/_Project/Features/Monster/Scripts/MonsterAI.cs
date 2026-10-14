@@ -31,11 +31,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         Falling,
         SpawningScream,
-        Running,
+        Patrol,      // Roaming and patrolling cavern (EnemyNPC_AI)
+        Running,     // Chasing / pursuing target or sprinting to leader
         Attacking,
         Dead,
         Idle,
-        Search
+        Search       // Searching last known target position (EnemyNPC_AI)
     }
 
     public enum Command { Hunt, Follow, Roam }
@@ -70,7 +71,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     public MonsterCombat combat;
 
     [Header("Monster Posture")]
-    public ZombiePosture currentPosture = ZombiePosture.Crawling;
+    public ZombiePosture currentPosture = ZombiePosture.Standing;
 
     [Header("Target & Search Settings")]
     public Transform target;
@@ -103,7 +104,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     public float angularSpeed => locomotion != null ? locomotion.angularSpeed : 480f;
 
     public NetworkVariable<ZombiePosture> netPosture = new NetworkVariable<ZombiePosture>(
-        ZombiePosture.Crawling,
+        ZombiePosture.Standing,
         NetworkVariableReadPermission.Everyone,
         NetworkVariableWritePermission.Server
     );
@@ -122,6 +123,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected float _hitStaggerTimer = 0f;
     protected float _retargetTimer = 0f;
     protected float _recallGraceTimer = 0f;
+    protected bool _isWaitingAtRoamWaypoint = false;
+    protected float _roamWaitTimer = 0f;
+    protected Vector3 _lastPosition;
+    protected NavMeshPath _roamTestPath;
     protected Transform _commandLeader;
     protected Coroutine _spawnScreamCoroutine;
     protected Coroutine _attackCoroutine;
@@ -140,7 +145,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected readonly int _isCrawlingHash  = Animator.StringToHash("IsCrawling");
     protected readonly int _isWalkingHash   = Animator.StringToHash("IsWalking");
 
-    protected bool HasAuthority => (NetworkObject != null && NetworkObject.IsSpawned) ? IsServer : true;
+    protected new bool HasAuthority => (NetworkObject != null && NetworkObject.IsSpawned) ? IsServer : true;
 
     // =========================================================================
     //  Initialization & Setup
@@ -167,6 +172,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (healthBar == null) healthBar = GetComponentInChildren<MonsterHealthBar>(true);
         if (combat != null && combat.attackHitbox == null) combat.attackHitbox = GetComponentInChildren<MonsterAttackHitbox>(true);
 
+        _lastPosition = transform.position;
+        _roamTestPath = new NavMeshPath();
         ConfigureAudio();
         ConfigureMonsterDefaults();
         SyncSubsystemParameters();
@@ -176,7 +183,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             ActiveMonsters.Add(this);
         }
 
-        currentState = playScreamOnSpawn ? AIState.SpawningScream : AIState.Running;
+        currentState = playScreamOnSpawn ? AIState.SpawningScream : AIState.Patrol;
     }
 
     protected virtual void Start()
@@ -187,7 +194,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
         else
         {
-            currentState = AIState.Running;
+            SwitchState(AIState.Patrol);
         }
     }
 
@@ -221,9 +228,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         netPosture.OnValueChanged -= HandlePostureNetworkChanged;
     }
 
-    protected virtual void OnDestroy()
+    public override void OnDestroy()
     {
         ActiveMonsters.Remove(this);
+        base.OnDestroy();
     }
 
     private void ConfigureAudio()
@@ -305,18 +313,25 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             return;
         }
 
-        if (!HasAuthority) return;
-
-        // Hit stagger pause
-        if (_hitStaggerTimer > 0f)
+        if (HasAuthority)
         {
-            _hitStaggerTimer -= Time.deltaTime;
-            if (locomotion != null) locomotion.Stop();
-            return;
+            // Hit stagger pause
+            if (_hitStaggerTimer > 0f)
+            {
+                _hitStaggerTimer -= Time.deltaTime;
+                if (locomotion != null) locomotion.Stop();
+                return;
+            }
+
+            UpdateBrain();
         }
 
-        UpdateBrain();
+        UpdateLocomotionAnimation();
+        _lastPosition = transform.position;
+    }
 
+    protected virtual void UpdateLocomotionAnimation()
+    {
         if (locomotion != null)
         {
             locomotion.UpdateAnimation(_speedHash, _isRunningHash);
@@ -341,10 +356,14 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             case AIState.SpawningScream:
                 // Stay stationary while roaring/screaming
                 if (locomotion != null) locomotion.Stop();
-                if (target != null)
+                if (target != null && locomotion != null)
                 {
                     locomotion.RotateTowards(target.position, angularSpeed);
                 }
+                break;
+
+            case AIState.Patrol:
+                HandlePatrolBehavior();
                 break;
 
             case AIState.Running:
@@ -363,14 +382,50 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 break;
 
             case AIState.Falling:
-                currentState = AIState.Running;
+                SwitchState(AIState.Patrol);
                 break;
         }
     }
 
     // =========================================================================
-    //  Pursuit, Targeting & Commands (EnemyNPC_AI Integration)
+    //  Patrol, Pursuit, Targeting & Commands (EnemyNPC_AI Integration)
     // =========================================================================
+
+    /// <summary>
+    /// Roams/patrols the cavern calmly when no target is present.
+    /// (EnemyNPC_AI AIState.Patrol).
+    /// </summary>
+    protected virtual void HandlePatrolBehavior()
+    {
+        // 1. Follow command overrides roam
+        if (currentCommand == Command.Follow)
+        {
+            SwitchState(AIState.Running);
+            return;
+        }
+
+        // 2. Scan for players/threats (EnemyNPC_AI)
+        Transform candidate = perception != null ? perception.FindBestTarget(null) : null;
+        if (candidate != null && perception.CanSeeTarget(candidate, true))
+        {
+            target = candidate;
+            SwitchState(AIState.Running);
+            return;
+        }
+
+        // 3. Check for loud sounds
+        if (perception != null && perception.HasHeardNoise)
+        {
+            _lastKnownTargetPosition = perception.LastKnownNoisePosition;
+            _hasLastKnownPosition = true;
+            perception.ClearNoise();
+            SwitchState(AIState.Search);
+            return;
+        }
+
+        // 4. Roam cavern smoothly with waypoint pauses
+        ExecuteRoam(walkSpeed);
+    }
 
     protected virtual void HandlePursuitAndTargeting()
     {
@@ -437,16 +492,16 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             return;
         }
 
-        // Target lost or dead -> Switch to search if last known position exists
+        // Target lost or dead -> Switch to search or patrol (EnemyNPC_AI)
+        target = null;
         if (_hasLastKnownPosition)
         {
             SwitchState(AIState.Search);
-            return;
         }
-
-        // Otherwise roam cavern
-        target = null;
-        ExecuteRoam(walkSpeed);
+        else
+        {
+            SwitchState(AIState.Patrol);
+        }
     }
 
     protected virtual void HandleSearchBehavior()
@@ -461,17 +516,21 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
         else if (_agent != null && !_agent.pathPending && _agent.remainingDistance <= _agent.stoppingDistance)
         {
-            // Sample nearby point around last known position
-            Vector3 roamPoint = _lastKnownTargetPosition + Random.insideUnitSphere * 6f;
-            roamPoint.y = transform.position.y;
-            if (NavMesh.SamplePosition(roamPoint, out NavMeshHit hit, 6f, NavMesh.AllAreas))
+            // Sample nearby point around last known position with wall validation
+            Vector3 roamOffset = Random.insideUnitSphere * 6f;
+            roamOffset.y = 0;
+            Vector3 candidatePoint = _lastKnownTargetPosition + roamOffset;
+            if (NavMesh.SamplePosition(candidatePoint, out NavMeshHit hit, 4f, NavMesh.AllAreas))
             {
-                locomotion.SetDestinationSmooth(hit.position);
+                if (!NavMesh.Raycast(transform.position, hit.position, out _, NavMesh.AllAreas))
+                {
+                    locomotion.SetDestinationSmooth(hit.position);
+                }
             }
         }
 
         // Look for targets while searching
-        Transform candidate = perception.FindBestTarget(null, perception.searchViewRadius);
+        Transform candidate = perception != null ? perception.FindBestTarget(null, perception.searchViewRadius) : null;
         if (candidate != null && perception.CanSeeTarget(candidate, true))
         {
             target = candidate;
@@ -482,7 +541,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (_searchTimer <= 0f)
         {
             _hasLastKnownPosition = false;
-            SwitchState(AIState.Running);
+            SwitchState(AIState.Patrol);
         }
     }
 
@@ -491,7 +550,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         Transform leader = _commandLeader != null ? _commandLeader : (GameManager.Instance != null ? GameManager.Instance.GirlTransform : null);
         if (leader == null)
         {
-            ExecuteRoam(walkSpeed);
+            SwitchState(AIState.Patrol);
             return;
         }
 
@@ -529,17 +588,24 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
 
         // Follow leader within comfortable perimeter
-        if (distToLeader > 5.5f)
+        if (distToLeader > 4.5f)
         {
-            Vector3 guardSpot = FindUnobstructedPerimeterSpot(leader, 4.0f, 2.5f);
+            Vector3 guardSpot = FindUnobstructedPerimeterSpot(leader, 3.8f, 2.2f);
             locomotion.Resume(runSpeed);
             locomotion.SetDestinationSmooth(guardSpot);
         }
-        else if (distToLeader < 2.5f)
+        else if (distToLeader > 2.8f)
+        {
+            // Close escort and perimeter patrol around the girl
+            Vector3 guardSpot = FindUnobstructedPerimeterSpot(leader, 2.8f, 1.8f);
+            locomotion.Resume(walkSpeed);
+            locomotion.SetDestinationSmooth(guardSpot);
+        }
+        else if (distToLeader < 1.8f)
         {
             // Yield space if too close
             Vector3 push = (transform.position - leader.position).normalized;
-            Vector3 yieldSpot = leader.position + push * 3.8f;
+            Vector3 yieldSpot = leader.position + push * 2.8f;
             locomotion.Resume(walkSpeed);
             locomotion.SetDestinationSmooth(yieldSpot);
         }
@@ -553,14 +619,107 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         if (_agent == null || !_agent.isOnNavMesh) return;
 
-        if (!_agent.hasPath || _agent.remainingDistance <= _agent.stoppingDistance)
+        // Wall collision / stuck avoidance while roaming
+        if (!_isWaitingAtRoamWaypoint && locomotion != null && locomotion.IsPathBlocked())
         {
-            Vector3 randomDir = Random.insideUnitSphere * 12f;
-            randomDir += transform.position;
-            if (NavMesh.SamplePosition(randomDir, out NavMeshHit hit, 12f, NavMesh.AllAreas))
+            if (locomotion.CanReposition && locomotion.AttemptReposition())
             {
-                locomotion.Resume(speed);
-                locomotion.SetDestinationSmooth(hit.position);
+                return;
+            }
+            else
+            {
+                PickNewRoamDestination(speed);
+                return;
+            }
+        }
+
+        if (locomotion != null && locomotion.IsRepositioning) return;
+
+        if (!_agent.pathPending && (!_agent.hasPath || _agent.remainingDistance <= _agent.stoppingDistance + 0.3f))
+        {
+            if (!_isWaitingAtRoamWaypoint)
+            {
+                // Arrived at roam waypoint! Pause calmly (from EnemyNPC_AI AIController)
+                _isWaitingAtRoamWaypoint = true;
+                _roamWaitTimer = Random.Range(2.5f, 4.5f);
+                if (locomotion != null) locomotion.Stop();
+            }
+            else
+            {
+                _roamWaitTimer -= Time.deltaTime;
+                if (locomotion != null) locomotion.Stop();
+
+                if (_roamWaitTimer <= 0f)
+                {
+                    _isWaitingAtRoamWaypoint = false;
+                    PickNewRoamDestination(speed);
+                }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Intelligently picks a forward/flanking walkable corridor point.
+    /// Confirms the candidate does not penetrate cave walls with NavMesh.Raycast and PathComplete.
+    /// (Adopted from EnemyNPC_AI AIController).
+    /// </summary>
+    protected virtual void PickNewRoamDestination(float speed)
+    {
+        if (_agent == null || !_agent.isOnNavMesh) return;
+
+        float[] angleOffsets = { 0f, 35f, -35f, 65f, -65f, 95f, -95f, 180f };
+        for (int i = 0; i < angleOffsets.Length; i++)
+        {
+            int randIdx = Random.Range(i, angleOffsets.Length);
+            float temp = angleOffsets[i];
+            angleOffsets[i] = angleOffsets[randIdx];
+            angleOffsets[randIdx] = temp;
+        }
+
+        Vector3 baseForward = transform.forward.sqrMagnitude > 0.01f ? transform.forward : Vector3.forward;
+        float roamDist = Random.Range(6.5f, 11.5f);
+        if (_roamTestPath == null) _roamTestPath = new NavMeshPath();
+
+        foreach (float angle in angleOffsets)
+        {
+            Vector3 dir = Quaternion.Euler(0f, angle, 0f) * baseForward;
+            Vector3 candidatePos = transform.position + dir * roamDist;
+
+            if (NavMesh.SamplePosition(candidatePos, out NavMeshHit hit, 3.5f, NavMesh.AllAreas))
+            {
+                // Verify line on NavMesh does not cross a wall
+                if (!NavMesh.Raycast(transform.position, hit.position, out _, NavMesh.AllAreas))
+                {
+                    if (_agent.CalculatePath(hit.position, _roamTestPath) && _roamTestPath.status == NavMeshPathStatus.PathComplete)
+                    {
+                        if (locomotion != null)
+                        {
+                            locomotion.Resume(speed);
+                            locomotion.SetDestinationDirect(hit.position);
+                        }
+                        return;
+                    }
+                }
+            }
+        }
+
+        // Fallback: smaller radius close sample if inside an alcove
+        for (int attempt = 0; attempt < 5; attempt++)
+        {
+            Vector3 fallbackOffset = Random.insideUnitSphere * 4.5f;
+            fallbackOffset.y = 0;
+            Vector3 fallbackCandidate = transform.position + fallbackOffset;
+            if (NavMesh.SamplePosition(fallbackCandidate, out NavMeshHit fallbackHit, 3.0f, NavMesh.AllAreas))
+            {
+                if (_agent.CalculatePath(fallbackHit.position, _roamTestPath) && _roamTestPath.status == NavMeshPathStatus.PathComplete)
+                {
+                    if (locomotion != null)
+                    {
+                        locomotion.Resume(speed);
+                        locomotion.SetDestinationDirect(fallbackHit.position);
+                    }
+                    return;
+                }
             }
         }
     }
@@ -582,16 +741,19 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             if (combat != null) combat.CancelAttack();
             _recallGraceTimer = 3.5f;
 
-            if (currentState == AIState.Attacking)
-            {
-                currentState = AIState.Running;
-            }
+            SwitchState(AIState.Running);
         }
         else if (cmd == Command.Hunt)
         {
             _recallGraceTimer = 0f;
-            target = perception.FindBestTarget(null);
-            currentState = AIState.Running;
+            target = perception != null ? perception.FindBestTarget(null) : null;
+            SwitchState(target != null ? AIState.Running : AIState.Patrol);
+        }
+        else if (cmd == Command.Roam)
+        {
+            _recallGraceTimer = 0f;
+            target = null;
+            SwitchState(AIState.Patrol);
         }
     }
 
@@ -600,17 +762,24 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (currentState == newState) return;
         currentState = newState;
 
+        _isWaitingAtRoamWaypoint = false;
+        _roamWaitTimer = 0f;
+
         switch (newState)
         {
+            case AIState.Patrol:
+                target = null;
+                if (locomotion != null) locomotion.Resume(walkSpeed);
+                break;
             case AIState.Search:
                 _searchTimer = searchDuration;
-                locomotion.Resume(walkSpeed);
+                if (locomotion != null) locomotion.Resume(walkSpeed);
                 break;
             case AIState.Running:
-                locomotion.Resume(runSpeed);
+                if (locomotion != null) locomotion.Resume(runSpeed);
                 break;
             case AIState.Idle:
-                locomotion.Stop();
+                if (locomotion != null) locomotion.Stop();
                 break;
         }
     }
@@ -681,8 +850,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         float remaining = Mathf.Max(0.5f, screamDuration - audioDelay);
         yield return new WaitForSeconds(remaining);
 
-        currentState = AIState.Running;
-        if (locomotion != null) locomotion.Resume(runSpeed);
+        SwitchState(target != null ? AIState.Running : AIState.Patrol);
+        if (locomotion != null) locomotion.Resume(target != null ? runSpeed : walkSpeed);
     }
 
     protected virtual void TriggerScreamAnimation()
@@ -846,7 +1015,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         Die();
     }
 
-    private void HandlePostureNetworkChanged(ZombiePosture prev, ZombiePosture curr)
+    protected virtual void HandlePostureNetworkChanged(ZombiePosture prev, ZombiePosture curr)
     {
         currentPosture = curr;
     }

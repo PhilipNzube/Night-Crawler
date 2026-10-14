@@ -127,8 +127,8 @@ public class BerserkerAI : MonsterAI
             yield return new WaitForSeconds(clipLength);
         }
 
-        currentState = AIState.Running;
-        if (locomotion != null) locomotion.Resume(runSpeed);
+        SwitchState(target != null ? AIState.Running : AIState.Patrol);
+        if (locomotion != null) locomotion.Resume(target != null ? runSpeed : walkSpeed);
     }
 
     protected override void TriggerScreamAnimation()
@@ -230,8 +230,8 @@ public class BerserkerAI : MonsterAI
         {
             if (currentState != AIState.Dead)
             {
-                currentState = AIState.Running;
-                if (locomotion != null) locomotion.Resume(runSpeed);
+                SwitchState(target != null ? AIState.Running : AIState.Patrol);
+                if (locomotion != null) locomotion.Resume(target != null ? runSpeed : walkSpeed);
             }
             _attackCoroutine = null;
         });
