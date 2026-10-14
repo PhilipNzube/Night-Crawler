@@ -122,13 +122,14 @@ namespace NightCrawler.Monsters
                 spawnPos = new Vector3(UnityEngine.Random.Range(-5f, 5f), 1f, UnityEngine.Random.Range(-5f, 5f));
             }
 
-            // Snap to ground
-            if (Physics.Raycast(spawnPos + Vector3.up * 3f, Vector3.down, out RaycastHit hit, 20f, ~LayerMask.GetMask("UI", "Ignore Raycast")))
+            // Snap to ground (EnemyNPC_AI Raycast & NavMesh floor sampling)
+            LayerMask groundMask = ~LayerMask.GetMask("UI", "Ignore Raycast", "Player", "Monster");
+            if (Physics.Raycast(spawnPos + Vector3.up * 0.5f, Vector3.down, out RaycastHit hit, 25f, groundMask, QueryTriggerInteraction.Ignore))
             {
-                spawnPos = hit.point + Vector3.up * 0.05f;
+                spawnPos = hit.point;
             }
 
-            // Sample nearest NavMesh point so NavMeshAgent places cleanly
+            // Sample nearest NavMesh point so NavMeshAgent places cleanly on the floor
             if (NavMesh.SamplePosition(spawnPos, out NavMeshHit navHit, 5.0f, NavMesh.AllAreas))
             {
                 spawnPos = navHit.position;
@@ -136,6 +137,17 @@ namespace NightCrawler.Monsters
 
             // Instantiate and network spawn
             GameObject spawnedObj = Instantiate(prefabToSpawn, spawnPos, spawnRot);
+
+            // Warp agent directly to ground NavMesh to guarantee it never floats on spawn
+            if (spawnedObj.TryGetComponent<NavMeshAgent>(out var agent) && agent.enabled)
+            {
+                agent.Warp(spawnPos);
+            }
+            if (spawnedObj.TryGetComponent<MonsterController>(out var mc))
+            {
+                mc.SnapToFloor();
+            }
+
             if (spawnedObj.TryGetComponent<NetworkObject>(out var netObj))
             {
                 netObj.Spawn(true);

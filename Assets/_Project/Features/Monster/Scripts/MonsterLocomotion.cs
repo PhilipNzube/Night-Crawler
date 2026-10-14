@@ -74,6 +74,26 @@ namespace NightCrawler.Monsters
             }
         }
 
+        private void Start()
+        {
+            EnsureGrounded();
+        }
+
+        /// <summary>
+        /// Warps the NavMeshAgent firmly onto the floor surface if it spawned or hovered in mid-air.
+        /// (Clean logic adopted from EnemyNPC_AI AIController).
+        /// </summary>
+        public void EnsureGrounded()
+        {
+            if (agent == null || !agent.enabled) return;
+
+            Vector3 currentPos = transform.position;
+            if (NavMesh.SamplePosition(currentPos, out NavMeshHit hit, 6.0f, NavMesh.AllAreas))
+            {
+                agent.Warp(hit.position);
+            }
+        }
+
         private void Update()
         {
             if (_repositionDurationTimer > 0f)
@@ -253,7 +273,14 @@ namespace NightCrawler.Monsters
         /// </summary>
         public void Resume(float speed = -1f)
         {
-            if (agent != null && agent.enabled && agent.isOnNavMesh)
+            if (agent == null || !agent.enabled) return;
+
+            if (!agent.isOnNavMesh)
+            {
+                EnsureGrounded();
+            }
+
+            if (agent.isOnNavMesh)
             {
                 if (speed > 0f) agent.speed = speed;
                 agent.isStopped = false;
