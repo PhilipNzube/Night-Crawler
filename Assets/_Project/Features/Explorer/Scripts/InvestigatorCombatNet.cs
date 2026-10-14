@@ -951,7 +951,6 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                 {
                     // Check if player eliminated another investigator to fulfill Kill Player pact
                     var th = hit.GetComponentInParent<TargetHealth>();
-                    var hs = hit.GetComponentInParent<HealthSystem>();
                     bool isVictimDying = (th != null && (th.isCorpse.Value || th.CurrentHealth <= finalDamage))
                                       || (hs != null && (hs.IsDead || hs.CurrentHealth <= finalDamage));
                     if (isVictimDying)
@@ -1038,7 +1037,6 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                 {
                     // Check if player eliminated another investigator to fulfill Kill Player pact
                     var th = hit.collider.GetComponentInParent<TargetHealth>();
-                    var hs = hit.collider.GetComponentInParent<HealthSystem>();
                     bool isVictimDying = (th != null && (th.isCorpse.Value || th.CurrentHealth <= finalDamage))
                                       || (hs != null && (hs.IsDead || hs.CurrentHealth <= finalDamage));
                     if (isVictimDying)

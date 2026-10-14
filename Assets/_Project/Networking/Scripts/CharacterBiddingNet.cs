@@ -125,15 +125,21 @@ public class CharacterBiddingNet : NetworkBehaviour
     /// <summary>
     /// Initial claim when a player selects a character that has no owner yet.
     /// </summary>
-    public void ClaimCharacterInitial(int characterIndex, string playerName)
+    public void ClaimCharacterInitial(int characterIndex, string playerName, int initialBid = 0)
     {
-        if (!IsSpawned) return;
-        ulong localId = NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0;
-        RequestClaimServerRpc(characterIndex, localId, new FixedString64Bytes(playerName));
+        if (!IsSpawned)
+        {
+            ulong localId = NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0;
+            _characterBids[characterIndex] = (localId, playerName, initialBid);
+            OnCharacterBidUpdated?.Invoke(characterIndex, localId, playerName, initialBid);
+            return;
+        }
+        ulong lId = NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0;
+        RequestClaimServerRpc(characterIndex, lId, new FixedString64Bytes(playerName), initialBid);
     }
 
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
-    private void RequestClaimServerRpc(int characterIndex, ulong clientId, FixedString64Bytes playerName, RpcParams rpcParams = default)
+    private void RequestClaimServerRpc(int characterIndex, ulong clientId, FixedString64Bytes playerName, int initialBid = 0, RpcParams rpcParams = default)
     {
         ulong senderId = rpcParams.Receive.SenderClientId;
         // Verify character doesn't already have an active owner
@@ -150,8 +156,8 @@ public class CharacterBiddingNet : NetworkBehaviour
         }
 
         string pName = playerName.ToString();
-        _characterBids[characterIndex] = (senderId, pName, 0);
-        BroadcastCharacterClaimClientRpc(characterIndex, senderId, playerName, 0);
+        _characterBids[characterIndex] = (senderId, pName, initialBid);
+        BroadcastCharacterClaimClientRpc(characterIndex, senderId, playerName, initialBid);
     }
 
     /// <summary>

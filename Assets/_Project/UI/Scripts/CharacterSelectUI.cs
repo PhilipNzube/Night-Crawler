@@ -189,7 +189,13 @@ public class CharacterSelectUI : MonoBehaviour
     [Tooltip("Explicit reference or fallback for CurrentBidForCharacter GameObject inside Bid_Modal.")]
     public GameObject currentBidForCharacter;
 
-    [Tooltip("Text label displaying current highest bid inside Bid_Modal.")]
+    [Tooltip("Header label inside CurrentBid (e.g. Header/Text). Displays 'Current Bids:'.")]
+    public TextMeshProUGUI currentBidHeaderText;
+
+    [Tooltip("Total amount text inside CurrentBid (e.g. Total). Displays the numeric current bid amount.")]
+    public TextMeshProUGUI currentBidTotalText;
+
+    [Tooltip("Legacy fallback reference for current bid text inside Bid_Modal.")]
     public TextMeshProUGUI currentBidText;
 
     [Tooltip("Error / Hint label inside Bid_Modal.")]
@@ -1017,7 +1023,7 @@ public class CharacterSelectUI : MonoBehaviour
             if (!CharacterBiddingNet.Instance.TryGetCharacterOwner(_selectedIndex, out ulong currentOwner, out _, out _) || currentOwner == localId)
             {
                 string localName = ResolveLocalPlayerName();
-                CharacterBiddingNet.Instance.ClaimCharacterInitial(_selectedIndex, localName);
+                CharacterBiddingNet.Instance.ClaimCharacterInitial(_selectedIndex, localName, stake);
             }
         }
 
@@ -2177,8 +2183,8 @@ public class CharacterSelectUI : MonoBehaviour
 
                     if (_hasLocalYieldedCurrent)
                     {
-                        // Player yielded on this character — button says READY and is disabled
-                        MichskyUIBridge.SetButtonText(null, heatConfirmButton, "READY");
+                        // Player yielded on this character — button says CLAIMED and is disabled
+                        MichskyUIBridge.SetButtonText(null, heatConfirmButton, "CLAIMED");
                         if (heatConfirmButton != null)
                         {
                             heatConfirmButton.isInteractable = false;
@@ -2218,7 +2224,7 @@ public class CharacterSelectUI : MonoBehaviour
         // Check if local player yielded on an unowned or contested operative
         if (_hasLocalYieldedCurrent)
         {
-            MichskyUIBridge.SetButtonText(null, heatConfirmButton, "READY");
+            MichskyUIBridge.SetButtonText(null, heatConfirmButton, "CLAIMED");
             if (heatConfirmButton != null)
             {
                 heatConfirmButton.isInteractable = false;
@@ -2277,10 +2283,75 @@ public class CharacterSelectUI : MonoBehaviour
         return $"Player {localId}";
     }
 
+    public int GetCurrentBidForCharacter(int charIndex)
+    {
+        if (CharacterBiddingNet.Instance != null)
+        {
+            int bid = CharacterBiddingNet.Instance.GetCurrentBid(charIndex);
+            if (bid > 0) return bid;
+
+            if (CharacterBiddingNet.Instance.TryGetCharacterOwner(charIndex, out _, out _, out int ownerBid) && ownerBid > 0)
+            {
+                return ownerBid;
+            }
+        }
+
+        if (_selectedIndex == charIndex && _localConfirmed)
+        {
+            int savedStake = PersistentCharacterSelection.GetSavedMatchStake();
+            if (savedStake > 0) return savedStake;
+        }
+
+        return 0;
+    }
+
+    private void UpdateBidModalCurrentBidDisplay(int currentBid)
+    {
+        TextMeshProUGUI headerTarget = currentBidHeaderText;
+        TextMeshProUGUI totalTarget = currentBidTotalText;
+
+        // Graceful fallback if user hasn't rewired yet and currentBidText is pointing to Header/Text
+        if (headerTarget == null && totalTarget == null && currentBidText != null)
+        {
+            if (currentBidText.transform.parent != null && currentBidText.transform.parent.name == "Header")
+            {
+                headerTarget = currentBidText;
+            }
+            else
+            {
+                totalTarget = currentBidText;
+            }
+        }
+        else if (totalTarget == null && currentBidText != null && currentBidText != headerTarget)
+        {
+            totalTarget = currentBidText;
+        }
+
+        if (headerTarget != null)
+        {
+            headerTarget.text = "Current Bids:";
+            var umt = headerTarget.GetComponent<Michsky.UI.Heat.UIManagerText>();
+            if (umt != null) umt.useCustomColor = true;
+            var loc = headerTarget.GetComponent<Michsky.UI.Heat.LocalizedObject>();
+            if (loc != null) loc.enabled = false;
+            EnsureHierarchyAndContainersActive(headerTarget);
+        }
+
+        if (totalTarget != null)
+        {
+            totalTarget.text = currentBid.ToString();
+            var umt = totalTarget.GetComponent<Michsky.UI.Heat.UIManagerText>();
+            if (umt != null) umt.useCustomColor = true;
+            var loc = totalTarget.GetComponent<Michsky.UI.Heat.LocalizedObject>();
+            if (loc != null) loc.enabled = false;
+            EnsureHierarchyAndContainersActive(totalTarget);
+        }
+    }
+
     public void OpenBidModal(int charIndex)
     {
         _contestedCharacterIndex = charIndex;
-        int currentBid = CharacterBiddingNet.Instance != null ? CharacterBiddingNet.Instance.GetCurrentBid(charIndex) : 0;
+        int currentBid = GetCurrentBidForCharacter(charIndex);
 
         if (currentBidForCharacter != null)
         {
@@ -2294,14 +2365,7 @@ public class CharacterSelectUI : MonoBehaviour
             EnsureHierarchyAndContainersActive(currentBidRoot.transform);
         }
 
-        if (currentBidText != null)
-        {
-            currentBidText.text = $"{currentBid} CINDERS";
-            currentBidText.richText = true;
-            var umt = currentBidText.GetComponent<Michsky.UI.Heat.UIManagerText>();
-            if (umt != null) umt.useCustomColor = true;
-            EnsureHierarchyAndContainersActive(currentBidText);
-        }
+        UpdateBidModalCurrentBidDisplay(currentBid);
 
         int balance = CloudCharacterSaveManager.Instance != null
             ? CloudCharacterSaveManager.Instance.CurrentCredits
@@ -2335,11 +2399,7 @@ public class CharacterSelectUI : MonoBehaviour
                 currentBidRoot.SetActive(true);
                 EnsureHierarchyAndContainersActive(currentBidRoot.transform);
             }
-            if (currentBidText != null)
-            {
-                currentBidText.text = $"{currentBid} CINDERS";
-                EnsureHierarchyAndContainersActive(currentBidText);
-            }
+            UpdateBidModalCurrentBidDisplay(currentBid);
 
             MichskyUIBridge.BindInputField(null, heatBidInputField, OnBidInputChanged);
             MichskyUIBridge.BindButton(null, heatPlaceBidButton, OnPlaceBidClicked);
@@ -2411,11 +2471,7 @@ public class CharacterSelectUI : MonoBehaviour
                 if (!currentBidRoot.activeSelf) currentBidRoot.SetActive(true);
                 EnsureHierarchyAndContainersActive(currentBidRoot.transform);
             }
-            if (currentBidText != null)
-            {
-                currentBidText.text = $"{currentBid} CINDERS";
-                EnsureHierarchyAndContainersActive(currentBidText);
-            }
+            UpdateBidModalCurrentBidDisplay(currentBid);
             yield return null;
         }
     }
@@ -2439,9 +2495,7 @@ public class CharacterSelectUI : MonoBehaviour
             ? CloudCharacterSaveManager.Instance.CurrentCredits
             : CurrencyConfig.DefaultStartingBalance;
         int maxBid = (int)(balance * 0.60f);
-        int currentBid = CharacterBiddingNet.Instance != null
-            ? CharacterBiddingNet.Instance.GetCurrentBid(_contestedCharacterIndex)
-            : 0;
+        int currentBid = GetCurrentBidForCharacter(_contestedCharacterIndex);
         int minBid = currentBid > 0 ? currentBid + 1 : 2;
 
         bool isValid = false;
@@ -2508,9 +2562,7 @@ public class CharacterSelectUI : MonoBehaviour
             ? CloudCharacterSaveManager.Instance.CurrentCredits
             : CurrencyConfig.DefaultStartingBalance;
         int maxBid = (int)(balance * 0.60f);
-        int curBid = CharacterBiddingNet.Instance != null
-            ? CharacterBiddingNet.Instance.GetCurrentBid(_contestedCharacterIndex)
-            : 0;
+        int curBid = GetCurrentBidForCharacter(_contestedCharacterIndex);
 
         if (bid <= curBid || bid > maxBid || bid > balance)
             return;
@@ -2672,11 +2724,11 @@ public class CharacterSelectUI : MonoBehaviour
 
         ApplySelectionStyle();
 
-        // The button must display "READY", but remain disabled for this yielded operative
+        // The button must display "CLAIMED", but remain disabled for this yielded operative
         if (heatConfirmButton != null)
         {
             heatConfirmButton.gameObject.SetActive(true);
-            MichskyUIBridge.SetButtonText(null, heatConfirmButton, "READY");
+            MichskyUIBridge.SetButtonText(null, heatConfirmButton, "CLAIMED");
             heatConfirmButton.isInteractable = false;
             heatConfirmButton.UpdateUI();
         }
@@ -2696,6 +2748,12 @@ public class CharacterSelectUI : MonoBehaviour
         if (charIndex == _selectedIndex)
         {
             UpdateCharacterOwnershipUI();
+        }
+
+        if (bidModal != null && bidModal.isOn && charIndex == _contestedCharacterIndex)
+        {
+            UpdateBidModalCurrentBidDisplay(bid);
+            OnBidInputChanged(MichskyUIBridge.GetInputText(null, heatBidInputField));
         }
     }
 
