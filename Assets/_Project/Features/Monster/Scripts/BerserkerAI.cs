@@ -1,43 +1,53 @@
 using System.Collections;
 using UnityEngine;
-using UnityEngine.AI;
 using Unity.Netcode;
 
 /// <summary>
-/// Dedicated AI controller for the subterranean Berserker beast.
+/// Dedicated Berserker minion AI.
+/// Extends MonsterAI following the Open/Closed Principle (OCP).
 /// Features:
-/// - Explicit recognition and synchronization for ALL Berserker Animator states:
-///   * "Mutant Roaring" (Spawn & roar trigger)
-///   * "Mutant Run" (High-speed pursuit & sprint)
-///   * "Mutant Walk" (Guarding patrol & trot)
-///   * "Berserker Idle" (Stationary combat stance)
-///   * "Mutant Swiping" (Devastating claw strike)
-///   * "Mutant Reaction Hit" (Hit stagger)
-///   * "Turn Left" and "Turn Right" (AI steering animations)
-/// - Relentless standing pursuit: NEVER crawls. Keeps running standing across all distances,
-///   even when close to the target or master.
-/// - Heavy combat stats: devastating 65 damage claw strikes with extended range.
-/// - Aggressive guard perimeter defending the Vengeful Spirit.
+/// - Signature Mutant Roar sequence with 3D audio sync.
+/// - Relentless standing pursuit (never crawls; always standing sprint).
+/// - Heavy damage strikes (65 base damage claw swipe).
+/// - Full synchronization with BerserkerAnim states:
+///   * Mutant Roaring
+///   * Mutant Run
+///   * Mutant Walk
+///   * Berserker Idle
+///   * Mutant Swiping
+///   * Mutant Reaction Hit
 /// </summary>
 public class BerserkerAI : MonsterAI
 {
-    // Direct Animator State Hashes matching BerserkerAnim.controller
+    [Header("Berserker Roar Settings")]
+    [Tooltip("If true, plays a double roar animation sequence to match two-roar audio.")]
+    public bool doubleRoarSequence = false;
+
+    [Tooltip("Optional custom audio clip for the second roar.")]
+    public AudioClip secondRoarClip;
+
+    [Tooltip("Delay in seconds before roar audio starts, matching animation wind-up apex.")]
+    public float roarAudioDelay = 0.35f;
+
+    [Tooltip("Delay in seconds before triggering the second roar.")]
+    public float secondRoarDelay = 2.6f;
+
+    [Tooltip("Total duration of the roar sequence.")]
+    public float totalRoarDuration = 5.2f;
+
+    // Animator State Hashes
     protected readonly int _stateMutantRoar    = Animator.StringToHash("Mutant Roaring");
     protected readonly int _stateMutantRun     = Animator.StringToHash("Mutant Run");
     protected readonly int _stateMutantWalk    = Animator.StringToHash("Mutant Walk");
     protected readonly int _stateMutantSwiping = Animator.StringToHash("Mutant Swiping");
     protected readonly int _stateMutantHit     = Animator.StringToHash("Mutant Reaction Hit");
+    protected readonly int _stateBerserkerIdle = Animator.StringToHash("Berserker Idle");
 
     protected override void Awake()
     {
         monsterType = MonsterType.Berserker;
         currentPosture = ZombiePosture.Standing;
         base.Awake();
-
-        // Enforce standing posture for Berserker: crawling is strictly excluded
-        currentPosture = ZombiePosture.Standing;
-        SafeSetBool(_isStandingHash, true);
-        SafeSetBool(_isCrawlingHash, false);
     }
 
     public override void OnNetworkSpawn()
@@ -49,160 +59,33 @@ public class BerserkerAI : MonsterAI
         }
     }
 
-    [Header("Roar Synchronization")]
-    [Tooltip("If true, the Berserker plays the roar animation twice to rhyme with the double-roar audio clip. If false, plays the single trimmed roar audio.")]
-    public bool doubleRoarSequence = false;
-    [Tooltip("Optional custom audio clip for the second roar. If left empty, re-plays spawnScreamClip.")]
-    public AudioClip secondRoarClip;
-    [Tooltip("Delay in seconds before roar audio starts, allowing the animation wind-up to reach the open-mouth roar apex.")]
-    public float roarAudioDelay = 0.35f;
-    [Tooltip("Time in seconds before triggering the second roar animation to rhyme with the second roar in the audio.")]
-    public float secondRoarDelay = 2.6f;
-    [Tooltip("Total duration of the entire double-roar spawn sequence before running.")]
-    public float totalRoarDuration = 5.37f;
-
     protected override void ConfigureMonsterDefaults()
     {
         monsterType = MonsterType.Berserker;
-        runSpeed = 3.4f;
-        standRunSpeed = 3.4f;
-        walkSpeed = 1.4f;
-        runAcceleration = 8.5f;
-        if (attackDamage < 50f) attackDamage = 65f;
-        if (attackRange < 2.0f) attackRange = 2.2f;
-        roarAudioDelay = 0.35f;
-        secondRoarDelay = 3.0f;
+        currentPosture = ZombiePosture.Standing;
         screamDuration = totalRoarDuration;
 
-        // ScriptableObject stats override if present
+        if (locomotion != null)
+        {
+            locomotion.chaseSpeed = 4.5f;
+            locomotion.walkSpeed = 1.8f;
+            locomotion.stoppingDistance = 1.8f;
+        }
+
+        if (combat != null)
+        {
+            combat.attackDamage = 65f;
+            combat.attackRange = 2.2f;
+            combat.attackCooldown = 1.8f;
+        }
+
         if (stats != null)
         {
-            if (stats.runSpeed > 0)
-            {
-                runSpeed = stats.runSpeed;
-                standRunSpeed = stats.runSpeed;
-            }
-            else if (stats.walkSpeed > 0)
-            {
-                walkSpeed = stats.walkSpeed;
-            }
-
-            if (stats.damageAmount > 0) attackDamage = stats.damageAmount;
-            if (stats.attackRange > 0) attackRange = stats.attackRange;
-            if (stats.attackCooldown > 0) attackCooldown = stats.attackCooldown;
-        }
-    }
-
-    // =========================================================================
-    //  Animation Drivers (Recognizes all States & Parameters in BerserkerAnim)
-    // =========================================================================
-
-    public void PlayBerserkerRunLocomotion(float speed)
-    {
-        SafeSetFloat(_speedHash, speed);
-        SafeSetBool(_isRunningHash, true);
-        SafeCrossFade(_stateMutantRun, "Mutant Run", 0.2f, false);
-    }
-
-    public void PlayBerserkerWalkLocomotion(float speed)
-    {
-        SafeSetFloat(_speedHash, speed);
-        SafeSetBool(_isRunningHash, false);
-        SafeCrossFade(_stateMutantWalk, "Mutant Walk", 0.2f, false);
-    }
-
-    public void PlayBerserkerIdleLocomotion()
-    {
-        SetLocomotionAnimSpeed(1.0f);
-        SafeSetFloat(_speedHash, 0f);
-        SafeSetBool(_isRunningHash, false);
-        SafeCrossFade(_stateBerserkerIdle, "Berserker Idle", 0.25f, false);
-    }
-
-    protected override void PlayPatrolWalkLocomotion(float speed)
-    {
-        PlayBerserkerWalkLocomotion(speed);
-    }
-
-    protected override void PlayPatrolIdleLocomotion()
-    {
-        PlayBerserkerIdleLocomotion();
-    }
-
-    // =========================================================================
-    //  Turning Animation Drivers (Recognizes Turn Left & Turn Right in BerserkerAnim)
-    // =========================================================================
-
-    public void PlayBerserkerTurnRight()
-    {
-        SafeSetTrigger(_turnRightHash);
-        SafeCrossFade(_stateTurnRight, "Turn Right", 0.10f, false);
-    }
-
-    public void PlayBerserkerTurnLeft()
-    {
-        SafeSetTrigger(_turnLeftHash);
-        SafeCrossFade(_stateTurnLeft, "Turn Left", 0.10f, false);
-    }
-
-    public override void UpdateTurningAnimation(Vector3 desiredFacingDir)
-    {
-        if (IsMovingLocomotion())
-        {
-            StopTurningAnimation(true);
-            return;
-        }
-
-        desiredFacingDir.y = 0f;
-        if (desiredFacingDir.sqrMagnitude < 0.01f)
-        {
-            StopTurningAnimation(true);
-            return;
-        }
-
-        float signedAngle = Vector3.SignedAngle(transform.forward, desiredFacingDir.normalized, Vector3.up);
-        SafeSetFloat(_turnAngleHash, signedAngle);
-
-        if (signedAngle > turnAngleThreshold)
-        {
-            if (!_isTurningRight)
-            {
-                PlayBerserkerTurnRight();
-            }
-            _isTurningRight = true;
-            _isTurningLeft = false;
-            SafeSetBool(_isTurningRightHash, true);
-            SafeSetBool(_isTurningLeftHash, false);
-            _turnActiveTimer = Mathf.Max(_turnActiveTimer, minTurnDuration);
-        }
-        else if (signedAngle < -turnAngleThreshold)
-        {
-            if (!_isTurningLeft)
-            {
-                PlayBerserkerTurnLeft();
-            }
-            _isTurningLeft = true;
-            _isTurningRight = false;
-            SafeSetBool(_isTurningLeftHash, true);
-            SafeSetBool(_isTurningRightHash, false);
-            _turnActiveTimer = Mathf.Max(_turnActiveTimer, minTurnDuration);
-        }
-        else if (_turnActiveTimer <= 0f && Mathf.Abs(signedAngle) <= 15f)
-        {
-            StopTurningAnimation();
-        }
-    }
-
-    public override void StopTurningAnimation(bool force = false)
-    {
-        if (!force && _turnActiveTimer > 0f) return;
-
-        bool wasTurning = _isTurningRight || _isTurningLeft;
-        base.StopTurningAnimation(force);
-
-        if (wasTurning && !IsMovingLocomotion() && currentState != AIState.Dead && currentState != AIState.Attacking)
-        {
-            PlayBerserkerIdleLocomotion();
+            if (stats.runSpeed > 0 && locomotion != null) locomotion.chaseSpeed = stats.runSpeed;
+            if (stats.walkSpeed > 0 && locomotion != null) locomotion.walkSpeed = stats.walkSpeed;
+            if (stats.damageAmount > 0 && combat != null) combat.attackDamage = stats.damageAmount;
+            if (stats.attackRange > 0 && combat != null) combat.attackRange = stats.attackRange;
+            if (stats.attackCooldown > 0 && combat != null) combat.attackCooldown = stats.attackCooldown;
         }
     }
 
@@ -210,53 +93,29 @@ public class BerserkerAI : MonsterAI
     {
         _hasScreamed = true;
         currentState = AIState.SpawningScream;
+        if (locomotion != null) locomotion.Stop();
 
-        if (_agent != null && _agent.enabled)
+        target = perception.FindBestTarget(null);
+        if (target != null && locomotion != null)
         {
-            _agent.isStopped = true;
+            locomotion.RotateTowards(target.position, angularSpeed * 2f);
         }
 
-        // Find initial closest player to look at while roaring
-        target = FindBestTarget();
-        if (target != null)
-        {
-            RotateTowardsTarget(target);
-        }
-
-        // 1. Trigger first roar animation FIRST
+        // 1. Trigger First Roar
         TriggerScreamAnimation();
 
-        SetLocomotionAnimSpeed(1.0f);
-        SafeSetFloat(_speedHash, 0f);
-        SafeSetBool(_isRunningHash, false);
-
-        // 2. Wait for first roar animation wind-up to reach the open-mouth apex
         float delay = Mathf.Clamp(roarAudioDelay, 0.1f, 1.0f);
         yield return new WaitForSeconds(delay);
 
-        // 3. Play first 3D roar audio precisely at the apex
         Play3DScream();
 
         if (doubleRoarSequence)
         {
-            // Wait for first roar to finish before second roar
             float waitBeforeSecond = Mathf.Max(0.5f, secondRoarDelay - delay);
             yield return new WaitForSeconds(waitBeforeSecond);
 
-            // Re-aim at target if moved
-            target = FindBestTarget();
-            if (target != null)
-            {
-                RotateTowardsTarget(target);
-            }
-
-            // 4. Trigger second roar animation
             TriggerSecondRoar();
-
-            // 5. Wait for second roar animation wind-up to reach the open-mouth apex
             yield return new WaitForSeconds(delay);
-
-            // 6. Play second roar audio precisely at the second roar animation apex!
             PlaySecondRoarAudio();
 
             float remaining = Mathf.Max(0.5f, totalRoarDuration - secondRoarDelay - delay);
@@ -264,50 +123,69 @@ public class BerserkerAI : MonsterAI
         }
         else
         {
-            // Single roar mode: let trimmed audio and animation play to completion naturally
-            float clipLength = (spawnScreamClip != null && spawnScreamClip.length > 0f) ? spawnScreamClip.length : 3.09f;
+            float clipLength = (spawnScreamClip != null && spawnScreamClip.length > 0f) ? spawnScreamClip.length : screamDuration;
             yield return new WaitForSeconds(clipLength);
         }
 
-        // Transition directly to relentless pursuit
         currentState = AIState.Running;
-        if (_agent != null && _agent.enabled)
-        {
-            _agent.isStopped = false;
-        }
+        if (locomotion != null) locomotion.Resume(runSpeed);
     }
 
     protected override void TriggerScreamAnimation()
     {
-        SafeSetTrigger(_roarHash);
-        SafeCrossFade(_stateMutantRoar, "Mutant Roaring", 0.15f, true);
-    }
-
-    private void TriggerSecondRoar()
-    {
-        SafeSetTrigger(_roarHash);
-        SafeCrossFade(_stateMutantRoar, "Mutant Roaring", 0.12f, true);
+        if (_animator != null)
+        {
+            _animator.SetTrigger(_roarHash);
+            _animator.CrossFade(_stateMutantRoar, 0.15f);
+        }
 
         if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
         {
-            PlaySecondRoarClientRpc();
+            TriggerRoarClientRpc();
         }
     }
 
     [ClientRpc]
-    private void PlaySecondRoarClientRpc()
+    private void TriggerRoarClientRpc()
     {
         if (IsServer) return;
-        SafeSetTrigger(_roarHash);
-        SafeCrossFade(_stateMutantRoar, "Mutant Roaring", 0.12f, true);
+        if (_animator != null)
+        {
+            _animator.SetTrigger(_roarHash);
+            _animator.CrossFade(_stateMutantRoar, 0.15f);
+        }
     }
 
-    protected virtual void PlaySecondRoarAudio()
+    private void TriggerSecondRoar()
+    {
+        if (_animator != null)
+        {
+            _animator.SetTrigger(_roarHash);
+            _animator.CrossFade(_stateMutantRoar, 0.12f);
+        }
+
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            TriggerSecondRoarClientRpc();
+        }
+    }
+
+    [ClientRpc]
+    private void TriggerSecondRoarClientRpc()
+    {
+        if (IsServer) return;
+        if (_animator != null)
+        {
+            _animator.SetTrigger(_roarHash);
+            _animator.CrossFade(_stateMutantRoar, 0.12f);
+        }
+    }
+
+    private void PlaySecondRoarAudio()
     {
         AudioClip clip = secondRoarClip != null ? secondRoarClip : spawnScreamClip;
         if (clip != null && audioSource != null)
         {
-            audioSource.pitch = 1.0f;
             audioSource.clip = clip;
             audioSource.volume = GameSettingsManager.SFXVolume;
             audioSource.Play();
@@ -324,346 +202,86 @@ public class BerserkerAI : MonsterAI
     {
         if (IsServer) return;
         AudioClip clip = secondRoarClip != null ? secondRoarClip : spawnScreamClip;
-        if (audioSource != null && clip != null)
+        if (clip != null && audioSource != null)
         {
-            audioSource.pitch = 1.0f;
             audioSource.clip = clip;
             audioSource.volume = GameSettingsManager.SFXVolume;
             audioSource.Play();
         }
     }
 
-    public override void PlayHitReaction()
+    protected override void ExecuteAttack(Transform attackTarget)
     {
-        if (currentState == AIState.Dead) return;
-        if (_hitCooldownTimer > 0f) return;
+        if (combat == null || combat.IsOnCooldown) return;
 
-        _hitCooldownTimer = 0.25f;
-        _hitStaggerTimer = hitReactionDuration;
+        currentState = AIState.Attacking;
+        if (locomotion != null)
+        {
+            locomotion.Stop();
+            locomotion.RotateTowards(attackTarget.position, angularSpeed * 2f);
+        }
 
-        SafeSetTrigger(_hitReactionHash);
-        SafeCrossFade(_stateMutantHit, "Mutant Reaction Hit", 0.08f, true);
+        if (_animator != null)
+        {
+            _animator.CrossFade(_stateMutantSwiping, 0.12f);
+        }
+
+        combat.StartAttack("Attack", () =>
+        {
+            if (currentState != AIState.Dead)
+            {
+                currentState = AIState.Running;
+                if (locomotion != null) locomotion.Resume(runSpeed);
+            }
+            _attackCoroutine = null;
+        });
 
         if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
         {
-            PlayBerserkerHitReactionClientRpc();
+            PlayBerserkerAttackClientRpc();
         }
     }
 
     [ClientRpc]
-    private void PlayBerserkerHitReactionClientRpc()
+    private void PlayBerserkerAttackClientRpc()
     {
         if (IsServer) return;
-        SafeSetTrigger(_hitReactionHash);
-        SafeCrossFade(_stateMutantHit, "Mutant Reaction Hit", 0.08f, true);
+        if (_animator != null)
+        {
+            _animator.CrossFade(_stateMutantSwiping, 0.12f);
+        }
     }
 
-    // =========================================================================
-    //  Berserker Behavior & Pursuit (Pure Standing — No Crawl)
-    // =========================================================================
-
-    /// <summary>
-    /// Berserker Hunting Pursuit:
-    /// - Command.Roam: On its own, only engages if an investigator comes close (<=12m), and breaks off chase if they get too far (>16m).
-    /// - Command.Hunt: Relentless pursuit ordered by the Girl. Chases across any distance until caught or recalled.
-    /// Pure standing sprint — no crawling transitions under any circumstances.
-    /// </summary>
-    protected override void HandleHuntingBehavior()
+    public override void PlayHitReaction()
     {
-        // 1. ROAMING ON ITS OWN:
-        if (currentCommand == Command.Roam)
+        if (currentState == AIState.Dead) return;
+
+        _hitStaggerTimer = 0.45f;
+        if (_animator != null)
         {
-            if (target != null && !IsTargetInvalidOrDead(target))
-            {
-                float distance = Vector3.Distance(transform.position, target.position);
-                bool hasLoS = HasLineOfSight(target);
-
-                // Roam Leash: if player runs too far (>16m, or >12m without LoS), return to roaming!
-                if (distance > 16.0f || (!hasLoS && distance > 12.0f))
-                {
-                    target = null;
-                    ExecuteRoam(walkSpeed);
-                    return;
-                }
-
-                if (distance <= attackRange && hasLoS)
-                {
-                    _agent.isStopped = true;
-                    PlayBerserkerIdleLocomotion();
-                    RotateTowardsTarget(target);
-
-                    if (_attackTimer <= 0f)
-                    {
-                        _attackCoroutine = StartCoroutine(PerformAttackRoutine());
-                    }
-                }
-                else
-                {
-                    if (CheckForwardObstacleInChase(target.position))
-                    {
-                        ExecuteSmartReroute();
-                        return;
-                    }
-
-                    _agent.isStopped = false;
-                    _agent.speed = runSpeed;
-                    _agent.SetDestination(CalculatePredictiveChaseTarget(target));
-                    PlayBerserkerRunLocomotion(runSpeed);
-                }
-                return;
-            }
-
-            // On its own: periodically check if an investigator comes close (<= 12m)
-            _retargetTimer -= Time.deltaTime;
-            if (_retargetTimer <= 0f)
-            {
-                _retargetTimer = 0.5f;
-                Transform candidate = EvaluateBestTarget(null);
-                if (candidate != null)
-                {
-                    float d = Vector3.Distance(transform.position, candidate.position);
-                    if (d <= 12.0f && HasLineOfSight(candidate))
-                    {
-                        target = candidate;
-                    }
-                }
-            }
-
-            if (target == null)
-            {
-                ExecuteRoam(walkSpeed);
-                return;
-            }
+            _animator.SetTrigger(_hitReactionHash);
+            _animator.CrossFade(_stateMutantHit, 0.08f);
         }
 
-        // 2. HUNT COMMAND ISSUED BY THE GIRL:
-        // Relentless pursuit! No matter how far away an investigator is, keep chasing until caught or recalled!
-        _retargetTimer -= Time.deltaTime;
-        if (_retargetTimer <= 0f)
+        if (hurtSoundClip != null && audioSource != null)
         {
-            _retargetTimer = 0.4f;
-            target = EvaluateBestTarget(target);
+            audioSource.PlayOneShot(hurtSoundClip, GameSettingsManager.SFXVolume);
         }
 
-        if (target != null && !IsTargetInvalidOrDead(target))
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
         {
-            float distance = Vector3.Distance(transform.position, target.position);
-            bool hasLoS = HasLineOfSight(target);
-
-            if (distance <= attackRange && hasLoS)
-            {
-                _agent.isStopped = true;
-                PlayBerserkerIdleLocomotion();
-                RotateTowardsTarget(target);
-
-                if (_attackTimer <= 0f)
-                {
-                    _attackCoroutine = StartCoroutine(PerformAttackRoutine());
-                }
-            }
-            else
-            {
-                if (CheckForwardObstacleInChase(target.position))
-                {
-                    ExecuteSmartReroute();
-                    return;
-                }
-
-                _agent.isStopped = false;
-                _agent.speed = runSpeed;
-                _agent.SetDestination(CalculatePredictiveChaseTarget(target));
-                PlayBerserkerRunLocomotion(runSpeed);
-            }
-            return;
+            PlayBerserkerHitClientRpc();
         }
-
-        // When no living investigators are within range, execute subterranean roaming
-        target = null;
-        ExecuteRoam(walkSpeed);
     }
 
-    protected override void PlayPatrolRunLocomotion(float speed)
+    [ClientRpc]
+    private void PlayBerserkerHitClientRpc()
     {
-        PlayBerserkerRunLocomotion(speed);
-    }
-
-    /// <summary>
-    /// Berserker Guarding Behavior:
-    /// Maintains an aggressive combat perimeter around the Girl in an alert standing stance.
-    /// - Unobstructed perimeter spots: Never routes through solid rock walls or mine tunnels.
-    /// - Hysteretic state commitment: stays idle for a while, walks for a while.
-    /// - Blockage handling: if an obstacle or wall blocks its path, pauses, plays turn animation, and continues walking!
-    /// - Leashed defense: intercepts close threats, returns to Girl if they run away.
-    /// </summary>
-    protected override void HandleGuardingBehavior()
-    {
-        Transform leader = _commandLeader != null ? _commandLeader : (GameManager.Instance != null ? GameManager.Instance.GirlTransform : null);
-        if (leader == null)
+        if (IsServer) return;
+        if (_animator != null)
         {
-            ExecuteRoam(walkSpeed);
-            return;
-        }
-
-        if (_isGuardBlockageTurning || _guardBlockageCoroutine != null) return;
-
-        float distToGirl = Vector3.Distance(transform.position, leader.position);
-
-        // 1. Recall Grace & Target Defense:
-        if (_recallGraceTimer > 0f)
-        {
-            _recallGraceTimer -= Time.deltaTime;
-            target = null;
-        }
-        else
-        {
-            Transform threat = FindBestTarget();
-            if (threat != null)
-            {
-                float distToThreat = Vector3.Distance(transform.position, threat.position);
-                float girlToThreat = Vector3.Distance(leader.position, threat.position);
-                bool threatLoS = HasLineOfSight(threat);
-
-                if (target != null)
-                {
-                    // LEASH: if the chased player runs far away, drop chase and return to the Girl!
-                    if (distToThreat > 8.5f && girlToThreat > 8.0f)
-                    {
-                        target = null;
-                    }
-                    else if (distToThreat <= attackRange && threatLoS)
-                    {
-                        _agent.isStopped = true;
-                        PlayBerserkerIdleLocomotion();
-                        RotateTowardsTarget(threat);
-                        if (_attackTimer <= 0f)
-                        {
-                            _attackCoroutine = StartCoroutine(PerformAttackRoutine());
-                        }
-                        return;
-                    }
-                    else
-                    {
-                        _agent.isStopped = false;
-                        _agent.speed = runSpeed;
-                        _agent.SetDestination(CalculatePredictiveChaseTarget(threat));
-                        PlayBerserkerRunLocomotion(runSpeed);
-                        return;
-                    }
-                }
-                else
-                {
-                    // New threat: only intercept if an investigator comes close!
-                    if (girlToThreat <= 5.5f || distToThreat <= 6.0f)
-                    {
-                        target = threat;
-                        _agent.isStopped = false;
-                        _agent.speed = runSpeed;
-                        _agent.SetDestination(CalculatePredictiveChaseTarget(threat));
-                        PlayBerserkerRunLocomotion(runSpeed);
-                        return;
-                    }
-                }
-            }
-            else
-            {
-                target = null;
-            }
-        }
-
-        // 2. Personal Space Buffer with the Girl:
-        // If the Girl approaches too close (< 3.0m), smoothly yield space and step back
-        if (distToGirl < 3.0f)
-        {
-            Vector3 pushBack = (transform.position - leader.position).normalized;
-            if (pushBack.sqrMagnitude < 0.01f) pushBack = -leader.forward;
-            Vector3 retreatSpot = leader.position + pushBack * 4.2f;
-            if (NavMesh.SamplePosition(retreatSpot, out NavMeshHit backHit, 2.5f, NavMesh.AllAreas))
-            {
-                _isGuardIdling = false;
-                _agent.isStopped = false;
-                _agent.speed = walkSpeed;
-                _agent.SetDestination(backHit.position);
-                PlayBerserkerWalkLocomotion(walkSpeed);
-                return;
-            }
-        }
-
-        // 3. Far distance (> 7.5m) -> Sprint directly to unobstructed perimeter spot
-        if (distToGirl > 7.5f)
-        {
-            _isGuardIdling = false;
-            _guardIdleTimer = 0f;
-            Vector3 farSpot = FindUnobstructedPerimeterSpot(leader, 4.2f, 3.2f);
-            _agent.isStopped = false;
-            _agent.speed = runSpeed;
-            _agent.SetDestination(farSpot);
-            PlayBerserkerRunLocomotion(runSpeed);
-            return;
-        }
-
-        // 4. Close perimeter (<= 7.5m) -> Hysteretic Idle / Wander Guard
-        if (_isGuardIdling)
-        {
-            _agent.isStopped = true;
-            _agent.velocity = Vector3.zero;
-            PlayBerserkerIdleLocomotion();
-            if (_turnActiveTimer <= 0f) StopTurningAnimation();
-
-            _guardIdleTimer -= Time.deltaTime;
-            if (_guardIdleTimer <= 0f)
-            {
-                _isGuardIdling = false;
-                _guardWalkTimer = Random.Range(3.5f, 6.0f);
-                _guardStuckTimer = 0f;
-                _guardWanderDestination = FindUnobstructedPerimeterSpot(leader, Random.Range(3.8f, 5.2f), 3.0f);
-                if (_agent != null && _agent.isOnNavMesh)
-                {
-                    _agent.isStopped = false;
-                    _agent.SetDestination(_guardWanderDestination);
-                }
-            }
-        }
-        else
-        {
-            _guardWalkTimer -= Time.deltaTime;
-
-            // Blockage check: if velocity is near zero while trying to walk, or forward obstacle detected
-            if (_agent.hasPath && !_agent.isStopped)
-            {
-                if (_agent.velocity.sqrMagnitude < 0.04f)
-                {
-                    _guardStuckTimer += Time.deltaTime;
-                }
-                else
-                {
-                    _guardStuckTimer = 0f;
-                }
-
-                if (_guardStuckTimer > 0.85f || CheckForwardObstacleInChase(_guardWanderDestination))
-                {
-                    Vector3 altSpot = FindUnobstructedPerimeterSpot(leader, Random.Range(3.5f, 4.8f), 3.0f);
-                    _guardBlockageCoroutine = StartCoroutine(GuardBlockageTurnRoutine(altSpot, walkSpeed));
-                    return;
-                }
-            }
-
-            bool arrived = !_agent.pathPending && _agent.hasPath && _agent.remainingDistance <= 1.2f;
-
-            if (arrived || _guardWalkTimer <= 0f)
-            {
-                _isGuardIdling = true;
-                _guardIdleTimer = Random.Range(3.5f, 6.5f);
-                _agent.isStopped = true;
-                _agent.velocity = Vector3.zero;
-                PlayBerserkerIdleLocomotion();
-                if (_turnActiveTimer <= 0f) StopTurningAnimation();
-            }
-            else
-            {
-                _agent.isStopped = false;
-                _agent.speed = walkSpeed;
-                PlayBerserkerWalkLocomotion(walkSpeed);
-            }
+            _animator.SetTrigger(_hitReactionHash);
+            _animator.CrossFade(_stateMutantHit, 0.08f);
         }
     }
 }
