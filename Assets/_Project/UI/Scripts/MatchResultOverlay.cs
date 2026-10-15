@@ -121,22 +121,11 @@ public class MatchResultOverlay : MonoBehaviour
             }
         }
         
-        // Setup initial UI states
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.gameEnded.OnValueChanged += OnGameEnded;
-        }
-
         MatchEconomyManager.OnLocalPayoutReceived += HandlePayoutReceived;
     }
 
     private void OnDestroy()
     {
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.gameEnded.OnValueChanged -= OnGameEnded;
-        }
-
         MatchEconomyManager.OnLocalPayoutReceived -= HandlePayoutReceived;
 
         if (endGameHotkey != null)
@@ -169,14 +158,6 @@ public class MatchResultOverlay : MonoBehaviour
         UpdateEconomyText();
     }
 
-    private void OnGameEnded(bool previousValue, bool newValue)
-    {
-        if (newValue) 
-        {
-            ShowResult("MATCH OVER"); // Local safety trigger
-        }
-    }
-
     public void ShowResultDirectly(string msg)
     {
         Debug.Log($"[UI] Setting Match Result Text: {msg}");
@@ -186,6 +167,18 @@ public class MatchResultOverlay : MonoBehaviour
     private void ShowResult(string msg)
     {
         Debug.Log($"[UI-OVERLAY] ShowResult called with: {msg}");
+
+        // Dismiss Death UI cleanly when Match Result Overlay appears
+        if (DeathUI.Instance != null && DeathUI.Instance.deathCanvasGroup != null)
+        {
+            DeathUI.Instance.deathCanvasGroup.alpha = 0f;
+            DeathUI.Instance.deathCanvasGroup.interactable = false;
+            DeathUI.Instance.deathCanvasGroup.blocksRaycasts = false;
+            if (DeathUI.Instance.deathPanel != null)
+            {
+                DeathUI.Instance.deathPanel.SetActive(false);
+            }
+        }
         
         if (_rootCanvasGroup != null)
         {

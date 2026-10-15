@@ -78,6 +78,11 @@ public class GameManager : NetworkBehaviour
     private List<NetworkObject> _aliveExplorers   = new List<NetworkObject>();
     private List<GirlStealth>   _allGirlComponents = new List<GirlStealth>();
     private MatchResultOverlay  _cachedOverlay;
+    private bool _isEndingMatch = false;
+
+    [Header("End Match Timing")]
+    [Tooltip("Delay in seconds between the final death (last investigator or girl) and showing the Match Result UI. Allows ragdoll physics, fire VFX, and the 4.2s cinematic camera orbit to finish.")]
+    public float deathToMatchResultDelay = 4.5f;
 
     private readonly HashSet<ulong> _spawnedClients = new HashSet<ulong>();
     private readonly HashSet<ulong> _deadVictimNetworkIds = new HashSet<ulong>();
@@ -350,9 +355,9 @@ public class GameManager : NetworkBehaviour
                 if (_aliveExplorers.Contains(playerObj))
                 {
                     _aliveExplorers.Remove(playerObj);
-                    if (_aliveExplorers.Count == 0 && _gameHasStarted && !gameEnded.Value)
+                    if (_aliveExplorers.Count == 0 && _gameHasStarted && !gameEnded.Value && !_isEndingMatch)
                     {
-                        EndMatch(WinReason.TeamWipe);
+                        StartCoroutine(EndMatchDelayedRoutine(WinReason.TeamWipe, 1.5f));
                         return;
                     }
                 }
@@ -817,7 +822,7 @@ public class GameManager : NetworkBehaviour
     /// <summary>Called by TargetHealth on the Server when an entity reaches 0 HP.</summary>
     public void OnEntityDeath(NetworkObject victim)
     {
-        if (!IsServer || gameEnded.Value || victim == null) return;
+        if (!IsServer || gameEnded.Value || _isEndingMatch || victim == null) return;
         if (_deadVictimNetworkIds.Contains(victim.NetworkObjectId)) return;
         _deadVictimNetworkIds.Add(victim.NetworkObjectId);
 
@@ -856,12 +861,12 @@ public class GameManager : NetworkBehaviour
             }
         }
 
-        // Broadcast to all clients: local player sees 'YOU DIED', allies see notification!
+        // Broadcast to all clients: local player sees 'YOU DIED' / 'EXORCISED', allies see notification!
         BroadcastDeathMessageClientRpc(victimClientId, victimName, isGirl);
 
         if (isGirl)
         {
-            EndMatch(WinReason.DemonSlain);
+            StartCoroutine(EndMatchDelayedRoutine(WinReason.DemonSlain, deathToMatchResultDelay));
         }
         else
         {
@@ -873,9 +878,9 @@ public class GameManager : NetworkBehaviour
             if (_aliveExplorers.Contains(victim))
             {
                 _aliveExplorers.Remove(victim);
-                if (_aliveExplorers.Count == 0 && _gameHasStarted && !gameEnded.Value)
+                if (_aliveExplorers.Count == 0 && _gameHasStarted && !gameEnded.Value && !_isEndingMatch)
                 {
-                    EndMatch(WinReason.TeamWipe);
+                    StartCoroutine(EndMatchDelayedRoutine(WinReason.TeamWipe, deathToMatchResultDelay));
                 }
             }
         }
@@ -905,12 +910,13 @@ public class GameManager : NetworkBehaviour
 
         if (isLocalVictim)
         {
-            Debug.Log($"[DeathUI] Local player ({victimName}) has died -> Displaying 'YOU DIED' screen.");
+            Debug.Log($"[DeathUI] Local player ({victimName}) has died -> Displaying {(isGirl ? "'EXORCISED'" : "'YOU DIED'")} screen.");
             if (DeathUI.Instance != null)
             {
-                DeathUI.Instance.ShowDeathScreen("YOU DIED", isGirl 
-                    ? "The Wraith has been banished." 
-                    : "Your soul has fallen. Allies can still loot your body.");
+                DeathUI.Instance.ShowDeathScreen(
+                    isGirl ? "EXORCISED" : "YOU DIED", 
+                    isGirl ? "The sacred rites have severed your tether to this realm." : "Your soul has fallen. Allies can still loot your body."
+                );
             }
 
             // Hide the dead investigator's HUD (minimap, syringes, ammo, explorer panel)
@@ -921,12 +927,19 @@ public class GameManager : NetworkBehaviour
         }
         else
         {
-            string msg = isGirl ? "The Wraith has been slain!" : $"{victimName} has fallen.";
+            string msg = isGirl ? "THE WRAITH HAS BEEN EXORCISED!" : $"{victimName} has fallen.";
             Debug.Log($"[DeathNotification] Remote player death: {msg}");
 
             if (DeathUI.Instance != null)
             {
-                DeathUI.Instance.ShowAllyDeathNotification(victimName);
+                if (isGirl)
+                {
+                    DeathUI.Instance.AddAllyAlertEntry(msg, new Color(1f, 0.7f, 0.1f, 1f));
+                }
+                else
+                {
+                    DeathUI.Instance.ShowAllyDeathNotification(victimName);
+                }
             }
         }
     }
@@ -1002,6 +1015,13 @@ public class GameManager : NetworkBehaviour
         {
             DeathUI.Instance.AddAllyAlertEntry(message, accentColor);
         }
+    }
+
+    private System.Collections.IEnumerator EndMatchDelayedRoutine(WinReason reason, float delay)
+    {
+        _isEndingMatch = true;
+        yield return new WaitForSeconds(delay);
+        EndMatch(reason);
     }
 
     private void EndMatch(WinReason reason)

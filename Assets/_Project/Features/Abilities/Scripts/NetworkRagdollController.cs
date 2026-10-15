@@ -19,6 +19,19 @@ public class NetworkRagdollController : NetworkBehaviour
     [Tooltip("Optional upward/forward impulse to add on death.")]
     public float deathImpulse = 2.5f;
 
+    [Header("Exorcism & Fire VFX (Girl / Special Death)")]
+    [Tooltip("Optional ParticleSystem already placed on the character (e.g. on hips or chest) to activate on death/exorcism.")]
+    public ParticleSystem exorcismParticleSystem;
+
+    [Tooltip("Optional fire/exorcism prefab to instantiate upon death.")]
+    public GameObject exorcismFirePrefab;
+
+    [Tooltip("Optional transform point to attach or spawn the fire effect. If unassigned, uses ragdollRoot or character root.")]
+    public Transform exorcismFireAttachPoint;
+
+    [Tooltip("If true, attaches the instantiated fire prefab to the attach point so it moves as the body collapses.")]
+    public bool attachFireToBody = true;
+
     private readonly List<Rigidbody> _ragdollRigidbodies = new List<Rigidbody>();
     private readonly List<Collider> _ragdollColliders = new List<Collider>();
 
@@ -171,6 +184,26 @@ public class NetworkRagdollController : NetworkBehaviour
     {
         if (_isRagdollActive) return;
 
+        if (IsServer)
+        {
+            TriggerRagdollDeathClientRpc();
+        }
+        else
+        {
+            ExecuteRagdollDeath();
+        }
+    }
+
+    [ClientRpc]
+    private void TriggerRagdollDeathClientRpc()
+    {
+        ExecuteRagdollDeath();
+    }
+
+    private void ExecuteRagdollDeath()
+    {
+        if (_isRagdollActive) return;
+
         SetRagdollActive(true);
 
         // Apply slight impulse to hips so the body collapses naturally
@@ -178,6 +211,36 @@ public class NetworkRagdollController : NetworkBehaviour
         {
             Vector3 force = (-transform.forward * 0.5f + Vector3.up * 0.2f) * deathImpulse;
             _ragdollRigidbodies[0].AddForce(force, ForceMode.Impulse);
+        }
+
+        // If this character is the Girl, ensure her mesh is fully materialized & visible so her fall is seen
+        if (TryGetComponent<GirlMaterialController>(out var girlMat))
+        {
+            girlMat.ForceManifestedOnDeath();
+        }
+
+        // Disable Girl movement script so ragdoll physics take over
+        if (TryGetComponent<GirlMovement>(out var girlMove))
+        {
+            girlMove.enabled = false;
+        }
+
+        // Play attached ParticleSystem fire effect if assigned
+        if (exorcismParticleSystem != null)
+        {
+            exorcismParticleSystem.gameObject.SetActive(true);
+            exorcismParticleSystem.Play();
+        }
+
+        // Spawn fire prefab if assigned
+        if (exorcismFirePrefab != null)
+        {
+            Transform spawnPoint = exorcismFireAttachPoint != null ? exorcismFireAttachPoint : (ragdollRoot != null ? ragdollRoot : transform);
+            GameObject fireObj = Instantiate(exorcismFirePrefab, spawnPoint.position, spawnPoint.rotation);
+            if (attachFireToBody)
+            {
+                fireObj.transform.SetParent(spawnPoint);
+            }
         }
 
         // Launch cinematic death camera orbit for the local player
@@ -193,7 +256,11 @@ public class NetworkRagdollController : NetworkBehaviour
     /// </summary>
     private System.Collections.IEnumerator CinematicDeathCameraOrbitRoutine()
     {
-        if (_cameraTarget == null) yield break;
+        if (_cameraTarget == null)
+        {
+            _cameraTarget = transform.Find("PlayerCameraRoot");
+            if (_cameraTarget == null) _cameraTarget = transform;
+        }
 
         // Give the ragdoll ~0.2s to start collapsing to the ground
         yield return new WaitForSeconds(0.2f);
@@ -236,17 +303,12 @@ public class NetworkRagdollController : NetworkBehaviour
         _cameraTarget.rotation = Quaternion.Euler(targetPitch, currentYaw + totalOrbitDegrees, 0f);
         _deathOrbitCoroutine = null;
 
-        // Engage spectator mode after death orbit completes (fail-safe).
-        // Prefer going through DeathUI so the no-survivors check runs properly.
-        if (SpectatorController.Instance != null && !SpectatorController.Instance.IsSpectating)
+        // Engage spectator mode after death orbit completes (fail-safe for investigators).
+        // The Girl never enters spectator mode.
+        bool isGirl = GetComponent<GirlStealth>() != null || GetComponent<GirlMaterialController>() != null || (transform.name.ToLower().Contains("girl") || transform.name.ToLower().Contains("wraith"));
+        if (!isGirl && SpectatorController.Instance != null && !SpectatorController.Instance.IsSpectating)
         {
-            if (DeathUI.Instance != null)
-            {
-                // ShowDeathScreen will handle the survivor-count check and either
-                // start spectating or keep the player on the death screen.
-                DeathUI.Instance.ShowDeathScreen();
-            }
-            else
+            if (DeathUI.Instance != null && DeathUI.Instance.HasAliveSurvivorsToSpectate())
             {
                 SpectatorController.Instance.StartSpectating();
             }

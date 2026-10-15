@@ -1041,7 +1041,6 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         var pNet = t.GetComponentInChildren<PlayerPossessableNet>();
         if (pNet == null) pNet = t.GetComponentInParent<PlayerPossessableNet>();
         if (pNet != null && pNet.isPossessed.Value) return true;
-        if (t.CompareTag("Girl") || (t.root != null && t.root.CompareTag("Girl"))) return true;
         string n = t.name.ToLower();
         return n.Contains("girl") || (n.Contains("demon") && !n.Contains("monster") && !n.Contains("creep")) || n.Contains("vengeful") || n.Contains("wraith");
     }

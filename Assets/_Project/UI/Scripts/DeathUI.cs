@@ -39,6 +39,9 @@ public class DeathUI : MonoBehaviour
     [Tooltip("Title text element (e.g. 'YOU DIED').")]
     public TMP_Text titleText;
 
+    [Tooltip("Color applied to titleText when the title is EXORCISED.")]
+    public Color exorcisedTitleColor = new Color(1f, 0.45f, 0.08f, 1f);
+
     [Tooltip("Subtitle text element explaining corpse lootability / match status.")]
     public TMP_Text subtitleText;
 
@@ -79,6 +82,7 @@ public class DeathUI : MonoBehaviour
     private string _lastAlertMessage = "";
     private float _lastAlertTime = -999f;
     private bool _skipRequested = false;
+    private Color _originalTitleColor = Color.white;
 
     private void Awake()
     {
@@ -88,6 +92,11 @@ public class DeathUI : MonoBehaviour
             return;
         }
         Instance = this;
+
+        if (titleText != null)
+        {
+            _originalTitleColor = titleText.color;
+        }
 
         if (heatSpectateHotkey != null)
         {
@@ -214,7 +223,19 @@ public class DeathUI : MonoBehaviour
         }
 
         if (deathPanel != null) deathPanel.SetActive(true);
-        if (titleText != null) titleText.text = title;
+        if (titleText != null)
+        {
+            if (title == "EXORCISED")
+            {
+                titleText.color = exorcisedTitleColor;
+                titleText.text = "<size=110%><b>EXORCISED</b></size>";
+            }
+            else
+            {
+                titleText.color = _originalTitleColor;
+                titleText.text = title;
+            }
+        }
 
         // Immediately hide any active deal tracker HUD or deal notification prompts
         if (NightCrawler.UI.ActiveDealMissionHUD.Instance != null)
@@ -451,6 +472,11 @@ public class DeathUI : MonoBehaviour
         if (deathPanel != null)
         {
             deathPanel.SetActive(false);
+        }
+
+        if (titleText != null)
+        {
+            titleText.color = _originalTitleColor;
         }
     }
 

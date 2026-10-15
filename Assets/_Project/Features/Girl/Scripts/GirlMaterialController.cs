@@ -513,4 +513,37 @@ public class GirlMaterialController : NetworkBehaviour
             if (r != null) r.enabled = enable;
         }
     }
+
+    /// <summary>
+    /// Forces the character model to become completely materialized and visible to everyone upon death/exorcism.
+    /// Cancels any dissolve routines or spirit invisibility so her ragdoll is fully visible.
+    /// </summary>
+    public void ForceManifestedOnDeath()
+    {
+        if (_manifestRoutine != null)
+        {
+            StopCoroutine(_manifestRoutine);
+            _manifestRoutine = null;
+        }
+        if (_fadeJob != null)
+        {
+            StopCoroutine(_fadeJob);
+            _fadeJob = null;
+        }
+
+        _isCurrentlyPossessing = false;
+        _isDissolvingActive = false;
+        RestoreOriginalMaterials();
+        ToggleRenderers(true);
+
+        if (_dissolveController != null)
+        {
+            _dissolveController.SetDissolveImmediate(0f);
+        }
+
+        if (TryGetComponent<GirlMovement>(out var movement))
+        {
+            movement.UpdateCollisionState(true);
+        }
+    }
 }

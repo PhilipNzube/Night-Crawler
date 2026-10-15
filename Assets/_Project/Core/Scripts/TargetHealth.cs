@@ -73,6 +73,12 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
         {
             ApplyCorpseState();
 
+            // Trigger ragdoll if NetworkRagdollController is present
+            if (TryGetComponent<NetworkRagdollController>(out var ragdoll))
+            {
+                ragdoll.TriggerRagdollDeath();
+            }
+
             // Only show death screen if the local player is truly this character
             // (prevents server host adopting an orphaned object from falsely showing YOU DIED)
             bool isGirl = GetComponent<GirlStealth>() != null || GetComponent<GirlMaterialController>() != null;
@@ -105,8 +111,8 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
 
             if (isLocalCharacter && DeathUI.Instance != null)
             {
-                DeathUI.Instance.ShowDeathScreen("YOU DIED", isGirl 
-                    ? "The Wraith has been banished." 
+                DeathUI.Instance.ShowDeathScreen(isGirl ? "EXORCISED" : "YOU DIED", isGirl 
+                    ? "The sacred rites have severed your tether to this realm." 
                     : "Your soul has fallen. Allies can still loot your body.");
             }
 
