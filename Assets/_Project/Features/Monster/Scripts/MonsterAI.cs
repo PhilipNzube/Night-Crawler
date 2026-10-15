@@ -89,6 +89,26 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     public MonsterHealthBar healthBar;
     public TargetHealth targetHealth;
 
+    [Header("Corpse Dissolve (Death Cleanup)")]
+    [Tooltip("If true, the dead monster corpse will dissolve away after death using the Wraith dissolve effect.")]
+    public bool dissolveOnDeath = true;
+
+    [Tooltip("Delay in seconds after death before the corpse starts dissolving (e.g. 5s - 15s for quick cleanup, or 60s - 180s for a few minutes).")]
+    [Range(1f, 600f)]
+    public float dissolveDelayAfterDeath = 10f;
+
+    [Tooltip("Duration of the dissolve effect animation in seconds.")]
+    [Range(0.5f, 15f)]
+    public float dissolveDuration = 3.5f;
+
+    [Tooltip("Dissolve material template (Shader Graphs_Dissolve_Dissolve_Metallic.mat). Drag here in Inspector.")]
+    public Material dissolveMaterial;
+
+    [Tooltip("ModelDissolveController attached to this monster. Wire in Inspector or will be added automatically.")]
+    public ModelDissolveController dissolveController;
+
+    private bool _hasDied = false;
+
     [Header("Runtime State")]
     public AIState currentState = AIState.SpawningScream;
 
@@ -973,6 +993,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     protected virtual void Die()
     {
+        if (_hasDied) return;
+        _hasDied = true;
+
         currentState = AIState.Dead;
         ActiveMonsters.Remove(this);
 
@@ -986,6 +1009,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
         {
             PlayDeathClientRpc();
+        }
+
+        if (dissolveOnDeath)
+        {
+            StartCoroutine(CorpseDissolveRoutine());
         }
     }
 
@@ -1013,6 +1041,62 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         if (IsServer) return;
         Die();
+    }
+
+    private System.Collections.IEnumerator CorpseDissolveRoutine()
+    {
+        // 1. Wait configured delay after death (seconds to minutes)
+        yield return new WaitForSeconds(dissolveDelayAfterDeath);
+
+        // 2. Resolve dissolve controller
+        if (dissolveController == null)
+        {
+            dissolveController = GetComponent<ModelDissolveController>();
+            if (dissolveController == null)
+            {
+                dissolveController = gameObject.AddComponent<ModelDissolveController>();
+            }
+        }
+
+        // 3. Prepare dissolve materials with preserved monster textures
+        Material matTemplate = dissolveMaterial != null ? dissolveMaterial : dissolveController.dissolveMaterial;
+        if (matTemplate != null)
+        {
+            dissolveController.ApplyDissolveMaterialTemplate(matTemplate);
+        }
+        else
+        {
+            dissolveController.CollectRenderers();
+        }
+
+        // Freeze ragdoll bodies and disable colliders so the dissolving corpse stays in place without physics jitter
+        var rbs = GetComponentsInChildren<Rigidbody>(true);
+        foreach (var rb in rbs)
+        {
+            if (rb != null) rb.isKinematic = true;
+        }
+
+        var allColliders = GetComponentsInChildren<Collider>(true);
+        foreach (var c in allColliders)
+        {
+            if (c != null) c.enabled = false;
+        }
+
+        // 4. Start transition from 0 (solid) to 1 (dissolved)
+        dissolveController.SetDissolveImmediate(0f);
+        dissolveController.StartTransition(1f, dissolveDuration);
+
+        yield return new WaitForSeconds(dissolveDuration + 0.3f);
+
+        // 5. Despawn on server (syncs across all connected clients) or destroy if offline
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            NetworkObject.Despawn(true);
+        }
+        else if (NetworkObject == null || !NetworkObject.IsSpawned)
+        {
+            Destroy(gameObject);
+        }
     }
 
     protected virtual void HandlePostureNetworkChanged(ZombiePosture prev, ZombiePosture curr)

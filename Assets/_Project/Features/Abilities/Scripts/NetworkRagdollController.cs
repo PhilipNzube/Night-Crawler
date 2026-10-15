@@ -32,6 +32,23 @@ public class NetworkRagdollController : NetworkBehaviour
     [Tooltip("If true, attaches the instantiated fire prefab to the attach point so it moves as the body collapses.")]
     public bool attachFireToBody = true;
 
+    [Header("Exorcism Fire Orientation & Placement")]
+    [Tooltip("If true, keeps the fire emitter oriented upright in world space as the ragdoll collapses, so flames always burn upward into the air (away from the floor) instead of rotating with the falling body.")]
+    public bool keepFireUprightOnDeath = true;
+
+    [Tooltip("Vertical height offset in meters above the hips/torso to ensure the flame emits cleanly from the upper surface of the fallen body.")]
+    public float fireVerticalOffset = 0.15f;
+
+    [Tooltip("Optional rotation Euler angle offset for fire alignment if your VFX asset uses forward (+Z) instead of up (+Y) as its flame axis.")]
+    public Vector3 fireRotationOffset = Vector3.zero;
+
+    [Tooltip("If true, automatically hides the fire particle system while the character is alive so it only bursts into flame upon death.")]
+    public bool hideFireWhileAlive = true;
+
+    private Quaternion _standingFireWorldRotation = Quaternion.identity;
+    private bool _hasStandingFireRotation = false;
+    private Transform _activeFireTransform;
+
     private readonly List<Rigidbody> _ragdollRigidbodies = new List<Rigidbody>();
     private readonly List<Collider> _ragdollColliders = new List<Collider>();
 
@@ -70,10 +87,48 @@ public class NetworkRagdollController : NetworkBehaviour
 
         CollectRagdollComponents();
         SetRagdollActive(false);
+
+        // Cache the upright standing fire orientation and guarantee it is turned OFF while alive
+        if (exorcismParticleSystem != null)
+        {
+            _standingFireWorldRotation = exorcismParticleSystem.transform.rotation;
+            _hasStandingFireRotation = true;
+
+            exorcismParticleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            if (!_isRagdollActive)
+            {
+                exorcismParticleSystem.gameObject.SetActive(false);
+            }
+        }
+    }
+
+    private void Start()
+    {
+        if (exorcismParticleSystem != null && !_isRagdollActive)
+        {
+            exorcismParticleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            exorcismParticleSystem.gameObject.SetActive(false);
+        }
+    }
+
+    private void Update()
+    {
+        // Enforce that the exorcism fire remains completely deactivated while the character is alive
+        if (!_isRagdollActive && exorcismParticleSystem != null && (exorcismParticleSystem.gameObject.activeSelf || exorcismParticleSystem.isPlaying))
+        {
+            exorcismParticleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            exorcismParticleSystem.gameObject.SetActive(false);
+        }
     }
 
     public override void OnNetworkSpawn()
     {
+        if (exorcismParticleSystem != null && !_isRagdollActive)
+        {
+            exorcismParticleSystem.Stop(true, ParticleSystemStopBehavior.StopEmittingAndClear);
+            exorcismParticleSystem.gameObject.SetActive(false);
+        }
+
         if (_healthSystem != null)
         {
             _healthSystem.OnDied += TriggerRagdollDeath;
@@ -228,8 +283,26 @@ public class NetworkRagdollController : NetworkBehaviour
         // Play attached ParticleSystem fire effect if assigned
         if (exorcismParticleSystem != null)
         {
+            if (!_hasStandingFireRotation)
+            {
+                _standingFireWorldRotation = exorcismParticleSystem.transform.rotation;
+                _hasStandingFireRotation = true;
+            }
+
+            _activeFireTransform = exorcismParticleSystem.transform;
             exorcismParticleSystem.gameObject.SetActive(true);
-            exorcismParticleSystem.Play();
+
+            // Set all child ParticleSystems to World Simulation Space so flames/smoke drift upward naturally
+            var allPs = exorcismParticleSystem.GetComponentsInChildren<ParticleSystem>(true);
+            foreach (var ps in allPs)
+            {
+                if (ps == null) continue;
+                var main = ps.main;
+                main.simulationSpace = ParticleSystemSimulationSpace.World;
+            }
+
+            exorcismParticleSystem.Clear(true);
+            exorcismParticleSystem.Play(true);
         }
 
         // Spawn fire prefab if assigned
@@ -237,6 +310,7 @@ public class NetworkRagdollController : NetworkBehaviour
         {
             Transform spawnPoint = exorcismFireAttachPoint != null ? exorcismFireAttachPoint : (ragdollRoot != null ? ragdollRoot : transform);
             GameObject fireObj = Instantiate(exorcismFirePrefab, spawnPoint.position, spawnPoint.rotation);
+            _activeFireTransform = fireObj.transform;
             if (attachFireToBody)
             {
                 fireObj.transform.SetParent(spawnPoint);
@@ -315,6 +389,36 @@ public class NetworkRagdollController : NetworkBehaviour
         }
     }
 
+    private void LateUpdate()
+    {
+        if (!_isRagdollActive || _activeFireTransform == null || !keepFireUprightOnDeath) return;
+
+        // Find core body bone (Hips/Spine)
+        Transform focusBone = exorcismFireAttachPoint != null 
+            ? exorcismFireAttachPoint 
+            : ((ragdollRoot != null) ? ragdollRoot : (_ragdollRigidbodies.Count > 0 ? _ragdollRigidbodies[0].transform : transform));
+
+        if (focusBone != null)
+        {
+            // Position fire at the core bone + upward offset so it sits cleanly on the upper surface of the fallen body
+            _activeFireTransform.position = focusBone.position + Vector3.up * fireVerticalOffset;
+
+            // Keep fire rotation locked upright in world space so flames always billow upward towards the sky
+            if (_hasStandingFireRotation)
+            {
+                _activeFireTransform.rotation = Quaternion.Euler(
+                    _standingFireWorldRotation.eulerAngles.x + fireRotationOffset.x,
+                    _standingFireWorldRotation.eulerAngles.y + fireRotationOffset.y,
+                    _standingFireWorldRotation.eulerAngles.z + fireRotationOffset.z
+                );
+            }
+            else
+            {
+                _activeFireTransform.rotation = Quaternion.Euler(fireRotationOffset);
+            }
+        }
+    }
+
     public void ResetRagdoll()
     {
         if (_deathOrbitCoroutine != null)
@@ -322,6 +426,16 @@ public class NetworkRagdollController : NetworkBehaviour
             StopCoroutine(_deathOrbitCoroutine);
             _deathOrbitCoroutine = null;
         }
+
+        if (exorcismParticleSystem != null)
+        {
+            exorcismParticleSystem.Stop(true);
+            if (hideFireWhileAlive)
+            {
+                exorcismParticleSystem.gameObject.SetActive(false);
+            }
+        }
+        _activeFireTransform = null;
 
         SetRagdollActive(false);
 

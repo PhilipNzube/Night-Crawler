@@ -110,11 +110,14 @@ public class GameManager : NetworkBehaviour
 
         // Pre-cache overlay so EndMatch doesn't need a scene search
         _cachedOverlay = FindFirstObjectByType<MatchResultOverlay>(FindObjectsInactive.Include);
+
+        EnsureCameraRendersFog();
     }
 
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
+        EnsureCameraRendersFog();
 
         if (IsServer)
         {
@@ -1105,6 +1108,32 @@ public class GameManager : NetworkBehaviour
                 girl.PlayLocalTaunt(type);
                 break;
             }
+        }
+    }
+
+    /// <summary>
+    /// Ensures all scene gameplay cameras (MainCamera) include the 'Fog' layer in their Culling Mask,
+    /// so environmental ground mist and fog particle systems are visible in the Game view.
+    /// </summary>
+    public void EnsureCameraRendersFog()
+    {
+        int fogLayer = LayerMask.NameToLayer("Fog");
+        if (fogLayer == -1) return;
+
+        int fogMask = 1 << fogLayer;
+
+        if (Camera.main != null)
+        {
+            Camera.main.cullingMask |= fogMask;
+        }
+
+        var allCams = FindObjectsByType<Camera>(FindObjectsSortMode.None);
+        foreach (var cam in allCams)
+        {
+            if (cam == null) continue;
+            // Exclude top-down minimap camera to avoid fog washout on the minimap
+            if (cam.name.ToLower().Contains("minimap")) continue;
+            cam.cullingMask |= fogMask;
         }
     }
 }

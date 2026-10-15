@@ -44,7 +44,17 @@ public class GirlMaterialController : NetworkBehaviour
 
     private void Awake()
     {
-        _allRenderers = GetComponentsInChildren<Renderer>(true);
+        var rawRenderers = GetComponentsInChildren<Renderer>(true);
+        var validRenderers = new List<Renderer>();
+        foreach (var r in rawRenderers)
+        {
+            if (IsValidCharacterRenderer(r))
+            {
+                validRenderers.Add(r);
+            }
+        }
+        _allRenderers = validRenderers.ToArray();
+
         _dissolveController = GetComponent<ModelDissolveController>();
         if (_dissolveController == null)
         {
@@ -58,6 +68,18 @@ public class GirlMaterialController : NetworkBehaviour
             if (r == null) continue;
             _originalMaterials[r] = r.sharedMaterials;
         }
+    }
+
+    public static bool IsValidCharacterRenderer(Renderer r)
+    {
+        if (r == null) return false;
+        // Never touch particle systems, fire effects, trails, lines, or decals
+        if (r is ParticleSystemRenderer || r is TrailRenderer || r is LineRenderer) return false;
+        if (r.GetComponent<ParticleSystem>() != null || r.GetComponentInParent<ParticleSystem>() != null) return false;
+        string n = r.gameObject.name.ToLower();
+        if (n.Contains("fire") || n.Contains("flame") || n.Contains("vfx") || n.Contains("particle") || n.Contains("exorcism")) return false;
+        // Strictly only manage character body/clothing mesh renderers
+        return r is SkinnedMeshRenderer || r is MeshRenderer;
     }
 
     public override void OnNetworkSpawn()

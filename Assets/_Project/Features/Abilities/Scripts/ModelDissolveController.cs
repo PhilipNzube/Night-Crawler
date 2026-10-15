@@ -52,6 +52,13 @@ public class ModelDissolveController : MonoBehaviour
         foreach (var r in rends)
         {
             if (r == null) continue;
+            // Never collect particle systems, fire effects, trails or non-mesh VFX renderers
+            if (r is ParticleSystemRenderer || r is TrailRenderer || r is LineRenderer) continue;
+            if (r.GetComponent<ParticleSystem>() != null || r.GetComponentInParent<ParticleSystem>() != null) continue;
+            string n = r.gameObject.name.ToLower();
+            if (n.Contains("fire") || n.Contains("flame") || n.Contains("vfx") || n.Contains("particle") || n.Contains("exorcism")) continue;
+            if (!(r is SkinnedMeshRenderer || r is MeshRenderer)) continue;
+
             _renderers.Add(r);
 
             var mats = instantiateMaterials ? r.materials : r.sharedMaterials;
@@ -62,6 +69,78 @@ public class ModelDissolveController : MonoBehaviour
                     _activeMaterials.Add(m);
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// Swaps character mesh materials to instances of the dissolve material template,
+    /// preserving original diffuse textures (_BaseMap / _MainTex) and colors (_BaseColor / _Color)
+    /// so the model retains its authentic textures and colors while dissolving away.
+    /// </summary>
+    public void ApplyDissolveMaterialTemplate(Material template)
+    {
+        if (template == null) return;
+        _dissolvePropId = Shader.PropertyToID(dissolvePropertyName);
+        _renderers.Clear();
+        _activeMaterials.Clear();
+
+        var rends = GetComponentsInChildren<Renderer>(true);
+        foreach (var r in rends)
+        {
+            if (r == null) continue;
+            // Never collect particle systems, fire effects, trails or non-mesh VFX renderers
+            if (r is ParticleSystemRenderer || r is TrailRenderer || r is LineRenderer) continue;
+            if (r.GetComponent<ParticleSystem>() != null || r.GetComponentInParent<ParticleSystem>() != null) continue;
+            string n = r.gameObject.name.ToLower();
+            if (n.Contains("fire") || n.Contains("flame") || n.Contains("vfx") || n.Contains("particle") || n.Contains("exorcism")) continue;
+            if (!(r is SkinnedMeshRenderer || r is MeshRenderer)) continue;
+
+            _renderers.Add(r);
+
+            Material[] origMats = r.sharedMaterials;
+            Material[] newMats = new Material[origMats.Length];
+            for (int i = 0; i < origMats.Length; i++)
+            {
+                Material inst = new Material(template);
+                if (origMats[i] != null)
+                {
+                    // Copy diffuse/base texture from original material
+                    Texture baseTex = null;
+                    if (origMats[i].HasProperty("_BaseMap")) baseTex = origMats[i].GetTexture("_BaseMap");
+                    else if (origMats[i].HasProperty("_MainTex")) baseTex = origMats[i].GetTexture("_MainTex");
+
+                    if (baseTex != null)
+                    {
+                        if (inst.HasProperty("_BaseMap")) inst.SetTexture("_BaseMap", baseTex);
+                        if (inst.HasProperty("_MainTex")) inst.SetTexture("_MainTex", baseTex);
+                    }
+
+                    // Copy normal map if present
+                    if (origMats[i].HasProperty("_BumpMap") || origMats[i].HasProperty("_NormalMap"))
+                    {
+                        Texture normTex = origMats[i].HasProperty("_NormalMap") ? origMats[i].GetTexture("_NormalMap") : origMats[i].GetTexture("_BumpMap");
+                        if (normTex != null && inst.HasProperty("_NormalMap"))
+                        {
+                            inst.SetTexture("_NormalMap", normTex);
+                        }
+                    }
+
+                    // Copy base color/tint if available
+                    Color baseCol = Color.white;
+                    bool hasCol = false;
+                    if (origMats[i].HasProperty("_BaseColor")) { baseCol = origMats[i].GetColor("_BaseColor"); hasCol = true; }
+                    else if (origMats[i].HasProperty("_Color")) { baseCol = origMats[i].GetColor("_Color"); hasCol = true; }
+
+                    if (hasCol)
+                    {
+                        if (inst.HasProperty("_BaseColor")) inst.SetColor("_BaseColor", baseCol);
+                        if (inst.HasProperty("_Color")) inst.SetColor("_Color", baseCol);
+                    }
+                }
+                newMats[i] = inst;
+                _activeMaterials.Add(inst);
+            }
+            r.materials = newMats;
         }
     }
 

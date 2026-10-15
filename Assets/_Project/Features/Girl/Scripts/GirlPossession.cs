@@ -556,7 +556,13 @@ public class GirlPossession : NetworkBehaviour
 
     private void ToggleRenderers(bool isVisible)
     {
-        foreach (var r in GetComponentsInChildren<Renderer>()) r.enabled = isVisible;
+        foreach (var r in GetComponentsInChildren<Renderer>())
+        {
+            if (GirlMaterialController.IsValidCharacterRenderer(r))
+            {
+                r.enabled = isVisible;
+            }
+        }
     }
 
     private void SetGirlAbilitiesEnabled(bool isEnabled)
