@@ -888,7 +888,7 @@ public class GameManager : NetworkBehaviour
                     : "Your soul has fallen. Allies can still loot your body.");
             }
 
-            // Hide the dead investigator's HUD (minimap, vials, ammo, explorer panel)
+            // Hide the dead investigator's HUD (minimap, syringes, ammo, explorer panel)
             if (PlayerHUD.Instance != null)
             {
                 PlayerHUD.Instance.HandleLocalPlayerDied();

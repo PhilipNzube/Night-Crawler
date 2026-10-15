@@ -281,8 +281,8 @@ public class KeybindingManager : MonoBehaviour
             new ActionBinding
             {
                 actionId = "Heal",
-                displayName = "Administer Medical Vial",
-                tacticalDescription = "Inject coagulant from your medical vial supply to rapidly stabilize critical trauma and restore vital health points.",
+                displayName = "Administer Medical Syringe",
+                tacticalDescription = "Inject coagulant from your medical syringe auto-injector supply to rapidly stabilize critical trauma and restore vital health points.",
                 context = ActionContext.Explorer,
                 defaultKey = Key.H,
                 defaultMouseButton = -1,
@@ -292,7 +292,7 @@ public class KeybindingManager : MonoBehaviour
             {
                 actionId = "Loot",
                 displayName = "Loot Bodies & Containers",
-                tacticalDescription = "Scavenge fallen explorer corpses, extraction batteries, supply crates, and medical vials.",
+                tacticalDescription = "Scavenge fallen explorer corpses, extraction batteries, supply crates, and medical syringes.",
                 context = ActionContext.Explorer,
                 defaultKey = Key.E,
                 defaultMouseButton = -1,

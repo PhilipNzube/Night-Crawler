@@ -1420,7 +1420,7 @@ public class CharacterSelectUI : MonoBehaviour
 
                 if (profession == InvestigatorProfession.FieldMedic)
                 {
-                    if (!so.relevantStats.Contains(UpgradeStatType.VialCount) || !so.relevantStats.Contains(UpgradeStatType.VialHealingPower))
+                    if (!so.relevantStats.Contains(UpgradeStatType.SyringeCount) || !so.relevantStats.Contains(UpgradeStatType.SyringeHealingPower))
                     {
                         hasInvalidStats = true;
                     }
@@ -1458,8 +1458,8 @@ public class CharacterSelectUI : MonoBehaviour
                 result.Add(UpgradeStatType.DamageResistance);
                 break;
             case InvestigatorProfession.FieldMedic:
-                result.Add(UpgradeStatType.VialCount);
-                result.Add(UpgradeStatType.VialHealingPower);
+                result.Add(UpgradeStatType.SyringeCount);
+                result.Add(UpgradeStatType.SyringeHealingPower);
                 result.Add(UpgradeStatType.DamageResistance);
                 break;
             case InvestigatorProfession.HazardSpecialist:

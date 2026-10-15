@@ -1,7 +1,7 @@
 namespace NightCrawler.Economy
 {
     /// <summary>
-    /// SOLID — Interface Segregation: Allows abilities and systems (Medic vials, Priest exorcism,
+    /// SOLID — Interface Segregation: Allows abilities and systems (Medic syringes, Priest exorcism,
     /// Miner combat, Adventurer map) to log contributions without tightly coupling to MatchEconomyManager.
     /// </summary>
     public interface IContributionLogger

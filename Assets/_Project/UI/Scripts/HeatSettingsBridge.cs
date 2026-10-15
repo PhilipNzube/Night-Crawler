@@ -625,9 +625,9 @@ public class HeatSettingsBridge : MonoBehaviour
             },
             new SettingDescriptionEntry
             {
-                elementName  = "Administer Medical Vial",
-                displayTitle = "Administer Medical Vial",
-                description  = "Inject coagulant from your medical vial supply to rapidly stabilize critical trauma and restore vital health points.",
+                elementName  = "Administer Medical Syringe",
+                displayTitle = "Administer Medical Syringe",
+                description  = "Inject coagulant from your medical syringe auto-injector supply to rapidly stabilize critical trauma and restore vital health points.",
                 coverImage   = null
             },
             new SettingDescriptionEntry
@@ -655,7 +655,7 @@ public class HeatSettingsBridge : MonoBehaviour
             {
                 elementName  = "Loot Bodies & Containers",
                 displayTitle = "Loot Bodies & Containers",
-                description  = "Scavenge fallen explorer corpses, extraction batteries, supply crates, and medical vials.",
+                description  = "Scavenge fallen explorer corpses, extraction batteries, supply crates, and medical syringes.",
                 coverImage   = null
             },
             new SettingDescriptionEntry

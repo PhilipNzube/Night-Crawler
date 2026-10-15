@@ -139,17 +139,17 @@ public class NotificationManager : MonoBehaviour
     public void ShowCriticalHealthWarning(float currentHp, float maxHp, float duration = 4.5f)
     {
         Color criticalColor = new Color(0.95f, 0.15f, 0.15f, 1f); // Crimson Red
-        string formatted = $"Vital signs failing! Health: {currentHp:F0}/{maxHp:F0} HP. Use healing vial or seek Field Medic!";
+        string formatted = $"Vital signs failing! Health: {currentHp:F0}/{maxHp:F0} HP. Inject medical syringe or seek Field Medic!";
         ShowStyledWarning("CRITICAL: LOW HEALTH", formatted, criticalColor, duration, criticalHealthSound ?? notificationSound, isPulsing: true);
     }
 
     /// <summary>
-    /// Displays a restorative message when a healing vial or revival is administered.
+    /// Displays a restorative message when a medical syringe or revival is administered.
     /// </summary>
     public void ShowHealthRestored(string message, float healAmount = 50f, float duration = 4f)
     {
         Color healColor = new Color(0.15f, 0.92f, 0.45f, 1f); // Emerald Green
-        string baseMsg = !string.IsNullOrEmpty(message) ? message : $"Healing vial administered (+{healAmount:F0} HP)! Vitals stabilized.";
+        string baseMsg = !string.IsNullOrEmpty(message) ? message : $"Medical syringe injected (+{healAmount:F0} HP)! Vitals stabilized.";
         ShowStyledWarning("VITAL SIGNS RESTORED", baseMsg, healColor, duration, healRestoredSound ?? notificationSound, isPulsing: false);
     }
 

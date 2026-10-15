@@ -404,9 +404,11 @@ public class CloudCharacterSaveManager : MonoBehaviour
     {
         if (CurrentProfile == null || CurrentProfile.economy == null) return 0;
         int total = 0;
+        var evaluated = new HashSet<int>();
         foreach (UpgradeStatType stat in System.Enum.GetValues(typeof(UpgradeStatType)))
         {
             if (stat == UpgradeStatType.VisibilityCount) continue; // Deprecated: visibility is solely controlled by VisibilityDuration timer
+            if (!evaluated.Add((int)stat)) continue; // Avoid duplicate counting of enum aliases (e.g. SyringeCount & VialCount)
             total += CurrentProfile.economy.GetLevel(stat);
         }
         return total;

@@ -14,8 +14,12 @@ namespace NightCrawler.Economy
         MaskFilter,
         SpiritualLevel,
         MapPower,
-        VialCount,
-        VialHealingPower,
+        SyringeCount,
+        SyringeHealingPower,
+
+        // Backwards compatibility aliases (preserve exact integer indices 5 & 6)
+        VialCount = SyringeCount,
+        VialHealingPower = SyringeHealingPower,
 
         // Girl (Vengeful Spirit) Stats
         PossessionDuration,
@@ -130,7 +134,7 @@ namespace NightCrawler.Economy
     /// Carried over across matches and serialized to Unity Cloud Save + Local PlayerPrefs.
     /// </summary>
     [Serializable]
-    public class PlayerEconomyProfile
+    public class PlayerEconomyProfile : ISerializationCallbackReceiver
     {
         [Header("Currency & Debt")]
         public int credits = CurrencyConfig.DefaultStartingBalance;
@@ -142,8 +146,30 @@ namespace NightCrawler.Economy
         public int maskFilterLevel = 0;
         public int spiritualLevel = 0;
         public int mapPowerLevel = 0;
-        public int vialCountLevel = 0;
-        public int vialHealingPowerLevel = 0;
+        public int syringeCountLevel = 0;
+        public int syringeHealingPowerLevel = 0;
+
+        // Legacy fields for backward compatibility with existing saves & JSON serialization
+        [SerializeField] private int vialCountLevel = 0;
+        [SerializeField] private int vialHealingPowerLevel = 0;
+
+        public void OnBeforeSerialize()
+        {
+            vialCountLevel = syringeCountLevel;
+            vialHealingPowerLevel = syringeHealingPowerLevel;
+        }
+
+        public void OnAfterDeserialize()
+        {
+            if (syringeCountLevel == 0 && vialCountLevel > 0)
+            {
+                syringeCountLevel = vialCountLevel;
+            }
+            if (syringeHealingPowerLevel == 0 && vialHealingPowerLevel > 0)
+            {
+                syringeHealingPowerLevel = vialHealingPowerLevel;
+            }
+        }
 
         [Header("The Girl Persistent Upgrades")]
         public int possessionDurationLevel = 0;
@@ -166,8 +192,8 @@ namespace NightCrawler.Economy
                 case UpgradeStatType.MaskFilter:          val = maskFilterLevel; break;
                 case UpgradeStatType.SpiritualLevel:      val = spiritualLevel; break;
                 case UpgradeStatType.MapPower:            val = mapPowerLevel; break;
-                case UpgradeStatType.VialCount:           val = vialCountLevel; break;
-                case UpgradeStatType.VialHealingPower:    val = vialHealingPowerLevel; break;
+                case UpgradeStatType.SyringeCount:        val = syringeCountLevel; break;
+                case UpgradeStatType.SyringeHealingPower: val = syringeHealingPowerLevel; break;
 
                 case UpgradeStatType.PossessionDuration:  val = possessionDurationLevel; break;
                 case UpgradeStatType.DealCapacity:        val = dealCapacityLevel; break;
@@ -192,8 +218,8 @@ namespace NightCrawler.Economy
                 case UpgradeStatType.MaskFilter:          maskFilterLevel = level; break;
                 case UpgradeStatType.SpiritualLevel:      spiritualLevel = level; break;
                 case UpgradeStatType.MapPower:            mapPowerLevel = level; break;
-                case UpgradeStatType.VialCount:           vialCountLevel = level; break;
-                case UpgradeStatType.VialHealingPower:    vialHealingPowerLevel = level; break;
+                case UpgradeStatType.SyringeCount:        syringeCountLevel = level; break;
+                case UpgradeStatType.SyringeHealingPower: syringeHealingPowerLevel = level; break;
 
                 case UpgradeStatType.PossessionDuration:  possessionDurationLevel = level; break;
                 case UpgradeStatType.DealCapacity:        dealCapacityLevel = level; break;
@@ -220,8 +246,8 @@ namespace NightCrawler.Economy
                 maskFilterLevel = 1,
                 spiritualLevel = 1,
                 mapPowerLevel = 1,
-                vialCountLevel = 1,
-                vialHealingPowerLevel = 1,
+                syringeCountLevel = 1,
+                syringeHealingPowerLevel = 1,
                 possessionDurationLevel = 1,
                 dealCapacityLevel = 1,
                 visibilityCountLevel = 1,

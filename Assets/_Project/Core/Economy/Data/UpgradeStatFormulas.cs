@@ -26,8 +26,8 @@ namespace NightCrawler.Economy
                 case UpgradeStatType.MaskFilter:          return 14;
                 case UpgradeStatType.SpiritualLevel:      return 18;
                 case UpgradeStatType.MapPower:            return 12;
-                case UpgradeStatType.VialCount:           return 18;
-                case UpgradeStatType.VialHealingPower:    return 15;
+                case UpgradeStatType.SyringeCount:        return 18;
+                case UpgradeStatType.SyringeHealingPower: return 15;
 
                 case UpgradeStatType.PossessionDuration:  return 22;
                 case UpgradeStatType.DealCapacity:        return 20;
@@ -122,22 +122,28 @@ namespace NightCrawler.Economy
         }
 
         /// <summary>
-        /// Medic starting vial count. Level 1 baseline = 4, +1 per level up to 8.
+        /// Medic starting medical syringe count. Level 1 baseline = 4, +1 per level up to 8.
         /// </summary>
-        public static int GetStartingVialCount(int level)
+        public static int GetStartingSyringeCount(int level)
         {
             if (level <= 0) return 4;
             return 3 + level;
         }
 
+        // Backwards compatibility alias
+        public static int GetStartingVialCount(int level) => GetStartingSyringeCount(level);
+
         /// <summary>
-        /// Medic vial healing amount. Level 1 baseline = 55 HP, +10 HP per level up to 95 HP.
+        /// Medic syringe healing amount. Level 1 baseline = 55 HP, +10 HP per level up to 95 HP.
         /// </summary>
-        public static float GetVialHealAmount(int level)
+        public static float GetSyringeHealAmount(int level)
         {
             if (level <= 0) return 55f;
             return 45f + (level * 10f);
         }
+
+        // Backwards compatibility alias
+        public static float GetVialHealAmount(int level) => GetSyringeHealAmount(level);
 
         // =========================================================================
         //  The Girl (Wraith) Persistent Upgrades
@@ -211,8 +217,8 @@ namespace NightCrawler.Economy
                 case UpgradeStatType.MaskFilter:          return "Respirator Filter";
                 case UpgradeStatType.SpiritualLevel:      return "Spiritual Attunement";
                 case UpgradeStatType.MapPower:            return "Cartography Power";
-                case UpgradeStatType.VialCount:           return "Vial Bandolier";
-                case UpgradeStatType.VialHealingPower:    return "Healing Potency";
+                case UpgradeStatType.SyringeCount:        return "Syringe Harness";
+                case UpgradeStatType.SyringeHealingPower: return "Injection Potency";
 
                 case UpgradeStatType.PossessionDuration:  return "Possession Pool";
                 case UpgradeStatType.DealCapacity:        return "Dark Deal Capacity";
@@ -237,10 +243,10 @@ namespace NightCrawler.Economy
                     return $"+{(GetExorcismSpeedMultiplier(level) - 1.0f) * 100f:0}% Exorcism Speed";
                 case UpgradeStatType.MapPower:
                     return $"{GetMapPingRadius(level):0}m Clue Ping Radius";
-                case UpgradeStatType.VialCount:
-                    return $"{GetStartingVialCount(level)} Starting Vials";
-                case UpgradeStatType.VialHealingPower:
-                    return $"{GetVialHealAmount(level):0} HP Restored / Vial";
+                case UpgradeStatType.SyringeCount:
+                    return $"{GetStartingSyringeCount(level)} Starting Syringes";
+                case UpgradeStatType.SyringeHealingPower:
+                    return $"{GetSyringeHealAmount(level):0} HP Restored / Syringe";
 
                 case UpgradeStatType.PossessionDuration:
                     return $"{GetGirlPossessionTimePool(level):0}s Possession Time Bank";

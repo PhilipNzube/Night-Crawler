@@ -40,11 +40,16 @@ public class PlayerHUD : MonoBehaviour
     [Tooltip("Vignette blood screen overlay. If null, will auto-locate on HUDCanvas even if inactive.")]
     public BloodScreenOverlay bloodScreenOverlay;
 
-    [Header("Vial Count UI Element")]
-    [Tooltip("The 'VialCount' GameObject from HUDCanvas. Displayed for Medic or when other characters carry >= 1 vial.")]
-    public GameObject vialCountGO;
+    [Header("Syringe / Injector Count UI Element")]
+    [Tooltip("The 'SyringeCount' (or 'VialCount') GameObject from HUDCanvas. Displayed for Medic or when other characters carry >= 1 syringe.")]
+    public GameObject syringeCountGO;
 
-    [Tooltip("The text component inside VialCount (e.g. VialText) showing the number.")]
+    [Tooltip("The text component inside SyringeCount showing the number.")]
+    public TextMeshProUGUI syringeCountNumberText;
+
+    // Backward compatibility references for Inspector if previously wired
+    [Tooltip("Legacy fallback reference if still named vialCountGO in Inspector.")]
+    public GameObject vialCountGO;
     public TextMeshProUGUI vialCountNumberText;
 
     [Header("Wraith Panel (hidden for Investigator)")]
@@ -121,24 +126,29 @@ public class PlayerHUD : MonoBehaviour
             interactionHUD.gameObject.SetActive(true);
         }
 
-        // Auto-locate VialCount GameObject on HUDCanvas if not manually wired
-        if (vialCountGO == null)
+        // Harmonize syringe/vial inspector references
+        if (syringeCountGO == null && vialCountGO != null) syringeCountGO = vialCountGO;
+        if (syringeCountNumberText == null && vialCountNumberText != null) syringeCountNumberText = vialCountNumberText;
+
+        // Auto-locate SyringeCount / VialCount GameObject on HUDCanvas if not manually wired
+        if (syringeCountGO == null && vialCountGO == null)
         {
             var canvas = transform.root;
             foreach (var t in canvas.GetComponentsInChildren<Transform>(true))
             {
-                if (t.name == "VialCount")
+                if (t.name == "SyringeCount" || t.name == "VialCount")
                 {
-                    vialCountGO = t.gameObject;
+                    syringeCountGO = t.gameObject;
                     break;
                 }
             }
         }
-        if (vialCountGO != null && vialCountNumberText == null)
+        if (syringeCountGO != null && syringeCountNumberText == null)
         {
-            var vt = vialCountGO.transform.Find("VialText");
-            if (vt != null) vialCountNumberText = vt.GetComponent<TextMeshProUGUI>();
-            if (vialCountNumberText == null) vialCountNumberText = vialCountGO.GetComponentInChildren<TextMeshProUGUI>(true);
+            var st = syringeCountGO.transform.Find("SyringeText");
+            if (st == null) st = syringeCountGO.transform.Find("VialText");
+            if (st != null) syringeCountNumberText = st.GetComponent<TextMeshProUGUI>();
+            if (syringeCountNumberText == null) syringeCountNumberText = syringeCountGO.GetComponentInChildren<TextMeshProUGUI>(true);
         }
     }
 
@@ -233,6 +243,7 @@ public class PlayerHUD : MonoBehaviour
         _isDead = false;
 
         if (healthSlider != null) healthSlider.gameObject.SetActive(true);
+        if (syringeCountGO != null) syringeCountGO.SetActive(false);
         if (vialCountGO != null) vialCountGO.SetActive(false);
 
         // Dismiss mirrored deal HUD and modals
@@ -274,6 +285,7 @@ public class PlayerHUD : MonoBehaviour
 
         if (healthSlider != null) healthSlider.gameObject.SetActive(false);
         if (demonPanel != null) demonPanel.SetActive(false);
+        if (syringeCountGO != null) syringeCountGO.SetActive(false);
         if (vialCountGO != null) vialCountGO.SetActive(false);
         if (hudRoot != null && hudRoot != gameObject) hudRoot.SetActive(false);
 
@@ -523,20 +535,23 @@ public class PlayerHUD : MonoBehaviour
 
     private void RefreshExplorerPanel()
     {
-        int vialCount = _localVials != null ? _localVials.VialCount : 0;
+        int count = _localVials != null ? _localVials.SyringeCount : 0;
         bool isMedic = _localVials != null && _localVials.IsMedicCharacter();
 
-        // VialCount GO visibility:
-        // Visible for Medic or appears when another character carries >= 1 vial
-        if (vialCountGO != null)
+        GameObject targetGO = syringeCountGO != null ? syringeCountGO : vialCountGO;
+        TextMeshProUGUI targetText = syringeCountNumberText != null ? syringeCountNumberText : vialCountNumberText;
+
+        // SyringeCount GO visibility:
+        // Visible for Medic or appears when another character carries >= 1 syringe
+        if (targetGO != null)
         {
-            bool showVials = !_isDemon && !_isDead && (isMedic || vialCount > 0);
-            vialCountGO.SetActive(showVials);
+            bool showSyringes = !_isDemon && !_isDead && (isMedic || count > 0);
+            targetGO.SetActive(showSyringes);
         }
 
-        if (vialCountNumberText != null)
+        if (targetText != null)
         {
-            vialCountNumberText.text = vialCount.ToString();
+            targetText.text = count.ToString();
         }
     }
 

@@ -14,6 +14,7 @@ public class InvestigatorAbilities : NetworkBehaviour
     [Header("Sub-Systems (Auto-Cached or Configured)")]
     public InvestigatorCombatNet combatNet;
     public HealingVialInventoryNet vialInventory;
+    public HealingVialInventoryNet syringeInventory => vialInventory;
     public SuffocationSystemNet suffocationNet;
     public PriestExorcismNet priestExorcism;
     public CorpseLootableNet corpseLootable;

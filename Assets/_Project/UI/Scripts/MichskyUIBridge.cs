@@ -69,6 +69,19 @@ namespace NightCrawler.UI
             {
                 heatBoxBtn.onClick.RemoveAllListeners();
                 if (onClick != null) heatBoxBtn.onClick.AddListener(onClick);
+
+                // Ensure double-click waiting is disabled so card button reacts immediately on the first press
+                heatBoxBtn.checkForDoubleClick = false;
+                heatBoxBtn.onDoubleClick.RemoveAllListeners();
+                if (onClick != null) heatBoxBtn.onDoubleClick.AddListener(onClick);
+
+                // Also bind any underlying Unity UI Button component on the same GameObject
+                var uBtn = heatBoxBtn.GetComponent<Button>();
+                if (uBtn != null && uBtn != standardBtn)
+                {
+                    uBtn.onClick.RemoveAllListeners();
+                    if (onClick != null) uBtn.onClick.AddListener(onClick);
+                }
             }
         }
 

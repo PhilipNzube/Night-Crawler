@@ -9,11 +9,11 @@ using Michsky.UI.Heat;
 /// <summary>
 /// SOLID — SRP: Universal contextual interaction prompt HUD.
 /// Detects nearby interactables based on situational context:
-/// 1. Critically wounded teammates (Health <= 25%): Prompts to send/administer a healing vial.
+/// 1. Critically wounded teammates (Health <= 25%): Prompts to inject/send a medical syringe.
 /// 2. Fallen player corpses with loot: Prompts to loot the corpse.
 /// Integrates with Michsky Heat UI QuestItem:
 /// - Header: Displays strictly the bound button (e.g. 'E', not '[E]')
-/// - Body: Displays the action prompt (e.g. 'Send Healing Vial' or 'Loot Body')
+/// - Body: Displays the action prompt (e.g. 'Inject Medical Syringe' or 'Loot Body')
 /// - Animated In/Out smoothly using QuestItem Expand/Minimize.
 /// </summary>
 public class ContextInteractionHUD : MonoBehaviour
@@ -32,7 +32,7 @@ public class ContextInteractionHUD : MonoBehaviour
     [Tooltip("Text component inside Header displaying strictly the bound button (e.g. 'E').")]
     public TMP_Text headerButtonText;
 
-    [Tooltip("Text component inside PromptText displaying the prompt body text (e.g. 'Loot Body' or 'Send Healing Vial').")]
+    [Tooltip("Text component inside PromptText displaying the prompt body text (e.g. 'Loot Body' or 'Inject Medical Syringe').")]
     public TMP_Text promptBodyText;
 
     public GameObject promptPanel;
@@ -42,7 +42,7 @@ public class ContextInteractionHUD : MonoBehaviour
     [Range(0.05f, 0.5f)] public float criticalHealthThreshold = 0.25f;
     [Tooltip("Maximum distance to a critically wounded teammate to show the heal prompt.")]
     public float maxHealDistance = 3.5f;
-    [Tooltip("Key to administer/send a healing vial (default [E]).")]
+    [Tooltip("Key to administer/send a medical syringe (default [E]).")]
     public Key healKey = Key.E;
 
     [Header("Corpse Looting Settings")]
@@ -184,11 +184,11 @@ public class ContextInteractionHUD : MonoBehaviour
         }
 
         // 1. PRIORITY 1: Check for critically wounded teammates nearby (Health <= 25%)
-        HealingVialInventoryNet vialInventory = _activePlayer.GetComponent<HealingVialInventoryNet>();
+        HealingVialInventoryNet syringeInventory = _activePlayer.GetComponent<HealingVialInventoryNet>();
         HealthSystem nearestCriticalTeammate = null;
         float nearestCritDist = maxHealDistance;
 
-        if (vialInventory != null && vialInventory.VialCount > 0)
+        if (syringeInventory != null && syringeInventory.SyringeCount > 0)
         {
             var allHealthSystems = FindObjectsByType<HealthSystem>(FindObjectsSortMode.None);
             foreach (var hs in allHealthSystems)
@@ -221,7 +221,7 @@ public class ContextInteractionHUD : MonoBehaviour
             string keyName = KeybindingManager.IsGamepadActive()
                 ? KeybindingManager.GetBoundGamepadString("Heal", "D-PAD DOWN")
                 : KeybindingManager.GetBoundKeyString("Heal", "H");
-            string bodyMsg = $"Send Healing Vial <size=85%>({vialInventory.VialCount} left)</size>";
+            string bodyMsg = $"Inject Medical Syringe <size=85%>({syringeInventory.SyringeCount} left)</size>";
 
             SetPromptVisible(true, keyName, bodyMsg);
 
@@ -298,10 +298,10 @@ public class ContextInteractionHUD : MonoBehaviour
 
         if (_currentType == InteractionType.HealTeammate && _targetTeammateToHeal != null)
         {
-            HealingVialInventoryNet vialInventory = _activePlayer.GetComponent<HealingVialInventoryNet>();
-            if (vialInventory != null)
+            HealingVialInventoryNet syringeInventory = _activePlayer.GetComponent<HealingVialInventoryNet>();
+            if (syringeInventory != null)
             {
-                vialInventory.TryHealTarget(_targetTeammateToHeal);
+                syringeInventory.TryHealTarget(_targetTeammateToHeal);
             }
         }
         else if (_currentType == InteractionType.LootCorpse && _targetCorpseToLoot != null)
@@ -324,7 +324,7 @@ public class ContextInteractionHUD : MonoBehaviour
                 headerButtonText.text = keyName;
             }
 
-            // 2. Main body shows strictly the prompt text ("Loot Body" / "Send Healing Vial")
+            // 2. Main body shows strictly the prompt text ("Loot Body" / "Inject Medical Syringe")
             if (promptBodyText != null)
             {
                 promptBodyText.text = bodyMsg;

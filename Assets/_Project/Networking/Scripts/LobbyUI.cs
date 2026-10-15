@@ -403,11 +403,14 @@ public class LobbyUI : MonoBehaviour
         if (nameEntryErrorText != null)
             nameEntryErrorText.gameObject.SetActive(false);
 
-        // Ensure Name Entry modal/panel is closed on startup so it does not block raycasts
+        // Ensure modals are primed on startup so Michsky's StartBehaviour.Disable doesn't swallow the first user click
+        PrimeModal(joinCodePanel);
+        PrimeModal(hostLobbyPanel);
+        PrimeModal(clientLobbyPanel);
         if (heatNameEntryModal != null)
-            heatNameEntryModal.CloseWindow();
+            PrimeModal(heatNameEntryModal.gameObject);
         else if (nameEntryPanel != null)
-            nameEntryPanel.SetActive(false);
+            PrimeModal(nameEntryPanel);
 
         UpdateProfileUI();
         UpdateCreditsUI();
@@ -1707,12 +1710,14 @@ public class LobbyUI : MonoBehaviour
         {
             heatBoxStartHostButton.gameObject.SetActive(true);
             heatBoxStartHostButton.isInteractable = true;
+            heatBoxStartHostButton.checkForDoubleClick = false;
             heatBoxStartHostButton.UpdateUI();
         }
         if (heatBoxStartClientButton != null)
         {
             heatBoxStartClientButton.gameObject.SetActive(true);
             heatBoxStartClientButton.isInteractable = true;
+            heatBoxStartClientButton.checkForDoubleClick = false;
             heatBoxStartClientButton.UpdateUI();
         }
 
@@ -1873,14 +1878,53 @@ public class LobbyUI : MonoBehaviour
         }
     }
 
+    private void PrimeModal(GameObject panel)
+    {
+        if (panel == null) return;
+        var mw = panel.GetComponent<ModalWindowManager>();
+        if (mw != null)
+        {
+            mw.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
+            // Activate so Unity triggers Awake() and Start() during scene startup
+            // rather than on the player's first card click.
+            panel.SetActive(true);
+            mw.isOn = false;
+            panel.SetActive(false);
+        }
+        else
+        {
+            panel.SetActive(false);
+        }
+    }
+
     private static void SetPanel(GameObject panel, bool visible)
     {
         if (panel == null) return;
         var mw = panel.GetComponent<ModalWindowManager>();
         if (mw != null)
         {
-            if (visible) mw.OpenWindow();
-            else mw.CloseWindow();
+            if (visible)
+            {
+                // Prevent Michsky's StartBehaviour.Disable from closing the window if Start() runs on activation
+                mw.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
+                if (!panel.activeSelf)
+                {
+                    panel.SetActive(true);
+                }
+                mw.isOn = false;
+                mw.OpenWindow();
+            }
+            else
+            {
+                if (mw.isOn)
+                {
+                    mw.CloseWindow();
+                }
+                else
+                {
+                    panel.SetActive(false);
+                }
+            }
         }
         else
         {

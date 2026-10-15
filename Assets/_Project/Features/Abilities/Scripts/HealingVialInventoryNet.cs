@@ -6,20 +6,22 @@ using UnityEngine.InputSystem;
 using NightCrawler.Economy;
 
 /// <summary>
-/// SOLID — SRP: Manages healing vials carried by a player, healing interactions with teammates or self,
+/// SOLID — SRP: Manages medical syringes / auto-injectors carried by a player, healing interactions with teammates or self,
 /// and optional animation triggers for healing.
-/// Medic starts with 4 vials (configurable). Other players start with 0 unless looted.
+/// Medic starts with 4 syringes (configurable). Other players start with 0 unless looted.
+/// Note: Syringes are injected directly through combat suits/respirator masks to stabilize trauma.
 /// </summary>
 public class HealingVialInventoryNet : NetworkBehaviour
 {
-    [Header("Vials Settings")]
-    [Tooltip("Initial number of vials this character spawns with. Field Medic defaults to 4; others default to 0.")]
+    [Header("Syringe / Injector Settings")]
+    [Tooltip("Initial number of medical syringes this character spawns with. Field Medic defaults to 4; others default to 0.")]
     public int initialVials = 0;
+    public int initialSyringes { get => initialVials; set => initialVials = value; }
 
-    [Tooltip("Amount of HP restored per vial consumed.")]
+    [Tooltip("Amount of HP restored per syringe injected.")]
     public float healAmount = 50f;
 
-    [Tooltip("Maximum interaction range to heal a teammate.")]
+    [Tooltip("Maximum interaction range to inject a teammate.")]
     public float healRange = 2.5f;
 
     [Tooltip("Layer mask for player detection.")]
@@ -41,11 +43,13 @@ public class HealingVialInventoryNet : NetworkBehaviour
         0, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
     public event Action<int> OnVialsChanged;
+    public event Action<int> OnSyringesChanged;
 
     private Animator _animator;
     private HealthSystem _healthSystem;
     private Transform _cameraTransform;
 
+    public int SyringeCount => currentVials.Value;
     public int VialCount => currentVials.Value;
 
     private void Awake()
@@ -83,7 +87,7 @@ public class HealingVialInventoryNet : NetworkBehaviour
     }
 
     [Header("Capacity Settings")]
-    [Tooltip("Maximum vials a non-Medic character can hold in inventory.")]
+    [Tooltip("Maximum syringes a non-Medic character can hold in inventory.")]
     public int nonMedicMaxCapacity = 2;
 
     public bool IsMedicCharacter()
@@ -108,10 +112,10 @@ public class HealingVialInventoryNet : NetworkBehaviour
     {
         get
         {
-            int vialCountLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.VialCount) : 0;
+            int syringeCountLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.SyringeCount) : 0;
             if (IsMedicCharacter())
             {
-                return UpgradeStatFormulas.GetStartingVialCount(vialCountLvl);
+                return UpgradeStatFormulas.GetStartingSyringeCount(syringeCountLvl);
             }
             return nonMedicMaxCapacity;
         }
@@ -125,11 +129,11 @@ public class HealingVialInventoryNet : NetworkBehaviour
         {
             bool isMedic = IsMedicCharacter();
 
-            // Only Medic starts with vials. Scale starting capacity by persistent VialCountLevel.
-            int vialCountLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.VialCount) : 0;
-            int startingVials = UpgradeStatFormulas.GetStartingVialCount(vialCountLvl);
-            currentVials.Value = isMedic ? startingVials : 0;
-            Debug.Log($"[HealingVialInventoryNet] '{gameObject.name}' spawned with {currentVials.Value} vials (isMedic: {isMedic}, MaxCapacity: {MaxCapacity}, VialCountLevel: {vialCountLvl}).");
+            // Only Medic starts with syringes. Scale starting capacity by persistent SyringeCountLevel.
+            int syringeCountLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.SyringeCount) : 0;
+            int startingSyringes = UpgradeStatFormulas.GetStartingSyringeCount(syringeCountLvl);
+            currentVials.Value = isMedic ? startingSyringes : 0;
+            Debug.Log($"[HealingVialInventoryNet] '{gameObject.name}' spawned with {currentVials.Value} syringes (isMedic: {isMedic}, MaxCapacity: {MaxCapacity}, SyringeCountLevel: {syringeCountLvl}).");
         }
     }
 
@@ -141,6 +145,7 @@ public class HealingVialInventoryNet : NetworkBehaviour
     private void HandleVialsChanged(int previous, int current)
     {
         OnVialsChanged?.Invoke(current);
+        OnSyringesChanged?.Invoke(current);
     }
 
     private void Update()
@@ -152,7 +157,7 @@ public class HealingVialInventoryNet : NetworkBehaviour
             _cameraTransform = Camera.main.transform;
         }
 
-        // Send vial to teammate with Interact key (when aiming at them) or self-heal with Heal key
+        // Send syringe to teammate with Interact key (when aiming at them) or self-inject with Heal key
         bool interactPressed = KeybindingManager.IsActionTriggered("Interact") || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current.eKey.wasPressedThisFrame);
         bool healPressed = KeybindingManager.IsActionTriggered("Heal") || (KeybindingManager.Instance == null && Keyboard.current != null && Keyboard.current.hKey.wasPressedThisFrame);
 
@@ -167,7 +172,7 @@ public class HealingVialInventoryNet : NetworkBehaviour
     }
 
     /// <summary>
-    /// Attempts to send a vial to a targeted teammate within healRange.
+    /// Attempts to send an auto-injector syringe to a targeted teammate within healRange.
     /// </summary>
     public void TryInteractHeal()
     {
@@ -194,9 +199,9 @@ public class HealingVialInventoryNet : NetworkBehaviour
     }
 
     /// <summary>
-    /// Transfers a healing vial to a target teammate's inventory.
-    /// The recipient decides when to consume it and is not healed immediately.
-    /// If the recipient's stats cannot carry more vials, sending fails and a warning notification is displayed.
+    /// Transfers a medical syringe to a target teammate's inventory.
+    /// The recipient decides when to inject it and is not healed immediately.
+    /// If the recipient's stats cannot carry more syringes, sending fails and a warning notification is displayed.
     /// </summary>
     public bool TrySendVialToTeammate(HealingVialInventoryNet recipient)
     {
@@ -204,7 +209,7 @@ public class HealingVialInventoryNet : NetworkBehaviour
         {
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification("You have no healing vials left to give!", 2.5f);
+                NotificationManager.Instance.ShowNotification("You have no medical syringes left to give!", 2.5f);
             }
             return false;
         }
@@ -215,11 +220,11 @@ public class HealingVialInventoryNet : NetworkBehaviour
         if (recHealth != null && recHealth.IsDead) return false;
 
         // Check recipient capacity against their stats
-        if (recipient.VialCount >= recipient.MaxCapacity)
+        if (recipient.SyringeCount >= recipient.MaxCapacity)
         {
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowNotification($"Teammate cannot carry any more vials! (Full: {recipient.VialCount}/{recipient.MaxCapacity})", 3f);
+                NotificationManager.Instance.ShowNotification($"Teammate cannot carry any more syringes! (Full: {recipient.SyringeCount}/{recipient.MaxCapacity})", 3f);
             }
             return false;
         }
@@ -235,8 +240,10 @@ public class HealingVialInventoryNet : NetworkBehaviour
         return false;
     }
 
+    public bool TrySendSyringeToTeammate(HealingVialInventoryNet recipient) => TrySendVialToTeammate(recipient);
+
     /// <summary>
-    /// Administers/sends a healing vial directly to a designated target teammate.
+    /// Administers/sends a medical syringe directly to a designated target teammate.
     /// </summary>
     public bool TryHealTarget(HealthSystem targetHealth)
     {
@@ -250,7 +257,7 @@ public class HealingVialInventoryNet : NetworkBehaviour
     }
 
     /// <summary>
-    /// Consumes a vial to heal self.
+    /// Injects an auto-injector medical syringe to heal self.
     /// </summary>
     public void TrySelfHeal()
     {
@@ -275,7 +282,7 @@ public class HealingVialInventoryNet : NetworkBehaviour
             NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(recipientNetId, out var targetObj))
         {
             HealingVialInventoryNet recipientInv = targetObj.GetComponent<HealingVialInventoryNet>();
-            if (recipientInv != null && recipientInv.VialCount < recipientInv.MaxCapacity)
+            if (recipientInv != null && recipientInv.SyringeCount < recipientInv.MaxCapacity)
             {
                 currentVials.Value--;
                 recipientInv.currentVials.Value++;
@@ -302,8 +309,8 @@ public class HealingVialInventoryNet : NetworkBehaviour
             {
                 string healKey = KeybindingManager.GetBoundKeyString("Heal", "H");
                 NotificationManager.Instance.ShowNotification(
-                    "HEALING VIAL RECEIVED",
-                    $"Medical supplies delivered by teammate. Press [{healKey}] to restore vitals.",
+                    "MEDICAL SYRINGE RECEIVED",
+                    $"Auto-injector supplies delivered by teammate. Press [{healKey}] to inject coagulant.",
                     new Color(0.15f, 0.95f, 0.6f, 1f),
                     4.5f
                 );
@@ -314,8 +321,8 @@ public class HealingVialInventoryNet : NetworkBehaviour
             if (NotificationManager.Instance != null)
             {
                 NotificationManager.Instance.ShowNotification(
-                    "HEALING VIAL DISPATCHED",
-                    "Medical supplies successfully transferred to operative in range.",
+                    "MEDICAL SYRINGE DISPATCHED",
+                    "Medical syringe successfully transferred to operative in range.",
                     new Color(0.2f, 0.85f, 1f, 1f),
                     4.0f
                 );
@@ -336,8 +343,8 @@ public class HealingVialInventoryNet : NetworkBehaviour
             {
                 currentVials.Value--;
 
-                int healLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.VialHealingPower) : 0;
-                float finalHeal = UpgradeStatFormulas.GetVialHealAmount(healLvl);
+                int healLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.SyringeHealingPower) : 0;
+                float finalHeal = UpgradeStatFormulas.GetSyringeHealAmount(healLvl);
 
                 targetHp.Heal(finalHeal);
                 NotifyHealPerformedClientRpc(targetNetId, finalHeal);
@@ -363,7 +370,7 @@ public class HealingVialInventoryNet : NetworkBehaviour
         {
             if (NotificationManager.Instance != null)
             {
-                NotificationManager.Instance.ShowHealthRestored($"Healing vial administered (+{amountHealed:F0} HP)!", amountHealed);
+                NotificationManager.Instance.ShowHealthRestored($"Medical syringe injected (+{amountHealed:F0} HP)!", amountHealed);
             }
         }
     }
@@ -390,7 +397,7 @@ public class HealingVialInventoryNet : NetworkBehaviour
     }
 
     /// <summary>
-    /// Adds vials (e.g. from looting a corpse).
+    /// Adds syringes (e.g. from looting a corpse).
     /// </summary>
     public void AddVialsServer(int count)
     {
@@ -399,4 +406,6 @@ public class HealingVialInventoryNet : NetworkBehaviour
             currentVials.Value += count;
         }
     }
+
+    public void AddSyringesServer(int count) => AddVialsServer(count);
 }

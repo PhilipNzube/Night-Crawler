@@ -100,6 +100,7 @@ public class CorpseLootableNet : NetworkBehaviour
     public bool HasLoot => !isLooted.Value && (lootableVials.Value > 0 || hasWeaponLoot.Value 
                            || hasExorcismRelic.Value || hasHazardFilter.Value || hasMinimapGear.Value);
 
+    public int RemainingSyringes => lootableVials.Value;
     public int RemainingVials => lootableVials.Value;
 
     private void Awake()
@@ -455,7 +456,7 @@ public class CorpseLootableNet : NetworkBehaviour
             }
 
             List<string> gained = new List<string>();
-            if (vials > 0) gained.Add($"{vials} Healing Vial{(vials > 1 ? "s" : "")}");
+            if (vials > 0) gained.Add($"{vials} Medical Syringe{(vials > 1 ? "s" : "")}");
             if (weapon) gained.Add("Melee Pickaxe");
             if (exorcism) gained.Add("Exorcism Rite ([R]) & Possession Resistance");
             if (hazard) gained.Add("Gas Mask (Doubled Health & Lifespan)");
