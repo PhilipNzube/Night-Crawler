@@ -358,6 +358,15 @@ namespace NightCrawler.Economy
             }
         }
 
+        public MatchStakeRecord GetPlayerRecord(ulong clientId)
+        {
+            if (_playerRecords.TryGetValue(clientId, out var record))
+            {
+                return record;
+            }
+            return null;
+        }
+
         [ClientRpc]
         private void NotifyDealRewardClientRpc(ulong targetClientId, int reward)
         {
@@ -450,13 +459,17 @@ namespace NightCrawler.Economy
                 float stakeRatio = (float)winner.stakedCredits / totalWinnerStakes;
                 int potWinShare = Mathf.RoundToInt(stakeRatio * loserPot);
 
-                // Contribution bonuses
+                // Contribution bonuses (deal earnings credited in full on top of pot share cap)
                 int rawBonus = CalculateContributionBonus(winner);
-                // Cap bonus to max 35% of their pot share so it modifies rather than eclipses the pot
-                int maxAllowedBonus = Mathf.Max(5, Mathf.RoundToInt(potWinShare * 0.35f));
-                int cappedBonus = Mathf.Min(rawBonus, maxAllowedBonus);
+                int dealBonus = (winner.pactCompleted && winner.pactNetCreditsEarned > 0) ? winner.pactNetCreditsEarned : 0;
+                int baseGameplayBonus = Mathf.Max(0, rawBonus - dealBonus);
 
-                int netPayout = winner.stakedCredits + potWinShare + cappedBonus;
+                // Cap base gameplay bonus to max 35% of their pot share
+                int maxAllowedGameplayBonus = Mathf.Max(5, Mathf.RoundToInt(potWinShare * 0.35f));
+                int cappedGameplayBonus = Mathf.Min(baseGameplayBonus, maxAllowedGameplayBonus);
+                int totalBonus = cappedGameplayBonus + dealBonus;
+
+                int netPayout = winner.stakedCredits + potWinShare + totalBonus;
                 int penaltyDeduction = 0;
                 int uncollected = 0;
 
@@ -472,10 +485,10 @@ namespace NightCrawler.Economy
                     won = true,
                     stakedAmount = winner.stakedCredits,
                     potWinnings = potWinShare,
-                    contributionBonus = cappedBonus,
+                    contributionBonus = totalBonus,
                     penaltyDeduction = penaltyDeduction,
                     netPayout = netPayout,
-                    bonusDetails = BuildBonusDetailsString(winner, cappedBonus),
+                    bonusDetails = BuildBonusDetailsString(winner, totalBonus),
                     uncollectedDebt = uncollected
                 });
             }
@@ -590,6 +603,10 @@ namespace NightCrawler.Economy
             bonus += r.healsPerformed * 4;        // Medic heals (4 per heal)
             bonus += r.mapCluesRevealed * 5;      // Adventurer clue reveals
             bonus += r.monstersKilled * 6;        // Monster kills
+            if (r.pactCompleted && r.pactNetCreditsEarned > 0)
+            {
+                bonus += r.pactNetCreditsEarned;  // Money won from deals added to Merits & Bonuses!
+            }
             return bonus;
         }
 

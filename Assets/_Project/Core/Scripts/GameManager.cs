@@ -382,6 +382,11 @@ public class GameManager : NetworkBehaviour
                 Debug.Log("[GameManager] The player that left was the last investigator connected! Showing Match Result Overlay for the Girl.");
                 gameEnded.Value = true;
 
+                if (NightCrawler.Systems.TraitorReportSystemNet.Instance != null)
+                {
+                    NightCrawler.Systems.TraitorReportSystemNet.Instance.AuditPendingReportsServer();
+                }
+
                 if (NightCrawler.Economy.MatchEconomyManager.Instance != null)
                 {
                     NightCrawler.Economy.MatchEconomyManager.Instance.ResolveMatchEconomy(false); // Demon / Girl won!
@@ -982,6 +987,11 @@ public class GameManager : NetworkBehaviour
     private void EndMatch(WinReason reason)
     {
         gameEnded.Value = true;
+
+        if (NightCrawler.Systems.TraitorReportSystemNet.Instance != null)
+        {
+            NightCrawler.Systems.TraitorReportSystemNet.Instance.AuditPendingReportsServer();
+        }
 
         bool investigatorsWon = (reason == WinReason.DemonSlain);
         if (NightCrawler.Economy.MatchEconomyManager.Instance != null)

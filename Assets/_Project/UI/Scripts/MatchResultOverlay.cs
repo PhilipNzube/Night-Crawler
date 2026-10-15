@@ -300,7 +300,7 @@ public class MatchResultOverlay : MonoBehaviour
         // 3. Contribution Bonuses from bonusDetails
         if (!string.IsNullOrEmpty(p.bonusDetails))
         {
-            string[] items = p.bonusDetails.Split(new[] { ',', ';', '\n' }, System.StringSplitOptions.RemoveEmptyEntries);
+            string[] items = p.bonusDetails.Split(new[] { ',', ';', '\n', '|' }, System.StringSplitOptions.RemoveEmptyEntries);
             foreach (var item in items)
             {
                 string trimmed = item.Trim();
@@ -317,8 +317,10 @@ public class MatchResultOverlay : MonoBehaviour
                     aTitle = "Keen Investigator";
                 else if (trimmed.IndexOf("Slain", System.StringComparison.OrdinalIgnoreCase) >= 0 || trimmed.IndexOf("Wiped", System.StringComparison.OrdinalIgnoreCase) >= 0)
                     aTitle = "Apex Predator";
+                else if (trimmed.IndexOf("Dark Deal", System.StringComparison.OrdinalIgnoreCase) >= 0 || trimmed.IndexOf("Fulfilled", System.StringComparison.OrdinalIgnoreCase) >= 0)
+                    aTitle = "Dark Deal Fulfilled";
                 else if (trimmed.IndexOf("Traitor", System.StringComparison.OrdinalIgnoreCase) >= 0)
-                    aTitle = "Dark Deal";
+                    aTitle = "Traitor Pact Exposed";
                 else if (trimmed.IndexOf("Abandon", System.StringComparison.OrdinalIgnoreCase) >= 0)
                     aTitle = "MIA";
 

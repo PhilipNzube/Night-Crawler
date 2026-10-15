@@ -38,7 +38,9 @@ public enum KeybindingActionType
     VoiceChat,
     ShadowTeleport,
     SpectatePlayer,
-    SpectateMonster
+    SpectateMonster,
+    FileReport,
+    DestroyReport
 }
 
 /// <summary>
@@ -317,6 +319,26 @@ public class KeybindingManager : MonoBehaviour
                 defaultKey = Key.F,
                 defaultMouseButton = -1,
                 defaultGamepadControl = "buttonNorth" // Y / Triangle
+            },
+            new ActionBinding
+            {
+                actionId = "FileReport",
+                displayName = "File Treason Report",
+                tacticalDescription = "Lodge an official treason dossier with HQ against an operative caught killing allies or acting suspicious.",
+                context = ActionContext.Explorer,
+                defaultKey = Key.K,
+                defaultMouseButton = -1,
+                defaultGamepadControl = "rightShoulder" // RB / R1
+            },
+            new ActionBinding
+            {
+                actionId = "DestroyReport",
+                displayName = "Destroy Treason Dossier",
+                tacticalDescription = "Incinerate or shred a carried traitor dossier to drop all pending charges and abort the HQ audit.",
+                context = ActionContext.Explorer,
+                defaultKey = Key.J,
+                defaultMouseButton = -1,
+                defaultGamepadControl = "leftShoulder" // LB / L1
             },
 
             // =========================================================================

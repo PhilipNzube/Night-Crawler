@@ -249,15 +249,30 @@ public class LobbyPlayerStatusPanel : MonoBehaviour
                     ? string.Format(subtextFormat, info.playerLevel, roleName) 
                     : roleName;
 
+                // Format disciplinary tag if player has liar or traitor strikes
+                string displayName = info.playerName;
+                if (info.liarStrikes > 0 && info.traitorStrikes > 0)
+                {
+                    displayName = $"{info.playerName} <color=#FF4444>[LIAR (x{info.liarStrikes}) | TRAITOR (x{info.traitorStrikes})]</color>";
+                }
+                else if (info.liarStrikes > 0)
+                {
+                    displayName = $"{info.playerName} <color=#FF6644>[LIAR (x{info.liarStrikes})]</color>";
+                }
+                else if (info.traitorStrikes > 0)
+                {
+                    displayName = $"{info.playerName} <color=#FF3333>[TRAITOR (x{info.traitorStrikes})]</color>";
+                }
+
                 HeatPlayerStatusRow heatRow = row.GetComponent<HeatPlayerStatusRow>();
                 if (heatRow != null)
                 {
-                    heatRow.Setup(info.playerName, info.isReady, subtext);
+                    heatRow.Setup(displayName, info.isReady, subtext);
                 }
                 else
                 {
                     var texts = row.GetComponentsInChildren<TextMeshProUGUI>(true);
-                    if (texts.Length >= 1) texts[0].text = info.playerName;
+                    if (texts.Length >= 1) texts[0].text = displayName;
                     if (texts.Length >= 2) texts[1].text = subtext;
                 }
             }

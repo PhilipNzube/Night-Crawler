@@ -16,6 +16,8 @@ public struct PlayerLobbyInfo
     public int playerLevel;
     public int characterIndex; // Operative roster index, or -1 for the Girl
     public bool isGirl;
+    public int liarStrikes;
+    public int traitorStrikes;
 }
 
 /// <summary>
@@ -54,6 +56,8 @@ public class PlayerReadyTracker : NetworkBehaviour
     private readonly Dictionary<ulong, string> _playerNames       = new Dictionary<ulong, string>();
     private readonly Dictionary<ulong, int>    _playerLevels      = new Dictionary<ulong, int>();
     private readonly Dictionary<ulong, int>    _characterIndices  = new Dictionary<ulong, int>();
+    private readonly Dictionary<ulong, int>    _liarStrikes       = new Dictionary<ulong, int>();
+    private readonly Dictionary<ulong, int>    _traitorStrikes    = new Dictionary<ulong, int>();
     private bool  _girlReady;
     private ulong _girlClientId = ulong.MaxValue;
     private bool  _trackingStarted;
@@ -101,6 +105,8 @@ public class PlayerReadyTracker : NetworkBehaviour
             _playerNames.Clear();
             _playerLevels.Clear();
             _characterIndices.Clear();
+            _liarStrikes.Clear();
+            _traitorStrikes.Clear();
             _trackingStarted = true;
 
             foreach (ulong id in allClientIds)
@@ -108,6 +114,8 @@ public class PlayerReadyTracker : NetworkBehaviour
                 _playerNames[id] = ResolvePlayerName(id);
                 _playerLevels[id] = 1;
                 _characterIndices[id] = (id == girlClientId) ? -1 : 0;
+                _liarStrikes[id] = 0;
+                _traitorStrikes[id] = 0;
                 if (id != girlClientId)
                     _investigatorReady[id] = false;
             }
@@ -119,17 +127,25 @@ public class PlayerReadyTracker : NetworkBehaviour
     // =========================================================================
     //  Public API (Safe for Spawned / Unspawned / Offline calls)
     // =========================================================================
-    public void ReportInvestigatorConfirmed(ulong clientId = 0, int playerLevel = 1, int characterIndex = 0)
+    public void ReportInvestigatorConfirmed(ulong clientId = 0, int playerLevel = 1, int characterIndex = 0, int liarStrikes = 0, int traitorStrikes = 0)
     {
+        if (liarStrikes == 0 && traitorStrikes == 0 && CloudCharacterSaveManager.Instance != null)
+        {
+            liarStrikes = CloudCharacterSaveManager.Instance.LiarStrikes;
+            traitorStrikes = CloudCharacterSaveManager.Instance.TraitorStrikes;
+        }
+
         if (IsSpawned)
         {
-            ReportInvestigatorConfirmedServerRpc(playerLevel, characterIndex);
+            ReportInvestigatorConfirmedServerRpc(playerLevel, characterIndex, liarStrikes, traitorStrikes);
         }
         else
         {
             _investigatorReady[clientId] = true;
             _playerLevels[clientId] = playerLevel;
             _characterIndices[clientId] = characterIndex;
+            _liarStrikes[clientId] = liarStrikes;
+            _traitorStrikes[clientId] = traitorStrikes;
 
             string pName = ResolvePlayerName(clientId);
             _snapshot[clientId] = (pName, true);
@@ -140,7 +156,9 @@ public class PlayerReadyTracker : NetworkBehaviour
                 isReady = true,
                 playerLevel = playerLevel,
                 characterIndex = characterIndex,
-                isGirl = false
+                isGirl = false,
+                liarStrikes = liarStrikes,
+                traitorStrikes = traitorStrikes
             };
 
             OnReadyStatesUpdated?.Invoke(_snapshot);
@@ -174,11 +192,17 @@ public class PlayerReadyTracker : NetworkBehaviour
         }
     }
 
-    public void ReportGirlReady(int playerLevel = 1)
+    public void ReportGirlReady(int playerLevel = 1, int liarStrikes = 0, int traitorStrikes = 0)
     {
+        if (liarStrikes == 0 && traitorStrikes == 0 && CloudCharacterSaveManager.Instance != null)
+        {
+            liarStrikes = CloudCharacterSaveManager.Instance.LiarStrikes;
+            traitorStrikes = CloudCharacterSaveManager.Instance.TraitorStrikes;
+        }
+
         if (IsSpawned)
         {
-            ReportGirlReadyServerRpc(playerLevel);
+            ReportGirlReadyServerRpc(playerLevel, liarStrikes, traitorStrikes);
         }
         else
         {
@@ -186,6 +210,8 @@ public class PlayerReadyTracker : NetworkBehaviour
             ulong girlId = NetworkManager.Singleton != null ? NetworkManager.Singleton.LocalClientId : 0;
             _playerLevels[girlId] = playerLevel;
             _characterIndices[girlId] = -1;
+            _liarStrikes[girlId] = liarStrikes;
+            _traitorStrikes[girlId] = traitorStrikes;
 
             string gName = ResolvePlayerName(girlId);
             _snapshot[girlId] = (gName, true);
@@ -196,7 +222,9 @@ public class PlayerReadyTracker : NetworkBehaviour
                 isReady = true,
                 playerLevel = playerLevel,
                 characterIndex = -1,
-                isGirl = true
+                isGirl = true,
+                liarStrikes = liarStrikes,
+                traitorStrikes = traitorStrikes
             };
 
             OnReadyStatesUpdated?.Invoke(_snapshot);
@@ -211,14 +239,16 @@ public class PlayerReadyTracker : NetworkBehaviour
     // =========================================================================
 
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
-    public void ReportInvestigatorConfirmedServerRpc(int playerLevel, int characterIndex, RpcParams rpcParams = default)
+    public void ReportInvestigatorConfirmedServerRpc(int playerLevel, int characterIndex, int liarStrikes = 0, int traitorStrikes = 0, RpcParams rpcParams = default)
     {
         if (!_trackingStarted) return;
         ulong senderId = rpcParams.Receive.SenderClientId;
         _investigatorReady[senderId] = true;
         _playerLevels[senderId] = playerLevel;
         _characterIndices[senderId] = characterIndex;
-        Debug.Log($"[PlayerReadyTracker] Investigator {senderId} confirmed (Lv. {playerLevel}, Operative: {characterIndex}).");
+        _liarStrikes[senderId] = liarStrikes;
+        _traitorStrikes[senderId] = traitorStrikes;
+        Debug.Log($"[PlayerReadyTracker] Investigator {senderId} confirmed (Lv. {playerLevel}, Operative: {characterIndex}, Liar: {liarStrikes}, Traitor: {traitorStrikes}).");
         BroadcastSnapshot();
         CheckAllReady();
     }
@@ -235,14 +265,16 @@ public class PlayerReadyTracker : NetworkBehaviour
     }
 
     [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
-    public void ReportGirlReadyServerRpc(int playerLevel, RpcParams rpcParams = default)
+    public void ReportGirlReadyServerRpc(int playerLevel, int liarStrikes = 0, int traitorStrikes = 0, RpcParams rpcParams = default)
     {
         if (!_trackingStarted) return;
         ulong senderId = rpcParams.Receive.SenderClientId;
         _girlReady = true;
         _playerLevels[senderId] = playerLevel;
         _characterIndices[senderId] = -1;
-        Debug.Log($"[PlayerReadyTracker] Girl {senderId} ready (Lv. {playerLevel}).");
+        _liarStrikes[senderId] = liarStrikes;
+        _traitorStrikes[senderId] = traitorStrikes;
+        Debug.Log($"[PlayerReadyTracker] Girl {senderId} ready (Lv. {playerLevel}, Liar: {liarStrikes}, Traitor: {traitorStrikes}).");
         BroadcastSnapshot();
         CheckAllReady();
     }
@@ -257,7 +289,9 @@ public class PlayerReadyTracker : NetworkBehaviour
         FixedString64Bytes[] names,
         bool[] readyFlags,
         int[] playerLevels,
-        int[] characterIndices)
+        int[] characterIndices,
+        int[] liarStrikes,
+        int[] traitorStrikes)
     {
         _snapshot.Clear();
         _lobbySnapshot.Clear();
@@ -269,6 +303,8 @@ public class PlayerReadyTracker : NetworkBehaviour
             bool r = readyFlags[i];
             int lvl = (playerLevels != null && i < playerLevels.Length) ? playerLevels[i] : 1;
             int cIdx = (characterIndices != null && i < characterIndices.Length) ? characterIndices[i] : 0;
+            int lStrikes = (liarStrikes != null && i < liarStrikes.Length) ? liarStrikes[i] : 0;
+            int tStrikes = (traitorStrikes != null && i < traitorStrikes.Length) ? traitorStrikes[i] : 0;
             bool isGirl = (cid == _girlClientId);
 
             _snapshot[cid] = (n, r);
@@ -279,7 +315,9 @@ public class PlayerReadyTracker : NetworkBehaviour
                 isReady = r,
                 playerLevel = lvl,
                 characterIndex = cIdx,
-                isGirl = isGirl
+                isGirl = isGirl,
+                liarStrikes = lStrikes,
+                traitorStrikes = tStrikes
             };
         }
 
@@ -293,11 +331,13 @@ public class PlayerReadyTracker : NetworkBehaviour
     private void BroadcastSnapshot()
     {
         if (!IsServer || !IsSpawned) return;
-        var idList    = new List<ulong>();
-        var nameList  = new List<FixedString64Bytes>();
-        var readyList = new List<bool>();
-        var levelList = new List<int>();
-        var charList  = new List<int>();
+        var idList      = new List<ulong>();
+        var nameList    = new List<FixedString64Bytes>();
+        var readyList   = new List<bool>();
+        var levelList   = new List<int>();
+        var charList    = new List<int>();
+        var liarList    = new List<int>();
+        var traitorList = new List<int>();
 
         foreach (var kvp in _playerNames)
         {
@@ -313,6 +353,8 @@ public class PlayerReadyTracker : NetworkBehaviour
 
             levelList.Add(_playerLevels.TryGetValue(kvp.Key, out int lvl) ? lvl : 1);
             charList.Add(_characterIndices.TryGetValue(kvp.Key, out int cIdx) ? cIdx : (isGirl ? -1 : 0));
+            liarList.Add(_liarStrikes.TryGetValue(kvp.Key, out int lStr) ? lStr : 0);
+            traitorList.Add(_traitorStrikes.TryGetValue(kvp.Key, out int tStr) ? tStr : 0);
         }
 
         BroadcastReadyStatesClientRpc(
@@ -320,7 +362,9 @@ public class PlayerReadyTracker : NetworkBehaviour
             nameList.ToArray(),
             readyList.ToArray(),
             levelList.ToArray(),
-            charList.ToArray());
+            charList.ToArray(),
+            liarList.ToArray(),
+            traitorList.ToArray());
     }
 
     private void CheckAllReady()

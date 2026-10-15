@@ -64,6 +64,7 @@ public class CloudCharacterSaveManager : MonoBehaviour
     public static event Action<int> OnCreditsChanged;
     public static event Action<int> OnDebtChanged;
     public static event Action<UpgradeStatType, int> OnUpgradeChanged;
+    public static event Action<int, int> OnDisciplinaryRecordChanged; // (liarStrikes, traitorStrikes)
 
     [Header("Testing")]
     [Tooltip("Set your credit balance here in the Inspector before testing (e.g. 50, 100, 500, 0). If set to 0 or greater, you will start with this amount. Set to -1 to use normal saved credits.")]
@@ -95,6 +96,10 @@ public class CloudCharacterSaveManager : MonoBehaviour
             return CurrentProfile?.economy?.currentDebt ?? 0;
         }
     }
+
+    public int LiarStrikes => CurrentProfile?.economy?.liarStrikes ?? 0;
+    public int TraitorStrikes => CurrentProfile?.economy?.traitorStrikes ?? 0;
+    public bool HasDisciplinaryTag => LiarStrikes > 0 || TraitorStrikes > 0;
 
     /// <summary>
     /// Gets the current player profile name. Checks current profile first, then PlayerNameManager.
@@ -338,6 +343,111 @@ public class CloudCharacterSaveManager : MonoBehaviour
         SaveProfileDirect();
         _ = SaveProfileAsync(CurrentProfile);
         OnDebtChanged?.Invoke(CurrentProfile.economy.currentDebt);
+    }
+
+    // =========================================================================
+    //  HQ Disciplinary Record (Liar & Traitor Strikes)
+    // =========================================================================
+
+    public void AddLiarStrike(int count = 1)
+    {
+        if (CurrentProfile == null || CurrentProfile.economy == null) return;
+        CurrentProfile.economy.liarStrikes += count;
+        SaveProfileDirect();
+        _ = SaveProfileAsync(CurrentProfile);
+        OnDisciplinaryRecordChanged?.Invoke(CurrentProfile.economy.liarStrikes, CurrentProfile.economy.traitorStrikes);
+        Debug.Log($"[CloudSaveManager] Accused of false report! Added {count} Liar strike(s). Total: {CurrentProfile.economy.liarStrikes}");
+    }
+
+    public void AddTraitorStrike(int count = 1)
+    {
+        if (CurrentProfile == null || CurrentProfile.economy == null) return;
+        CurrentProfile.economy.traitorStrikes += count;
+        SaveProfileDirect();
+        _ = SaveProfileAsync(CurrentProfile);
+        OnDisciplinaryRecordChanged?.Invoke(CurrentProfile.economy.liarStrikes, CurrentProfile.economy.traitorStrikes);
+        Debug.Log($"[CloudSaveManager] Convicted of Treason! Added {count} Traitor strike(s). Total: {CurrentProfile.economy.traitorStrikes}");
+    }
+
+    public void ClearLiarStrike(int count = 1)
+    {
+        if (CurrentProfile == null || CurrentProfile.economy == null) return;
+        if (CurrentProfile.economy.liarStrikes <= 0) return;
+
+        CurrentProfile.economy.liarStrikes = Mathf.Max(0, CurrentProfile.economy.liarStrikes - count);
+        SaveProfileDirect();
+        _ = SaveProfileAsync(CurrentProfile);
+        OnDisciplinaryRecordChanged?.Invoke(CurrentProfile.economy.liarStrikes, CurrentProfile.economy.traitorStrikes);
+
+        int remaining = CurrentProfile.economy.liarStrikes;
+        if (NotificationManager.Instance != null)
+        {
+            if (remaining > 0)
+            {
+                NotificationManager.Instance.ShowNotification(
+                    "REDEMPTION PROGRESS",
+                    $"Valid traitor report verified! 1 strike cleared. {remaining} more correct report(s) needed to clear your [LIAR] tag.",
+                    new Color(0.2f, 0.9f, 0.5f, 1f),
+                    5.5f
+                );
+            }
+            else
+            {
+                NotificationManager.Instance.ShowNotification(
+                    "RECORD CLEARED",
+                    "All false accusation strikes cleared! The [LIAR] tag has been permanently removed by HQ.",
+                    new Color(0.1f, 1f, 0.6f, 1f),
+                    6.0f
+                );
+            }
+        }
+    }
+
+    public void ClearTraitorStrike(int count = 1)
+    {
+        if (CurrentProfile == null || CurrentProfile.economy == null) return;
+        if (CurrentProfile.economy.traitorStrikes <= 0) return;
+
+        CurrentProfile.economy.traitorStrikes = Mathf.Max(0, CurrentProfile.economy.traitorStrikes - count);
+        SaveProfileDirect();
+        _ = SaveProfileAsync(CurrentProfile);
+        OnDisciplinaryRecordChanged?.Invoke(CurrentProfile.economy.liarStrikes, CurrentProfile.economy.traitorStrikes);
+
+        int remaining = CurrentProfile.economy.traitorStrikes;
+        if (NotificationManager.Instance != null)
+        {
+            if (remaining > 0)
+            {
+                NotificationManager.Instance.ShowNotification(
+                    "REDEMPTION PROGRESS",
+                    $"Assisted HQ in capturing a traitor! 1 treason strike removed. {remaining} more successful report(s) needed to clear your [TRAITOR] tag.",
+                    new Color(0.2f, 0.9f, 0.5f, 1f),
+                    5.5f
+                );
+            }
+            else
+            {
+                NotificationManager.Instance.ShowNotification(
+                    "PARDON GRANTED",
+                    "Your treason record has been fully expunged by HQ!",
+                    new Color(0.1f, 1f, 0.6f, 1f),
+                    6.0f
+                );
+            }
+        }
+    }
+
+    public string GetDisciplinaryTagFormatted()
+    {
+        int liar = LiarStrikes;
+        int traitor = TraitorStrikes;
+        if (liar > 0 && traitor > 0)
+            return $"<color=#FF4444>[LIAR (x{liar}) | TRAITOR (x{traitor})]</color>";
+        if (liar > 0)
+            return $"<color=#FF6644>[LIAR (x{liar})]</color>";
+        if (traitor > 0)
+            return $"<color=#FF3333>[TRAITOR (x{traitor})]</color>";
+        return string.Empty;
     }
 
     private void ApplyTestCredits()

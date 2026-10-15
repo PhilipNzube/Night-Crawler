@@ -140,6 +140,10 @@ namespace NightCrawler.Economy
         public int credits = CurrencyConfig.DefaultStartingBalance;
         public int currentDebt = 0;
 
+        [Header("HQ Disciplinary Record")]
+        public int liarStrikes = 0;
+        public int traitorStrikes = 0;
+
         [Header("Investigator Persistent Upgrades")]
         public int damageResistanceLevel = 0;
         public int weaponDamageLevel = 0;
@@ -241,6 +245,8 @@ namespace NightCrawler.Economy
             {
                 credits = CurrencyConfig.DefaultStartingBalance,
                 currentDebt = 0,
+                liarStrikes = 0,
+                traitorStrikes = 0,
                 damageResistanceLevel = 1,
                 weaponDamageLevel = 1,
                 maskFilterLevel = 1,

@@ -639,6 +639,20 @@ public class HeatSettingsBridge : MonoBehaviour
             },
             new SettingDescriptionEntry
             {
+                elementName  = "File Treason Report",
+                displayTitle = "File Treason Report",
+                description  = "Lodge an official treason dossier with HQ against an operative caught killing allies or acting suspicious. Accused receives immediate notification.",
+                coverImage   = null
+            },
+            new SettingDescriptionEntry
+            {
+                elementName  = "Destroy Treason Dossier",
+                displayTitle = "Destroy Treason Dossier",
+                description  = "Incinerate or shred a carried traitor dossier to drop all pending charges and abort the HQ audit. Notifies all operatives.",
+                coverImage   = null
+            },
+            new SettingDescriptionEntry
+            {
                 elementName  = "Deal Activations",
                 displayTitle = "Deal Activations",
                 description  = "Initiate and negotiate forbidden subterranean deals and demonic blood pacts with the Wraith.",

@@ -786,7 +786,15 @@ public class LobbyUI : MonoBehaviour
 
         if (hasName && profileNameText != null)
         {
-            profileNameText.text = PlayerNameManager.GetPlayerName();
+            string pName = PlayerNameManager.GetPlayerName();
+            if (CloudCharacterSaveManager.Instance != null && CloudCharacterSaveManager.Instance.HasDisciplinaryTag)
+            {
+                profileNameText.text = $"{pName} {CloudCharacterSaveManager.Instance.GetDisciplinaryTagFormatted()}";
+            }
+            else
+            {
+                profileNameText.text = pName;
+            }
         }
 
         if (hasName && profileLevelText != null)

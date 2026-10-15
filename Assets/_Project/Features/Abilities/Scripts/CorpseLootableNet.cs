@@ -72,6 +72,9 @@ public class CorpseLootableNet : NetworkBehaviour
     public NetworkVariable<bool> hasMinimapGear = new NetworkVariable<bool>(
         false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
+    public NetworkVariable<bool> hasTraitorDossier = new NetworkVariable<bool>(
+        false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
+
     public NetworkVariable<bool> isLooted = new NetworkVariable<bool>(
         false, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
 
@@ -98,7 +101,7 @@ public class CorpseLootableNet : NetworkBehaviour
     public bool HasInheritedMinimap => _hasInheritedMinimap;
 
     public bool HasLoot => !isLooted.Value && (lootableVials.Value > 0 || hasWeaponLoot.Value 
-                           || hasExorcismRelic.Value || hasHazardFilter.Value || hasMinimapGear.Value);
+                           || hasExorcismRelic.Value || hasHazardFilter.Value || hasMinimapGear.Value || hasTraitorDossier.Value);
 
     public int RemainingSyringes => lootableVials.Value;
     public int RemainingVials => lootableVials.Value;
@@ -197,9 +200,19 @@ public class CorpseLootableNet : NetworkBehaviour
         }
         hasMinimapGear.Value = isAdventurer || _hasInheritedMinimap;
 
+        // 6. Traitor Report Dossier: If this player carries active physical reports, drop them onto the corpse
+        if (NightCrawler.Systems.TraitorReportSystemNet.Instance != null)
+        {
+            hasTraitorDossier.Value = NightCrawler.Systems.TraitorReportSystemNet.Instance.PlayerCarriesDossier(OwnerClientId);
+        }
+        else
+        {
+            hasTraitorDossier.Value = false;
+        }
+
         isLooted.Value = !HasLoot;
 
-        Debug.Log($"[CorpseLootableNet] '{name}' died. Loot available: Vials={lootableVials.Value}, Weapon={hasWeaponLoot.Value}, Exorcism={hasExorcismRelic.Value}, Hazard={hasHazardFilter.Value}, Minimap={hasMinimapGear.Value}");
+        Debug.Log($"[CorpseLootableNet] '{name}' died. Loot available: Vials={lootableVials.Value}, Weapon={hasWeaponLoot.Value}, Exorcism={hasExorcismRelic.Value}, Hazard={hasHazardFilter.Value}, Minimap={hasMinimapGear.Value}, Dossier={hasTraitorDossier.Value}");
     }
 
     private GameObject GetActiveControlledCharacter()
@@ -425,12 +438,23 @@ public class CorpseLootableNet : NetworkBehaviour
                 minimapGained = true;
             }
 
+            // 6. Inherit / Transfer Traitor Report Dossier
+            if (hasTraitorDossier.Value)
+            {
+                if (NightCrawler.Systems.TraitorReportSystemNet.Instance != null)
+                {
+                    NightCrawler.Systems.TraitorReportSystemNet.Instance.TransferDossiersServer(OwnerClientId, looterObj.OwnerClientId);
+                }
+                hasTraitorDossier.Value = false;
+            }
+
             // Mark corpse as depleted
             lootableVials.Value = 0;
             hasWeaponLoot.Value = false;
             hasExorcismRelic.Value = false;
             hasHazardFilter.Value = false;
             hasMinimapGear.Value = false;
+            hasTraitorDossier.Value = false;
             isLooted.Value = true;
             if (NightCrawler.Systems.DeadPlayerTracker.Instance != null)
             {
@@ -539,6 +563,7 @@ public class CorpseLootableNet : NetworkBehaviour
         if (hasExorcismRelic.Value) items.Add("Holy Relic");
         if (hasHazardFilter.Value) items.Add("Gas Mask");
         if (hasMinimapGear.Value) items.Add("Minimap");
+        if (hasTraitorDossier.Value) items.Add("Treason Dossier");
 
         return items.Count > 0 ? string.Join(", ", items) : "Empty";
     }
