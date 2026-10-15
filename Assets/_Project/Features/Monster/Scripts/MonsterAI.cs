@@ -101,9 +101,6 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     [Range(0.5f, 15f)]
     public float dissolveDuration = 3.5f;
 
-    [Tooltip("Dissolve material template (Shader Graphs_Dissolve_Dissolve_Metallic.mat). Drag here in Inspector.")]
-    public Material dissolveMaterial;
-
     [Tooltip("ModelDissolveController attached to this monster. Wire in Inspector or will be added automatically.")]
     public ModelDissolveController dissolveController;
 
@@ -1059,7 +1056,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
 
         // 3. Prepare dissolve materials with preserved monster textures
-        Material matTemplate = dissolveMaterial != null ? dissolveMaterial : dissolveController.dissolveMaterial;
+        Material matTemplate = dissolveController.dissolveMaterial;
         if (matTemplate != null)
         {
             dissolveController.ApplyDissolveMaterialTemplate(matTemplate);
