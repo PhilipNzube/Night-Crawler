@@ -299,6 +299,18 @@ public class GameManager : NetworkBehaviour
             if (playerObj == _girlPlayer)
             {
                 Debug.Log("[GameManager] Wraith disconnected. Triggering victory success overlay for investigators!");
+                gameEnded.Value = true;
+
+                if (NightCrawler.Systems.TraitorReportSystemNet.Instance != null)
+                {
+                    NightCrawler.Systems.TraitorReportSystemNet.Instance.AuditPendingReportsServer(true);
+                }
+
+                if (NightCrawler.Economy.MatchEconomyManager.Instance != null)
+                {
+                    NightCrawler.Economy.MatchEconomyManager.Instance.ResolveMatchEconomy(true);
+                }
+
                 BroadcastGirlLeftSuccessClientRpc();
                 Invoke(nameof(ReturnToLobby), 5.5f);
                 return;
@@ -338,6 +350,11 @@ public class GameManager : NetworkBehaviour
                 if (_aliveExplorers.Contains(playerObj))
                 {
                     _aliveExplorers.Remove(playerObj);
+                    if (_aliveExplorers.Count == 0 && _gameHasStarted && !gameEnded.Value)
+                    {
+                        EndMatch(WinReason.TeamWipe);
+                        return;
+                    }
                 }
 
                 if (playerObj != null && playerObj.gameObject != null)
@@ -384,7 +401,7 @@ public class GameManager : NetworkBehaviour
 
                 if (NightCrawler.Systems.TraitorReportSystemNet.Instance != null)
                 {
-                    NightCrawler.Systems.TraitorReportSystemNet.Instance.AuditPendingReportsServer();
+                    NightCrawler.Systems.TraitorReportSystemNet.Instance.AuditPendingReportsServer(false);
                 }
 
                 if (NightCrawler.Economy.MatchEconomyManager.Instance != null)
@@ -856,7 +873,10 @@ public class GameManager : NetworkBehaviour
             if (_aliveExplorers.Contains(victim))
             {
                 _aliveExplorers.Remove(victim);
-                // Match does NOT end when investigators die; only ends when the girl dies.
+                if (_aliveExplorers.Count == 0 && _gameHasStarted && !gameEnded.Value)
+                {
+                    EndMatch(WinReason.TeamWipe);
+                }
             }
         }
     }
@@ -988,12 +1008,12 @@ public class GameManager : NetworkBehaviour
     {
         gameEnded.Value = true;
 
+        bool investigatorsWon = (reason == WinReason.DemonSlain);
         if (NightCrawler.Systems.TraitorReportSystemNet.Instance != null)
         {
-            NightCrawler.Systems.TraitorReportSystemNet.Instance.AuditPendingReportsServer();
+            NightCrawler.Systems.TraitorReportSystemNet.Instance.AuditPendingReportsServer(investigatorsWon);
         }
 
-        bool investigatorsWon = (reason == WinReason.DemonSlain);
         if (NightCrawler.Economy.MatchEconomyManager.Instance != null)
         {
             NightCrawler.Economy.MatchEconomyManager.Instance.ResolveMatchEconomy(investigatorsWon);
