@@ -98,16 +98,22 @@ public class ProximityVoiceChatNet : NetworkBehaviour
 
         try
         {
-            // 2. Ensure Unity Services are initialized
-            if (UnityServices.State != ServicesInitializationState.Initialized)
+            // 2. Ensure Unity Services are initialized & authenticated via centralized task queue
+            if (RelayManager.Instance != null)
             {
-                await UnityServices.InitializeAsync();
+                await RelayManager.Instance.EnsureInitializedAndSignedInAsync();
             }
-
-            // 3. Ensure player is authenticated
-            if (AuthenticationService.Instance != null && !AuthenticationService.Instance.IsSignedIn)
+            else
             {
-                await AuthenticationService.Instance.SignInAnonymouslyAsync();
+                if (UnityServices.State != ServicesInitializationState.Initialized)
+                {
+                    await UnityServices.InitializeAsync();
+                }
+
+                if (AuthenticationService.Instance != null && !AuthenticationService.Instance.IsSignedIn)
+                {
+                    await AuthenticationService.Instance.SignInAnonymouslyAsync();
+                }
             }
 
             if (VivoxService.Instance == null)

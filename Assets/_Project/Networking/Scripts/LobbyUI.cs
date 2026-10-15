@@ -943,6 +943,13 @@ public class LobbyUI : MonoBehaviour
     /// </summary>
     public void ShowErrorModal(string title, string description)
     {
+        // Absolute error check: If the local host is already active and running, suppress the error modal
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsHost && NetworkManager.Singleton.IsListening)
+        {
+            Debug.LogWarning($"[LobbyUI] Suppressed redundant error modal [{title}: {description}] because host session is active.");
+            return;
+        }
+
         Debug.LogWarning($"[LobbyUI] Showing Error Modal: [{title}] {description}");
 
         string friendlyDescription = GetFriendlyNetworkErrorMessage(description);
@@ -1127,12 +1134,18 @@ public class LobbyUI : MonoBehaviour
     // =========================================================================
     //  Connection Panel Actions
     // =========================================================================
+    private bool _isStartingHost = false;
+
     private async void OnStartHost()
     {
+        if (_isStartingHost) return;
+        _isStartingHost = true;
+
         if (!PlayerNameManager.HasSavedName())
         {
             _pendingStartAction = PendingStartAction.Host;
             ShowNameEntryPanel();
+            _isStartingHost = false;
             return;
         }
 
@@ -1167,6 +1180,7 @@ public class LobbyUI : MonoBehaviour
 
                 if (success)
                 {
+                    CloseErrorModal();
                     ShowHostLobby($"LOCAL LAN ({localIpAddress}:{localPort})");
                 }
                 else
@@ -1183,14 +1197,21 @@ public class LobbyUI : MonoBehaviour
 
                 string joinCode = await RelayManager.Instance.StartRelayHostAsync(maxPlayers);
 
+                // Fallback: If joinCode is empty but RelayManager has already acquired a valid code
+                if (string.IsNullOrEmpty(joinCode) && RelayManager.Instance != null && !string.IsNullOrEmpty(RelayManager.Instance.CurrentJoinCode))
+                {
+                    joinCode = RelayManager.Instance.CurrentJoinCode;
+                }
+
                 if (!string.IsNullOrEmpty(joinCode))
                 {
                     ShowLoading("Finalizing lobby session & determining player count...");
                     bool connected = await WaitForRelayConnectionAsync(10f);
                     HideLoading();
 
-                    if (connected)
+                    if (connected || (NetworkManager.Singleton != null && NetworkManager.Singleton.IsHost && NetworkManager.Singleton.IsListening))
                     {
+                        CloseErrorModal();
                         ShowHostLobby(joinCode);
                         GirlRevealManager.Instance?.SubmitLocalPlayerName();
                         RefreshLobbyPanels();
@@ -1204,6 +1225,16 @@ public class LobbyUI : MonoBehaviour
                 }
                 else
                 {
+                    // Check if host actually succeeded before displaying error modal
+                    if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsHost && RelayManager.Instance != null && !string.IsNullOrEmpty(RelayManager.Instance.CurrentJoinCode))
+                    {
+                        CloseErrorModal();
+                        ShowHostLobby(RelayManager.Instance.CurrentJoinCode);
+                        GirlRevealManager.Instance?.SubmitLocalPlayerName();
+                        RefreshLobbyPanels();
+                        return;
+                    }
+
                     HideLoading();
                     Debug.LogWarning("[LobbyUI] Failed to create Relay session. Check internet & dashboard.");
                     ShowErrorModal("RELAY ERROR", "Failed to create online Relay session. Please check your internet connection.");
@@ -1213,10 +1244,21 @@ public class LobbyUI : MonoBehaviour
         }
         catch (System.Exception ex)
         {
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.IsHost && RelayManager.Instance != null && !string.IsNullOrEmpty(RelayManager.Instance.CurrentJoinCode))
+            {
+                CloseErrorModal();
+                ShowHostLobby(RelayManager.Instance.CurrentJoinCode);
+                return;
+            }
+
             HideLoading();
             Debug.LogError($"[LobbyUI] Host Exception: {ex.Message}");
             ShowErrorModal("HOST ERROR", ex.Message);
             SetConnectionButtonsInteractable(true);
+        }
+        finally
+        {
+            _isStartingHost = false;
         }
     }
 
@@ -1782,6 +1824,7 @@ public class LobbyUI : MonoBehaviour
 
     private void ShowHostLobby(string codeOrMode)
     {
+        CloseErrorModal();
         _activeView = ActiveView.HostLobby;
         SetPanel(nameEntryPanel,   false);
         SetPanel(connectionPanel,  false);

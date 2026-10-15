@@ -90,6 +90,9 @@ public class PauseUI : MonoBehaviour
         _canvasGroup = pauseCanvas.GetComponent<CanvasGroup>();
         if (_canvasGroup == null)
             _canvasGroup = pauseCanvas.AddComponent<CanvasGroup>();
+
+        // Ensure canvas, canvasgroup, and all raycasters start completely disabled on frame 0
+        SetCanvasState(false);
     }
 
     private bool _allowQuit = false;
@@ -177,6 +180,11 @@ public class PauseUI : MonoBehaviour
             {
                 if (hotkeys[i] != null && hotkeys[i] != escapeHotkey) hotkeys[i].enabled = false;
             }
+        }
+
+        if (panelManager != null)
+        {
+            panelManager.HideCurrentPanel();
         }
 
         // Start completely hidden and disabled
@@ -288,6 +296,15 @@ public class PauseUI : MonoBehaviour
             _canvasGroup.alpha = active ? 1f : 0f;
             _canvasGroup.interactable = active;
             _canvasGroup.blocksRaycasts = active;
+        }
+
+        if (pauseCanvas != null)
+        {
+            var raycasters = pauseCanvas.GetComponentsInChildren<UnityEngine.UI.GraphicRaycaster>(true);
+            for (int i = 0; i < raycasters.Length; i++)
+            {
+                if (raycasters[i] != null) raycasters[i].enabled = active;
+            }
         }
     }
 

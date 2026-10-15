@@ -260,6 +260,13 @@ namespace NightCrawler.UI
         {
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
+
+            var localPlayer = NetworkManager.Singleton?.LocalClient?.PlayerObject;
+            if (localPlayer != null && localPlayer.TryGetComponent<StarterAssets.StarterAssetsInputs>(out var inputs))
+            {
+                inputs.cursorLocked = false;
+                inputs.cursorInputForLook = false;
+            }
         }
 
         private void RelockCursor()
@@ -267,6 +274,13 @@ namespace NightCrawler.UI
             if (GameManager.Instance != null && GameManager.Instance.gameEnded.Value) return;
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
+
+            var localPlayer = NetworkManager.Singleton?.LocalClient?.PlayerObject;
+            if (localPlayer != null && localPlayer.TryGetComponent<StarterAssets.StarterAssetsInputs>(out var inputs))
+            {
+                inputs.cursorLocked = true;
+                inputs.cursorInputForLook = true;
+            }
         }
     }
 }

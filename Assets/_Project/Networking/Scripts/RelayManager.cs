@@ -54,29 +54,108 @@ public class RelayManager : MonoBehaviour
             DontDestroyOnLoad(gameObject);
     }
 
+    private Task<bool> _activeAuthTask;
+
     /// <summary>
     /// Initializes Unity Services and performs Anonymous Sign-In if not already completed.
+    /// Thread-safe and resilient against concurrent sign-in attempts.
     /// </summary>
     public async Task<bool> EnsureInitializedAndSignedInAsync()
     {
+        if (IsAuthenticated) return true;
+
+        if (_activeAuthTask != null && !_activeAuthTask.IsCompleted)
+        {
+            return await _activeAuthTask;
+        }
+
+        _activeAuthTask = InternalEnsureInitializedAndSignedInAsync();
+        return await _activeAuthTask;
+    }
+
+    private async Task<bool> InternalEnsureInitializedAndSignedInAsync()
+    {
         try
         {
+            // 1. Initialize UGS
             if (UnityServices.State != ServicesInitializationState.Initialized)
             {
-                await UnityServices.InitializeAsync();
-                Debug.Log("[RelayManager] Unity Gaming Services initialized.");
+                if (UnityServices.State == ServicesInitializationState.Initializing)
+                {
+                    float initWait = 0f;
+                    while (UnityServices.State == ServicesInitializationState.Initializing && initWait < 10f)
+                    {
+                        await Task.Delay(200);
+                        initWait += 0.2f;
+                    }
+                }
+                else
+                {
+                    await UnityServices.InitializeAsync();
+                    Debug.Log("[RelayManager] Unity Gaming Services initialized.");
+                }
             }
 
-            if (!AuthenticationService.Instance.IsSignedIn)
+            // 2. Already signed in?
+            if (AuthenticationService.Instance != null && AuthenticationService.Instance.IsSignedIn)
+            {
+                return true;
+            }
+
+            // 3. Attempt sign in
+            try
             {
                 await AuthenticationService.Instance.SignInAnonymouslyAsync();
                 Debug.Log($"[RelayManager] Signed in anonymously. Player ID: {AuthenticationService.Instance.PlayerId}");
+                return true;
             }
+            catch (Exception ex) when (ex.Message.IndexOf("already signing in", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                       ex.Message.IndexOf("already signed in", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                                       ex.Message.IndexOf("Invalid state", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                Debug.Log("[RelayManager] Player is already signing in. Awaiting completion...");
+                float wait = 0f;
+                while (AuthenticationService.Instance != null && !AuthenticationService.Instance.IsSignedIn && wait < 10f)
+                {
+                    await Task.Delay(250);
+                    wait += 0.25f;
+                }
 
-            return true;
+                if (AuthenticationService.Instance != null && AuthenticationService.Instance.IsSignedIn)
+                {
+                    Debug.Log($"[RelayManager] In-flight sign-in completed. Player ID: {AuthenticationService.Instance.PlayerId}");
+                    return true;
+                }
+
+                Debug.LogError("[RelayManager] Timed out waiting for existing sign-in to complete.");
+                return false;
+            }
         }
         catch (Exception ex)
         {
+            if (AuthenticationService.Instance != null && AuthenticationService.Instance.IsSignedIn)
+            {
+                return true;
+            }
+
+            if (ex.Message.IndexOf("already signing in", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                ex.Message.IndexOf("already signed in", StringComparison.OrdinalIgnoreCase) >= 0 ||
+                ex.Message.IndexOf("Invalid state", StringComparison.OrdinalIgnoreCase) >= 0)
+            {
+                float wait = 0f;
+                while (AuthenticationService.Instance != null && !AuthenticationService.Instance.IsSignedIn && wait < 8f)
+                {
+                    await Task.Delay(250);
+                    wait += 0.25f;
+                }
+
+                if (AuthenticationService.Instance != null && AuthenticationService.Instance.IsSignedIn)
+                {
+                    Debug.Log($"[RelayManager] In-flight sign-in completed. Player ID: {AuthenticationService.Instance.PlayerId}");
+                    return true;
+                }
+            }
+
             Debug.LogError($"[RelayManager] Failed to initialize/authenticate UGS: {ex.Message}");
             return false;
         }

@@ -327,6 +327,13 @@ public class GirlDealUI : MonoBehaviour
 
         Cursor.lockState = CursorLockMode.None;
         Cursor.visible = true;
+
+        var localPlayer = NetworkManager.Singleton?.LocalClient?.PlayerObject;
+        if (localPlayer != null && localPlayer.TryGetComponent<StarterAssets.StarterAssetsInputs>(out var inputs))
+        {
+            inputs.cursorLocked = false;
+            inputs.cursorInputForLook = false;
+        }
     }
 
     public void CloseUI()
@@ -355,6 +362,13 @@ public class GirlDealUI : MonoBehaviour
         {
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
+
+            var localPlayer = NetworkManager.Singleton?.LocalClient?.PlayerObject;
+            if (localPlayer != null && localPlayer.TryGetComponent<StarterAssets.StarterAssetsInputs>(out var inputs))
+            {
+                inputs.cursorLocked = true;
+                inputs.cursorInputForLook = true;
+            }
         }
     }
 
