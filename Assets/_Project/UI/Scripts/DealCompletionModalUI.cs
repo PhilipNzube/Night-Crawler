@@ -4,6 +4,7 @@ using TMPro;
 using Michsky.UI.Heat;
 using StarterAssets;
 using Unity.Netcode;
+using NightCrawler.Economy;
 
 namespace NightCrawler.UI
 {
@@ -50,6 +51,9 @@ namespace NightCrawler.UI
 
         [Tooltip("The TextMeshProUGUI showing remaining reward / stake balance.")]
         public TextMeshProUGUI rewardLeftText;
+
+        [Tooltip("Optional text field explicitly displaying current debt status.")]
+        public TextMeshProUGUI debtStatusText;
 
         [Tooltip("Optional description text (similar to deal notification prompt).")]
         public TextMeshProUGUI descriptionText;
@@ -172,7 +176,22 @@ namespace NightCrawler.UI
                 EnsureHierarchyAndContainersActive(rewardLeftText);
             }
 
-            string cleanDesc = !string.IsNullOrWhiteSpace(description) ? description : "The terms of this dark deal have been fulfilled. The promised bounty is yours.";
+            int currentDebt = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentDebt : 0;
+            string debtStatusMsg = currentDebt > 0
+                ? $"<color=#FFB347>Outstanding Debt: {currentDebt} {CurrencyConfig.CurrencyPlural}</color> (Deal fulfilled! No new penalty debt incurred)."
+                : "<color=#2ECC71>Debt Status: Clear (0 Cinders Debt)</color>";
+
+            if (debtStatusText != null)
+            {
+                debtStatusText.text = debtStatusMsg;
+                EnsureHierarchyAndContainersActive(debtStatusText);
+                debtStatusText.gameObject.SetActive(true);
+            }
+
+            string cleanDesc = !string.IsNullOrWhiteSpace(description)
+                ? $"{description}\n\n{debtStatusMsg}"
+                : $"The terms of this dark deal have been fulfilled. The promised bounty is yours.\n\n{debtStatusMsg}";
+
             if (descriptionText != null)
             {
                 descriptionText.text = cleanDesc;

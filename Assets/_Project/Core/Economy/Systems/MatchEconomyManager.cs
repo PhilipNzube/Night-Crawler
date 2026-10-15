@@ -278,8 +278,9 @@ namespace NightCrawler.Economy
         }
 
         /// <summary>
-        /// Applies stake penalty to an investigator who failed their accepted deal in time.
-        /// Deducts penalty directly from their stake.
+        /// Applies deal failure penalty to an investigator who failed their accepted deal in time.
+        /// Penalty is NOT immediately deducted from the stake; if the player loses the game,
+        /// it is gathered as persistent debt to be paid back next stake or from future wins.
         /// </summary>
         public void ApplyDealFailurePenalty(ulong traitorClientId, int penaltyAmount)
         {
@@ -291,14 +292,12 @@ namespace NightCrawler.Economy
 
             if (_playerRecords.TryGetValue(traitorClientId, out var record))
             {
-                int penalty = Mathf.Min(record.stakedCredits, penaltyAmount);
-                record.stakedCredits = Mathf.Max(0, record.stakedCredits - penalty);
                 record.pactFailed = true;
-                record.pactPenaltiesIncurred += penalty;
-                Debug.Log($"[MatchEconomyManager] Applied deal failure penalty to {record.playerName}: -{penalty} {CurrencyConfig.CurrencyName}. Remaining stake: {record.stakedCredits}");
+                record.uncollectedDealPenalty += penaltyAmount;
+                record.pactPenaltiesIncurred += penaltyAmount;
+                Debug.Log($"[MatchEconomyManager] Recorded deal failure for {record.playerName}: penalty {penaltyAmount} preserved for debt resolution. Stake intact: {record.stakedCredits}");
 
-                RecalculateTotalPot();
-                NotifyDealPenaltyClientRpc(traitorClientId, penalty);
+                NotifyDealPenaltyClientRpc(traitorClientId, penaltyAmount);
             }
         }
 
@@ -458,6 +457,15 @@ namespace NightCrawler.Economy
                 int cappedBonus = Mathf.Min(rawBonus, maxAllowedBonus);
 
                 int netPayout = winner.stakedCredits + potWinShare + cappedBonus;
+                int penaltyDeduction = 0;
+                int uncollected = 0;
+
+                if (winner.uncollectedDealPenalty > 0)
+                {
+                    penaltyDeduction = Mathf.Min(netPayout, winner.uncollectedDealPenalty);
+                    netPayout -= penaltyDeduction;
+                    uncollected = winner.uncollectedDealPenalty - penaltyDeduction;
+                }
 
                 DispatchPayoutRpc(winner.clientId, new MatchPayoutSummary
                 {
@@ -465,9 +473,10 @@ namespace NightCrawler.Economy
                     stakedAmount = winner.stakedCredits,
                     potWinnings = potWinShare,
                     contributionBonus = cappedBonus,
-                    penaltyDeduction = 0,
+                    penaltyDeduction = penaltyDeduction,
                     netPayout = netPayout,
-                    bonusDetails = BuildBonusDetailsString(winner, cappedBonus)
+                    bonusDetails = BuildBonusDetailsString(winner, cappedBonus),
+                    uncollectedDebt = uncollected
                 });
             }
 
@@ -484,7 +493,8 @@ namespace NightCrawler.Economy
                         contributionBonus = 0,
                         penaltyDeduction = CurrencyConfig.GirlLossPenalty,
                         netPayout = -(record.stakedCredits + CurrencyConfig.GirlLossPenalty),
-                        bonusDetails = $"Wraith Exorcised (-{CurrencyConfig.GirlLossPenalty} {CurrencyConfig.CurrencyName} Penalty)"
+                        bonusDetails = $"Wraith Exorcised (-{CurrencyConfig.GirlLossPenalty} {CurrencyConfig.CurrencyName} Penalty)",
+                        uncollectedDebt = record.uncollectedDealPenalty
                     });
                 }
                 else if (record.hasAcceptedDeal && !record.hasAbandoned)
@@ -497,7 +507,8 @@ namespace NightCrawler.Economy
                         contributionBonus = 0,
                         penaltyDeduction = CurrencyConfig.TraitorPenalty,
                         netPayout = -(record.stakedCredits + CurrencyConfig.TraitorPenalty),
-                        bonusDetails = $"Traitor Pact Exposed (-{CurrencyConfig.TraitorPenalty} {CurrencyConfig.CurrencyName} Penalty)"
+                        bonusDetails = $"Traitor Pact Exposed (-{CurrencyConfig.TraitorPenalty} {CurrencyConfig.CurrencyName} Penalty)",
+                        uncollectedDebt = record.uncollectedDealPenalty
                     });
                 }
                 else if (record.hasAbandoned)
@@ -510,7 +521,8 @@ namespace NightCrawler.Economy
                         contributionBonus = 0,
                         penaltyDeduction = 0, // Disconnect penalty is strictly their stake
                         netPayout = -record.stakedCredits,
-                        bonusDetails = "Abandoned Match (Stake Forfeited)"
+                        bonusDetails = "Abandoned Match (Stake Forfeited)",
+                        uncollectedDebt = record.uncollectedDealPenalty
                     });
                 }
             }
@@ -546,7 +558,8 @@ namespace NightCrawler.Economy
                     contributionBonus = 0,
                     penaltyDeduction = 0,
                     netPayout = girlNetPayout,
-                    bonusDetails = "All Miners Slain"
+                    bonusDetails = "All Miners Slain",
+                    uncollectedDebt = girlRecord.uncollectedDealPenalty
                 });
             }
 
@@ -563,7 +576,8 @@ namespace NightCrawler.Economy
                         contributionBonus = 0,
                         penaltyDeduction = 0,
                         netPayout = -record.stakedCredits,
-                        bonusDetails = "Team Wiped by Wraith"
+                        bonusDetails = "Team Wiped by Wraith",
+                        uncollectedDebt = record.uncollectedDealPenalty
                     });
                 }
             }
@@ -602,12 +616,12 @@ namespace NightCrawler.Economy
             else if (NetworkManager.Singleton.ConnectedClients.ContainsKey(clientId))
             {
                 ReceivePersonalPayoutClientRpc(clientId, summary.won, summary.stakedAmount, summary.potWinnings,
-                    summary.contributionBonus, summary.penaltyDeduction, summary.netPayout, summary.bonusDetails);
+                    summary.contributionBonus, summary.penaltyDeduction, summary.netPayout, summary.bonusDetails, summary.uncollectedDebt);
             }
         }
 
         [ClientRpc]
-        private void ReceivePersonalPayoutClientRpc(ulong targetClientId, bool won, int staked, int winnings, int bonus, int penalty, int net, string details)
+        private void ReceivePersonalPayoutClientRpc(ulong targetClientId, bool won, int staked, int winnings, int bonus, int penalty, int net, string details, int uncollectedDebt)
         {
             if (NetworkManager.Singleton == null || NetworkManager.Singleton.LocalClientId != targetClientId) return;
 
@@ -619,7 +633,8 @@ namespace NightCrawler.Economy
                 contributionBonus = bonus,
                 penaltyDeduction = penalty,
                 netPayout = net,
-                bonusDetails = details
+                bonusDetails = details,
+                uncollectedDebt = uncollectedDebt
             };
             ApplyPayoutLocally(summary);
         }
@@ -628,10 +643,30 @@ namespace NightCrawler.Economy
         {
             if (CloudCharacterSaveManager.Instance != null)
             {
+                // 1. Gather uncollected deal penalty as persistent debt if match was lost
+                if (summary.uncollectedDebt > 0)
+                {
+                    CloudCharacterSaveManager.Instance.AddDebt(summary.uncollectedDebt);
+                    Debug.Log($"[MatchEconomyManager] Uncollected deal penalty of {summary.uncollectedDebt} Cinders gathered into persistent debt.");
+                }
+
+                // 2. If won, deduct existing debt from net winnings
                 if (summary.won && summary.netPayout > 0)
                 {
-                    // Winner receives returned stake plus win bonuses & pot shares
-                    CloudCharacterSaveManager.Instance.AddCredits(summary.netPayout);
+                    int currentDebt = CloudCharacterSaveManager.Instance.CurrentDebt;
+                    if (currentDebt > 0)
+                    {
+                        int debtPaid = Mathf.Min(summary.netPayout, currentDebt);
+                        CloudCharacterSaveManager.Instance.RepayDebt(debtPaid);
+                        summary.netPayout -= debtPaid;
+                        summary.bonusDetails += $" | Debt Deducted (-{debtPaid})";
+                        Debug.Log($"[MatchEconomyManager] Deducted {debtPaid} Cinders from win payout for debt. Remaining debt: {CloudCharacterSaveManager.Instance.CurrentDebt}");
+                    }
+
+                    if (summary.netPayout > 0)
+                    {
+                        CloudCharacterSaveManager.Instance.AddCredits(summary.netPayout);
+                    }
                 }
                 else
                 {

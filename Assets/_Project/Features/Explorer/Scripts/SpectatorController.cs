@@ -450,8 +450,7 @@ public class SpectatorController : MonoBehaviour
         // Initialize and sync Hotkey labels, then enable them
         InitHotkeys();
         SetHotkeysActive(true); // _isSpectating is true here, so effectiveActive = true
-        if (viewModeHotkey != null) viewModeHotkey.SetLabel(_freeOrbitMode ? "FREE ORBIT" : "SHOULDER CAM");
-        if (cursorHotkey != null) cursorHotkey.SetLabel(Cursor.lockState == CursorLockMode.Locked ? "UNLOCK CURSOR" : "LOCK CURSOR");
+        UpdateSpectatorHotkeyLabels();
 
         // Fade in HUD — only stop coroutines if we are NOT in the middle of stopping
         // (StopAllCoroutines would kill the fade-out and ReassertPlayerCamPriority coroutines)
@@ -631,10 +630,10 @@ public class SpectatorController : MonoBehaviour
 
         if (_modePromptText != null)
         {
-            string modeName = _freeOrbitMode ? "FREE ORBIT" : "SHOULDER CAM";
+            string nextModeName = _freeOrbitMode ? "SHOULDER CAM" : "FREE ORBIT";
             bool canSwitchCategory = !IsLocalPlayerDead();
             string catSegment = canSwitchCategory ? $"   •   [{catKeyStr}] Switch Category" : "";
-            _modePromptText.text = $"[{viewModeKeyStr}] View Mode: {modeName}   •   [{prevKeyStr}/{nextKeyStr}] Switch{catSegment}   •   [{cursorKeyStr}] Cursor   •   [{exitKeyStr}] Exit";
+            _modePromptText.text = $"[{viewModeKeyStr}] Switch to {nextModeName}   •   [{prevKeyStr}/{nextKeyStr}] Switch{catSegment}   •   [{cursorKeyStr}] Cursor   •   [{exitKeyStr}] Exit";
         }
     }
 
@@ -841,14 +840,7 @@ public class SpectatorController : MonoBehaviour
         // nextModeName = what pressing Space NEXT TIME would switch to (for the hotkey label)
         string nextModeName = _freeOrbitMode ? "SHOULDER CAM" : "FREE ORBIT";
         ShowToast($"CAMERA MODE: {currentModeName}", new Color(1f, 0.85f, 0.2f, 1f));
-        if (viewModeHotkey != null)
-        {
-            viewModeHotkey.SetLabel(nextModeName);
-        }
-        if (_modePromptText != null)
-        {
-            _modePromptText.text = $"[SPACE] Switch to {nextModeName}   •   [MOUSE] Orbit   •   [SCROLL] Zoom   •   [ALT] Cursor";
-        }
+        UpdateSpectatorHotkeyLabels();
     }
 
     /// <summary>
@@ -860,14 +852,13 @@ public class SpectatorController : MonoBehaviour
         {
             Cursor.lockState = CursorLockMode.None;
             Cursor.visible = true;
-            if (cursorHotkey != null) cursorHotkey.SetLabel("LOCK CURSOR");
         }
         else
         {
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
-            if (cursorHotkey != null) cursorHotkey.SetLabel("UNLOCK CURSOR");
         }
+        UpdateSpectatorHotkeyLabels();
     }
 
     private void CacheLocalGameplayCamera()

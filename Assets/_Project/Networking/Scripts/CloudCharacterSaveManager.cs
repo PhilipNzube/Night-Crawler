@@ -62,6 +62,7 @@ public class CloudCharacterSaveManager : MonoBehaviour
 
     public static event Action<PlayerProfileData> OnProfileLoaded;
     public static event Action<int> OnCreditsChanged;
+    public static event Action<int> OnDebtChanged;
     public static event Action<UpgradeStatType, int> OnUpgradeChanged;
 
     [Header("Testing")]
@@ -84,6 +85,14 @@ public class CloudCharacterSaveManager : MonoBehaviour
                 return Mathf.Max(0, customCindersOverride);
             }
             return CurrentProfile?.economy?.credits ?? 0;
+        }
+    }
+
+    public int CurrentDebt
+    {
+        get
+        {
+            return CurrentProfile?.economy?.currentDebt ?? 0;
         }
     }
 
@@ -286,6 +295,49 @@ public class CloudCharacterSaveManager : MonoBehaviour
         CurrentProfile.economy.credits = clamped;
         OnCreditsChanged?.Invoke(clamped);
         _ = SaveProfileAsync(CurrentProfile);
+    }
+
+    /// <summary>
+    /// Adds debt (e.g. from failed deal penalties when match is lost) to persistent profile and saves.
+    /// </summary>
+    public void AddDebt(int amount)
+    {
+        if (amount <= 0) return;
+        if (CurrentProfile == null || CurrentProfile.economy == null) return;
+        CurrentProfile.economy.currentDebt += amount;
+        SaveProfileDirect();
+        _ = SaveProfileAsync(CurrentProfile);
+        OnDebtChanged?.Invoke(CurrentProfile.economy.currentDebt);
+        Debug.Log($"[CloudSaveManager] Added {amount} Cinders to debt. Total Debt: {CurrentProfile.economy.currentDebt}");
+    }
+
+    /// <summary>
+    /// Repays a portion or all of the player's outstanding debt.
+    /// Returns the actual amount of debt paid off.
+    /// </summary>
+    public int RepayDebt(int amountToPay)
+    {
+        if (amountToPay <= 0) return 0;
+        if (CurrentProfile == null || CurrentProfile.economy == null) return 0;
+        int actualPaid = Mathf.Min(CurrentProfile.economy.currentDebt, amountToPay);
+        CurrentProfile.economy.currentDebt -= actualPaid;
+        SaveProfileDirect();
+        _ = SaveProfileAsync(CurrentProfile);
+        OnDebtChanged?.Invoke(CurrentProfile.economy.currentDebt);
+        Debug.Log($"[CloudSaveManager] Repaid {actualPaid} Cinders of debt. Remaining Debt: {CurrentProfile.economy.currentDebt}");
+        return actualPaid;
+    }
+
+    /// <summary>
+    /// Overrides current debt directly.
+    /// </summary>
+    public void SetDebt(int newAmount)
+    {
+        if (CurrentProfile == null || CurrentProfile.economy == null) return;
+        CurrentProfile.economy.currentDebt = Mathf.Max(0, newAmount);
+        SaveProfileDirect();
+        _ = SaveProfileAsync(CurrentProfile);
+        OnDebtChanged?.Invoke(CurrentProfile.economy.currentDebt);
     }
 
     private void ApplyTestCredits()

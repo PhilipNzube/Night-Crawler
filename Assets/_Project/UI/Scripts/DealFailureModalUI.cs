@@ -4,6 +4,7 @@ using TMPro;
 using Michsky.UI.Heat;
 using StarterAssets;
 using Unity.Netcode;
+using NightCrawler.Economy;
 
 namespace NightCrawler.UI
 {
@@ -44,6 +45,9 @@ namespace NightCrawler.UI
 
         [Tooltip("The TextMeshProUGUI showing the penalty deducted.")]
         public TextMeshProUGUI penaltyText;
+
+        [Tooltip("Optional text field explicitly displaying the debt policy/notice.")]
+        public TextMeshProUGUI debtNoticeText;
 
         [Tooltip("Optional description text (similar to deal notification prompt).")]
         public TextMeshProUGUI descriptionText;
@@ -153,7 +157,25 @@ namespace NightCrawler.UI
                 EnsureHierarchyAndContainersActive(penaltyText);
             }
 
-            string cleanDesc = !string.IsNullOrWhiteSpace(description) ? description : "You failed to uphold the terms in time. The Wraith claims its tribute from your stake.";
+            int currentDebt = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentDebt : 0;
+            string debtExplanation = $"Penalty: <b>{penaltyCredits} {CurrencyConfig.CurrencyPlural}</b>.\n" +
+                                     $"<color=#FFB347>If you lose this match, this penalty will NOT be taken from your lost stake — it will be gathered as <b>Debt</b> to be repaid next stake or from future match winnings.</color>";
+            if (currentDebt > 0)
+            {
+                debtExplanation += $"\n<color=#FF5555>Current Outstanding Debt: {currentDebt} {CurrencyConfig.CurrencyPlural}</color>";
+            }
+
+            if (debtNoticeText != null)
+            {
+                debtNoticeText.text = debtExplanation;
+                EnsureHierarchyAndContainersActive(debtNoticeText);
+                debtNoticeText.gameObject.SetActive(true);
+            }
+
+            string cleanDesc = !string.IsNullOrWhiteSpace(description)
+                ? $"{description}\n\n{debtExplanation}"
+                : debtExplanation;
+
             if (descriptionText != null)
             {
                 descriptionText.text = cleanDesc;

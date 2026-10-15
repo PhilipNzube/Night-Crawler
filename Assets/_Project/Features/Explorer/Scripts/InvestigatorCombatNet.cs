@@ -24,6 +24,14 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
     public WeaponStats axeStats;
     public WeaponStats gunStats;
     public Transform shootPoint; // Drag the gun muzzle here
+
+    [Header("Armed Locomotion & Run Speed Balancing")]
+    [Tooltip("Drag the ThirdPersonController component here from the investigator prefab. No auto-finding.")]
+    public StarterAssets.ThirdPersonController movementController;
+    [Tooltip("Sprint/Run speed when unarmed (m/s). Default: 5.335.")]
+    public float unarmedRunSpeed = 5.335f;
+    [Tooltip("Sprint/Run speed when armed with a weapon (m/s). Default: 3.8 - slower than unarmed players.")]
+    public float armedRunSpeed = 3.8f;
     
     [Header("Visuals")]
     public GameObject axeVisual;
@@ -264,6 +272,7 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
 
         UpdateAnimatorWeaponState(initialIndex);
         ApplyWeaponVisuals(initialIndex);
+        UpdateArmedRunSpeed(initialIndex);
 
         if (_animator != null && initialIndex >= 0)
         {
@@ -275,6 +284,7 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
     {
         _audioSource.spatialBlend = IsOwner ? 0.2f : float.MaxValue;
         currentWeaponIndex.OnValueChanged += HandleWeaponIndexChanged;
+        UpdateArmedRunSpeed(currentWeaponIndex.Value);
 
         if (IsOwner)
         {
@@ -305,6 +315,7 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
     {
         ApplyWeaponVisuals(current);
         UpdateAnimatorWeaponState(current);
+        UpdateArmedRunSpeed(current);
     }
 
     private void ApplyWeaponVisuals(int index)
@@ -606,10 +617,19 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
             UpdateAnimatorWeaponState(index);
         }
 
+        UpdateArmedRunSpeed(index);
+
         if (index == 1 && gunStats != null)
         {
             currentAmmo.Value = gunStats.maxAmmo;
         }
+    }
+
+    private void UpdateArmedRunSpeed(int weaponIndex)
+    {
+        if (movementController == null) return;
+        bool isArmed = weaponIndex >= 0;
+        movementController.SprintSpeed = isArmed ? armedRunSpeed : unarmedRunSpeed;
     }
 
     private void UpdateAnimatorWeaponState(int index)

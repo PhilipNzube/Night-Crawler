@@ -132,8 +132,9 @@ namespace NightCrawler.Economy
     [Serializable]
     public class PlayerEconomyProfile
     {
-        [Header("Currency")]
+        [Header("Currency & Debt")]
         public int credits = CurrencyConfig.DefaultStartingBalance;
+        public int currentDebt = 0;
 
         [Header("Investigator Persistent Upgrades")]
         public int damageResistanceLevel = 0;
@@ -213,6 +214,7 @@ namespace NightCrawler.Economy
             return new PlayerEconomyProfile
             {
                 credits = CurrencyConfig.DefaultStartingBalance,
+                currentDebt = 0,
                 damageResistanceLevel = 1,
                 weaponDamageLevel = 1,
                 maskFilterLevel = 1,

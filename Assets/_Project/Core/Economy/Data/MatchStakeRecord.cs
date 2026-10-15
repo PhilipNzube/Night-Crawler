@@ -28,6 +28,7 @@ namespace NightCrawler.Economy
         public bool pactFailed = false;
         public int pactNetCreditsEarned = 0;
         public int pactPenaltiesIncurred = 0;
+        public int uncollectedDealPenalty = 0;
 
         // Backward-compatible property alias
         public int monstersKilledBeforeExorcism => monstersKilled;
@@ -56,5 +57,6 @@ namespace NightCrawler.Economy
         public int netPayout;
         public int newBalance;
         public string bonusDetails;
+        public int uncollectedDebt;
     }
 }

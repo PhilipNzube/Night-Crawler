@@ -88,6 +88,29 @@ public class GirlPlayerScreen : MonoBehaviour
     [Tooltip("Error / Hint label inside the stake modal (e.g. 'Min 2 Cinders').")]
     public TextMeshProUGUI stakeErrorText;
 
+    [Header("Debt Settlement Modal (Optional - Manual Assignment)")]
+    [Tooltip("Modal Window asking whether to settle debt during staking or defer to win.")]
+    public ModalWindowManager debtSettlementModal;
+
+    [Tooltip("Button in debt modal to pay debt now via staking.")]
+    public ButtonManager debtPayWithStakeButton;
+
+    [Tooltip("Button in debt modal to pay debt later when winning.")]
+    public ButtonManager debtPayOnWinButton;
+
+    [Tooltip("Description text inside the debt settlement modal.")]
+    public TextMeshProUGUI debtModalDescriptionText;
+
+    [Header("Debt Breakdown Display inside Stake Modal")]
+    [Tooltip("Optional text field inside the stake modal displaying total outstanding debt.")]
+    public TextMeshProUGUI stakeDebtAmountText;
+
+    [Tooltip("Optional text field inside the stake modal displaying how much debt is cleared by the current stake input.")]
+    public TextMeshProUGUI stakeDebtClearedText;
+
+    [Tooltip("Optional text field inside the stake modal displaying how much debt remains.")]
+    public TextMeshProUGUI stakeDebtRemainingText;
+
     [Header("Central Player Status Panel")]
     [Tooltip("Drag the PlayerStatusPanel GameObject (with LobbyPlayerStatusPanel component attached) here.")]
     public LobbyPlayerStatusPanel lobbyPlayerStatusPanel;
@@ -122,6 +145,7 @@ public class GirlPlayerScreen : MonoBehaviour
     private Coroutine                    _readyDelayCoroutine;
     private bool                         _readySent = false;
     private int                          _lastEscapeFrame = -1;
+    private bool                         _isPayingDebtDuringStake = false;
 
     // =========================================================================
     //  Unity Lifecycle
@@ -475,6 +499,14 @@ public class GirlPlayerScreen : MonoBehaviour
     {
         if (_readySent) return;
 
+        int currentDebt = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentDebt : 0;
+        if (currentDebt > 0)
+        {
+            ShowDebtSettlementChoice(currentDebt);
+            return;
+        }
+
+        _isPayingDebtDuringStake = false;
         if (matchStakeModal != null)
         {
             OpenStakeModal();
@@ -484,6 +516,62 @@ public class GirlPlayerScreen : MonoBehaviour
             // Direct fallback if no modal assigned
             FinalizeReady(CurrencyConfig.MinimumStake);
         }
+    }
+
+    private void ShowDebtSettlementChoice(int currentDebt)
+    {
+        if (debtSettlementModal != null)
+        {
+            debtSettlementModal.useLocalization = false;
+            debtSettlementModal.titleKey = string.Empty;
+            debtSettlementModal.descriptionKey = string.Empty;
+
+            string title = "OUTSTANDING DEBT";
+            string desc = $"You currently owe <b><color=#FF5555>{currentDebt} {CurrencyConfig.CurrencyPlural}</color></b> from previously failed deals.\n\n" +
+                          "How would you like to settle this debt?\n" +
+                          "• <b>Pay With Stake:</b> Repay some or all of your debt right now with your match stake (subject to balance & 60% rule).\n" +
+                          "• <b>Pay When You Win:</b> Defer payment. Debt will be automatically deducted from your winnings when you win a game.";
+
+            debtSettlementModal.titleText = title;
+            debtSettlementModal.descriptionText = desc;
+            if (debtSettlementModal.windowTitle != null) debtSettlementModal.windowTitle.text = title;
+            if (debtSettlementModal.windowDescription != null) debtSettlementModal.windowDescription.text = desc;
+            if (debtModalDescriptionText != null) debtModalDescriptionText.text = desc;
+
+            try { debtSettlementModal.UpdateUI(); } catch { }
+
+            if (debtPayWithStakeButton != null)
+                MichskyUIBridge.BindButton(null, debtPayWithStakeButton, OnDebtPayWithStakeClicked);
+
+            if (debtPayOnWinButton != null)
+                MichskyUIBridge.BindButton(null, debtPayOnWinButton, OnDebtPayOnWinClicked);
+
+            debtSettlementModal.OpenWindow();
+        }
+        else
+        {
+            // Fallback if dedicated debt modal not yet wired: open stake modal directly in debt repayment mode
+            _isPayingDebtDuringStake = true;
+            OpenStakeModal();
+        }
+    }
+
+    private void OnDebtPayWithStakeClicked()
+    {
+        if (debtSettlementModal != null)
+            debtSettlementModal.CloseWindow();
+
+        _isPayingDebtDuringStake = true;
+        OpenStakeModal();
+    }
+
+    private void OnDebtPayOnWinClicked()
+    {
+        if (debtSettlementModal != null)
+            debtSettlementModal.CloseWindow();
+
+        _isPayingDebtDuringStake = false;
+        OpenStakeModal();
     }
 
     private static readonly Color StakeValidColor = new Color(0.2f, 0.9f, 0.3f, 1f);   // Green when confirm active
@@ -522,6 +610,7 @@ public class GirlPlayerScreen : MonoBehaviour
 
         bool canStake = CurrencyConfig.CanMeetMinimumStake(balance);
         int maxAllowedStake = canStake ? CurrencyConfig.GetMaxStake(balance) : CurrencyConfig.MinimumStake;
+        int currentDebt = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentDebt : 0;
 
         if (matchStakeModal != null)
         {
@@ -529,10 +618,16 @@ public class GirlPlayerScreen : MonoBehaviour
             matchStakeModal.titleKey = string.Empty;
             matchStakeModal.descriptionKey = string.Empty;
 
-            string title = "MATCH STAKE";
+            string title = _isPayingDebtDuringStake && currentDebt > 0 ? "MATCH STAKE & DEBT" : "MATCH STAKE";
             string desc;
 
-            if (canStake)
+            if (_isPayingDebtDuringStake && currentDebt > 0)
+            {
+                desc = $"Outstanding Debt: <b><color=#FF5555>{currentDebt} {CurrencyConfig.CurrencyPlural}</color></b>\n" +
+                       $"Available: <b>{balance} {CurrencyConfig.CurrencyPlural}</b> | Max Stake (60% limit): <b>{maxAllowedStake} {CurrencyConfig.CurrencyPlural}</b>\n" +
+                       "Input your stake. Stake exceeding your base requirement will be applied toward clearing your debt.";
+            }
+            else if (canStake)
             {
                 desc = $"Enter your stake to confirm deployment as Wraith.\n<b>Available:</b> {balance} {CurrencyConfig.CurrencyPlural} | <b>Max Stake (60% limit):</b> {maxAllowedStake} {CurrencyConfig.CurrencyPlural}";
             }
@@ -574,8 +669,33 @@ public class GirlPlayerScreen : MonoBehaviour
         EnsureStakeReferences();
 
         bool isValid = ValidateStakeInput(raw, out int stake, out string error);
+        int currentDebt = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentDebt : 0;
+        int minBaseStake = CurrencyConfig.MinimumStake;
 
-        if (stakeErrorText != null)
+        if (isValid && _isPayingDebtDuringStake && currentDebt > 0)
+        {
+            int availableForDebt = Mathf.Max(0, stake - minBaseStake);
+            int clearedDebt = Mathf.Min(currentDebt, availableForDebt);
+            int debtRemaining = currentDebt - clearedDebt;
+            int matchPotStake = stake - clearedDebt;
+
+            if (stakeDebtAmountText != null) stakeDebtAmountText.text = $"Total Debt: {currentDebt} {CurrencyConfig.CurrencySymbol}";
+            if (stakeDebtClearedText != null) stakeDebtClearedText.text = $"Cleared: {clearedDebt} {CurrencyConfig.CurrencySymbol}";
+            if (stakeDebtRemainingText != null) stakeDebtRemainingText.text = $"Remaining: {debtRemaining} {CurrencyConfig.CurrencySymbol}";
+
+            if (stakeErrorText != null)
+            {
+                var umt = stakeErrorText.GetComponent<Michsky.UI.Heat.UIManagerText>();
+                if (umt != null) umt.useCustomColor = true;
+
+                stakeErrorText.text = clearedDebt > 0
+                    ? $"<b>Debt Cleared:</b> <color=#2ECC71>{clearedDebt} {CurrencyConfig.CurrencySymbol}</color> | <b>Debt Left:</b> <color=#FF5555>{debtRemaining} {CurrencyConfig.CurrencySymbol}</color> | <b>Match Pot:</b> {matchPotStake} {CurrencyConfig.CurrencySymbol}"
+                    : $"<b>Match Stake:</b> {matchPotStake} {CurrencyConfig.CurrencySymbol} | <b>Debt Left:</b> <color=#FF5555>{debtRemaining} {CurrencyConfig.CurrencySymbol}</color>";
+                stakeErrorText.color = StakeValidColor;
+                stakeErrorText.gameObject.SetActive(true);
+            }
+        }
+        else if (stakeErrorText != null)
         {
             var umt = stakeErrorText.GetComponent<Michsky.UI.Heat.UIManagerText>();
             if (umt != null) umt.useCustomColor = true;
@@ -660,6 +780,7 @@ public class GirlPlayerScreen : MonoBehaviour
 
     private void OnStakeModalCancelled()
     {
+        _isPayingDebtDuringStake = false;
         if (matchStakeModal != null)
             matchStakeModal.CloseWindow();
 
@@ -693,7 +814,25 @@ public class GirlPlayerScreen : MonoBehaviour
     {
         if (_readySent) return;
 
-        PersistentCharacterSelection.SetSavedMatchStake(stake);
+        int totalDebt = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentDebt : 0;
+        int clearedDebt = 0;
+        int matchPotStake = stake;
+
+        if (_isPayingDebtDuringStake && totalDebt > 0)
+        {
+            int minBaseStake = CurrencyConfig.MinimumStake;
+            int availableForDebt = Mathf.Max(0, stake - minBaseStake);
+            clearedDebt = Mathf.Min(totalDebt, availableForDebt);
+            matchPotStake = stake - clearedDebt;
+
+            if (clearedDebt > 0 && CloudCharacterSaveManager.Instance != null)
+            {
+                CloudCharacterSaveManager.Instance.RepayDebt(clearedDebt);
+                Debug.Log($"[GirlPlayerScreen] Repaid {clearedDebt} Cinders of debt via stake. Remaining debt: {CloudCharacterSaveManager.Instance.CurrentDebt}");
+            }
+        }
+
+        PersistentCharacterSelection.SetSavedMatchStake(matchPotStake);
         if (CloudCharacterSaveManager.Instance != null)
         {
             CloudCharacterSaveManager.Instance.SpendCredits(stake);
@@ -702,6 +841,7 @@ public class GirlPlayerScreen : MonoBehaviour
         LobbyUI.Instance?.UpdateProfileUI();
 
         _readySent = true;
+        _isPayingDebtDuringStake = false;
 
         // Hide info section and ready button
         if (girlInfoSection != null) girlInfoSection.SetActive(false);

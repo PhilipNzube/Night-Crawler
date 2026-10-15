@@ -131,6 +131,31 @@ public class CharacterSelectUI : MonoBehaviour
     [Tooltip("Error / Hint label inside the stake modal (e.g. 'Min 2 Cinders').")]
     public TextMeshProUGUI stakeErrorText;
 
+    [Header("Debt Settlement Modal (Opened on Ready if Debt Exists)")]
+    [Tooltip("Modal window asking whether to settle debt via stake or defer to match win.")]
+    public ModalWindowManager debtSettlementModal;
+
+    [Tooltip("Button on debt modal to pay debt now while staking.")]
+    public ButtonManager debtPayWithStakeButton;
+
+    [Tooltip("Button on debt modal to defer debt to be deducted on future win.")]
+    public ButtonManager debtPayOnWinButton;
+
+    [Tooltip("Optional text field inside the debt modal showing current debt details.")]
+    public TextMeshProUGUI debtModalDescriptionText;
+
+    [Header("Match Stake Modal — Debt Breakdown Texts")]
+    [Tooltip("Optional text field showing total debt amount inside the stake modal.")]
+    public TextMeshProUGUI stakeDebtAmountText;
+
+    [Tooltip("Optional text field showing amount of debt cleared with current stake input.")]
+    public TextMeshProUGUI stakeDebtClearedText;
+
+    [Tooltip("Optional text field showing remaining debt after current stake input.")]
+    public TextMeshProUGUI stakeDebtRemainingText;
+
+    private bool _isPayingDebtDuringStake = false;
+
     // =========================================================================
     //  Inspector — Character Data & Filters
     // =========================================================================
@@ -718,6 +743,13 @@ public class CharacterSelectUI : MonoBehaviour
             return;
         }
 
+        int currentDebt = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentDebt : 0;
+        if (currentDebt > 0)
+        {
+            OpenDebtSettlementModal(currentDebt);
+            return;
+        }
+
         if (matchStakeModal != null)
         {
             OpenStakeModal();
@@ -727,6 +759,61 @@ public class CharacterSelectUI : MonoBehaviour
             // Direct fallback if no modal assigned
             FinalizeSelectionAndReady(CurrencyConfig.MinimumStake);
         }
+    }
+
+    private void OpenDebtSettlementModal(int currentDebt)
+    {
+        string desc = $"You currently have an outstanding debt of <b><color=#FF5555>{currentDebt} {CurrencyConfig.CurrencyPlural}</color></b> from previous dark deals.\n\n" +
+                      "Would you like to pay some or all of this debt now while staking, or defer it to be deducted when you win a game?";
+
+        if (debtModalDescriptionText != null)
+        {
+            debtModalDescriptionText.text = desc;
+        }
+
+        if (debtSettlementModal != null)
+        {
+            debtSettlementModal.useLocalization = false;
+            debtSettlementModal.titleKey = string.Empty;
+            debtSettlementModal.descriptionKey = string.Empty;
+            debtSettlementModal.titleText = "OUTSTANDING DEBT";
+            debtSettlementModal.descriptionText = desc;
+            if (debtSettlementModal.windowTitle != null) debtSettlementModal.windowTitle.text = "OUTSTANDING DEBT";
+            if (debtSettlementModal.windowDescription != null) debtSettlementModal.windowDescription.text = desc;
+            try { debtSettlementModal.UpdateUI(); } catch { }
+
+            if (debtPayWithStakeButton != null)
+                MichskyUIBridge.BindButton(null, debtPayWithStakeButton, OnDebtPayWithStakeClicked);
+
+            if (debtPayOnWinButton != null)
+                MichskyUIBridge.BindButton(null, debtPayOnWinButton, OnDebtPayOnWinClicked);
+
+            debtSettlementModal.OpenWindow();
+        }
+        else
+        {
+            // Fallback if dedicated debt modal not yet wired: open stake modal directly in debt repayment mode
+            _isPayingDebtDuringStake = true;
+            OpenStakeModal();
+        }
+    }
+
+    private void OnDebtPayWithStakeClicked()
+    {
+        if (debtSettlementModal != null)
+            debtSettlementModal.CloseWindow();
+
+        _isPayingDebtDuringStake = true;
+        OpenStakeModal();
+    }
+
+    private void OnDebtPayOnWinClicked()
+    {
+        if (debtSettlementModal != null)
+            debtSettlementModal.CloseWindow();
+
+        _isPayingDebtDuringStake = false;
+        OpenStakeModal();
     }
 
     private static readonly Color StakeValidColor = new Color(0.2f, 0.9f, 0.3f, 1f);   // Green when confirm active
@@ -782,9 +869,9 @@ public class CharacterSelectUI : MonoBehaviour
 
         bool canStake = CurrencyConfig.CanMeetMinimumStake(balance);
         int maxAllowedStake = canStake ? CurrencyConfig.GetMaxStake(balance) : CurrencyConfig.MinimumStake;
-
         int winningBid = GetWinningBidForSelectedCharacter();
         int minRequiredStake = winningBid > 0 ? winningBid : CurrencyConfig.MinimumStake;
+        int currentDebt = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentDebt : 0;
 
         if (matchStakeModal != null)
         {
@@ -792,11 +879,18 @@ public class CharacterSelectUI : MonoBehaviour
             matchStakeModal.titleKey = string.Empty;
             matchStakeModal.descriptionKey = string.Empty;
 
-            string title = requiredMinStake > 0 ? "UPDATE MATCH STAKE" : "MATCH STAKE";
+            string title = requiredMinStake > 0 ? "UPDATE MATCH STAKE" : (_isPayingDebtDuringStake && currentDebt > 0 ? "MATCH STAKE & DEBT" : "MATCH STAKE");
             string desc;
             if (!string.IsNullOrEmpty(customDescription))
             {
                 desc = customDescription;
+            }
+            else if (_isPayingDebtDuringStake && currentDebt > 0)
+            {
+                desc = $"Outstanding Debt: <b><color=#FF5555>{currentDebt} {CurrencyConfig.CurrencyPlural}</color></b>\n" +
+                       $"Available: <b>{balance} {CurrencyConfig.CurrencyPlural}</b> | Max Stake (60% limit): <b>{maxAllowedStake} {CurrencyConfig.CurrencyPlural}</b>\n" +
+                       (winningBid > 0 ? $"Winning Bid on Operative: <b>{winningBid} {CurrencyConfig.CurrencyPlural}</b>\n" : "") +
+                       "Input your stake. Stake exceeding your base requirement will be applied toward clearing your debt.";
             }
             else if (winningBid > 0)
             {
@@ -849,8 +943,34 @@ public class CharacterSelectUI : MonoBehaviour
         EnsureStakeReferences();
 
         bool isValid = ValidateStakeInput(raw, out int stake, out string error);
+        int currentDebt = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentDebt : 0;
+        int winningBid = GetWinningBidForSelectedCharacter();
+        int minBaseStake = winningBid > 0 ? winningBid : CurrencyConfig.MinimumStake;
 
-        if (stakeErrorText != null)
+        if (isValid && _isPayingDebtDuringStake && currentDebt > 0)
+        {
+            int availableForDebt = Mathf.Max(0, stake - minBaseStake);
+            int clearedDebt = Mathf.Min(currentDebt, availableForDebt);
+            int debtRemaining = currentDebt - clearedDebt;
+            int matchPotStake = stake - clearedDebt;
+
+            if (stakeDebtAmountText != null) stakeDebtAmountText.text = $"Total Debt: {currentDebt} {CurrencyConfig.CurrencySymbol}";
+            if (stakeDebtClearedText != null) stakeDebtClearedText.text = $"Cleared: {clearedDebt} {CurrencyConfig.CurrencySymbol}";
+            if (stakeDebtRemainingText != null) stakeDebtRemainingText.text = $"Remaining: {debtRemaining} {CurrencyConfig.CurrencySymbol}";
+
+            if (stakeErrorText != null)
+            {
+                var umt = stakeErrorText.GetComponent<Michsky.UI.Heat.UIManagerText>();
+                if (umt != null) umt.useCustomColor = true;
+
+                stakeErrorText.text = clearedDebt > 0
+                    ? $"<b>Debt Cleared:</b> <color=#2ECC71>{clearedDebt} {CurrencyConfig.CurrencySymbol}</color> | <b>Debt Left:</b> <color=#FF5555>{debtRemaining} {CurrencyConfig.CurrencySymbol}</color> | <b>Match Pot:</b> {matchPotStake} {CurrencyConfig.CurrencySymbol}"
+                    : $"<b>Match Stake:</b> {matchPotStake} {CurrencyConfig.CurrencySymbol} | <b>Debt Left:</b> <color=#FF5555>{debtRemaining} {CurrencyConfig.CurrencySymbol}</color>";
+                stakeErrorText.color = StakeValidColor;
+                stakeErrorText.gameObject.SetActive(true);
+            }
+        }
+        else if (stakeErrorText != null)
         {
             var umt = stakeErrorText.GetComponent<Michsky.UI.Heat.UIManagerText>();
             if (umt != null) umt.useCustomColor = true;
@@ -947,6 +1067,7 @@ public class CharacterSelectUI : MonoBehaviour
     private void OnStakeModalCancelled()
     {
         _requiredStakeOverride = 0;
+        _isPayingDebtDuringStake = false;
         if (matchStakeModal != null)
             matchStakeModal.CloseWindow();
 
@@ -980,10 +1101,29 @@ public class CharacterSelectUI : MonoBehaviour
     {
         if (_localConfirmed) return;
 
+        int totalDebt = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.CurrentDebt : 0;
+        int clearedDebt = 0;
+        int matchPotStake = stake;
+
+        if (_isPayingDebtDuringStake && totalDebt > 0)
+        {
+            int winningBid = GetWinningBidForSelectedCharacter();
+            int minBaseStake = winningBid > 0 ? winningBid : CurrencyConfig.MinimumStake;
+            int availableForDebt = Mathf.Max(0, stake - minBaseStake);
+            clearedDebt = Mathf.Min(totalDebt, availableForDebt);
+            matchPotStake = stake - clearedDebt;
+
+            if (clearedDebt > 0 && CloudCharacterSaveManager.Instance != null)
+            {
+                CloudCharacterSaveManager.Instance.RepayDebt(clearedDebt);
+                Debug.Log($"[CharacterSelectUI] Repaid {clearedDebt} Cinders of debt via stake. Remaining debt: {CloudCharacterSaveManager.Instance.CurrentDebt}");
+            }
+        }
+
         int prevStake = PersistentCharacterSelection.GetSavedMatchStake();
         int toDeduct = Mathf.Max(0, stake - prevStake);
 
-        PersistentCharacterSelection.SetSavedMatchStake(stake);
+        PersistentCharacterSelection.SetSavedMatchStake(matchPotStake);
         if (CloudCharacterSaveManager.Instance != null && toDeduct > 0)
         {
             CloudCharacterSaveManager.Instance.SpendCredits(toDeduct);
@@ -993,6 +1133,7 @@ public class CharacterSelectUI : MonoBehaviour
 
         _localConfirmed = true;
         _requiredStakeOverride = 0;
+        _isPayingDebtDuringStake = false;
         PersistentCharacterSelection.SetSelectedCharacterIndex(_selectedIndex);
 
         string resolvedCharName = string.Empty;
