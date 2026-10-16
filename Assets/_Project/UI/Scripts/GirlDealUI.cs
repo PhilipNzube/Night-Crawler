@@ -195,6 +195,10 @@ public class GirlDealUI : MonoBehaviour
         {
             dealsAnimator.Play("Panel Instant Out");
         }
+
+        // Guarantee modals start completely disabled and non-blocking on frame 0
+        SanitizeModal(dealModal);
+        SanitizeModal(errorModal);
     }
 
     private void OnDestroy()
@@ -626,9 +630,18 @@ public class GirlDealUI : MonoBehaviour
         // Update slots left
         UpdateDealSlotsDisplay();
 
-        // Ensure modal is active before opening
+        // Ensure modal is active and interactable before opening
         if (!dealModal.gameObject.activeSelf)
             dealModal.gameObject.SetActive(true);
+
+        var cg = dealModal.GetComponent<CanvasGroup>();
+        if (cg != null)
+        {
+            cg.alpha = 1f;
+            cg.interactable = true;
+            cg.blocksRaycasts = true;
+        }
+
         dealModal.OpenWindow();
 
         Cursor.lockState = CursorLockMode.None;
@@ -695,6 +708,16 @@ public class GirlDealUI : MonoBehaviour
         if (dealModal != null)
         {
             dealModal.CloseWindow();
+
+            var cg = dealModal.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 0f;
+                cg.interactable = false;
+                cg.blocksRaycasts = false;
+            }
+
+            dealModal.gameObject.SetActive(false);
         }
     }
 
@@ -703,6 +726,16 @@ public class GirlDealUI : MonoBehaviour
         if (errorModal != null)
         {
             errorModal.CloseWindow();
+
+            var cg = errorModal.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 0f;
+                cg.interactable = false;
+                cg.blocksRaycasts = false;
+            }
+
+            errorModal.gameObject.SetActive(false);
         }
     }
 
@@ -1160,6 +1193,14 @@ public class GirlDealUI : MonoBehaviour
         if (!errorModal.gameObject.activeSelf)
             errorModal.gameObject.SetActive(true);
 
+        var errCg = errorModal.GetComponent<CanvasGroup>();
+        if (errCg != null)
+        {
+            errCg.alpha = 1f;
+            errCg.interactable = true;
+            errCg.blocksRaycasts = true;
+        }
+
         errorModal.OpenWindow();
 
         // Re-enforce windowTitle after OpenWindow to prevent any animator/localization reverts
@@ -1184,8 +1225,23 @@ public class GirlDealUI : MonoBehaviour
         modal.useLocalization = false;
         modal.closeOnCancel = true;
         modal.closeOnConfirm = true;
+        modal.startBehaviour = ModalWindowManager.StartBehaviour.Disable;
+        modal.isOn = false;
 
         // Remove any ExitGame listeners from onConfirm
         modal.onConfirm.RemoveAllListeners();
+
+        var cg = modal.GetComponent<CanvasGroup>();
+        if (cg != null)
+        {
+            cg.alpha = 0f;
+            cg.interactable = false;
+            cg.blocksRaycasts = false;
+        }
+
+        if (modal.gameObject.activeSelf)
+        {
+            modal.gameObject.SetActive(false);
+        }
     }
 }

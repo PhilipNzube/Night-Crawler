@@ -47,6 +47,10 @@ public class ZombieAI : MonsterAI
         monsterType = MonsterType.Zombie;
         currentPosture = ZombiePosture.Standing;
         base.Awake();
+        if (locomotion != null)
+        {
+            locomotion.SetCrawlPosture(false);
+        }
     }
 
     public override void OnNetworkSpawn()
@@ -162,13 +166,33 @@ public class ZombieAI : MonsterAI
     {
         if (!HasAuthority || _standUpRoutine != null) return;
 
-        if (currentPosture == ZombiePosture.Crawling && distanceToTarget <= standTransitionDistance)
+        if (currentPosture == ZombiePosture.Crawling)
         {
-            StartStandUp();
+            // Close enough to stand up, UNLESS under a low ceiling or tight obstacle clearance
+            if (distanceToTarget <= standTransitionDistance)
+            {
+                Vector3 headOrigin = transform.position + Vector3.up * 0.65f;
+                LayerMask mask = (locomotion != null && locomotion.obstacleMask.value != 0) 
+                    ? locomotion.obstacleMask 
+                    : LayerMask.GetMask("Default");
+                bool hasOverheadObstacle = Physics.Raycast(headOrigin, Vector3.up, 1.4f, mask, QueryTriggerInteraction.Ignore);
+                if (!hasOverheadObstacle)
+                {
+                    StartStandUp();
+                }
+            }
         }
-        else if (currentPosture == ZombiePosture.Standing && distanceToTarget > crawlTransitionDistance)
+        else if (currentPosture == ZombiePosture.Standing)
         {
-            DropToCrawl();
+            if (distanceToTarget > crawlTransitionDistance)
+            {
+                DropToCrawl();
+            }
+            else if (locomotion != null && locomotion.HasLowOverheadObstacleAhead())
+            {
+                // Standing height is blocked by low clearance ahead, but crawling fits through!
+                DropToCrawl();
+            }
         }
     }
 
@@ -209,6 +233,7 @@ public class ZombieAI : MonsterAI
 
         if (locomotion != null)
         {
+            locomotion.SetCrawlPosture(false);
             bool closingGapToGirl = (currentCommand == Command.Follow && _commandLeader != null && Vector3.Distance(transform.position, _commandLeader.position) > 4.5f);
             float speedToResume = (target != null || closingGapToGirl) ? standRunSpeed : walkSpeed;
             locomotion.chaseSpeed = standRunSpeed;
@@ -235,17 +260,18 @@ public class ZombieAI : MonsterAI
         currentPosture = ZombiePosture.Crawling;
         if (IsServer && NetworkObject != null && NetworkObject.IsSpawned) netPosture.Value = ZombiePosture.Crawling;
 
+        if (locomotion != null)
+        {
+            locomotion.SetCrawlPosture(true);
+            locomotion.chaseSpeed = crawlSpeed;
+            locomotion.Resume(crawlSpeed);
+        }
+
         if (_animator != null)
         {
             _animator.SetBool(_isStandingHash, false);
             _animator.SetBool(_isCrawlingHash, true);
             _animator.CrossFade(_stateRunningCrawl, 0.2f);
-        }
-
-        if (locomotion != null)
-        {
-            locomotion.chaseSpeed = crawlSpeed;
-            locomotion.Resume(crawlSpeed);
         }
 
         _currentLocomotionAnimHash = _stateRunningCrawl;
@@ -381,6 +407,10 @@ public class ZombieAI : MonsterAI
     protected override void HandlePostureNetworkChanged(ZombiePosture prev, ZombiePosture curr)
     {
         base.HandlePostureNetworkChanged(prev, curr);
+        if (locomotion != null)
+        {
+            locomotion.SetCrawlPosture(curr == ZombiePosture.Crawling);
+        }
         _currentLocomotionAnimHash = 0;
     }
 

@@ -316,6 +316,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         {
             combat.audioSource = audioSource;
         }
+
+        if (locomotion != null)
+        {
+            locomotion.SetCrawlPosture(currentPosture == ZombiePosture.Crawling);
+        }
     }
 
     // =========================================================================
@@ -486,16 +491,38 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 return;
             }
 
-            // Path blockage check (from EnemyNPC_AI AIController)
-            if (locomotion.IsPathBlocked(target))
+            // If actively executing an obstacle reposition escape detour:
+            if (locomotion != null && locomotion.IsRepositioning)
             {
-                locomotion.AttemptReposition();
+                locomotion.Resume(runSpeed);
+                if (locomotion.agent != null && locomotion.agent.hasPath)
+                {
+                    locomotion.RotateTowards(locomotion.agent.steeringTarget, angularSpeed);
+                }
+                return;
+            }
+
+            // Path blockage check (from EnemyNPC_AI AIController)
+            if (locomotion != null && locomotion.IsPathBlocked(target))
+            {
+                if (locomotion.AttemptReposition())
+                {
+                    locomotion.Resume(runSpeed);
+                    if (locomotion.agent != null && locomotion.agent.hasPath)
+                    {
+                        locomotion.RotateTowards(locomotion.agent.steeringTarget, angularSpeed);
+                    }
+                    return;
+                }
             }
 
             // Chase target smoothly (prevents path recalculation thrashing)
-            locomotion.Resume(runSpeed);
-            locomotion.SetDestinationSmooth(target.position);
-            locomotion.RotateTowards(target.position, angularSpeed);
+            if (locomotion != null)
+            {
+                locomotion.Resume(runSpeed);
+                locomotion.SetDestinationSmooth(target.position);
+                locomotion.RotateTowards(target.position, angularSpeed);
+            }
             return;
         }
 
@@ -524,6 +551,31 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected virtual void HandleSearchBehavior()
     {
         _searchTimer -= Time.deltaTime;
+
+        // If actively executing an obstacle reposition escape detour:
+        if (locomotion != null && locomotion.IsRepositioning)
+        {
+            locomotion.Resume(walkSpeed);
+            if (locomotion.agent != null && locomotion.agent.hasPath)
+            {
+                locomotion.RotateTowards(locomotion.agent.steeringTarget, angularSpeed);
+            }
+            return;
+        }
+
+        // Path blockage check during search (from EnemyNPC_AI AIController)
+        if (locomotion != null && locomotion.IsPathBlocked())
+        {
+            if (locomotion.AttemptReposition())
+            {
+                locomotion.Resume(walkSpeed);
+                if (locomotion.agent != null && locomotion.agent.hasPath)
+                {
+                    locomotion.RotateTowards(locomotion.agent.steeringTarget, angularSpeed);
+                }
+                return;
+            }
+        }
 
         // Check if noise heard during search (from EnemyNPC_AI AIController)
         if (perception.HasHeardNoise)
@@ -569,6 +621,31 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         {
             SwitchState(AIState.Patrol);
             return;
+        }
+
+        // If actively executing an obstacle reposition escape detour:
+        if (locomotion != null && locomotion.IsRepositioning)
+        {
+            locomotion.Resume(walkSpeed);
+            if (locomotion.agent != null && locomotion.agent.hasPath)
+            {
+                locomotion.RotateTowards(locomotion.agent.steeringTarget, angularSpeed);
+            }
+            return;
+        }
+
+        // Path blockage check while guarding/following
+        if (locomotion != null && locomotion.IsPathBlocked())
+        {
+            if (locomotion.AttemptReposition())
+            {
+                locomotion.Resume(walkSpeed);
+                if (locomotion.agent != null && locomotion.agent.hasPath)
+                {
+                    locomotion.RotateTowards(locomotion.agent.steeringTarget, angularSpeed);
+                }
+                return;
+            }
         }
 
         float distToLeader = Vector3.Distance(transform.position, leader.position);
@@ -650,7 +727,14 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             }
         }
 
-        if (locomotion != null && locomotion.IsRepositioning) return;
+        if (locomotion != null && locomotion.IsRepositioning)
+        {
+            if (locomotion.agent != null && locomotion.agent.hasPath)
+            {
+                locomotion.RotateTowards(locomotion.agent.steeringTarget, angularSpeed);
+            }
+            return;
+        }
 
         if (!_agent.pathPending && (!_agent.hasPath || _agent.remainingDistance <= _agent.stoppingDistance + 0.3f))
         {
@@ -1099,6 +1183,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected virtual void HandlePostureNetworkChanged(ZombiePosture prev, ZombiePosture curr)
     {
         currentPosture = curr;
+        if (locomotion != null)
+        {
+            locomotion.SetCrawlPosture(curr == ZombiePosture.Crawling);
+        }
     }
 
     // =========================================================================

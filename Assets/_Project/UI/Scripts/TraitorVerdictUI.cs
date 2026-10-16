@@ -54,6 +54,13 @@ namespace NightCrawler.UI
 
             if (verdictLoadingOverlay != null)
             {
+                var cg = verdictLoadingOverlay.GetComponent<CanvasGroup>();
+                if (cg != null)
+                {
+                    cg.alpha = 0f;
+                    cg.interactable = false;
+                    cg.blocksRaycasts = false;
+                }
                 verdictLoadingOverlay.SetActive(false);
             }
 
@@ -62,6 +69,17 @@ namespace NightCrawler.UI
             {
                 verdictCloseButton.onClick.RemoveAllListeners();
                 verdictCloseButton.onClick.AddListener(CloseVerdictModal);
+            }
+        }
+
+        private void Start()
+        {
+            // Ensure verdict modal and loading overlay start completely disabled and non-blocking
+            SanitizeModal(verdictModal);
+
+            if (verdictLoadingOverlay != null)
+            {
+                verdictLoadingOverlay.SetActive(false);
             }
         }
 
@@ -233,6 +251,17 @@ namespace NightCrawler.UI
                     }
                 }
 
+                if (!verdictModal.gameObject.activeSelf)
+                    verdictModal.gameObject.SetActive(true);
+
+                var cg = verdictModal.GetComponent<CanvasGroup>();
+                if (cg != null)
+                {
+                    cg.alpha = 1f;
+                    cg.interactable = true;
+                    cg.blocksRaycasts = true;
+                }
+
                 MichskyUIBridge.OpenModal(verdictModal, title, description);
                 UnlockCursor();
             }
@@ -242,6 +271,16 @@ namespace NightCrawler.UI
         {
             if (verdictModal == null) return;
             verdictModal.CloseWindow();
+
+            var cg = verdictModal.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 0f;
+                cg.interactable = false;
+                cg.blocksRaycasts = false;
+            }
+
+            verdictModal.gameObject.SetActive(false);
             RelockCursor();
         }
 
@@ -252,8 +291,24 @@ namespace NightCrawler.UI
         private static void SanitizeModal(ModalWindowManager modal)
         {
             if (modal == null) return;
-            modal.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
-            if (modal.isOn) modal.CloseWindow();
+            modal.useLocalization = false;
+            modal.closeOnCancel = true;
+            modal.closeOnConfirm = true;
+            modal.startBehaviour = ModalWindowManager.StartBehaviour.Disable;
+            modal.isOn = false;
+
+            var cg = modal.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 0f;
+                cg.interactable = false;
+                cg.blocksRaycasts = false;
+            }
+
+            if (modal.gameObject.activeSelf)
+            {
+                modal.gameObject.SetActive(false);
+            }
         }
 
         private void UnlockCursor()

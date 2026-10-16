@@ -126,6 +126,11 @@ namespace NightCrawler.UI
 
         private void Start()
         {
+            // Guarantee all modals start completely disabled and non-blocking on frame 0
+            SanitizeModal(fileReportModal);
+            SanitizeModal(destroyReportModal);
+            SanitizeModal(errorModal);
+
             UpdateDossierHUD();
         }
 
@@ -199,6 +204,14 @@ namespace NightCrawler.UI
             if (!fileReportModal.gameObject.activeSelf)
                 fileReportModal.gameObject.SetActive(true);
 
+            var cg = fileReportModal.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 1f;
+                cg.interactable = true;
+                cg.blocksRaycasts = true;
+            }
+
             fileReportModal.OpenWindow();
             UnlockCursor();
         }
@@ -208,6 +221,16 @@ namespace NightCrawler.UI
             if (fileReportModal == null) return;
             _isFilingOpen = false;
             fileReportModal.CloseWindow();
+
+            var cg = fileReportModal.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 0f;
+                cg.interactable = false;
+                cg.blocksRaycasts = false;
+            }
+
+            fileReportModal.gameObject.SetActive(false);
             RelockCursor();
         }
 
@@ -420,6 +443,14 @@ namespace NightCrawler.UI
             if (!destroyReportModal.gameObject.activeSelf)
                 destroyReportModal.gameObject.SetActive(true);
 
+            var cg = destroyReportModal.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 1f;
+                cg.interactable = true;
+                cg.blocksRaycasts = true;
+            }
+
             destroyReportModal.OpenWindow();
             UnlockCursor();
         }
@@ -429,6 +460,16 @@ namespace NightCrawler.UI
             if (destroyReportModal == null) return;
             _isDestroyingOpen = false;
             destroyReportModal.CloseWindow();
+
+            var cg = destroyReportModal.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 0f;
+                cg.interactable = false;
+                cg.blocksRaycasts = false;
+            }
+
+            destroyReportModal.gameObject.SetActive(false);
             RelockCursor();
         }
 
@@ -463,6 +504,17 @@ namespace NightCrawler.UI
         {
             if (errorModal != null)
             {
+                if (!errorModal.gameObject.activeSelf)
+                    errorModal.gameObject.SetActive(true);
+
+                var cg = errorModal.GetComponent<CanvasGroup>();
+                if (cg != null)
+                {
+                    cg.alpha = 1f;
+                    cg.interactable = true;
+                    cg.blocksRaycasts = true;
+                }
+
                 MichskyUIBridge.OpenModal(errorModal, "HQ INVESTIGATION NOTICE", message);
                 UnlockCursor();
             }
@@ -476,6 +528,16 @@ namespace NightCrawler.UI
         {
             if (errorModal == null) return;
             errorModal.CloseWindow();
+
+            var cg = errorModal.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 0f;
+                cg.interactable = false;
+                cg.blocksRaycasts = false;
+            }
+
+            errorModal.gameObject.SetActive(false);
             RelockCursor();
         }
 
@@ -519,8 +581,24 @@ namespace NightCrawler.UI
         private static void SanitizeModal(ModalWindowManager modal)
         {
             if (modal == null) return;
-            modal.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
-            if (modal.isOn) modal.CloseWindow();
+            modal.useLocalization = false;
+            modal.closeOnCancel = true;
+            modal.closeOnConfirm = true;
+            modal.startBehaviour = ModalWindowManager.StartBehaviour.Disable;
+            modal.isOn = false;
+
+            var cg = modal.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 0f;
+                cg.interactable = false;
+                cg.blocksRaycasts = false;
+            }
+
+            if (modal.gameObject.activeSelf)
+            {
+                modal.gameObject.SetActive(false);
+            }
         }
 
         private bool IsLocalPlayerGirl()
