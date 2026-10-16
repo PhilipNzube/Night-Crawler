@@ -754,21 +754,31 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
         else if (distToLeader < 2.2f)
         {
-            // Too close! Yield space respectfully so the Queen is never crowded or blocked!
+            // Too close! Turn and move forward to yield spot, never walking backward!
             Vector3 push = (transform.position - leader.position);
             push.y = 0f;
-            Vector3 yieldSpot = leader.position + (push.sqrMagnitude > 0.05f ? push.normalized : transform.forward) * 2.8f;
+            Vector3 escapeDir = push.sqrMagnitude > 0.05f ? push.normalized : transform.forward;
+            Vector3 yieldSpot = leader.position + escapeDir * 2.8f;
             if (NavMesh.SamplePosition(yieldSpot, out NavMeshHit yHit, 2.5f, NavMesh.AllAreas))
             {
-                locomotion.Resume(walkSpeed * 0.8f);
+                locomotion.Resume(walkSpeed * 0.85f);
                 locomotion.SetDestinationSmooth(yHit.position);
+                // Turn in movement direction so it moves forward, never walking backward!
+                if (locomotion.agent != null && locomotion.agent.hasPath)
+                {
+                    locomotion.RotateTowards(locomotion.agent.steeringTarget, angularSpeed * 1.5f);
+                }
+                else
+                {
+                    locomotion.RotateTowards(yHit.position, angularSpeed * 1.5f);
+                }
             }
-            locomotion.RotateTowards(leader.position, angularSpeed * 1.5f);
         }
         else
         {
+            // Safe distance cleared: stop and turn back to face the Queen!
             locomotion.Stop();
-            locomotion.RotateTowards(leader.position, angularSpeed * 0.5f);
+            locomotion.RotateTowards(leader.position, angularSpeed * 1.2f);
         }
     }
 

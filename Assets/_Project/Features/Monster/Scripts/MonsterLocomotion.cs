@@ -286,8 +286,8 @@ namespace NightCrawler.Monsters
         /// <summary>
         /// Ensures monsters always treat the Girl as their Queen:
         /// 1. Never stops or clips inside her (keeps at least 2.4m clearance).
-        /// 2. If standing in her forward path, smartly parts to the side to clear a wide corridor for her.
-        /// 3. Respectfully rotates towards the Queen when close.
+        /// 2. If standing in her forward path, smartly turns forward, moves to clear her corridor,
+        ///    and turns back to face her once clear (never walks backwards).
         /// </summary>
         public void ResolveQueenClearance()
         {
@@ -310,48 +310,39 @@ namespace NightCrawler.Monsters
             float dist = diff.magnitude;
             float clearanceRadius = 2.4f;
 
-            // 1. Physical pushback / clearance: never stop or penetrate inside the Queen!
-            if (dist < clearanceRadius)
-            {
-                Vector3 pushDir;
-                if (dist > 0.01f)
-                {
-                    pushDir = diff / dist;
-                }
-                else
-                {
-                    float angle = (gameObject.GetInstanceID() % 360) * Mathf.Deg2Rad;
-                    pushDir = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
-                }
+            Vector3 queenForward = queen.forward;
+            queenForward.y = 0f;
+            bool isInFrontOfQueen = false;
+            Vector3 clearDir = diff.sqrMagnitude > 0.05f ? diff.normalized : transform.forward;
 
-                float penetration = clearanceRadius - dist;
-                agent.Move(pushDir * (penetration * 4.0f * Time.deltaTime));
+            if (queenForward.sqrMagnitude > 0.05f && dist < 3.5f && dist > 0.05f)
+            {
+                float dot = Vector3.Dot(queenForward.normalized, diff.normalized);
+                if (dot > 0.25f)
+                {
+                    isInFrontOfQueen = true;
+                    // Lateral clearance perpendicular to Queen's forward direction
+                    Vector3 lateral = Vector3.Cross(Vector3.up, queenForward.normalized);
+                    if (Vector3.Dot(lateral, diff) < 0f) lateral = -lateral;
+                    // Combine lateral sidestep with moving away
+                    clearDir = (lateral * 1.6f + diff.normalized).normalized;
+                }
             }
 
-            // 2. Smart path clearing ("Parting the Red Sea" for royalty):
-            // If the Queen is within 3.5m and facing towards the monster, sidestep to clear her corridor!
-            if (dist < 3.5f)
+            // If too close or blocking her path, turn in the movement direction and move forward!
+            if (dist < clearanceRadius || isInFrontOfQueen)
             {
-                Vector3 queenForward = queen.forward;
-                queenForward.y = 0f;
+                // Turn to face the direction of clearing movement (moves forward, never backwards!)
+                RotateTowards(myPos + clearDir, angularSpeed * 1.8f);
 
-                if (queenForward.sqrMagnitude > 0.05f && dist > 0.05f)
-                {
-                    float dot = Vector3.Dot(queenForward.normalized, diff.normalized);
-                    // If monster is within a 120-degree cone ahead of the Queen:
-                    if (dot > 0.25f)
-                    {
-                        Vector3 lateral = Vector3.Cross(Vector3.up, queenForward.normalized);
-                        // Bias towards whichever side the monster is already slightly on
-                        if (Vector3.Dot(lateral, diff) < 0f) lateral = -lateral;
-
-                        // Apply smooth lateral clearing displacement
-                        agent.Move(lateral * (3.0f * Time.deltaTime));
-
-                        // Turn respectfully to face the Queen
-                        RotateTowards(queenPos, angularSpeed * 1.5f);
-                    }
-                }
+                // Move forward along clearing direction
+                float moveSpeed = (dist < clearanceRadius) ? (clearanceRadius - dist) * 3.5f + 1.5f : 2.5f;
+                agent.Move(clearDir * (moveSpeed * Time.deltaTime));
+            }
+            else if (dist < 3.8f && (!agent.hasPath || agent.isStopped || agent.velocity.sqrMagnitude < 0.1f))
+            {
+                // Cleared the corridor and stopped: turn back and face the Queen respectfully!
+                RotateTowards(queenPos, angularSpeed * 1.2f);
             }
         }
 
