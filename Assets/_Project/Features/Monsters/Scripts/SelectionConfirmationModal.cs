@@ -47,7 +47,6 @@ namespace NightCrawler.Monsters
             {
                 cancelButton.checkForDoubleClick = false;
             }
-            PrimeModal();
         }
 
         private void Start()
@@ -74,9 +73,6 @@ namespace NightCrawler.Monsters
                 modalWindow.closeOnConfirm = true;
                 modalWindow.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
                 modalWindow.onConfirm.RemoveAllListeners();
-
-                var mObj = modalWindow.gameObject;
-                mObj.SetActive(true);
                 modalWindow.isOn = false;
 
                 var mc = modalWindow.GetComponent<CanvasGroup>();
@@ -86,10 +82,8 @@ namespace NightCrawler.Monsters
                     mc.interactable = false;
                     mc.blocksRaycasts = false;
                 }
-                mObj.SetActive(false);
             }
 
-            gameObject.SetActive(true);
             var cg = GetComponent<CanvasGroup>();
             if (cg != null)
             {
@@ -97,7 +91,11 @@ namespace NightCrawler.Monsters
                 cg.interactable = false;
                 cg.blocksRaycasts = false;
             }
-            gameObject.SetActive(false);
+
+            if (gameObject.activeSelf)
+            {
+                gameObject.SetActive(false);
+            }
         }
 
         /// <summary>
@@ -202,6 +200,35 @@ namespace NightCrawler.Monsters
 
         public void OpenWindow()
         {
+            // If the card button's persistent Inspector call fired this, route through GirlMonsterSummonHUD
+            // so the correct card is selected, lock states are evaluated, and capsules are refreshed.
+            if (GirlMonsterSummonHUD.Instance != null && !GirlMonsterSummonHUD.Instance.IsOpeningModal)
+            {
+                int detectedIndex = ResolveClickedCardIndex();
+                GirlMonsterSummonHUD.Instance.OpenConfirmationModal(detectedIndex);
+                return;
+            }
+
+            OpenModalDirectly();
+        }
+
+        private int ResolveClickedCardIndex()
+        {
+            if (UnityEngine.EventSystems.EventSystem.current != null)
+            {
+                var sel = UnityEngine.EventSystems.EventSystem.current.currentSelectedGameObject;
+                if (sel != null && GirlMonsterSummonHUD.Instance != null)
+                {
+                    return GirlMonsterSummonHUD.Instance.ResolveCardIndex(sel);
+                }
+            }
+            return GirlMonsterSummonHUD.Instance != null ? GirlMonsterSummonHUD.Instance.SelectedMonsterIndex : 0;
+        }
+
+        public void OpenModalDirectly()
+        {
+            if (modalWindow != null && modalWindow.isOn) return;
+
             if (modalWindow != null)
             {
                 modalWindow.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
@@ -235,8 +262,10 @@ namespace NightCrawler.Monsters
                     modalCg.blocksRaycasts = true;
                 }
 
-                modalWindow.isOn = false;
-                modalWindow.OpenWindow();
+                if (!modalWindow.isOn)
+                {
+                    modalWindow.OpenWindow();
+                }
             }
         }
 

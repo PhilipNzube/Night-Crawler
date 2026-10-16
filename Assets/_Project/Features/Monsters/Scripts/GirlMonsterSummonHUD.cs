@@ -104,6 +104,8 @@ namespace NightCrawler.Monsters
         private int _selectedMonsterIndex = 0;
         private bool _isOpen = false;
         public bool IsOpen => _isOpen;
+        public bool IsOpeningModal { get; private set; }
+        public int SelectedMonsterIndex => _selectedMonsterIndex;
         public int TotalSummoned => _undeadSummoned + _berserkerSummoned;
 
         private void Awake()
@@ -291,7 +293,7 @@ namespace NightCrawler.Monsters
             {
                 selectionConfirmationModal.PrimeModal();
             }
-            if (confirmationModal != null)
+            if (confirmationModal != null && (selectionConfirmationModal == null || confirmationModal != selectionConfirmationModal.modalWindow))
             {
                 PrimeModal(confirmationModal);
             }
@@ -612,7 +614,18 @@ namespace NightCrawler.Monsters
         /// </summary>
         public void HookCardButtons()
         {
-            Transform container = cardsContainer != null ? cardsContainer : (monstersAnimator != null ? monstersAnimator.transform : transform);
+            Transform container = cardsContainer;
+            if (container == null && monstersAnimator != null)
+            {
+                var lg = monstersAnimator.GetComponentInChildren<LayoutGroup>(true);
+                if (lg != null) container = lg.transform;
+            }
+            if (container == null)
+            {
+                var lg = GetComponentInChildren<LayoutGroup>(true);
+                if (lg != null) container = lg.transform;
+            }
+            if (container == null) container = transform;
             if (container == null) return;
 
             var handledButtons = new HashSet<Button>();
@@ -859,7 +872,7 @@ namespace NightCrawler.Monsters
             }
         }
 
-        private int ResolveCardIndex(GameObject obj)
+        public int ResolveCardIndex(GameObject obj)
         {
             if (obj == null) return 0;
 
@@ -997,78 +1010,117 @@ namespace NightCrawler.Monsters
 
         public void OnCardSelectClicked(int index)
         {
-            _selectedMonsterIndex = index;
-            SelectCard(index);
+            OpenConfirmationModal(index);
+        }
 
-            bool isBerserker = IsSelectedMonsterBerserker(index);
-
-            if (isBerserker)
+        public void OpenConfirmationModal(int index)
+        {
+            if (IsOpeningModal) return;
+            IsOpeningModal = true;
+            try
             {
-                bool isUnlocked = IsBerserkerUnlocked();
-                if (!isUnlocked)
+                _selectedMonsterIndex = index;
+                SelectCard(index);
+
+                bool isBerserker = IsSelectedMonsterBerserker(index);
+
+                if (isBerserker)
                 {
-                    if (NotificationManager.Instance != null)
+                    bool isUnlocked = IsBerserkerUnlocked();
+                    if (!isUnlocked)
                     {
-                        NotificationManager.Instance.ShowNotification($"The Berserker is locked! Requires Dead Summon Charges Level {berserkerUnlockLevel}.", 3.5f);
+                        if (NotificationManager.Instance != null)
+                        {
+                            NotificationManager.Instance.ShowNotification($"The Berserker is locked! Requires Dead Summon Charges Level {berserkerUnlockLevel}.", 3.5f);
+                        }
+                        return;
                     }
-                    return;
+
+                    int maxBerserker = GetMaxBerserkerSlots();
+                    int remainingBerserker = Mathf.Max(0, maxBerserker - _berserkerSummoned);
+                    bool canSummon = remainingBerserker > 0;
+
+                    if (selectionConfirmationModal != null)
+                    {
+                        selectionConfirmationModal.ShowBerserkerSlots(remainingBerserker, maxBerserker, canSummon);
+                    }
                 }
-
-                int maxBerserker = GetMaxBerserkerSlots();
-                int remainingBerserker = Mathf.Max(0, maxBerserker - _berserkerSummoned);
-                bool canSummon = remainingBerserker > 0;
-
-                if (selectionConfirmationModal != null)
+                else
                 {
-                    selectionConfirmationModal.ShowBerserkerSlots(remainingBerserker, maxBerserker, canSummon);
-                }
-            }
-            else
-            {
-                // Undead
-                int maxUndead = GetMaxUndeadSlots();
-                int remainingUndead = Mathf.Max(0, maxUndead - _undeadSummoned);
-                bool canSummon = remainingUndead > 0;
+                    // Undead
+                    int maxUndead = GetMaxUndeadSlots();
+                    int remainingUndead = Mathf.Max(0, maxUndead - _undeadSummoned);
+                    bool canSummon = remainingUndead > 0;
 
-                if (selectionConfirmationModal != null)
+                    if (selectionConfirmationModal != null)
+                    {
+                        selectionConfirmationModal.ShowUndeadSlots(remainingUndead, maxUndead, canSummon);
+                    }
+                }
+
+                // Exact DealPanel open modal architecture:
+                var targetModal = confirmationModal != null ? confirmationModal : selectionConfirmationModal?.modalWindow;
+                if (targetModal != null)
                 {
-                    selectionConfirmationModal.ShowUndeadSlots(remainingUndead, maxUndead, canSummon);
-                }
-            }
+                    string monsterName = isBerserker ? "BERSERKER" : "UNDEAD";
+                    targetModal.titleText = $"SUMMON {monsterName}";
+                    targetModal.descriptionText = isBerserker 
+                        ? "Awaken the ferocious Berserker to tear through investigators." 
+                        : "Awaken an Undead lurker to hunt and patrol the mine.";
+                    targetModal.useLocalization = false;
+                    targetModal.UpdateUI();
 
-            // Exact DealPanel open modal architecture:
-            var targetModal = confirmationModal != null ? confirmationModal : selectionConfirmationModal?.modalWindow;
-            if (targetModal != null)
-            {
-                targetModal.startBehaviour = Michsky.UI.Heat.ModalWindowManager.StartBehaviour.Enable;
-                if (!targetModal.gameObject.activeSelf)
+                    if (targetModal.windowTitle != null) targetModal.windowTitle.text = targetModal.titleText;
+                    if (targetModal.windowDescription != null) targetModal.windowDescription.text = targetModal.descriptionText;
+
+                    targetModal.startBehaviour = Michsky.UI.Heat.ModalWindowManager.StartBehaviour.Enable;
+                    if (!targetModal.gameObject.activeSelf)
+                    {
+                        targetModal.gameObject.SetActive(true);
+                    }
+
+                    var modalCg = targetModal.GetComponent<CanvasGroup>();
+                    if (modalCg != null)
+                    {
+                        modalCg.alpha = 1f;
+                        modalCg.interactable = true;
+                        modalCg.blocksRaycasts = true;
+                    }
+
+                    // Also ensure selectionConfirmationModal GameObject is active and interactable if separate
+                    if (selectionConfirmationModal != null && !selectionConfirmationModal.gameObject.activeSelf)
+                    {
+                        selectionConfirmationModal.gameObject.SetActive(true);
+                        var selCg = selectionConfirmationModal.GetComponent<CanvasGroup>();
+                        if (selCg != null)
+                        {
+                            selCg.alpha = 1f;
+                            selCg.interactable = true;
+                            selCg.blocksRaycasts = true;
+                        }
+                    }
+
+                    if (!targetModal.isOn)
+                    {
+                        targetModal.OpenWindow();
+                    }
+                }
+                else if (selectionConfirmationModal != null)
                 {
-                    targetModal.gameObject.SetActive(true);
+                    selectionConfirmationModal.OpenModalDirectly();
                 }
-
-                var modalCg = targetModal.GetComponent<CanvasGroup>();
-                if (modalCg != null)
+                else
                 {
-                    modalCg.alpha = 1f;
-                    modalCg.interactable = true;
-                    modalCg.blocksRaycasts = true;
+                    OnConfirmSpawnClicked();
                 }
 
-                targetModal.isOn = false;
-                targetModal.OpenWindow();
+                Cursor.lockState = CursorLockMode.None;
+                Cursor.visible = true;
             }
-
-            if (selectionConfirmationModal != null)
+            finally
             {
-                selectionConfirmationModal.OpenWindow();
+                IsOpeningModal = false;
             }
-            else if (targetModal == null)
-            {
-                OnConfirmSpawnClicked();
-            }
-
-            Cursor.lockState = CursorLockMode.None;
-            Cursor.visible = true;
         }
 
         /// <summary>
