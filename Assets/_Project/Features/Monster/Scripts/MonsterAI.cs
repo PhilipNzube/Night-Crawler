@@ -355,30 +355,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     protected virtual void UpdateLocomotionAnimation()
     {
-        if (locomotion == null) return;
-
-        if (currentCommand == Command.Follow)
+        if (locomotion != null)
         {
-            Transform leader = _commandLeader != null ? _commandLeader : (GameManager.Instance != null ? GameManager.Instance.GirlTransform : null);
-            if (leader != null && Vector3.Distance(transform.position, leader.position) <= 18.0f)
-            {
-                // In Follow escort/patrol mode around the Girl:
-                // Strictly drive Walk animation — never run, never spasm into stand/idle! (EnemyNPC_AI logic)
-                if (_animator != null)
-                {
-                    if (_speedHash != 0) _animator.SetFloat(_speedHash, walkSpeed);
-                    if (_isRunningHash != 0) _animator.SetBool(_isRunningHash, false);
-                    if (_isWalkingHash != 0) _animator.SetBool(_isWalkingHash, true);
-                }
-                return;
-            }
-        }
-
-        locomotion.UpdateAnimation(_speedHash, _isRunningHash);
-        if (_animator != null && _isWalkingHash != 0)
-        {
-            float spd = locomotion.agent != null ? locomotion.agent.velocity.magnitude : 0f;
-            _animator.SetBool(_isWalkingHash, spd > 0.1f && spd <= (walkSpeed * 1.25f));
+            locomotion.UpdateAnimation(_speedHash, _isRunningHash);
         }
     }
 
@@ -440,10 +419,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     /// (EnemyNPC_AI AIState.Patrol).
     protected virtual void HandlePatrolBehavior()
     {
-        // 1. Follow command guards and patrols around the leader (EnemyNPC_AI Follow/Patrol logic)
+        // 1. Follow command overrides roam
         if (currentCommand == Command.Follow)
         {
-            HandleGuardingBehavior();
+            SwitchState(AIState.Running);
             return;
         }
 
@@ -753,10 +732,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         float distToLeader = Vector3.Distance(transform.position, leader.position);
         float stopDist = Mathf.Max(locomotion != null ? locomotion.stoppingDistance : 2.6f, 2.6f);
 
-        // EnemyNPC_AI Follow & Patrol architecture:
-        if (distToLeader > 18.0f)
+        // EnemyNPC_AI Follow architecture:
+        // Direct corridor pathfinding straight to leader.position along the NavMesh without wall collisions!
+        if (distToLeader > stopDist + 2.0f)
         {
-            // Far recall across the cavern: sprint to catch up to the leader
             locomotion.Resume(runSpeed);
             locomotion.SetDestinationSmooth(GetSurroundingDestination(leader, stopDist + 1.2f));
             if (locomotion.agent != null && locomotion.agent.hasPath)
@@ -764,17 +743,27 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 locomotion.RotateTowards(locomotion.agent.steeringTarget, angularSpeed);
             }
         }
-        else if (distToLeader < 2.0f)
+        else if (distToLeader > stopDist)
         {
-            // Too close / Girl walking into monster: Turn and move forward to yield spot, clearing path like she's a Queen
+            locomotion.Resume(walkSpeed);
+            locomotion.SetDestinationSmooth(GetSurroundingDestination(leader, stopDist));
+            if (locomotion.agent != null && locomotion.agent.hasPath)
+            {
+                locomotion.RotateTowards(locomotion.agent.steeringTarget, angularSpeed);
+            }
+        }
+        else if (distToLeader < 2.2f)
+        {
+            // Too close! Turn and move forward to yield spot, never walking backward!
             Vector3 push = (transform.position - leader.position);
             push.y = 0f;
             Vector3 escapeDir = push.sqrMagnitude > 0.05f ? push.normalized : transform.forward;
             Vector3 yieldSpot = leader.position + escapeDir * 2.8f;
             if (NavMesh.SamplePosition(yieldSpot, out NavMeshHit yHit, 2.5f, NavMesh.AllAreas))
             {
-                locomotion.Resume(walkSpeed);
+                locomotion.Resume(walkSpeed * 0.85f);
                 locomotion.SetDestinationSmooth(yHit.position);
+                // Turn in movement direction so it moves forward, never walking backward!
                 if (locomotion.agent != null && locomotion.agent.hasPath)
                 {
                     locomotion.RotateTowards(locomotion.agent.steeringTarget, angularSpeed * 1.5f);
@@ -787,19 +776,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
         else
         {
-            // Escort & Patrol around the Girl (EnemyNPC_AI Follow/Patrol logic):
-            // Always move at walkSpeed, smoothly updating destination around her perimeter without micro Stop() spasms.
-            // Let agent.stoppingDistance naturally decelerate near destination.
-            locomotion.Resume(walkSpeed);
-            locomotion.SetDestinationSmooth(GetSurroundingDestination(leader, stopDist));
-            if (locomotion.agent != null && locomotion.agent.hasPath)
-            {
-                locomotion.RotateTowards(locomotion.agent.steeringTarget, angularSpeed);
-            }
-            else
-            {
-                locomotion.RotateTowards(leader.position, angularSpeed * 0.8f);
-            }
+            // Safe distance cleared: stop and turn back to face the Queen!
+            locomotion.Stop();
+            locomotion.RotateTowards(leader.position, angularSpeed * 1.2f);
         }
     }
 
@@ -995,11 +974,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             if (combat != null) combat.CancelAttack();
             _recallGraceTimer = 0f;
 
-            SwitchState(AIState.Patrol);
+            SwitchState(AIState.Running);
             if (locomotion != null && _commandLeader != null)
             {
-                float dist = Vector3.Distance(transform.position, _commandLeader.position);
-                locomotion.Resume(dist > 18.0f ? runSpeed : walkSpeed);
+                locomotion.Resume(runSpeed);
                 locomotion.SetDestinationSmooth(GetSurroundingDestination(_commandLeader, 2.5f));
             }
         }

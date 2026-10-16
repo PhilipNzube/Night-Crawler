@@ -605,11 +605,10 @@ namespace NightCrawler.Monsters
 
         public void InitCardBindings() => HookCardButtons();
 
-        private int _lastCardClickFrame = -1;
-
         /// <summary>
         /// Comprehensive card button hooking mirroring GirlDealUI.HookCardButtons.
-        /// Hooks each card once (setting checkForDoubleClick = false) without duplicate nested listeners.
+        /// Recursively sweeps all ShopButtonManagers, ButtonManagers, BoxButtonManagers,
+        /// and UI Buttons, setting checkForDoubleClick = false and hooking both single and double clicks.
         /// </summary>
         public void HookCardButtons()
         {
@@ -618,7 +617,7 @@ namespace NightCrawler.Monsters
 
             var handledButtons = new HashSet<Button>();
             var handledBoxButtons = new HashSet<Michsky.UI.Heat.BoxButtonManager>();
-            var handledShopButtons = new HashSet<Michsky.UI.Heat.ShopButtonManager>();
+            var handledButtonManagers = new HashSet<Michsky.UI.Heat.ButtonManager>();
 
             // 1. Hook explicitly configured cardBindings
             if (cardBindings != null)
@@ -754,54 +753,61 @@ namespace NightCrawler.Monsters
             var shopButtons = container.GetComponentsInChildren<Michsky.UI.Heat.ShopButtonManager>(true);
             foreach (var card in shopButtons)
             {
-                if (handledShopButtons.Contains(card)) continue;
-                handledShopButtons.Add(card);
-
                 card.useLocalization = false;
                 card.titleLocalizationKey = string.Empty;
                 card.descriptionLocalizationKey = string.Empty;
 
                 int resolvedIndex = ResolveCardIndex(card.gameObject);
 
-                if (card.purchaseButton != null)
-                {
-                    var pb = card.purchaseButton;
-                    var pBtn = pb.GetComponentInChildren<Button>(true);
-                    if (pBtn != null) handledButtons.Add(pBtn);
-
-                    var pBbm = pb.GetComponent<Michsky.UI.Heat.BoxButtonManager>();
-                    if (pBbm != null)
-                    {
-                        handledBoxButtons.Add(pBbm);
-                        pBbm.checkForDoubleClick = false;
-                        pBbm.onDoubleClick.RemoveAllListeners();
-                        pBbm.onDoubleClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
-                    }
-
-                    pb.onClick.RemoveAllListeners();
-                    pb.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
-                }
+                card.onClick.RemoveAllListeners();
+                card.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
 
                 card.onPurchaseClick.RemoveAllListeners();
                 card.onPurchaseClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
 
-                card.onClick.RemoveAllListeners();
-                card.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
-
-                var rootBtn = card.GetComponent<Button>();
-                if (rootBtn != null) handledButtons.Add(rootBtn);
-
-                var rootBbm = card.GetComponent<Michsky.UI.Heat.BoxButtonManager>();
-                if (rootBbm != null)
+                if (card.purchaseButton != null)
                 {
-                    handledBoxButtons.Add(rootBbm);
-                    rootBbm.checkForDoubleClick = false;
-                    rootBbm.onDoubleClick.RemoveAllListeners();
-                    rootBbm.onDoubleClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+                    var pb = card.purchaseButton;
+                    handledButtonManagers.Add(pb);
+                    pb.checkForDoubleClick = false;
+                    pb.onClick.RemoveAllListeners();
+                    pb.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+                    pb.onDoubleClick.RemoveAllListeners();
+                    pb.onDoubleClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+
+                    var pBtn = pb.GetComponentInChildren<Button>(true);
+                    if (pBtn != null) handledButtons.Add(pBtn);
+                }
+
+                foreach (var bm in card.GetComponentsInChildren<Michsky.UI.Heat.ButtonManager>(true))
+                {
+                    handledButtonManagers.Add(bm);
+                    bm.checkForDoubleClick = false;
+                    bm.onClick.RemoveAllListeners();
+                    bm.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+                    bm.onDoubleClick.RemoveAllListeners();
+                    bm.onDoubleClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+                }
+
+                foreach (var bbm in card.GetComponentsInChildren<Michsky.UI.Heat.BoxButtonManager>(true))
+                {
+                    handledBoxButtons.Add(bbm);
+                    bbm.checkForDoubleClick = false;
+                    bbm.onClick.RemoveAllListeners();
+                    bbm.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+                    bbm.onDoubleClick.RemoveAllListeners();
+                    bbm.onDoubleClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+                }
+
+                foreach (var btn in card.GetComponentsInChildren<Button>(true))
+                {
+                    handledButtons.Add(btn);
+                    btn.onClick.RemoveAllListeners();
+                    btn.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
                 }
             }
 
-            // 3. Also check all standalone BoxButtonManagers in cards container
+            // Also check all standalone BoxButtonManagers in cards container
             var boxButtons = container.GetComponentsInChildren<Michsky.UI.Heat.BoxButtonManager>(true);
             foreach (var boxBtn in boxButtons)
             {
@@ -811,7 +817,6 @@ namespace NightCrawler.Monsters
                 boxBtn.checkForDoubleClick = false;
                 boxBtn.onClick.RemoveAllListeners();
                 boxBtn.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
-
                 boxBtn.onDoubleClick.RemoveAllListeners();
                 boxBtn.onDoubleClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
 
@@ -819,15 +824,33 @@ namespace NightCrawler.Monsters
                 if (uBtn != null) handledButtons.Add(uBtn);
             }
 
-            // 4. Also check plain UI Buttons if not already handled
+            // Also check all standalone ButtonManagers in cards container
+            var btnManagers = container.GetComponentsInChildren<Michsky.UI.Heat.ButtonManager>(true);
+            foreach (var bm in btnManagers)
+            {
+                if (handledButtonManagers.Contains(bm)) continue;
+                if (bm == heatMonsterSpectateButton) continue;
+                if (monsterSpectateHotkey != null && bm.transform.IsChildOf(monsterSpectateHotkey.transform)) continue;
+
+                int resolvedIndex = ResolveCardIndex(bm.gameObject);
+
+                bm.checkForDoubleClick = false;
+                bm.onClick.RemoveAllListeners();
+                bm.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+                bm.onDoubleClick.RemoveAllListeners();
+                bm.onDoubleClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+
+                var uBtn = bm.GetComponent<Button>();
+                if (uBtn != null) handledButtons.Add(uBtn);
+            }
+
+            // Also check plain UI Buttons if not already handled
             var plainButtons = container.GetComponentsInChildren<Button>(true);
             foreach (var btn in plainButtons)
             {
                 if (handledButtons.Contains(btn)) continue;
                 if (btn == monsterSpectateButton) continue;
                 if (monsterSpectateHotkey != null && btn.transform.IsChildOf(monsterSpectateHotkey.transform)) continue;
-                if (btn.GetComponentInParent<Michsky.UI.Heat.ShopButtonManager>() != null) continue;
-                if (btn.GetComponentInParent<Michsky.UI.Heat.BoxButtonManager>() != null) continue;
 
                 int resolvedIndex = ResolveCardIndex(btn.gameObject);
 
@@ -974,9 +997,6 @@ namespace NightCrawler.Monsters
 
         public void OnCardSelectClicked(int index)
         {
-            if (Time.frameCount == _lastCardClickFrame) return;
-            _lastCardClickFrame = Time.frameCount;
-
             _selectedMonsterIndex = index;
             SelectCard(index);
 
@@ -1016,28 +1036,17 @@ namespace NightCrawler.Monsters
                 }
             }
 
-            OpenConfirmationModal();
-        }
-
-        /// <summary>
-        /// Opens the confirmation modal cleanly on a single click, using the exact method of GirlDealUI.OpenDealModal.
-        /// Guarantees the parent GameObject is active and CanvasGroup is enabled, then calls OpenWindow once.
-        /// </summary>
-        public void OpenConfirmationModal()
-        {
-            if (selectionConfirmationModal != null)
+            // Exact DealPanel open modal architecture:
+            var targetModal = confirmationModal != null ? confirmationModal : selectionConfirmationModal?.modalWindow;
+            if (targetModal != null)
             {
-                selectionConfirmationModal.OpenWindow();
-            }
-            else if (confirmationModal != null)
-            {
-                confirmationModal.startBehaviour = Michsky.UI.Heat.ModalWindowManager.StartBehaviour.Enable;
-                if (!confirmationModal.gameObject.activeSelf)
+                targetModal.startBehaviour = Michsky.UI.Heat.ModalWindowManager.StartBehaviour.Enable;
+                if (!targetModal.gameObject.activeSelf)
                 {
-                    confirmationModal.gameObject.SetActive(true);
+                    targetModal.gameObject.SetActive(true);
                 }
 
-                var modalCg = confirmationModal.GetComponent<CanvasGroup>();
+                var modalCg = targetModal.GetComponent<CanvasGroup>();
                 if (modalCg != null)
                 {
                     modalCg.alpha = 1f;
@@ -1045,13 +1054,17 @@ namespace NightCrawler.Monsters
                     modalCg.blocksRaycasts = true;
                 }
 
-                confirmationModal.isOn = false;
-                confirmationModal.OpenWindow();
+                targetModal.isOn = false;
+                targetModal.OpenWindow();
             }
-            else
+
+            if (selectionConfirmationModal != null)
+            {
+                selectionConfirmationModal.OpenWindow();
+            }
+            else if (targetModal == null)
             {
                 OnConfirmSpawnClicked();
-                return;
             }
 
             Cursor.lockState = CursorLockMode.None;
