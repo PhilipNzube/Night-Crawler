@@ -269,6 +269,43 @@ namespace NightCrawler.Monsters
 
         public static bool HasLivingInvestigatorsInScene()
         {
+            // 1. Check GameManager tracked alive explorers
+            if (GameManager.Instance != null && GameManager.Instance.AliveExplorers != null)
+            {
+                foreach (var exp in GameManager.Instance.AliveExplorers)
+                {
+                    if (exp != null && exp.gameObject != null && exp.gameObject.activeInHierarchy)
+                    {
+                        Transform root = exp.transform.root != null ? exp.transform.root : exp.transform;
+                        if (!MonsterAI.IsGirl(root))
+                        {
+                            if (root.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) continue;
+                            if (root.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) continue;
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            // 2. Check NetworkManager SpawnManager spawned objects
+            if (NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null && NetworkManager.Singleton.SpawnManager.SpawnedObjects != null)
+            {
+                foreach (var netObj in NetworkManager.Singleton.SpawnManager.SpawnedObjects.Values)
+                {
+                    if (netObj != null && netObj.IsPlayerObject && netObj.gameObject.activeInHierarchy)
+                    {
+                        Transform root = netObj.transform.root != null ? netObj.transform.root : netObj.transform;
+                        if (!MonsterAI.IsGirl(root))
+                        {
+                            if (root.TryGetComponent<TargetHealth>(out var th) && (th.isCorpse.Value || th.CurrentHealth <= 0)) continue;
+                            if (root.TryGetComponent<HealthSystem>(out var hs) && hs.IsDead) continue;
+                            return true;
+                        }
+                    }
+                }
+            }
+
+            // 3. Fallback: Tag check across active scene objects
             var players = GameObject.FindGameObjectsWithTag("Player");
             foreach (var p in players)
             {

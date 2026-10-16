@@ -44,12 +44,13 @@ namespace NightCrawler.Monsters
         [Header("Physical Body Dimensions & Posture Squeeze")]
         [Tooltip("Standard standing dimensions.")]
         public float standingHeight = 1.85f;
-        public float standingRadius = 0.42f;
+        public float standingRadius = 0.5f;
 
         [Tooltip("Compact crawling dimensions (allows squeezing under low overhangs and through small spaces).")]
         public float crawlingHeight = 0.65f;
-        public float crawlingRadius = 0.32f;
+        public float crawlingRadius = 0.5f;
 
+        private MonsterAI _monsterAI;
         private CharacterController _characterController;
         private float _defaultAgentHeight;
         private float _defaultAgentRadius;
@@ -84,6 +85,7 @@ namespace NightCrawler.Monsters
             if (agent == null) agent = GetComponent<NavMeshAgent>();
             if (animator == null) animator = GetComponentInChildren<Animator>();
             _characterController = GetComponent<CharacterController>();
+            if (_monsterAI == null) _monsterAI = GetComponent<MonsterAI>();
 
             if (obstacleMask.value == 0)
             {
@@ -107,7 +109,9 @@ namespace NightCrawler.Monsters
                 _defaultAgentHeight = agent.height > 0 ? agent.height : standingHeight;
                 _defaultAgentRadius = agent.radius > 0 ? agent.radius : standingRadius;
                 standingHeight = _defaultAgentHeight;
-                standingRadius = _defaultAgentRadius;
+                standingRadius = Mathf.Max(0.5f, _defaultAgentRadius);
+                crawlingRadius = Mathf.Max(0.5f, crawlingRadius);
+                agent.radius = standingRadius;
             }
 
             if (_characterController != null)
@@ -115,6 +119,7 @@ namespace NightCrawler.Monsters
                 _defaultControllerHeight = _characterController.height > 0 ? _characterController.height : standingHeight;
                 _defaultControllerRadius = _characterController.radius > 0 ? _characterController.radius : standingRadius;
                 _defaultControllerCenter = _characterController.center;
+                _characterController.radius = Mathf.Max(0.45f, _defaultControllerRadius);
             }
 
             _lastPhysicalPosition = transform.position;
@@ -122,8 +127,8 @@ namespace NightCrawler.Monsters
 
         /// <summary>
         /// Dynamically scales NavMeshAgent and CharacterController dimensions based on posture.
-        /// When crawling, shrinks height and radius so the monster can pass through small spaces
-        /// and under low overhangs that fit its crawling body.
+        /// Squeezing under low overhangs is determined by height (crawlingHeight = 0.65f),
+        /// while agent.radius is safely kept at 0.5m so obstacle avoidance between same-kind monsters is never broken.
         /// </summary>
         public void SetCrawlPosture(bool crawling)
         {
@@ -135,13 +140,13 @@ namespace NightCrawler.Monsters
             if (agent != null && agent.enabled)
             {
                 agent.height = targetHeight;
-                agent.radius = targetRadius;
+                agent.radius = Mathf.Max(0.5f, targetRadius);
             }
 
             if (_characterController != null)
             {
                 _characterController.height = targetHeight;
-                _characterController.radius = targetRadius;
+                _characterController.radius = Mathf.Max(0.45f, targetRadius);
                 _characterController.center = crawling 
                     ? new Vector3(0f, targetHeight * 0.5f, 0f) 
                     : (_defaultControllerCenter.sqrMagnitude > 0 ? _defaultControllerCenter : new Vector3(0f, targetHeight * 0.5f, 0f));
@@ -187,6 +192,9 @@ namespace NightCrawler.Monsters
         private void Update()
         {
             TrackPhysicalMovement();
+            ResolveSameKindAvoidance();
+            ResolveQueenClearance();
+            ResolveTargetClearance();
 
             if (_repositionDurationTimer > 0f)
             {
@@ -200,6 +208,182 @@ namespace NightCrawler.Monsters
             if (_repositionCooldownTimer > 0f)
             {
                 _repositionCooldownTimer -= Time.deltaTime;
+            }
+        }
+
+        /// <summary>
+        /// Prevents monsters of the same kind (Zombie to Zombie, Berserker to Berserker)
+        /// from overlapping or passing through each other.
+        /// Applies mutual lateral steering and physical NavMesh separation forces.
+        /// </summary>
+        public void ResolveSameKindAvoidance()
+        {
+            if (agent == null || !agent.enabled || !agent.isOnNavMesh) return;
+            if (_monsterAI == null) _monsterAI = GetComponent<MonsterAI>();
+            if (_monsterAI == null || _monsterAI.currentState == MonsterAI.AIState.Dead) return;
+
+            var activeMonsters = MonsterAI.ActiveMonsters;
+            if (activeMonsters == null || activeMonsters.Count <= 1) return;
+
+            // Clearance bubble: at least 1.15m for zombies, 1.45m for berserkers
+            float minClearance = _monsterAI.monsterType == MonsterAI.MonsterType.Berserker ? 1.45f : 1.15f;
+            float minClearanceSqr = minClearance * minClearance;
+
+            Vector3 myPos = transform.position;
+            Vector3 totalPush = Vector3.zero;
+            int pushCount = 0;
+
+            for (int i = 0; i < activeMonsters.Count; i++)
+            {
+                var other = activeMonsters[i];
+                if (other == null || other == _monsterAI || other.currentState == MonsterAI.AIState.Dead) continue;
+                // Only monsters of the same kind avoid each other
+                if (other.monsterType != _monsterAI.monsterType) continue;
+
+                Vector3 otherPos = other.transform.position;
+                Vector3 diff = myPos - otherPos;
+                diff.y = 0f;
+
+                float sqrDist = diff.sqrMagnitude;
+                if (sqrDist < minClearanceSqr)
+                {
+                    float dist = Mathf.Sqrt(sqrDist);
+                    Vector3 pushDir;
+                    if (dist > 0.001f)
+                    {
+                        pushDir = diff / dist;
+                    }
+                    else
+                    {
+                        // Deterministic angle if exactly overlapping
+                        float angle = (gameObject.GetInstanceID() % 360) * Mathf.Deg2Rad;
+                        pushDir = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
+                    }
+
+                    float penetration = minClearance - dist;
+                    totalPush += pushDir * penetration;
+                    pushCount++;
+                }
+            }
+
+            if (pushCount > 0)
+            {
+                Vector3 avgPush = totalPush / pushCount;
+                // Apply soft physical separation displacement along NavMesh
+                Vector3 moveDelta = avgPush * (3.0f * Time.deltaTime);
+                agent.Move(moveDelta);
+
+                // If moving along a path, also apply lateral steering to smoothly route around peer
+                if (agent.hasPath && !agent.isStopped && agent.velocity.sqrMagnitude > 0.1f)
+                {
+                    Vector3 lateral = Vector3.Cross(Vector3.up, agent.velocity.normalized);
+                    if (Vector3.Dot(lateral, avgPush) < 0f) lateral = -lateral;
+                    agent.Move(lateral * (1.5f * Time.deltaTime));
+                }
+            }
+        }
+
+        /// <summary>
+        /// Ensures monsters always treat the Girl as their Queen:
+        /// 1. Never stops or clips inside her (keeps at least 2.4m clearance).
+        /// 2. If standing in her forward path, smartly parts to the side to clear a wide corridor for her.
+        /// 3. Respectfully rotates towards the Queen when close.
+        /// </summary>
+        public void ResolveQueenClearance()
+        {
+            if (agent == null || !agent.enabled || !agent.isOnNavMesh) return;
+            if (_monsterAI == null) _monsterAI = GetComponent<MonsterAI>();
+            if (_monsterAI == null || _monsterAI.currentState == MonsterAI.AIState.Dead) return;
+
+            Transform queen = _monsterAI.CommandLeader;
+            if (queen == null && GameManager.Instance != null)
+            {
+                queen = GameManager.Instance.GirlTransform;
+            }
+            if (queen == null) return;
+
+            Vector3 myPos = transform.position;
+            Vector3 queenPos = queen.position;
+            Vector3 diff = myPos - queenPos;
+            diff.y = 0f;
+
+            float dist = diff.magnitude;
+            float clearanceRadius = 2.4f;
+
+            // 1. Physical pushback / clearance: never stop or penetrate inside the Queen!
+            if (dist < clearanceRadius)
+            {
+                Vector3 pushDir;
+                if (dist > 0.01f)
+                {
+                    pushDir = diff / dist;
+                }
+                else
+                {
+                    float angle = (gameObject.GetInstanceID() % 360) * Mathf.Deg2Rad;
+                    pushDir = new Vector3(Mathf.Cos(angle), 0f, Mathf.Sin(angle));
+                }
+
+                float penetration = clearanceRadius - dist;
+                agent.Move(pushDir * (penetration * 4.0f * Time.deltaTime));
+            }
+
+            // 2. Smart path clearing ("Parting the Red Sea" for royalty):
+            // If the Queen is within 3.5m and facing towards the monster, sidestep to clear her corridor!
+            if (dist < 3.5f)
+            {
+                Vector3 queenForward = queen.forward;
+                queenForward.y = 0f;
+
+                if (queenForward.sqrMagnitude > 0.05f && dist > 0.05f)
+                {
+                    float dot = Vector3.Dot(queenForward.normalized, diff.normalized);
+                    // If monster is within a 120-degree cone ahead of the Queen:
+                    if (dot > 0.25f)
+                    {
+                        Vector3 lateral = Vector3.Cross(Vector3.up, queenForward.normalized);
+                        // Bias towards whichever side the monster is already slightly on
+                        if (Vector3.Dot(lateral, diff) < 0f) lateral = -lateral;
+
+                        // Apply smooth lateral clearing displacement
+                        agent.Move(lateral * (3.0f * Time.deltaTime));
+
+                        // Turn respectfully to face the Queen
+                        RotateTowards(queenPos, angularSpeed * 1.5f);
+                    }
+                }
+            }
+        }
+
+        /// <summary>
+        /// Ensures monsters never stop or clip inside human investigators during pursuit or combat.
+        /// Enforces physical striking clearance (~1.35m).
+        /// </summary>
+        public void ResolveTargetClearance()
+        {
+            if (agent == null || !agent.enabled || !agent.isOnNavMesh) return;
+            if (_monsterAI == null) _monsterAI = GetComponent<MonsterAI>();
+            if (_monsterAI == null || _monsterAI.currentState == MonsterAI.AIState.Dead) return;
+
+            Transform target = _monsterAI.target;
+            if (target == null) return;
+
+            // Don't apply target clearance against the Girl (Queen clearance handles her with higher priority)
+            if (target == _monsterAI.CommandLeader || (GameManager.Instance != null && target == GameManager.Instance.GirlTransform)) return;
+
+            Vector3 myPos = transform.position;
+            Vector3 targetPos = target.position;
+            Vector3 diff = myPos - targetPos;
+            diff.y = 0f;
+
+            float dist = diff.magnitude;
+            float combatClearance = 1.35f;
+
+            if (dist < combatClearance)
+            {
+                Vector3 pushDir = dist > 0.01f ? diff / dist : -transform.forward;
+                float penetration = combatClearance - dist;
+                agent.Move(pushDir * (penetration * 4.0f * Time.deltaTime));
             }
         }
 
@@ -242,11 +426,17 @@ namespace NightCrawler.Monsters
             if (agent == null || !agent.enabled || !agent.isOnNavMesh) return;
             if (IsRepositioning) return; // Allow active wall-avoidance maneuver to complete
 
-            if (Vector3.Distance(_currentDestination, targetPosition) > MinDestinationDelta || !agent.hasPath)
+            Vector3 validPos = targetPosition;
+            if (NavMesh.SamplePosition(targetPosition, out NavMeshHit hit, 3.5f, NavMesh.AllAreas))
+            {
+                validPos = hit.position;
+            }
+
+            if (Vector3.Distance(_currentDestination, validPos) > MinDestinationDelta || !agent.hasPath)
             {
                 agent.isStopped = false;
-                agent.SetDestination(targetPosition);
-                _currentDestination = targetPosition;
+                agent.SetDestination(validPos);
+                _currentDestination = validPos;
             }
         }
 
@@ -358,8 +548,8 @@ namespace NightCrawler.Monsters
             if (agent == null || !agent.enabled || !agent.isOnNavMesh) return false;
             if (agent.pathPending) return false;
 
-            // Incomplete or invalid NavMesh path means an obstacle blocks the route
-            if (agent.pathStatus == NavMeshPathStatus.PathPartial || agent.pathStatus == NavMeshPathStatus.PathInvalid)
+            // Only truly invalid NavMesh paths indicate impossible routing
+            if (agent.pathStatus == NavMeshPathStatus.PathInvalid)
             {
                 return true;
             }
@@ -450,9 +640,15 @@ namespace NightCrawler.Monsters
             }
 
             // 1. First Priority: Check if there's a forward/flanking opening that fits the body!
-            Vector3 preferredDir = (agent.hasPath && (agent.destination - transform.position).sqrMagnitude > 0.1f) 
-                ? (agent.destination - transform.position).normalized 
-                : transform.forward;
+            Vector3 preferredDir = transform.forward;
+            if (_monsterAI != null && _monsterAI.currentCommand == MonsterAI.Command.Follow && _monsterAI.CommandLeader != null)
+            {
+                preferredDir = (_monsterAI.CommandLeader.position - transform.position).normalized;
+            }
+            else if (agent.hasPath && (agent.destination - transform.position).sqrMagnitude > 0.1f) 
+            {
+                preferredDir = (agent.destination - transform.position).normalized;
+            }
             preferredDir.y = 0;
 
             if (TryFindPassableSpace(preferredDir, range, out Vector3 passableSpace))

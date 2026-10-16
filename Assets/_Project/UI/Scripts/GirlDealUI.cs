@@ -175,9 +175,9 @@ public class GirlDealUI : MonoBehaviour
             playerSelector.onValueChanged.AddListener(OnOfferToSelectorChanged);
         }
 
-        // Clean up any default ExitGame calls on Modals
-        SanitizeModal(dealModal);
-        SanitizeModal(errorModal);
+        // Prime modals on startup so Michsky's StartBehaviour.Disable doesn't swallow the first user click
+        PrimeModal(dealModal);
+        PrimeModal(errorModal);
     }
 
     private void Start()
@@ -196,9 +196,9 @@ public class GirlDealUI : MonoBehaviour
             dealsAnimator.Play("Panel Instant Out");
         }
 
-        // Guarantee modals start completely disabled and non-blocking on frame 0
-        SanitizeModal(dealModal);
-        SanitizeModal(errorModal);
+        // Guarantee modals are primed and non-blocking on frame 0
+        PrimeModal(dealModal);
+        PrimeModal(errorModal);
     }
 
     private void OnDestroy()
@@ -416,6 +416,14 @@ public class GirlDealUI : MonoBehaviour
                 var pBtn = card.purchaseButton.GetComponentInChildren<Button>(true);
                 if (pBtn != null) handledButtons.Add(pBtn);
 
+                var pBbm = card.purchaseButton.GetComponent<BoxButtonManager>();
+                if (pBbm != null)
+                {
+                    pBbm.checkForDoubleClick = false;
+                    pBbm.onDoubleClick.RemoveAllListeners();
+                    pBbm.onDoubleClick.AddListener(() => OnCardSelected(title, desc));
+                }
+
                 card.purchaseButton.onClick.RemoveAllListeners();
                 card.purchaseButton.onClick.AddListener(() => OnCardSelected(title, desc));
             }
@@ -430,15 +438,43 @@ public class GirlDealUI : MonoBehaviour
 
             var rootBtn = card.GetComponent<Button>();
             if (rootBtn != null) handledButtons.Add(rootBtn);
+
+            // Check if card itself has BoxButtonManager
+            var rootBbm = card.GetComponent<BoxButtonManager>();
+            if (rootBbm != null)
+            {
+                rootBbm.checkForDoubleClick = false;
+                rootBbm.onDoubleClick.RemoveAllListeners();
+                rootBbm.onDoubleClick.AddListener(() => OnCardSelected(title, desc));
+            }
         }
 
-        // 2. Also check plain UI Buttons if ShopButtonManager not used
+        // 2. Also check all BoxButtonManagers in cards container
+        var boxButtons = container.GetComponentsInChildren<BoxButtonManager>(true);
+        foreach (var boxBtn in boxButtons)
+        {
+            boxBtn.checkForDoubleClick = false;
+            string title = ResolveCardTitle(boxBtn.gameObject, null);
+            string desc = ResolveCardDesc(boxBtn.gameObject, null);
+
+            boxBtn.onClick.RemoveAllListeners();
+            boxBtn.onClick.AddListener(() => OnCardSelected(title, desc));
+
+            boxBtn.onDoubleClick.RemoveAllListeners();
+            boxBtn.onDoubleClick.AddListener(() => OnCardSelected(title, desc));
+
+            var uBtn = boxBtn.GetComponent<Button>();
+            if (uBtn != null) handledButtons.Add(uBtn);
+        }
+
+        // 3. Also check plain UI Buttons if ShopButtonManager or BoxButtonManager not used
         var plainButtons = container.GetComponentsInChildren<Button>(true);
         foreach (var btn in plainButtons)
         {
             if (handledButtons.Contains(btn)) continue;
-            // Ignore any child buttons belonging to a ShopButtonManager
+            // Ignore any child buttons belonging to a ShopButtonManager or BoxButtonManager
             if (btn.GetComponentInParent<ShopButtonManager>() != null) continue;
+            if (btn.GetComponentInParent<BoxButtonManager>() != null) continue;
 
             // Resolve parent card root
             GameObject cardObj = btn.gameObject;
@@ -632,6 +668,7 @@ public class GirlDealUI : MonoBehaviour
         UpdateDealSlotsDisplay();
 
         // Ensure modal is active and interactable before opening
+        dealModal.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
         if (!dealModal.gameObject.activeSelf)
             dealModal.gameObject.SetActive(true);
 
@@ -643,6 +680,7 @@ public class GirlDealUI : MonoBehaviour
             cg.blocksRaycasts = true;
         }
 
+        dealModal.isOn = false;
         dealModal.OpenWindow();
 
         Cursor.lockState = CursorLockMode.None;
@@ -726,6 +764,7 @@ public class GirlDealUI : MonoBehaviour
     {
         if (errorModal != null)
         {
+            errorModal.isOn = false;
             errorModal.CloseWindow();
 
             var cg = errorModal.GetComponent<CanvasGroup>();
@@ -1203,6 +1242,47 @@ public class GirlDealUI : MonoBehaviour
 
         try { errorModal.UpdateUI(); } catch { }
 
+        errorModal.closeOnConfirm = true;
+        errorModal.closeOnCancel = true;
+        errorModal.onConfirm.RemoveAllListeners();
+        errorModal.onConfirm.AddListener(CloseErrorModal);
+
+        if (errorModal.confirmButton != null)
+        {
+            errorModal.confirmButton.onClick.RemoveAllListeners();
+            errorModal.confirmButton.onClick.AddListener(CloseErrorModal);
+            var bbm = errorModal.confirmButton.GetComponent<BoxButtonManager>();
+            if (bbm != null)
+            {
+                bbm.checkForDoubleClick = false;
+                bbm.onClick.RemoveAllListeners();
+                bbm.onClick.AddListener(CloseErrorModal);
+                bbm.onDoubleClick.RemoveAllListeners();
+                bbm.onDoubleClick.AddListener(CloseErrorModal);
+            }
+            var uBtn = errorModal.confirmButton.GetComponent<Button>();
+            if (uBtn != null)
+            {
+                uBtn.onClick.RemoveAllListeners();
+                uBtn.onClick.AddListener(CloseErrorModal);
+            }
+        }
+
+        foreach (var btn in errorModal.GetComponentsInChildren<Button>(true))
+        {
+            btn.onClick.RemoveAllListeners();
+            btn.onClick.AddListener(CloseErrorModal);
+        }
+        foreach (var bbm in errorModal.GetComponentsInChildren<BoxButtonManager>(true))
+        {
+            bbm.checkForDoubleClick = false;
+            bbm.onClick.RemoveAllListeners();
+            bbm.onClick.AddListener(CloseErrorModal);
+            bbm.onDoubleClick.RemoveAllListeners();
+            bbm.onDoubleClick.AddListener(CloseErrorModal);
+        }
+
+        errorModal.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
         if (!errorModal.gameObject.activeSelf)
             errorModal.gameObject.SetActive(true);
 
@@ -1214,6 +1294,7 @@ public class GirlDealUI : MonoBehaviour
             errCg.blocksRaycasts = true;
         }
 
+        errorModal.isOn = false;
         errorModal.OpenWindow();
 
         // Re-enforce windowTitle after OpenWindow to prevent any animator/localization reverts
@@ -1231,6 +1312,78 @@ public class GirlDealUI : MonoBehaviour
         return 500; // Safe fallback for testing if offline
     }
 
+    private void PrimeModal(ModalWindowManager modal)
+    {
+        if (modal == null) return;
+
+        modal.useLocalization = false;
+        modal.closeOnCancel = true;
+        modal.closeOnConfirm = true;
+        modal.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
+
+        // Remove any ExitGame listeners from onConfirm
+        modal.onConfirm.RemoveAllListeners();
+
+        if (modal == errorModal)
+        {
+            modal.onConfirm.AddListener(CloseErrorModal);
+            if (modal.confirmButton != null)
+            {
+                modal.confirmButton.onClick.RemoveAllListeners();
+                modal.confirmButton.onClick.AddListener(CloseErrorModal);
+                var bbm = modal.confirmButton.GetComponent<BoxButtonManager>();
+                if (bbm != null)
+                {
+                    bbm.checkForDoubleClick = false;
+                    bbm.onClick.RemoveAllListeners();
+                    bbm.onClick.AddListener(CloseErrorModal);
+                    bbm.onDoubleClick.RemoveAllListeners();
+                    bbm.onDoubleClick.AddListener(CloseErrorModal);
+                }
+                var uBtn = modal.confirmButton.GetComponent<Button>();
+                if (uBtn != null)
+                {
+                    uBtn.onClick.RemoveAllListeners();
+                    uBtn.onClick.AddListener(CloseErrorModal);
+                }
+            }
+            if (modal.cancelButton != null)
+            {
+                modal.cancelButton.onClick.RemoveAllListeners();
+                modal.cancelButton.onClick.AddListener(CloseErrorModal);
+            }
+            foreach (var btn in modal.GetComponentsInChildren<Button>(true))
+            {
+                btn.onClick.RemoveAllListeners();
+                btn.onClick.AddListener(CloseErrorModal);
+            }
+            foreach (var bbm in modal.GetComponentsInChildren<BoxButtonManager>(true))
+            {
+                bbm.checkForDoubleClick = false;
+                bbm.onClick.RemoveAllListeners();
+                bbm.onClick.AddListener(CloseErrorModal);
+                bbm.onDoubleClick.RemoveAllListeners();
+                bbm.onDoubleClick.AddListener(CloseErrorModal);
+            }
+        }
+
+        // Briefly activate GameObject so Unity runs Awake() and Start() during scene init
+        // rather than when the player clicks the card for the first time!
+        GameObject obj = modal.gameObject;
+        obj.SetActive(true);
+        modal.isOn = false;
+
+        var cg = modal.GetComponent<CanvasGroup>();
+        if (cg != null)
+        {
+            cg.alpha = 0f;
+            cg.interactable = false;
+            cg.blocksRaycasts = false;
+        }
+
+        obj.SetActive(false);
+    }
+
     private void SanitizeModal(ModalWindowManager modal)
     {
         if (modal == null) return;
@@ -1238,7 +1391,7 @@ public class GirlDealUI : MonoBehaviour
         modal.useLocalization = false;
         modal.closeOnCancel = true;
         modal.closeOnConfirm = true;
-        modal.startBehaviour = ModalWindowManager.StartBehaviour.Disable;
+        modal.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
         modal.isOn = false;
 
         // Remove any ExitGame listeners from onConfirm

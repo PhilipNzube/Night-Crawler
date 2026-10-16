@@ -160,6 +160,18 @@ public class ZombieAI : MonsterAI
                 }
             }
         }
+        else if (cmd == Command.Hunt)
+        {
+            if (target != null)
+            {
+                float dist = Vector3.Distance(transform.position, target.position);
+                // When dispatched to hunt from far away (> 6.5m), immediately drop into high-speed all-fours crawl sprint!
+                if (dist > standTransitionDistance)
+                {
+                    DropToCrawl();
+                }
+            }
+        }
     }
 
     private void EvaluatePosture(float distanceToTarget)

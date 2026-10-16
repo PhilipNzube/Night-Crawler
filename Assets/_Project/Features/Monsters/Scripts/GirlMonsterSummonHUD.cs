@@ -125,8 +125,8 @@ namespace NightCrawler.Monsters
                 selectionConfirmationModal = confirmationModal.GetComponent<SelectionConfirmationModal>();
             }
 
-            // Strictly close and sanitize confirmation modals if open by default
-            DeactivateAllModals();
+            // Ensure modals are primed on startup so Michsky's StartBehaviour.Disable doesn't swallow the first user click
+            PrimeModals();
 
             // Wire Confirmation Modal buttons
             var confirmBtn = selectionConfirmationModal != null && selectionConfirmationModal.confirmButton != null 
@@ -271,12 +271,35 @@ namespace NightCrawler.Monsters
                 canvasGroup.interactable = false;
                 canvasGroup.blocksRaycasts = false;
             }
-            if (monstersAnimator != null)
-            {
-                monstersAnimator.Play("Panel Instant Out");
-            }
+            // Ensure modals are primed on startup so Michsky's StartBehaviour.Disable doesn't swallow the first user click
+            PrimeModals();
+        }
 
-            DeactivateAllModals();
+        private void PrimeModals()
+        {
+            if (selectionConfirmationModal != null)
+            {
+                selectionConfirmationModal.PrimeModal();
+            }
+            if (confirmationModal != null)
+            {
+                confirmationModal.useLocalization = false;
+                confirmationModal.closeOnCancel = true;
+                confirmationModal.closeOnConfirm = true;
+                confirmationModal.startBehaviour = Michsky.UI.Heat.ModalWindowManager.StartBehaviour.Enable;
+
+                confirmationModal.gameObject.SetActive(true);
+                confirmationModal.isOn = false;
+
+                var cg = confirmationModal.GetComponent<CanvasGroup>();
+                if (cg != null)
+                {
+                    cg.alpha = 0f;
+                    cg.interactable = false;
+                    cg.blocksRaycasts = false;
+                }
+                confirmationModal.gameObject.SetActive(false);
+            }
         }
 
         private void InitializeSummonCharges()
@@ -362,6 +385,7 @@ namespace NightCrawler.Monsters
 
             // Re-evaluate lock states every open (player may have levelled up mid-match)
             ApplyLockStates();
+            InitCardBindings();
 
             // 1. Reveal Summon HUD via CanvasGroup
             if (canvasGroup != null)
@@ -440,7 +464,6 @@ namespace NightCrawler.Monsters
             }
             if (confirmationModal != null)
             {
-                confirmationModal.CloseWindow();
                 SelectionConfirmationModal.SanitizeModal(confirmationModal);
             }
         }
@@ -572,8 +595,45 @@ namespace NightCrawler.Monsters
                     }
                     binding.heatShopCard.UpdateUI();
 
+                    // Hook root shop card click
                     binding.heatShopCard.onClick.RemoveAllListeners();
                     binding.heatShopCard.onClick.AddListener(() => OnCardSelectClicked(index));
+
+                    // Hook purchase action event on card
+                    binding.heatShopCard.onPurchaseClick.RemoveAllListeners();
+                    binding.heatShopCard.onPurchaseClick.AddListener(() => OnCardSelectClicked(index));
+
+                    // Hook purchaseButton (the primary Select/Purchase button on the card)
+                    if (binding.heatShopCard.purchaseButton != null)
+                    {
+                        binding.heatShopCard.purchaseButton.onClick.RemoveAllListeners();
+                        binding.heatShopCard.purchaseButton.onClick.AddListener(() => OnCardSelectClicked(index));
+
+                        var pBbm = binding.heatShopCard.purchaseButton.GetComponent<Michsky.UI.Heat.BoxButtonManager>();
+                        if (pBbm != null)
+                        {
+                            pBbm.checkForDoubleClick = false;
+                            pBbm.onDoubleClick.RemoveAllListeners();
+                            pBbm.onDoubleClick.AddListener(() => OnCardSelectClicked(index));
+                        }
+                    }
+
+                    // Check for any BoxButtonManager on card or its children and ensure checkForDoubleClick is false
+                    foreach (var bbm in binding.heatShopCard.GetComponentsInChildren<Michsky.UI.Heat.BoxButtonManager>(true))
+                    {
+                        bbm.checkForDoubleClick = false;
+                        bbm.onClick.RemoveAllListeners();
+                        bbm.onClick.AddListener(() => OnCardSelectClicked(index));
+                        bbm.onDoubleClick.RemoveAllListeners();
+                        bbm.onDoubleClick.AddListener(() => OnCardSelectClicked(index));
+                    }
+
+                    // Check for standard UI Buttons on card
+                    foreach (var btn in binding.heatShopCard.GetComponentsInChildren<Button>(true))
+                    {
+                        btn.onClick.RemoveAllListeners();
+                        btn.onClick.AddListener(() => OnCardSelectClicked(index));
+                    }
                 }
 
                 if (binding.selectButtonManager != null)
@@ -581,6 +641,21 @@ namespace NightCrawler.Monsters
                     // Never assign an icon to the select button — intentionally left icon-free.
                     binding.selectButtonManager.onClick.RemoveAllListeners();
                     binding.selectButtonManager.onClick.AddListener(() => OnCardSelectClicked(index));
+
+                    var bbm = binding.selectButtonManager.GetComponent<Michsky.UI.Heat.BoxButtonManager>();
+                    if (bbm != null)
+                    {
+                        bbm.checkForDoubleClick = false;
+                        bbm.onDoubleClick.RemoveAllListeners();
+                        bbm.onDoubleClick.AddListener(() => OnCardSelectClicked(index));
+                    }
+
+                    var btn = binding.selectButtonManager.GetComponent<Button>();
+                    if (btn != null)
+                    {
+                        btn.onClick.RemoveAllListeners();
+                        btn.onClick.AddListener(() => OnCardSelectClicked(index));
+                    }
                 }
             }
         }
@@ -738,12 +813,30 @@ namespace NightCrawler.Monsters
             }
             else if (confirmationModal != null)
             {
+                confirmationModal.startBehaviour = Michsky.UI.Heat.ModalWindowManager.StartBehaviour.Enable;
+                if (!confirmationModal.gameObject.activeSelf)
+                {
+                    confirmationModal.gameObject.SetActive(true);
+                }
+
+                var modalCg = confirmationModal.GetComponent<CanvasGroup>();
+                if (modalCg != null)
+                {
+                    modalCg.alpha = 1f;
+                    modalCg.interactable = true;
+                    modalCg.blocksRaycasts = true;
+                }
+
+                confirmationModal.isOn = false;
                 confirmationModal.OpenWindow();
             }
             else
             {
                 OnConfirmSpawnClicked();
             }
+
+            Cursor.lockState = CursorLockMode.None;
+            Cursor.visible = true;
         }
 
         /// <summary>

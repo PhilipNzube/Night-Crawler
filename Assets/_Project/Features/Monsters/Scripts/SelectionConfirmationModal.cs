@@ -39,18 +39,48 @@ namespace NightCrawler.Monsters
             {
                 modalWindow = GetComponent<ModalWindowManager>();
             }
-            SanitizeModal(modalWindow);
-            DeactivateModal();
+            PrimeModal();
         }
 
         private void Start()
         {
-            SanitizeModal(modalWindow);
+            PrimeModal();
+        }
+
+        /// <summary>
+        /// Primes the modal on startup so Unity triggers Awake() and Start() during scene init,
+        /// ensuring Michsky's StartBehaviour.Disable does not swallow the player's first card click.
+        /// </summary>
+        public void PrimeModal()
+        {
+            if (modalWindow == null)
+            {
+                modalWindow = GetComponent<ModalWindowManager>();
+            }
+
+            if (modalWindow != null)
+            {
+                modalWindow.useLocalization = false;
+                modalWindow.closeOnCancel = true;
+                modalWindow.closeOnConfirm = true;
+                modalWindow.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
+                modalWindow.onConfirm.RemoveAllListeners();
+            }
+
+            // Briefly activate GameObject so Unity runs Awake() and Start() during scene init
+            // without triggering CloseWindow() animations that freeze the animator!
+            gameObject.SetActive(true);
+            if (modalWindow != null)
+            {
+                modalWindow.gameObject.SetActive(true);
+                modalWindow.isOn = false;
+            }
+
             DeactivateModal();
         }
 
         /// <summary>
-        /// Strips invalid state, forces StartBehaviour.Disable, alpha = 0, and deactivates GameObject.
+        /// Strips invalid state, forces StartBehaviour.Enable, alpha = 0, and deactivates GameObject.
         /// </summary>
         public static void SanitizeModal(ModalWindowManager modal)
         {
@@ -59,7 +89,7 @@ namespace NightCrawler.Monsters
             modal.useLocalization = false;
             modal.closeOnCancel = true;
             modal.closeOnConfirm = true;
-            modal.startBehaviour = ModalWindowManager.StartBehaviour.Disable;
+            modal.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
             modal.isOn = false;
 
             var cg = modal.GetComponent<CanvasGroup>();
@@ -83,7 +113,7 @@ namespace NightCrawler.Monsters
         {
             if (modalWindow != null)
             {
-                modalWindow.CloseWindow();
+                modalWindow.isOn = false;
 
                 var cg = modalWindow.GetComponent<CanvasGroup>();
                 if (cg != null)
@@ -153,6 +183,11 @@ namespace NightCrawler.Monsters
 
         public void OpenWindow()
         {
+            if (modalWindow != null)
+            {
+                modalWindow.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
+            }
+
             if (!gameObject.activeSelf)
             {
                 gameObject.SetActive(true);
@@ -181,6 +216,7 @@ namespace NightCrawler.Monsters
                     modalCg.blocksRaycasts = true;
                 }
 
+                modalWindow.isOn = false;
                 modalWindow.OpenWindow();
             }
         }

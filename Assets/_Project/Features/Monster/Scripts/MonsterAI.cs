@@ -145,6 +145,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected Vector3 _lastPosition;
     protected NavMeshPath _roamTestPath;
     protected Transform _commandLeader;
+    public Transform CommandLeader => _commandLeader != null ? _commandLeader : (GameManager.Instance != null ? GameManager.Instance.GirlTransform : null);
     protected Coroutine _spawnScreamCoroutine;
     protected Coroutine _attackCoroutine;
 
@@ -416,7 +417,6 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     /// <summary>
     /// Roams/patrols the cavern calmly when no target is present.
     /// (EnemyNPC_AI AIState.Patrol).
-    /// </summary>
     protected virtual void HandlePatrolBehavior()
     {
         // 1. Follow command overrides roam
@@ -424,6 +424,25 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         {
             SwitchState(AIState.Running);
             return;
+        }
+
+        // 1b. Hunt command overrides roam: relentlessly hunt investigators across the entire mine!
+        if (currentCommand == Command.Hunt)
+        {
+            Transform huntTarget = FindGlobalInvestigatorTarget();
+            if (huntTarget != null)
+            {
+                target = huntTarget;
+                _hasLastKnownPosition = true;
+                _lastKnownTargetPosition = target.position;
+                SwitchState(AIState.Running);
+                if (locomotion != null)
+                {
+                    locomotion.Resume(runSpeed);
+                    locomotion.SetDestinationSmooth(GetSurroundingDestination(target, attackRange * 0.85f));
+                }
+                return;
+            }
         }
 
         // 2. Scan for players/threats (EnemyNPC_AI)
@@ -464,12 +483,23 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     protected virtual void HandleHuntingBehavior()
     {
-        // Periodically re-evaluate best target
-        _retargetTimer -= Time.deltaTime;
-        if (_retargetTimer <= 0f)
+        // 1. Under Hunt command, continuously acquire/track the closest living investigator globally
+        if (currentCommand == Command.Hunt)
         {
-            _retargetTimer = 0.4f;
-            target = perception.FindBestTarget(target);
+            if (target == null || perception.IsTargetInvalidOrDead(target))
+            {
+                target = FindGlobalInvestigatorTarget();
+            }
+        }
+        else
+        {
+            // Periodically re-evaluate best target within local perception
+            _retargetTimer -= Time.deltaTime;
+            if (_retargetTimer <= 0f)
+            {
+                _retargetTimer = 0.4f;
+                target = perception.FindBestTarget(target);
+            }
         }
 
         // Validate target
@@ -516,12 +546,23 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 }
             }
 
-            // Chase target smoothly (prevents path recalculation thrashing)
+            // Chase target smoothly along the NavMesh corridor (EnemyNPC_AI navigation)
             if (locomotion != null)
             {
                 locomotion.Resume(runSpeed);
-                locomotion.SetDestinationSmooth(target.position);
-                locomotion.RotateTowards(target.position, angularSpeed);
+                locomotion.SetDestinationSmooth(GetSurroundingDestination(target, attackRange * 0.85f));
+
+                // EnemyNPC_AI steering alignment:
+                // Only rotate directly towards the target when in clear visual contact and close.
+                // Otherwise rotate along the corridor towards steeringTarget to prevent pressing/facing into walls!
+                if (canSee && dist <= attackRange * 2.5f)
+                {
+                    locomotion.RotateTowards(target.position, angularSpeed);
+                }
+                else if (locomotion.agent != null && locomotion.agent.hasPath)
+                {
+                    locomotion.RotateTowards(locomotion.agent.steeringTarget, angularSpeed);
+                }
             }
             return;
         }
@@ -538,6 +579,24 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         // Target lost or dead -> Switch to search or patrol (EnemyNPC_AI)
         target = null;
+        if (currentCommand == Command.Hunt)
+        {
+            // If commanded to Hunt, re-scan globally for any other living investigator!
+            Transform nextTarget = FindGlobalInvestigatorTarget();
+            if (nextTarget != null)
+            {
+                target = nextTarget;
+                _hasLastKnownPosition = true;
+                _lastKnownTargetPosition = target.position;
+                if (locomotion != null)
+                {
+                    locomotion.Resume(runSpeed);
+                    locomotion.SetDestinationSmooth(GetSurroundingDestination(target, attackRange * 0.85f));
+                }
+                return;
+            }
+        }
+
         if (_hasLastKnownPosition)
         {
             SwitchState(AIState.Search);
@@ -599,6 +658,24 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
 
         // Look for targets while searching
+        if (currentCommand == Command.Hunt)
+        {
+            Transform huntTarget = FindGlobalInvestigatorTarget();
+            if (huntTarget != null)
+            {
+                target = huntTarget;
+                _hasLastKnownPosition = true;
+                _lastKnownTargetPosition = target.position;
+                SwitchState(AIState.Running);
+                if (locomotion != null)
+                {
+                    locomotion.Resume(runSpeed);
+                    locomotion.SetDestinationSmooth(GetSurroundingDestination(target, attackRange * 0.85f));
+                }
+                return;
+            }
+        }
+
         Transform candidate = perception != null ? perception.FindBestTarget(null, perception.searchViewRadius) : null;
         if (candidate != null && perception.CanSeeTarget(candidate, true))
         {
@@ -623,10 +700,14 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             return;
         }
 
+        // When called back by the Girl, totally forget about the hunt and return immediately to her side!
+        target = null;
+        _hasLastKnownPosition = false;
+
         // If actively executing an obstacle reposition escape detour:
         if (locomotion != null && locomotion.IsRepositioning)
         {
-            locomotion.Resume(walkSpeed);
+            locomotion.Resume(runSpeed);
             if (locomotion.agent != null && locomotion.agent.hasPath)
             {
                 locomotion.RotateTowards(locomotion.agent.steeringTarget, angularSpeed);
@@ -634,12 +715,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             return;
         }
 
-        // Path blockage check while guarding/following
+        // Path blockage check while returning to leader
         if (locomotion != null && locomotion.IsPathBlocked())
         {
             if (locomotion.AttemptReposition())
             {
-                locomotion.Resume(walkSpeed);
+                locomotion.Resume(runSpeed);
                 if (locomotion.agent != null && locomotion.agent.hasPath)
                 {
                     locomotion.RotateTowards(locomotion.agent.steeringTarget, angularSpeed);
@@ -649,64 +730,103 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
 
         float distToLeader = Vector3.Distance(transform.position, leader.position);
+        float stopDist = Mathf.Max(locomotion != null ? locomotion.stoppingDistance : 2.6f, 2.6f);
 
-        // Intercept close threats defending the Girl
-        if (_recallGraceTimer > 0f)
+        // EnemyNPC_AI Follow architecture:
+        // Direct corridor pathfinding straight to leader.position along the NavMesh without wall collisions!
+        if (distToLeader > stopDist + 2.0f)
         {
-            _recallGraceTimer -= Time.deltaTime;
-            target = null;
-        }
-        else
-        {
-            Transform threat = perception.FindBestTarget(null, 12f);
-            if (threat != null)
+            locomotion.Resume(runSpeed);
+            locomotion.SetDestinationSmooth(GetSurroundingDestination(leader, stopDist + 1.2f));
+            if (locomotion.agent != null && locomotion.agent.hasPath)
             {
-                float distToThreat = Vector3.Distance(transform.position, threat.position);
-                float leaderToThreat = Vector3.Distance(leader.position, threat.position);
-
-                // Intercept if close to Girl or monster
-                if (distToThreat <= 6.0f || leaderToThreat <= 5.5f)
-                {
-                    target = threat;
-                    if (distToThreat <= attackRange && perception.HasLineOfSight(threat))
-                    {
-                        ExecuteAttack(threat);
-                        return;
-                    }
-
-                    locomotion.Resume(runSpeed);
-                    locomotion.SetDestinationSmooth(threat.position);
-                    return;
-                }
+                locomotion.RotateTowards(locomotion.agent.steeringTarget, angularSpeed);
             }
         }
-
-        // Follow leader within comfortable perimeter
-        if (distToLeader > 4.5f)
+        else if (distToLeader > stopDist)
         {
-            Vector3 guardSpot = FindUnobstructedPerimeterSpot(leader, 3.8f, 2.2f);
-            locomotion.Resume(runSpeed);
-            locomotion.SetDestinationSmooth(guardSpot);
-        }
-        else if (distToLeader > 2.8f)
-        {
-            // Close escort and perimeter patrol around the girl
-            Vector3 guardSpot = FindUnobstructedPerimeterSpot(leader, 2.8f, 1.8f);
             locomotion.Resume(walkSpeed);
-            locomotion.SetDestinationSmooth(guardSpot);
+            locomotion.SetDestinationSmooth(GetSurroundingDestination(leader, stopDist));
+            if (locomotion.agent != null && locomotion.agent.hasPath)
+            {
+                locomotion.RotateTowards(locomotion.agent.steeringTarget, angularSpeed);
+            }
         }
-        else if (distToLeader < 1.8f)
+        else if (distToLeader < 2.2f)
         {
-            // Yield space if too close
-            Vector3 push = (transform.position - leader.position).normalized;
-            Vector3 yieldSpot = leader.position + push * 2.8f;
-            locomotion.Resume(walkSpeed);
-            locomotion.SetDestinationSmooth(yieldSpot);
+            // Too close! Yield space respectfully so the Queen is never crowded or blocked!
+            Vector3 push = (transform.position - leader.position);
+            push.y = 0f;
+            Vector3 yieldSpot = leader.position + (push.sqrMagnitude > 0.05f ? push.normalized : transform.forward) * 2.8f;
+            if (NavMesh.SamplePosition(yieldSpot, out NavMeshHit yHit, 2.5f, NavMesh.AllAreas))
+            {
+                locomotion.Resume(walkSpeed * 0.8f);
+                locomotion.SetDestinationSmooth(yHit.position);
+            }
+            locomotion.RotateTowards(leader.position, angularSpeed * 1.5f);
         }
         else
         {
             locomotion.Stop();
+            locomotion.RotateTowards(leader.position, angularSpeed * 0.5f);
         }
+    }
+
+    /// <summary>
+    /// Computes a distinct flanking / surrounding destination around a shared target or leader
+    /// for monsters of the same kind so they surround targets rather than stacking into the same coordinate.
+    /// Also ensures a solo monster maintains striking/following clearance rather than stopping inside targets.
+    /// </summary>
+    public Vector3 GetSurroundingDestination(Transform targetTransform, float radius = 1.8f)
+    {
+        if (targetTransform == null) return transform.position;
+
+        bool isFollowingLeader = (currentCommand == Command.Follow || targetTransform == _commandLeader || (GameManager.Instance != null && targetTransform == GameManager.Instance.GirlTransform));
+        float effectiveRadius = isFollowingLeader ? Mathf.Clamp(radius, 2.5f, 3.8f) : Mathf.Clamp(radius, 1.4f, 2.8f);
+
+        int sameKindIndex = 0;
+        int totalSameKind = 0;
+
+        for (int i = 0; i < ActiveMonsters.Count; i++)
+        {
+            var m = ActiveMonsters[i];
+            if (m != null && m.monsterType == this.monsterType && m.currentState != AIState.Dead)
+            {
+                if (m.target == targetTransform || (currentCommand == Command.Follow && m.currentCommand == Command.Follow))
+                {
+                    if (m == this) sameKindIndex = totalSameKind;
+                    totalSameKind++;
+                }
+            }
+        }
+
+        if (totalSameKind <= 1)
+        {
+            // Even a solo monster maintains an offset so it never stops inside the target or Queen!
+            Vector3 dir = transform.position - targetTransform.position;
+            dir.y = 0f;
+            if (dir.sqrMagnitude < 0.05f) dir = -targetTransform.forward;
+            Vector3 singleOffset = dir.normalized * effectiveRadius;
+            Vector3 singleCandidate = targetTransform.position + singleOffset;
+            if (NavMesh.SamplePosition(singleCandidate, out NavMeshHit singleHit, 3.0f, NavMesh.AllAreas))
+            {
+                return singleHit.position;
+            }
+            return targetTransform.position + singleOffset;
+        }
+
+        // Distribute surrounding slots evenly on an arc/circle around the target
+        float angleStep = 360f / totalSameKind;
+        float angle = sameKindIndex * angleStep;
+        Vector3 offset = Quaternion.Euler(0f, angle, 0f) * (Vector3.forward * effectiveRadius);
+        Vector3 candidate = targetTransform.position + offset;
+
+        if (NavMesh.SamplePosition(candidate, out NavMeshHit hit, 3.0f, NavMesh.AllAreas))
+        {
+            return hit.position;
+        }
+
+        return candidate;
     }
 
     protected virtual void ExecuteRoam(float speed)
@@ -833,27 +953,51 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         if (cmd == Command.Follow)
         {
+            // When recalled, totally forget about the hunt and return immediately to the Girl!
             target = null;
+            _hasLastKnownPosition = false;
             if (_attackCoroutine != null)
             {
                 StopCoroutine(_attackCoroutine);
                 _attackCoroutine = null;
             }
             if (combat != null) combat.CancelAttack();
-            _recallGraceTimer = 3.5f;
+            _recallGraceTimer = 0f;
 
             SwitchState(AIState.Running);
+            if (locomotion != null && _commandLeader != null)
+            {
+                locomotion.Resume(runSpeed);
+                locomotion.SetDestinationSmooth(GetSurroundingDestination(_commandLeader, 2.5f));
+            }
         }
         else if (cmd == Command.Hunt)
         {
+            _commandLeader = null;
             _recallGraceTimer = 0f;
-            target = perception != null ? perception.FindBestTarget(null) : null;
-            SwitchState(target != null ? AIState.Running : AIState.Patrol);
+            target = FindGlobalInvestigatorTarget();
+            if (target != null)
+            {
+                _hasLastKnownPosition = true;
+                _lastKnownTargetPosition = target.position;
+                SwitchState(AIState.Running);
+                if (locomotion != null)
+                {
+                    locomotion.Resume(runSpeed);
+                    locomotion.SetDestinationSmooth(GetSurroundingDestination(target, attackRange * 0.85f));
+                }
+            }
+            else
+            {
+                SwitchState(AIState.Patrol);
+            }
         }
         else if (cmd == Command.Roam)
         {
+            _commandLeader = null;
             _recallGraceTimer = 0f;
             target = null;
+            _hasLastKnownPosition = false;
             SwitchState(AIState.Patrol);
         }
     }
@@ -896,6 +1040,19 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         currentState = AIState.Attacking;
         locomotion.Stop();
         locomotion.RotateTowards(attackTarget.position, angularSpeed * 2f);
+
+        // Enforce physical striking clearance so the monster never penetrates or clips inside the investigator
+        if (attackTarget != null && locomotion != null && locomotion.agent != null && locomotion.agent.enabled)
+        {
+            Vector3 diff = transform.position - attackTarget.position;
+            diff.y = 0f;
+            float dist = diff.magnitude;
+            if (dist < 1.35f && dist > 0.01f)
+            {
+                Vector3 push = (diff / dist) * (1.35f - dist);
+                locomotion.agent.Move(push);
+            }
+        }
 
         string trigger = (monsterType == MonsterType.Berserker) ? "Attack" : "Attack";
         combat.StartAttack(trigger, () =>
@@ -1237,6 +1394,77 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
 
         return leaderPos + leaderFwd * preferredDist;
+    }
+
+    /// <summary>
+    /// Searches the entire mine for the closest living human investigator, regardless of distance.
+    /// Excludes the Girl, dead players, and corpses.
+    /// (Adopts global targeting for the Vengeful Spirit's Hunt command).
+    /// </summary>
+    public Transform FindGlobalInvestigatorTarget()
+    {
+        Transform bestTarget = null;
+        float bestDist = Mathf.Infinity;
+        Vector3 myPos = transform.position;
+
+        // 1. Check GameManager tracked alive explorers
+        if (GameManager.Instance != null && GameManager.Instance.AliveExplorers != null)
+        {
+            var aliveList = GameManager.Instance.AliveExplorers;
+            for (int i = 0; i < aliveList.Count; i++)
+            {
+                var netObj = aliveList[i];
+                if (netObj == null || !netObj.gameObject.activeInHierarchy) continue;
+                Transform t = netObj.transform;
+                if (IsTargetInvalidOrDead(t)) continue;
+
+                float dist = Vector3.Distance(myPos, t.position);
+                if (dist < bestDist)
+                {
+                    bestDist = dist;
+                    bestTarget = t;
+                }
+            }
+            if (bestTarget != null) return bestTarget;
+        }
+
+        // 2. Check NetworkManager SpawnManager spawned objects
+        if (NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null && NetworkManager.Singleton.SpawnManager.SpawnedObjects != null)
+        {
+            foreach (var netObj in NetworkManager.Singleton.SpawnManager.SpawnedObjects.Values)
+            {
+                if (netObj == null || !netObj.IsPlayerObject || !netObj.gameObject.activeInHierarchy) continue;
+                Transform t = netObj.transform;
+                if (IsTargetInvalidOrDead(t)) continue;
+
+                float dist = Vector3.Distance(myPos, t.position);
+                if (dist < bestDist)
+                {
+                    bestDist = dist;
+                    bestTarget = t;
+                }
+            }
+            if (bestTarget != null) return bestTarget;
+        }
+
+        // 3. Fallback: Tag check across active scene objects
+        var players = GameObject.FindGameObjectsWithTag("Player");
+        for (int i = 0; i < players.Length; i++)
+        {
+            var p = players[i];
+            if (p == null || !p.activeInHierarchy) continue;
+            Transform root = p.transform.root != null ? p.transform.root : p.transform;
+            if (IsTargetInvalidOrDead(root)) continue;
+
+            float dist = Vector3.Distance(myPos, root.position);
+            if (dist < bestDist)
+            {
+                bestDist = dist;
+                bestTarget = root;
+            }
+        }
+
+        return bestTarget;
     }
 
     public Transform FindBestTarget() => perception != null ? perception.FindBestTarget(target) : target;
