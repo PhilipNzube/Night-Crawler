@@ -35,8 +35,8 @@ public class ZombieAI : MonsterAI
     [Header("Zombie Posture Transitions")]
     public float crawlSpeed = 6.2f;
     public float standRunSpeed = 4.8f;
-    public float standTransitionDistance = 6.5f;
-    public float crawlTransitionDistance = 7.5f;
+    public float standTransitionDistance = 14.0f;
+    public float crawlTransitionDistance = 22.0f;
     public float standUpDuration = 1.15f;
 
     private Coroutine _standUpRoutine;
@@ -70,10 +70,10 @@ public class ZombieAI : MonsterAI
         screamAudioDelay = 0.25f;
 
         // Posture transition thresholds:
-        // Crawling sprint is reserved for long-distance pursuit or recalling (> 7.5m)
-        // Standing sprint is used for close pursuit or approaching leader (<= 6.5m)
-        crawlTransitionDistance = 7.5f;
-        standTransitionDistance = 6.5f;
+        // Crawling sprint is strictly reserved for long-distance pursuit or recalling from far away (> 22m).
+        // Near the Girl or in patrol mode, monsters must ALWAYS remain upright (walks or standing runs).
+        crawlTransitionDistance = 22.0f;
+        standTransitionDistance = 14.0f;
 
         if (locomotion != null)
         {
@@ -117,7 +117,7 @@ public class ZombieAI : MonsterAI
         if (currentState == AIState.Running && target != null)
         {
             float dist = Vector3.Distance(transform.position, target.position);
-            EvaluatePosture(dist);
+            EvaluatePosture(dist, false);
         }
         // 2. Following / called by the Girl (Command.Follow)
         else if (currentState == AIState.Running && currentCommand == Command.Follow)
@@ -126,17 +126,25 @@ public class ZombieAI : MonsterAI
             if (leader != null)
             {
                 float distToLeader = Vector3.Distance(transform.position, leader.position);
-                EvaluatePosture(distToLeader);
+                EvaluatePosture(distToLeader, true);
             }
         }
         // 3. Roaming, patrolling, or searching
         else
         {
-            // When roaming, searching, or idling, MUST BE STANDING
+            // When roaming, searching, patrolling, or idling, MUST BE STANDING
             if (currentPosture == ZombiePosture.Crawling && _standUpRoutine == null)
             {
-                StartStandUp();
-                return;
+                Vector3 headOrigin = transform.position + Vector3.up * 0.65f;
+                LayerMask mask = (locomotion != null && locomotion.obstacleMask.value != 0) 
+                    ? locomotion.obstacleMask 
+                    : LayerMask.GetMask("Default");
+                bool hasOverheadObstacle = Physics.Raycast(headOrigin, Vector3.up, 1.4f, mask, QueryTriggerInteraction.Ignore);
+                if (!hasOverheadObstacle)
+                {
+                    StartStandUp();
+                    return;
+                }
             }
         }
 
@@ -153,10 +161,15 @@ public class ZombieAI : MonsterAI
             if (leader != null)
             {
                 float dist = Vector3.Distance(transform.position, leader.position);
-                // When called/recalled from far away (> 6.5m), immediately drop into high-speed all-fours crawl sprint!
-                if (dist > standTransitionDistance)
+                // When called/recalled from far away across the cavern (> 22m), drop into high-speed all-fours crawl sprint!
+                // If already around the girl (<= 22m), NEVER crawl — stay upright!
+                if (dist > crawlTransitionDistance)
                 {
                     DropToCrawl();
+                }
+                else if (currentPosture == ZombiePosture.Crawling)
+                {
+                    StartStandUp();
                 }
             }
         }
@@ -165,8 +178,8 @@ public class ZombieAI : MonsterAI
             if (target != null)
             {
                 float dist = Vector3.Distance(transform.position, target.position);
-                // When dispatched to hunt from far away (> 6.5m), immediately drop into high-speed all-fours crawl sprint!
-                if (dist > standTransitionDistance)
+                // When dispatched to hunt from far away (> 16m), drop into high-speed all-fours crawl sprint!
+                if (dist > 16.0f)
                 {
                     DropToCrawl();
                 }
@@ -174,14 +187,21 @@ public class ZombieAI : MonsterAI
         }
     }
 
-    private void EvaluatePosture(float distanceToTarget)
+    private void EvaluatePosture(float distanceToTarget, bool isFollowingLeader)
     {
         if (!HasAuthority || _standUpRoutine != null) return;
+
+        // When following/guarding the Girl:
+        // Monsters must NEVER drop into crawl state when already around the Girl!
+        // Only drop into crawl sprint if the Girl is quite far away (> 22m),
+        // and stand up early (<= 14m) so they escort/patrol her perimeter standing and walking.
+        float effectiveCrawlDist = isFollowingLeader ? crawlTransitionDistance : 16.0f;
+        float effectiveStandDist = isFollowingLeader ? standTransitionDistance : 8.0f;
 
         if (currentPosture == ZombiePosture.Crawling)
         {
             // Close enough to stand up, UNLESS under a low ceiling or tight obstacle clearance
-            if (distanceToTarget <= standTransitionDistance)
+            if (distanceToTarget <= effectiveStandDist)
             {
                 Vector3 headOrigin = transform.position + Vector3.up * 0.65f;
                 LayerMask mask = (locomotion != null && locomotion.obstacleMask.value != 0) 
@@ -196,7 +216,7 @@ public class ZombieAI : MonsterAI
         }
         else if (currentPosture == ZombiePosture.Standing)
         {
-            if (distanceToTarget > crawlTransitionDistance)
+            if (distanceToTarget > effectiveCrawlDist)
             {
                 DropToCrawl();
             }

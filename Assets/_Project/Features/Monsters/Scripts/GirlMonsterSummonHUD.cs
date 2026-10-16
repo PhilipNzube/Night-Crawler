@@ -43,6 +43,10 @@ namespace NightCrawler.Monsters
         [Tooltip("Pre-placed or dynamically bound monster cards in the Heat UI list.")]
         public List<MonsterCardBinding> cardBindings = new List<MonsterCardBinding>();
 
+        [Header("Cards Container (Manual Inspector Wiring)")]
+        [Tooltip("Parent container holding the monster cards. If left empty, uses monstersAnimator transform or HUD root.")]
+        public Transform cardsContainer;
+
         [Header("Selection Confirmation Modal")]
         [Tooltip("The SelectionConfirmationModal script attached to SelectionConfirmationModal GameObject (recommended).")]
         public SelectionConfirmationModal selectionConfirmationModal;
@@ -134,8 +138,11 @@ namespace NightCrawler.Monsters
                 : confirmSpawnButton;
             if (confirmBtn != null)
             {
+                confirmBtn.checkForDoubleClick = false;
                 confirmBtn.onClick.RemoveListener(OnConfirmSpawnClicked);
                 confirmBtn.onClick.AddListener(OnConfirmSpawnClicked);
+                confirmBtn.onDoubleClick.RemoveListener(OnConfirmSpawnClicked);
+                confirmBtn.onDoubleClick.AddListener(OnConfirmSpawnClicked);
             }
 
             var cancelBtn = selectionConfirmationModal != null && selectionConfirmationModal.cancelButton != null 
@@ -143,8 +150,11 @@ namespace NightCrawler.Monsters
                 : cancelSpawnButton;
             if (cancelBtn != null)
             {
+                cancelBtn.checkForDoubleClick = false;
                 cancelBtn.onClick.RemoveListener(OnCancelSpawnClicked);
                 cancelBtn.onClick.AddListener(OnCancelSpawnClicked);
+                cancelBtn.onDoubleClick.RemoveListener(OnCancelSpawnClicked);
+                cancelBtn.onDoubleClick.AddListener(OnCancelSpawnClicked);
             }
 
             // Wire MonsterSpectateHotkey if assigned in inspector
@@ -260,8 +270,8 @@ namespace NightCrawler.Monsters
         private void Start()
         {
             InitializeSummonCharges();
-            InitCardBindings();
             ApplyLockStates();
+            HookCardButtons();
             UpdateSpectateHotkeyVisual();
 
             // Ensure summon panel starts hidden via CanvasGroup & Instant Out
@@ -283,23 +293,36 @@ namespace NightCrawler.Monsters
             }
             if (confirmationModal != null)
             {
-                confirmationModal.useLocalization = false;
-                confirmationModal.closeOnCancel = true;
-                confirmationModal.closeOnConfirm = true;
-                confirmationModal.startBehaviour = Michsky.UI.Heat.ModalWindowManager.StartBehaviour.Enable;
-
-                confirmationModal.gameObject.SetActive(true);
-                confirmationModal.isOn = false;
-
-                var cg = confirmationModal.GetComponent<CanvasGroup>();
-                if (cg != null)
-                {
-                    cg.alpha = 0f;
-                    cg.interactable = false;
-                    cg.blocksRaycasts = false;
-                }
-                confirmationModal.gameObject.SetActive(false);
+                PrimeModal(confirmationModal);
             }
+        }
+
+        private void PrimeModal(Michsky.UI.Heat.ModalWindowManager modal)
+        {
+            if (modal == null) return;
+
+            modal.useLocalization = false;
+            modal.closeOnCancel = true;
+            modal.closeOnConfirm = true;
+            modal.startBehaviour = Michsky.UI.Heat.ModalWindowManager.StartBehaviour.Enable;
+
+            modal.onConfirm.RemoveAllListeners();
+
+            // Briefly activate GameObject so Unity runs Awake() and Start() during scene init
+            // rather than when the player clicks the card for the first time!
+            GameObject obj = modal.gameObject;
+            obj.SetActive(true);
+            modal.isOn = false;
+
+            var cg = modal.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 0f;
+                cg.interactable = false;
+                cg.blocksRaycasts = false;
+            }
+
+            obj.SetActive(false);
         }
 
         private void InitializeSummonCharges()
@@ -383,9 +406,9 @@ namespace NightCrawler.Monsters
         {
             _isOpen = true;
 
-            // Re-evaluate lock states every open (player may have levelled up mid-match)
+            // Re-evaluate lock states and hook cards every open (exact method of GirlDealUI)
             ApplyLockStates();
-            InitCardBindings();
+            HookCardButtons();
 
             // 1. Reveal Summon HUD via CanvasGroup
             if (canvasGroup != null)
@@ -455,16 +478,29 @@ namespace NightCrawler.Monsters
 
         /// <summary>
         /// Strictly closes, sanitizes, and deactivates confirmation modals.
+        /// Follows the exact closing pattern of GirlDealUI.CloseDealModal.
         /// </summary>
         public void DeactivateAllModals()
         {
+            var targetModal = confirmationModal != null ? confirmationModal : selectionConfirmationModal?.modalWindow;
+            if (targetModal != null)
+            {
+                targetModal.CloseWindow();
+
+                var cg = targetModal.GetComponent<CanvasGroup>();
+                if (cg != null)
+                {
+                    cg.alpha = 0f;
+                    cg.interactable = false;
+                    cg.blocksRaycasts = false;
+                }
+
+                targetModal.gameObject.SetActive(false);
+            }
+
             if (selectionConfirmationModal != null)
             {
                 selectionConfirmationModal.DeactivateModal();
-            }
-            if (confirmationModal != null)
-            {
-                SelectionConfirmationModal.SanitizeModal(confirmationModal);
             }
         }
 
@@ -567,97 +603,290 @@ namespace NightCrawler.Monsters
             }
         }
 
-        private void InitCardBindings()
+        public void InitCardBindings() => HookCardButtons();
+
+        /// <summary>
+        /// Comprehensive card button hooking mirroring GirlDealUI.HookCardButtons.
+        /// Recursively sweeps all ShopButtonManagers, ButtonManagers, BoxButtonManagers,
+        /// and UI Buttons, setting checkForDoubleClick = false and hooking both single and double clicks.
+        /// </summary>
+        public void HookCardButtons()
         {
-            if (cardBindings == null || cardBindings.Count == 0) return;
+            Transform container = cardsContainer != null ? cardsContainer : (monstersAnimator != null ? monstersAnimator.transform : transform);
+            if (container == null) return;
 
-            for (int i = 0; i < cardBindings.Count; i++)
+            var handledButtons = new HashSet<Button>();
+            var handledBoxButtons = new HashSet<Michsky.UI.Heat.BoxButtonManager>();
+            var handledButtonManagers = new HashSet<Michsky.UI.Heat.ButtonManager>();
+
+            // 1. Hook explicitly configured cardBindings
+            if (cardBindings != null)
             {
-                int index = i;
-                var binding = cardBindings[i];
-                if (binding == null) continue;
-
-                Sprite icon = binding.monsterDefinition != null ? binding.monsterDefinition.icon : null;
-                string mName = binding.monsterDefinition != null ? binding.monsterDefinition.monsterName : "Monster";
-
-                if (binding.heatShopCard != null)
+                for (int i = 0; i < cardBindings.Count; i++)
                 {
-                    binding.heatShopCard.buttonTitle = mName;
-                    if (icon != null)
+                    int index = i;
+                    var binding = cardBindings[i];
+                    if (binding == null) continue;
+
+                    Sprite icon = binding.monsterDefinition != null ? binding.monsterDefinition.icon : null;
+                    string mName = binding.monsterDefinition != null ? binding.monsterDefinition.monsterName : "Monster";
+
+                    if (binding.heatShopCard != null)
                     {
-                        binding.heatShopCard.buttonIcon = icon;
-                        binding.heatShopCard.enableIcon = true;
-                        if (binding.heatShopCard.iconObj != null)
+                        binding.heatShopCard.useLocalization = false;
+                        binding.heatShopCard.titleLocalizationKey = string.Empty;
+                        binding.heatShopCard.descriptionLocalizationKey = string.Empty;
+                        binding.heatShopCard.buttonTitle = mName;
+                        if (icon != null)
                         {
-                            binding.heatShopCard.iconObj.gameObject.SetActive(true);
-                            binding.heatShopCard.iconObj.sprite = icon;
+                            binding.heatShopCard.buttonIcon = icon;
+                            binding.heatShopCard.enableIcon = true;
+                            if (binding.heatShopCard.iconObj != null)
+                            {
+                                binding.heatShopCard.iconObj.gameObject.SetActive(true);
+                                binding.heatShopCard.iconObj.sprite = icon;
+                            }
+                        }
+                        binding.heatShopCard.UpdateUI();
+
+                        // Hook root shop card click
+                        binding.heatShopCard.onClick.RemoveAllListeners();
+                        binding.heatShopCard.onClick.AddListener(() => OnCardSelectClicked(index));
+
+                        // Hook purchase action event on card
+                        binding.heatShopCard.onPurchaseClick.RemoveAllListeners();
+                        binding.heatShopCard.onPurchaseClick.AddListener(() => OnCardSelectClicked(index));
+
+                        // Hook purchaseButton (the primary ButtonManager on the Heat card)
+                        if (binding.heatShopCard.purchaseButton != null)
+                        {
+                            var pb = binding.heatShopCard.purchaseButton;
+                            handledButtonManagers.Add(pb);
+                            pb.checkForDoubleClick = false;
+                            pb.onClick.RemoveAllListeners();
+                            pb.onClick.AddListener(() => OnCardSelectClicked(index));
+                            pb.onDoubleClick.RemoveAllListeners();
+                            pb.onDoubleClick.AddListener(() => OnCardSelectClicked(index));
+
+                            var pBtn = pb.GetComponentInChildren<Button>(true);
+                            if (pBtn != null)
+                            {
+                                handledButtons.Add(pBtn);
+                                pBtn.onClick.RemoveAllListeners();
+                                pBtn.onClick.AddListener(() => OnCardSelectClicked(index));
+                            }
+                            var pBbm = pb.GetComponent<Michsky.UI.Heat.BoxButtonManager>();
+                            if (pBbm != null)
+                            {
+                                handledBoxButtons.Add(pBbm);
+                                pBbm.checkForDoubleClick = false;
+                                pBbm.onClick.RemoveAllListeners();
+                                pBbm.onClick.AddListener(() => OnCardSelectClicked(index));
+                                pBbm.onDoubleClick.RemoveAllListeners();
+                                pBbm.onDoubleClick.AddListener(() => OnCardSelectClicked(index));
+                            }
+                        }
+
+                        // Hook all child ButtonManagers
+                        foreach (var bm in binding.heatShopCard.GetComponentsInChildren<Michsky.UI.Heat.ButtonManager>(true))
+                        {
+                            handledButtonManagers.Add(bm);
+                            bm.checkForDoubleClick = false;
+                            bm.onClick.RemoveAllListeners();
+                            bm.onClick.AddListener(() => OnCardSelectClicked(index));
+                            bm.onDoubleClick.RemoveAllListeners();
+                            bm.onDoubleClick.AddListener(() => OnCardSelectClicked(index));
+                        }
+
+                        // Hook all child BoxButtonManagers
+                        foreach (var bbm in binding.heatShopCard.GetComponentsInChildren<Michsky.UI.Heat.BoxButtonManager>(true))
+                        {
+                            handledBoxButtons.Add(bbm);
+                            bbm.checkForDoubleClick = false;
+                            bbm.onClick.RemoveAllListeners();
+                            bbm.onClick.AddListener(() => OnCardSelectClicked(index));
+                            bbm.onDoubleClick.RemoveAllListeners();
+                            bbm.onDoubleClick.AddListener(() => OnCardSelectClicked(index));
+                        }
+
+                        // Hook all child standard Buttons
+                        foreach (var btn in binding.heatShopCard.GetComponentsInChildren<Button>(true))
+                        {
+                            handledButtons.Add(btn);
+                            btn.onClick.RemoveAllListeners();
+                            btn.onClick.AddListener(() => OnCardSelectClicked(index));
                         }
                     }
-                    binding.heatShopCard.UpdateUI();
 
-                    // Hook root shop card click
-                    binding.heatShopCard.onClick.RemoveAllListeners();
-                    binding.heatShopCard.onClick.AddListener(() => OnCardSelectClicked(index));
-
-                    // Hook purchase action event on card
-                    binding.heatShopCard.onPurchaseClick.RemoveAllListeners();
-                    binding.heatShopCard.onPurchaseClick.AddListener(() => OnCardSelectClicked(index));
-
-                    // Hook purchaseButton (the primary Select/Purchase button on the card)
-                    if (binding.heatShopCard.purchaseButton != null)
+                    if (binding.selectButtonManager != null)
                     {
-                        binding.heatShopCard.purchaseButton.onClick.RemoveAllListeners();
-                        binding.heatShopCard.purchaseButton.onClick.AddListener(() => OnCardSelectClicked(index));
+                        var sbm = binding.selectButtonManager;
+                        handledButtonManagers.Add(sbm);
+                        sbm.checkForDoubleClick = false;
+                        sbm.onClick.RemoveAllListeners();
+                        sbm.onClick.AddListener(() => OnCardSelectClicked(index));
+                        sbm.onDoubleClick.RemoveAllListeners();
+                        sbm.onDoubleClick.AddListener(() => OnCardSelectClicked(index));
 
-                        var pBbm = binding.heatShopCard.purchaseButton.GetComponent<Michsky.UI.Heat.BoxButtonManager>();
-                        if (pBbm != null)
+                        var btn = sbm.GetComponent<Button>();
+                        if (btn != null)
                         {
-                            pBbm.checkForDoubleClick = false;
-                            pBbm.onDoubleClick.RemoveAllListeners();
-                            pBbm.onDoubleClick.AddListener(() => OnCardSelectClicked(index));
+                            handledButtons.Add(btn);
+                            btn.onClick.RemoveAllListeners();
+                            btn.onClick.AddListener(() => OnCardSelectClicked(index));
                         }
-                    }
-
-                    // Check for any BoxButtonManager on card or its children and ensure checkForDoubleClick is false
-                    foreach (var bbm in binding.heatShopCard.GetComponentsInChildren<Michsky.UI.Heat.BoxButtonManager>(true))
-                    {
-                        bbm.checkForDoubleClick = false;
-                        bbm.onClick.RemoveAllListeners();
-                        bbm.onClick.AddListener(() => OnCardSelectClicked(index));
-                        bbm.onDoubleClick.RemoveAllListeners();
-                        bbm.onDoubleClick.AddListener(() => OnCardSelectClicked(index));
-                    }
-
-                    // Check for standard UI Buttons on card
-                    foreach (var btn in binding.heatShopCard.GetComponentsInChildren<Button>(true))
-                    {
-                        btn.onClick.RemoveAllListeners();
-                        btn.onClick.AddListener(() => OnCardSelectClicked(index));
-                    }
-                }
-
-                if (binding.selectButtonManager != null)
-                {
-                    // Never assign an icon to the select button — intentionally left icon-free.
-                    binding.selectButtonManager.onClick.RemoveAllListeners();
-                    binding.selectButtonManager.onClick.AddListener(() => OnCardSelectClicked(index));
-
-                    var bbm = binding.selectButtonManager.GetComponent<Michsky.UI.Heat.BoxButtonManager>();
-                    if (bbm != null)
-                    {
-                        bbm.checkForDoubleClick = false;
-                        bbm.onDoubleClick.RemoveAllListeners();
-                        bbm.onDoubleClick.AddListener(() => OnCardSelectClicked(index));
-                    }
-
-                    var btn = binding.selectButtonManager.GetComponent<Button>();
-                    if (btn != null)
-                    {
-                        btn.onClick.RemoveAllListeners();
-                        btn.onClick.AddListener(() => OnCardSelectClicked(index));
+                        var bbm = sbm.GetComponent<Michsky.UI.Heat.BoxButtonManager>();
+                        if (bbm != null)
+                        {
+                            handledBoxButtons.Add(bbm);
+                            bbm.checkForDoubleClick = false;
+                            bbm.onClick.RemoveAllListeners();
+                            bbm.onClick.AddListener(() => OnCardSelectClicked(index));
+                            bbm.onDoubleClick.RemoveAllListeners();
+                            bbm.onDoubleClick.AddListener(() => OnCardSelectClicked(index));
+                        }
                     }
                 }
             }
+
+            // 2. Container-wide sweep (exact DealPanel technique)
+            var shopButtons = container.GetComponentsInChildren<Michsky.UI.Heat.ShopButtonManager>(true);
+            foreach (var card in shopButtons)
+            {
+                card.useLocalization = false;
+                card.titleLocalizationKey = string.Empty;
+                card.descriptionLocalizationKey = string.Empty;
+
+                int resolvedIndex = ResolveCardIndex(card.gameObject);
+
+                card.onClick.RemoveAllListeners();
+                card.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+
+                card.onPurchaseClick.RemoveAllListeners();
+                card.onPurchaseClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+
+                if (card.purchaseButton != null)
+                {
+                    var pb = card.purchaseButton;
+                    handledButtonManagers.Add(pb);
+                    pb.checkForDoubleClick = false;
+                    pb.onClick.RemoveAllListeners();
+                    pb.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+                    pb.onDoubleClick.RemoveAllListeners();
+                    pb.onDoubleClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+
+                    var pBtn = pb.GetComponentInChildren<Button>(true);
+                    if (pBtn != null) handledButtons.Add(pBtn);
+                }
+
+                foreach (var bm in card.GetComponentsInChildren<Michsky.UI.Heat.ButtonManager>(true))
+                {
+                    handledButtonManagers.Add(bm);
+                    bm.checkForDoubleClick = false;
+                    bm.onClick.RemoveAllListeners();
+                    bm.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+                    bm.onDoubleClick.RemoveAllListeners();
+                    bm.onDoubleClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+                }
+
+                foreach (var bbm in card.GetComponentsInChildren<Michsky.UI.Heat.BoxButtonManager>(true))
+                {
+                    handledBoxButtons.Add(bbm);
+                    bbm.checkForDoubleClick = false;
+                    bbm.onClick.RemoveAllListeners();
+                    bbm.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+                    bbm.onDoubleClick.RemoveAllListeners();
+                    bbm.onDoubleClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+                }
+
+                foreach (var btn in card.GetComponentsInChildren<Button>(true))
+                {
+                    handledButtons.Add(btn);
+                    btn.onClick.RemoveAllListeners();
+                    btn.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+                }
+            }
+
+            // Also check all standalone BoxButtonManagers in cards container
+            var boxButtons = container.GetComponentsInChildren<Michsky.UI.Heat.BoxButtonManager>(true);
+            foreach (var boxBtn in boxButtons)
+            {
+                if (handledBoxButtons.Contains(boxBtn)) continue;
+                int resolvedIndex = ResolveCardIndex(boxBtn.gameObject);
+
+                boxBtn.checkForDoubleClick = false;
+                boxBtn.onClick.RemoveAllListeners();
+                boxBtn.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+                boxBtn.onDoubleClick.RemoveAllListeners();
+                boxBtn.onDoubleClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+
+                var uBtn = boxBtn.GetComponent<Button>();
+                if (uBtn != null) handledButtons.Add(uBtn);
+            }
+
+            // Also check all standalone ButtonManagers in cards container
+            var btnManagers = container.GetComponentsInChildren<Michsky.UI.Heat.ButtonManager>(true);
+            foreach (var bm in btnManagers)
+            {
+                if (handledButtonManagers.Contains(bm)) continue;
+                if (bm == heatMonsterSpectateButton) continue;
+                if (monsterSpectateHotkey != null && bm.transform.IsChildOf(monsterSpectateHotkey.transform)) continue;
+
+                int resolvedIndex = ResolveCardIndex(bm.gameObject);
+
+                bm.checkForDoubleClick = false;
+                bm.onClick.RemoveAllListeners();
+                bm.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+                bm.onDoubleClick.RemoveAllListeners();
+                bm.onDoubleClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+
+                var uBtn = bm.GetComponent<Button>();
+                if (uBtn != null) handledButtons.Add(uBtn);
+            }
+
+            // Also check plain UI Buttons if not already handled
+            var plainButtons = container.GetComponentsInChildren<Button>(true);
+            foreach (var btn in plainButtons)
+            {
+                if (handledButtons.Contains(btn)) continue;
+                if (btn == monsterSpectateButton) continue;
+                if (monsterSpectateHotkey != null && btn.transform.IsChildOf(monsterSpectateHotkey.transform)) continue;
+
+                int resolvedIndex = ResolveCardIndex(btn.gameObject);
+
+                btn.onClick.RemoveAllListeners();
+                btn.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+            }
+        }
+
+        private int ResolveCardIndex(GameObject obj)
+        {
+            if (obj == null) return 0;
+
+            if (cardBindings != null)
+            {
+                for (int i = 0; i < cardBindings.Count; i++)
+                {
+                    var b = cardBindings[i];
+                    if (b == null) continue;
+                    if (b.heatShopCard != null && (obj == b.heatShopCard.gameObject || obj.transform.IsChildOf(b.heatShopCard.transform)))
+                        return i;
+                    if (b.selectButtonManager != null && (obj == b.selectButtonManager.gameObject || obj.transform.IsChildOf(b.selectButtonManager.transform)))
+                        return i;
+                }
+            }
+
+            Transform cur = obj.transform;
+            while (cur != null && cur != transform)
+            {
+                string cn = cur.name.ToLowerInvariant();
+                if (cn.Contains("berserk")) return 1;
+                if (cn.Contains("undead") || cn.Contains("zombie")) return 0;
+                cur = cur.parent;
+            }
+
+            int sib = obj.transform.GetSiblingIndex();
+            return sib >= 1 ? 1 : 0;
         }
 
 
@@ -807,19 +1036,17 @@ namespace NightCrawler.Monsters
                 }
             }
 
-            if (selectionConfirmationModal != null)
+            // Exact DealPanel open modal architecture:
+            var targetModal = confirmationModal != null ? confirmationModal : selectionConfirmationModal?.modalWindow;
+            if (targetModal != null)
             {
-                selectionConfirmationModal.OpenWindow();
-            }
-            else if (confirmationModal != null)
-            {
-                confirmationModal.startBehaviour = Michsky.UI.Heat.ModalWindowManager.StartBehaviour.Enable;
-                if (!confirmationModal.gameObject.activeSelf)
+                targetModal.startBehaviour = Michsky.UI.Heat.ModalWindowManager.StartBehaviour.Enable;
+                if (!targetModal.gameObject.activeSelf)
                 {
-                    confirmationModal.gameObject.SetActive(true);
+                    targetModal.gameObject.SetActive(true);
                 }
 
-                var modalCg = confirmationModal.GetComponent<CanvasGroup>();
+                var modalCg = targetModal.GetComponent<CanvasGroup>();
                 if (modalCg != null)
                 {
                     modalCg.alpha = 1f;
@@ -827,10 +1054,15 @@ namespace NightCrawler.Monsters
                     modalCg.blocksRaycasts = true;
                 }
 
-                confirmationModal.isOn = false;
-                confirmationModal.OpenWindow();
+                targetModal.isOn = false;
+                targetModal.OpenWindow();
             }
-            else
+
+            if (selectionConfirmationModal != null)
+            {
+                selectionConfirmationModal.OpenWindow();
+            }
+            else if (targetModal == null)
             {
                 OnConfirmSpawnClicked();
             }

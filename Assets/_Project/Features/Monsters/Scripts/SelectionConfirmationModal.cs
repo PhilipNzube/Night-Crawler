@@ -39,6 +39,14 @@ namespace NightCrawler.Monsters
             {
                 modalWindow = GetComponent<ModalWindowManager>();
             }
+            if (confirmButton != null)
+            {
+                confirmButton.checkForDoubleClick = false;
+            }
+            if (cancelButton != null)
+            {
+                cancelButton.checkForDoubleClick = false;
+            }
             PrimeModal();
         }
 
@@ -50,6 +58,7 @@ namespace NightCrawler.Monsters
         /// <summary>
         /// Primes the modal on startup so Unity triggers Awake() and Start() during scene init,
         /// ensuring Michsky's StartBehaviour.Disable does not swallow the player's first card click.
+        /// Uses the exact priming pattern from GirlDealUI.
         /// </summary>
         public void PrimeModal()
         {
@@ -65,18 +74,30 @@ namespace NightCrawler.Monsters
                 modalWindow.closeOnConfirm = true;
                 modalWindow.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
                 modalWindow.onConfirm.RemoveAllListeners();
-            }
 
-            // Briefly activate GameObject so Unity runs Awake() and Start() during scene init
-            // without triggering CloseWindow() animations that freeze the animator!
-            gameObject.SetActive(true);
-            if (modalWindow != null)
-            {
-                modalWindow.gameObject.SetActive(true);
+                var mObj = modalWindow.gameObject;
+                mObj.SetActive(true);
                 modalWindow.isOn = false;
+
+                var mc = modalWindow.GetComponent<CanvasGroup>();
+                if (mc != null)
+                {
+                    mc.alpha = 0f;
+                    mc.interactable = false;
+                    mc.blocksRaycasts = false;
+                }
+                mObj.SetActive(false);
             }
 
-            DeactivateModal();
+            gameObject.SetActive(true);
+            var cg = GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 0f;
+                cg.interactable = false;
+                cg.blocksRaycasts = false;
+            }
+            gameObject.SetActive(false);
         }
 
         /// <summary>
@@ -107,13 +128,14 @@ namespace NightCrawler.Monsters
         }
 
         /// <summary>
-        /// Strictly deactivates the modal GameObject, resetting CanvasGroup to transparent non-blocking.
+        /// Strictly closes and deactivates the modal, resetting CanvasGroup to transparent non-blocking.
+        /// Follows the exact closing pattern of GirlDealUI.CloseDealModal.
         /// </summary>
         public void DeactivateModal()
         {
             if (modalWindow != null)
             {
-                modalWindow.isOn = false;
+                modalWindow.CloseWindow();
 
                 var cg = modalWindow.GetComponent<CanvasGroup>();
                 if (cg != null)
@@ -123,10 +145,7 @@ namespace NightCrawler.Monsters
                     cg.blocksRaycasts = false;
                 }
 
-                if (modalWindow.gameObject.activeSelf)
-                {
-                    modalWindow.gameObject.SetActive(false);
-                }
+                modalWindow.gameObject.SetActive(false);
             }
 
             var rootCg = GetComponent<CanvasGroup>();
