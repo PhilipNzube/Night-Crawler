@@ -90,7 +90,6 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
 
     private float _attackTimer;
     private int _currentComboStep = 0;
-    private float _lastAttackTime = -10f;
     private bool _isReloading;
     private bool _hasBufferedAttack;
     private Coroutine _weaponEquipRoutine;

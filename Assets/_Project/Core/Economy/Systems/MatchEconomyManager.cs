@@ -229,6 +229,7 @@ namespace NightCrawler.Economy
         }
 
         private bool _isRitualExorcismCompleted = false;
+        public bool IsRitualExorcismCompleted => _isRitualExorcismCompleted;
 
         public void LogExorcismComplete(ulong priestClientId)
         {

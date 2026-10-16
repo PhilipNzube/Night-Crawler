@@ -215,6 +215,8 @@ public class RandomIdleFidgetSMB : StateMachineBehaviour
         // A. Movement Speed: If character is moving at all (normal or armed), not idle
         if (_hasSpeedParam && animator.GetFloat(_speedHash) > speedThreshold)
             return false;
+        if (!_hasSpeedParam && _hasMotionSpeedParam && animator.GetFloat(_motionSpeedHash) > speedThreshold)
+            return false;
 
         // B. Physical velocity: Check only planar horizontal velocity (ignore -2m/s gravity on grounded character controller)
         var cc = animator.GetComponentInParent<CharacterController>();

@@ -739,7 +739,7 @@ public class DeathUI : MonoBehaviour
                 // Professional single-line truncation with Ellipsis
                 txt.enableAutoSizing = false;
                 txt.fontSize = 13.5f;
-                txt.enableWordWrapping = false;
+                txt.textWrappingMode = TextWrappingModes.NoWrap;
                 txt.overflowMode = TextOverflowModes.Ellipsis;
                 txt.alignment = TextAlignmentOptions.MidlineLeft;
             }
@@ -826,7 +826,7 @@ public class DeathUI : MonoBehaviour
         tmp.fontStyle = FontStyles.Bold;
         tmp.color = new Color(0.95f, 0.96f, 0.98f, 1f);
         tmp.alignment = TextAlignmentOptions.MidlineLeft;
-        tmp.enableWordWrapping = false;
+        tmp.textWrappingMode = TextWrappingModes.NoWrap;
         tmp.overflowMode = TextOverflowModes.Ellipsis;
 
         return card;

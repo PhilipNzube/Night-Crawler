@@ -169,6 +169,10 @@ public class BloodScreenOverlay : MonoBehaviour
     {
         UnbindFromPlayer();
         ResetAudioAndEffects();
+        if (_createdAudioSource && heartbeatAudioSource != null)
+        {
+            Destroy(heartbeatAudioSource);
+        }
     }
 
     private void SetupHeartbeatAudioSource()
