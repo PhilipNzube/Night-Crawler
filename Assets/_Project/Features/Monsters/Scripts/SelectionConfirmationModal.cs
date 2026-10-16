@@ -39,6 +39,78 @@ namespace NightCrawler.Monsters
             {
                 modalWindow = GetComponent<ModalWindowManager>();
             }
+            SanitizeModal(modalWindow);
+            DeactivateModal();
+        }
+
+        private void Start()
+        {
+            SanitizeModal(modalWindow);
+            DeactivateModal();
+        }
+
+        /// <summary>
+        /// Strips invalid state, forces StartBehaviour.Disable, alpha = 0, and deactivates GameObject.
+        /// </summary>
+        public static void SanitizeModal(ModalWindowManager modal)
+        {
+            if (modal == null) return;
+
+            modal.useLocalization = false;
+            modal.closeOnCancel = true;
+            modal.closeOnConfirm = true;
+            modal.startBehaviour = ModalWindowManager.StartBehaviour.Disable;
+            modal.isOn = false;
+
+            var cg = modal.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 0f;
+                cg.interactable = false;
+                cg.blocksRaycasts = false;
+            }
+
+            if (modal.gameObject.activeSelf)
+            {
+                modal.gameObject.SetActive(false);
+            }
+        }
+
+        /// <summary>
+        /// Strictly deactivates the modal GameObject, resetting CanvasGroup to transparent non-blocking.
+        /// </summary>
+        public void DeactivateModal()
+        {
+            if (modalWindow != null)
+            {
+                modalWindow.CloseWindow();
+
+                var cg = modalWindow.GetComponent<CanvasGroup>();
+                if (cg != null)
+                {
+                    cg.alpha = 0f;
+                    cg.interactable = false;
+                    cg.blocksRaycasts = false;
+                }
+
+                if (modalWindow.gameObject.activeSelf)
+                {
+                    modalWindow.gameObject.SetActive(false);
+                }
+            }
+
+            var rootCg = GetComponent<CanvasGroup>();
+            if (rootCg != null)
+            {
+                rootCg.alpha = 0f;
+                rootCg.interactable = false;
+                rootCg.blocksRaycasts = false;
+            }
+
+            if (gameObject.activeSelf)
+            {
+                gameObject.SetActive(false);
+            }
         }
 
         /// <summary>
@@ -81,26 +153,41 @@ namespace NightCrawler.Monsters
 
         public void OpenWindow()
         {
-            if (modalWindow != null)
-            {
-                modalWindow.OpenWindow();
-            }
-            else
+            if (!gameObject.activeSelf)
             {
                 gameObject.SetActive(true);
+            }
+
+            var cg = GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 1f;
+                cg.interactable = true;
+                cg.blocksRaycasts = true;
+            }
+
+            if (modalWindow != null)
+            {
+                if (!modalWindow.gameObject.activeSelf)
+                {
+                    modalWindow.gameObject.SetActive(true);
+                }
+
+                var modalCg = modalWindow.GetComponent<CanvasGroup>();
+                if (modalCg != null)
+                {
+                    modalCg.alpha = 1f;
+                    modalCg.interactable = true;
+                    modalCg.blocksRaycasts = true;
+                }
+
+                modalWindow.OpenWindow();
             }
         }
 
         public void CloseWindow()
         {
-            if (modalWindow != null)
-            {
-                modalWindow.CloseWindow();
-            }
-            else
-            {
-                gameObject.SetActive(false);
-            }
+            DeactivateModal();
         }
     }
 }

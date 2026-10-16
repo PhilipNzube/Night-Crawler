@@ -88,6 +88,14 @@ public class GirlPossessionUI : MonoBehaviour
         {
             playerSelector.useLocalization = false;
         }
+
+        DeactivateModal();
+    }
+
+    private void Start()
+    {
+        SanitizeModal(possessionModal);
+        DeactivateModal();
     }
 
     private void OnDestroy()
@@ -102,6 +110,13 @@ public class GirlPossessionUI : MonoBehaviour
         if (PauseManager.IsGamePaused)
         {
             if (_isOpen) CloseUI();
+            return;
+        }
+
+        if (SpectatorController.IsAnySpectating)
+        {
+            if (_isOpen) CloseUI();
+            DeactivateModal();
             return;
         }
 
@@ -164,6 +179,15 @@ public class GirlPossessionUI : MonoBehaviour
         {
             if (!possessionModal.gameObject.activeSelf)
                 possessionModal.gameObject.SetActive(true);
+
+            var cg = possessionModal.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 1f;
+                cg.interactable = true;
+                cg.blocksRaycasts = true;
+            }
+
             possessionModal.OpenWindow();
         }
 
@@ -176,9 +200,7 @@ public class GirlPossessionUI : MonoBehaviour
     {
         _isOpen = false;
 
-        // Let Michsky's Animator handle visibility — do NOT touch SetActive or canvasGroup.alpha
-        if (possessionModal != null)
-            possessionModal.CloseWindow();
+        DeactivateModal();
 
         Cursor.lockState = CursorLockMode.Locked;
         Cursor.visible = false;
@@ -337,7 +359,7 @@ public class GirlPossessionUI : MonoBehaviour
     }
 
     /// <summary>
-    /// Strips any accidental ExitGame calls copied from modal templates.
+    /// Strips any accidental ExitGame calls and strictly disables window on start.
     /// </summary>
     private static void SanitizeModal(ModalWindowManager modal)
     {
@@ -345,12 +367,53 @@ public class GirlPossessionUI : MonoBehaviour
         modal.useLocalization = false;
         modal.titleKey = string.Empty;
         modal.descriptionKey = string.Empty;
+        modal.closeOnCancel = true;
+        modal.closeOnConfirm = true;
+        modal.startBehaviour = ModalWindowManager.StartBehaviour.Disable;
+        modal.isOn = false;
+
+        var cg = modal.GetComponent<CanvasGroup>();
+        if (cg != null)
+        {
+            cg.alpha = 0f;
+            cg.interactable = false;
+            cg.blocksRaycasts = false;
+        }
+
+        if (modal.gameObject.activeSelf)
+        {
+            modal.gameObject.SetActive(false);
+        }
 
         // Strip ExitGame component if attached
         var exitComp = modal.GetComponent("ExitGame");
         if (exitComp != null)
         {
             Destroy(exitComp);
+        }
+    }
+
+    /// <summary>
+    /// Strictly closes and deactivates the possession modal window.
+    /// </summary>
+    public void DeactivateModal()
+    {
+        if (possessionModal != null)
+        {
+            possessionModal.CloseWindow();
+
+            var cg = possessionModal.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 0f;
+                cg.interactable = false;
+                cg.blocksRaycasts = false;
+            }
+
+            if (possessionModal.gameObject.activeSelf)
+            {
+                possessionModal.gameObject.SetActive(false);
+            }
         }
     }
 }

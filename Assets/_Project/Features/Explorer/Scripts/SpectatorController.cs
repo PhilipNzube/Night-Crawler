@@ -252,6 +252,7 @@ public class SpectatorController : MonoBehaviour
         _collisionDistance = defaultCameraDistance;
         CreateSpectatorAnchor();
         BuildProceduralHUD();
+        SanitizeAllGameplayModals();
     }
 
     private void OnEnable()
@@ -418,6 +419,7 @@ public class SpectatorController : MonoBehaviour
 
         Debug.Log($"[SpectatorController] Initiating Spectator Mode ({modeType})...");
         _isSpectating = true;
+        SanitizeAllGameplayModals();
 
         // Resolve camera
         ResolveCamera();
@@ -696,6 +698,8 @@ public class SpectatorController : MonoBehaviour
     /// </summary>
     public static void ExitAllSpectating()
     {
+        SanitizeAllGameplayModals();
+
         bool anyWasSpectating = false;
         if (SurvivorInstance != null && SurvivorInstance._isSpectating)
         {
@@ -720,6 +724,8 @@ public class SpectatorController : MonoBehaviour
             if (SurvivorInstance != null) SurvivorInstance.DoExitSpectating();
             if (MonsterInstance != null) MonsterInstance.DoExitSpectating();
         }
+
+        SanitizeAllGameplayModals();
     }
 
     /// <summary>
@@ -735,7 +741,9 @@ public class SpectatorController : MonoBehaviour
         bool wasSpectating = _isSpectating;
         _isSpectating = false;
 
+        SanitizeAllGameplayModals();
         StopSpectating();
+        SanitizeAllGameplayModals();
 
         if (modeType == SpectatorModeType.Survivors)
         {
@@ -753,8 +761,62 @@ public class SpectatorController : MonoBehaviour
                 _canvasGroup.interactable = false;
             }
             if (_spectatorCanvas != null) _spectatorCanvas.gameObject.SetActive(false);
+            if (customCanvasRoot != null) customCanvasRoot.SetActive(false);
             Cursor.lockState = CursorLockMode.Locked;
             Cursor.visible = false;
+        }
+    }
+
+    /// <summary>
+    /// Strictly sanitizes and deactivates all gameplay modals across all UI managers.
+    /// Ensures that no modals (DealModal, PossessionModal, SelectionConfirmationModal,
+    /// MonsterSpectatorModal, Traitor modals, Deal notification/result modals) flash
+    /// or remain visible when transitioning between spectator mode and normal gameplay.
+    /// </summary>
+    public static void SanitizeAllGameplayModals()
+    {
+        // 1. Girl Deal UI modals (DealModal, ErrorModal)
+        if (GirlDealUI.Instance != null)
+        {
+            GirlDealUI.Instance.DeactivateAllModals();
+        }
+
+        // 2. Girl Possession UI modal (PossessionModal)
+        if (GirlPossessionUI.Instance != null)
+        {
+            GirlPossessionUI.Instance.DeactivateModal();
+        }
+
+        // 3. Girl Monster Summon HUD modals (SelectionConfirmationModal, ConfirmationModal)
+        if (NightCrawler.Monsters.GirlMonsterSummonHUD.Instance != null)
+        {
+            NightCrawler.Monsters.GirlMonsterSummonHUD.Instance.DeactivateAllModals();
+        }
+
+        // 4. Traitor Report UI modals (FileTraitorReportModal, DestroyFiledReportModal, ErrorModal)
+        if (NightCrawler.UI.TraitorReportUI.Instance != null)
+        {
+            NightCrawler.UI.TraitorReportUI.Instance.DeactivateAllModals();
+        }
+
+        // 5. Traitor Verdict UI modal (VerdictModal)
+        if (NightCrawler.UI.TraitorVerdictUI.Instance != null)
+        {
+            NightCrawler.UI.TraitorVerdictUI.Instance.DeactivateModal();
+        }
+
+        // 6. Deal Notification & Result Modals
+        if (DealNotificationUI.Instance != null && !DealNotificationUI.Instance.IsActive)
+        {
+            DealNotificationUI.Instance.HideLocalOnly();
+        }
+        if (NightCrawler.UI.DealCompletionModalUI.Instance != null && !NightCrawler.UI.DealCompletionModalUI.Instance.IsOpen)
+        {
+            NightCrawler.UI.DealCompletionModalUI.Instance.HideLocalOnly();
+        }
+        if (NightCrawler.UI.DealFailureModalUI.Instance != null && !NightCrawler.UI.DealFailureModalUI.Instance.IsOpen)
+        {
+            NightCrawler.UI.DealFailureModalUI.Instance.HideLocalOnly();
         }
     }
 
@@ -954,6 +1016,8 @@ public class SpectatorController : MonoBehaviour
         _isStopping = false;
         _currentTarget = null;
 
+        SanitizeAllGameplayModals();
+
         // Cancel any pending monster summon spectate routines
         if (NightCrawler.Monsters.GirlMonsterSummonHUD.Instance != null)
         {
@@ -1072,9 +1136,11 @@ public class SpectatorController : MonoBehaviour
             _canvasGroup.interactable = false;
             if (_canvasGroup.gameObject != gameObject)
                 _canvasGroup.gameObject.SetActive(false);
-            if (customCanvasRoot != null && customCanvasRoot != gameObject)
-                customCanvasRoot.SetActive(false);
         }
+        if (customCanvasRoot != null && customCanvasRoot != gameObject)
+            customCanvasRoot.SetActive(false);
+
+        SanitizeAllGameplayModals();
 
         // NOTE: We do NOT run ReassertPlayerCamPriority here.
         // Running it across multiple exits caused coroutines to fight each other
@@ -2059,6 +2125,45 @@ public class SpectatorController : MonoBehaviour
             _canvasGroup.blocksRaycasts = false;
             _canvasGroup.interactable = false;
             if (customCanvasRoot != null) customCanvasRoot.SetActive(false);
+
+            // Strictly sanitize and deactivate any spectator modals inside root
+            foreach (var mw in root.GetComponentsInChildren<Michsky.UI.Heat.ModalWindowManager>(true))
+            {
+                if (mw != null)
+                {
+                    mw.startBehaviour = Michsky.UI.Heat.ModalWindowManager.StartBehaviour.Disable;
+                    mw.isOn = false;
+                    var mwCg = mw.GetComponent<CanvasGroup>();
+                    if (mwCg != null)
+                    {
+                        mwCg.alpha = 0f;
+                        mwCg.blocksRaycasts = false;
+                        mwCg.interactable = false;
+                    }
+                    if (mw.gameObject.activeSelf) mw.gameObject.SetActive(false);
+                }
+            }
+
+            Canvas pCanvas = GetComponentInParent<Canvas>();
+            if (pCanvas != null)
+            {
+                foreach (var mw in pCanvas.GetComponentsInChildren<Michsky.UI.Heat.ModalWindowManager>(true))
+                {
+                    if (mw != null && mw.gameObject.name.ToLower().Contains("spectator"))
+                    {
+                        mw.startBehaviour = Michsky.UI.Heat.ModalWindowManager.StartBehaviour.Disable;
+                        mw.isOn = false;
+                        var mwCg = mw.GetComponent<CanvasGroup>();
+                        if (mwCg != null)
+                        {
+                            mwCg.alpha = 0f;
+                            mwCg.blocksRaycasts = false;
+                            mwCg.interactable = false;
+                        }
+                        if (mw.gameObject.activeSelf) mw.gameObject.SetActive(false);
+                    }
+                }
+            }
 
             _roleBadgeText = customRoleText;
             InitHotkeys();

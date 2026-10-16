@@ -541,6 +541,19 @@ namespace NightCrawler.UI
             RelockCursor();
         }
 
+        /// <summary>
+        /// Strictly closes, sanitizes, and deactivates all traitor report modals.
+        /// </summary>
+        public void DeactivateAllModals()
+        {
+            CloseFileModal();
+            CloseDestroyModal();
+            CloseErrorModal();
+            SanitizeModal(fileReportModal);
+            SanitizeModal(destroyReportModal);
+            SanitizeModal(errorModal);
+        }
+
         // =========================================================================
         //  HUD Dossier Counter
         // =========================================================================

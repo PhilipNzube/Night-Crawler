@@ -125,15 +125,8 @@ namespace NightCrawler.Monsters
                 selectionConfirmationModal = confirmationModal.GetComponent<SelectionConfirmationModal>();
             }
 
-            // Close confirmation modals if open by default
-            if (selectionConfirmationModal != null)
-            {
-                selectionConfirmationModal.CloseWindow();
-            }
-            else if (confirmationModal != null)
-            {
-                confirmationModal.CloseWindow();
-            }
+            // Strictly close and sanitize confirmation modals if open by default
+            DeactivateAllModals();
 
             // Wire Confirmation Modal buttons
             var confirmBtn = selectionConfirmationModal != null && selectionConfirmationModal.confirmButton != null 
@@ -282,6 +275,8 @@ namespace NightCrawler.Monsters
             {
                 monstersAnimator.Play("Panel Instant Out");
             }
+
+            DeactivateAllModals();
         }
 
         private void InitializeSummonCharges()
@@ -306,6 +301,7 @@ namespace NightCrawler.Monsters
             if (SpectatorController.IsAnySpectating)
             {
                 if (_isOpen) CloseHUD();
+                DeactivateAllModals();
                 return;
             }
 
@@ -409,9 +405,8 @@ namespace NightCrawler.Monsters
                 monsterSpectateHotkeyEvent.enabled = false;
             }
 
-            // Close sub-modals if open
-            if (selectionConfirmationModal != null) selectionConfirmationModal.CloseWindow();
-            else if (confirmationModal != null) confirmationModal.CloseWindow();
+            // Strictly close and deactivate sub-modals if open
+            DeactivateAllModals();
 
             // Animate cards out
             if (monstersAnimator != null)
@@ -431,6 +426,22 @@ namespace NightCrawler.Monsters
             {
                 Cursor.lockState = CursorLockMode.Locked;
                 Cursor.visible = false;
+            }
+        }
+
+        /// <summary>
+        /// Strictly closes, sanitizes, and deactivates confirmation modals.
+        /// </summary>
+        public void DeactivateAllModals()
+        {
+            if (selectionConfirmationModal != null)
+            {
+                selectionConfirmationModal.DeactivateModal();
+            }
+            if (confirmationModal != null)
+            {
+                confirmationModal.CloseWindow();
+                SelectionConfirmationModal.SanitizeModal(confirmationModal);
             }
         }
 
@@ -759,14 +770,7 @@ namespace NightCrawler.Monsters
 
         public void OnCancelSpawnClicked()
         {
-            if (selectionConfirmationModal != null)
-            {
-                selectionConfirmationModal.CloseWindow();
-            }
-            else if (confirmationModal != null)
-            {
-                confirmationModal.CloseWindow();
-            }
+            DeactivateAllModals();
         }
 
         public void OnConfirmSpawnClicked()
@@ -795,8 +799,7 @@ namespace NightCrawler.Monsters
                 {
                     if (NotificationManager.Instance != null)
                         NotificationManager.Instance.ShowNotification("No Undead summon charges remaining this match!", 2.5f);
-                    if (selectionConfirmationModal != null) selectionConfirmationModal.CloseWindow();
-                    else if (confirmationModal != null) confirmationModal.CloseWindow();
+                    DeactivateAllModals();
                     return;
                 }
                 _undeadSummoned++;
@@ -828,8 +831,7 @@ namespace NightCrawler.Monsters
                 NotificationManager.Instance.ShowNotification("Awakening monster in the deep tunnels...", 3f);
             }
 
-            if (selectionConfirmationModal != null) selectionConfirmationModal.CloseWindow();
-            else if (confirmationModal != null) confirmationModal.CloseWindow();
+            DeactivateAllModals();
             CloseHUD();
 
             if (_activeSpectateRoutine != null) StopCoroutine(_activeSpectateRoutine);

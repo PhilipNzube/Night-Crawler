@@ -292,6 +292,8 @@ namespace NightCrawler.UI
             else
             {
                 ForceAlphaHidden();
+                if (modalWindow != null && modalWindow.gameObject.activeSelf) modalWindow.gameObject.SetActive(false);
+                if (modalRootObject != null && modalRootObject.activeSelf) modalRootObject.SetActive(false);
 
                 if (modifyCursor && !PauseManager.IsGamePaused)
                 {
@@ -371,9 +373,9 @@ namespace NightCrawler.UI
             modalWindow.closeOnConfirm = true;
             modalWindow.showCancelButton = false;
             modalWindow.showConfirmButton = true;
-            modalWindow.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
+            modalWindow.startBehaviour = ModalWindowManager.StartBehaviour.Disable;
             modalWindow.enabled = false;
-            modalWindow.isOn = true;
+            modalWindow.isOn = false;
 
             if (modalWindow.cancelButton != null) modalWindow.cancelButton.gameObject.SetActive(false);
             if (modalWindow.confirmButton != null) modalWindow.confirmButton.buttonText = "CONTINUE";

@@ -264,6 +264,9 @@ public class PlayerHUD : MonoBehaviour
             DealNotificationUI.Instance.Hide();
         }
 
+        GirlDealUI.Instance?.DeactivateAllModals();
+        GirlPossessionUI.Instance?.DeactivateModal();
+
         UnsubscribeHealthEvents();
         AdventurerMinimapSetup.OnPossessionChanged(null, false);
         if (bloodScreenOverlay != null)
@@ -418,6 +421,12 @@ public class PlayerHUD : MonoBehaviour
             else
             {
                 demonPanel.SetActive(_isDemon);
+            }
+
+            if (_isDemon)
+            {
+                GirlDealUI.Instance?.DeactivateAllModals();
+                GirlPossessionUI.Instance?.DeactivateModal();
             }
         }
         _isBound = true;

@@ -284,6 +284,15 @@ namespace NightCrawler.UI
             RelockCursor();
         }
 
+        /// <summary>
+        /// Strictly closes, sanitizes, and deactivates the verdict modal.
+        /// </summary>
+        public void DeactivateModal()
+        {
+            CloseVerdictModal();
+            SanitizeModal(verdictModal);
+        }
+
         // =========================================================================
         //  Utilities
         // =========================================================================

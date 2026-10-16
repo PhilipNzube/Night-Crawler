@@ -99,11 +99,11 @@ public class DealNotificationUI : MonoBehaviour
             if (found.heatModalWindow != null)
             {
                 SanitizeModal(found.heatModalWindow);
-                found.heatModalWindow.gameObject.SetActive(true);
-                found.heatModalWindow.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
+                found.heatModalWindow.startBehaviour = ModalWindowManager.StartBehaviour.Disable;
                 found.heatModalWindow.enabled = false;
                 found.heatModalWindow.StopAllCoroutines();
                 found.heatModalWindow.isOn = false;
+                if (found.heatModalWindow.gameObject.activeSelf) found.heatModalWindow.gameObject.SetActive(false);
             }
 
             if (found.modalRootObject != null)
@@ -238,14 +238,18 @@ public class DealNotificationUI : MonoBehaviour
 
         if (heatModalWindow != null)
         {
-            if (!heatModalWindow.gameObject.activeSelf)
+            heatModalWindow.StopAllCoroutines();
+            heatModalWindow.startBehaviour = ModalWindowManager.StartBehaviour.Disable;
+            heatModalWindow.enabled = false;
+            heatModalWindow.isOn = visible;
+            if (visible && !heatModalWindow.gameObject.activeSelf)
             {
                 heatModalWindow.gameObject.SetActive(true);
             }
-            heatModalWindow.StopAllCoroutines();
-            heatModalWindow.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
-            heatModalWindow.enabled = false;
-            heatModalWindow.isOn = visible;
+            else if (!visible && heatModalWindow.gameObject.activeSelf)
+            {
+                heatModalWindow.gameObject.SetActive(false);
+            }
         }
 
         if (modalRootObject != null && !modalRootObject.activeSelf)
@@ -758,7 +762,8 @@ public class DealNotificationUI : MonoBehaviour
         modal.descriptionKey = string.Empty;
         modal.closeOnCancel = false;
         modal.closeOnConfirm = false;
-        modal.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
+        modal.startBehaviour = ModalWindowManager.StartBehaviour.Disable;
+        modal.isOn = false;
         modal.onConfirm.RemoveAllListeners();
         modal.onCancel.RemoveAllListeners();
         modal.onOpen.RemoveAllListeners();

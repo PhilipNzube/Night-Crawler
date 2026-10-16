@@ -219,6 +219,7 @@ public class GirlDealUI : MonoBehaviour
         if (SpectatorController.IsAnySpectating)
         {
             if (_isOpen) CloseUI();
+            DeactivateAllModals();
             return;
         }
 
@@ -344,9 +345,9 @@ public class GirlDealUI : MonoBehaviour
     {
         _isOpen = false;
 
-        // Close sub-modals if open
-        if (dealModal  != null) dealModal.CloseWindow();
-        if (errorModal != null) errorModal.CloseWindow();
+        // Close and fully deactivate sub-modals
+        CloseDealModal();
+        CloseErrorModal();
 
         // Animate Deals cards out
         if (dealsAnimator != null)
@@ -742,6 +743,18 @@ public class GirlDealUI : MonoBehaviour
     // ForceClose* kept for backward compat
     private void ForceCloseDealModal()  => CloseDealModal();
     private void ForceCloseErrorModal() => CloseErrorModal();
+
+    /// <summary>
+    /// Strictly closes, sanitizes, and deactivates deal and error modals.
+    /// Called when spectator mode starts/stops or when closing the UI.
+    /// </summary>
+    public void DeactivateAllModals()
+    {
+        CloseDealModal();
+        CloseErrorModal();
+        SanitizeModal(dealModal);
+        SanitizeModal(errorModal);
+    }
 
     // =========================================================================
     //  Player Selector Management
