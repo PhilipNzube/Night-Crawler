@@ -120,7 +120,7 @@ public class ZombieAI : MonsterAI
             EvaluatePosture(dist, false);
         }
         // 2. Following / called by the Girl (Command.Follow)
-        else if (currentState == AIState.Running && currentCommand == Command.Follow)
+        else if ((currentState == AIState.Running || currentState == AIState.Patrol) && currentCommand == Command.Follow)
         {
             Transform leader = _commandLeader != null ? _commandLeader : (GameManager.Instance != null ? GameManager.Instance.GirlTransform : null);
             if (leader != null)
@@ -372,6 +372,24 @@ public class ZombieAI : MonsterAI
             _animator.SetBool(_isStandingHash, true);
             _animator.SetBool(_isCrawlingHash, false);
 
+            Transform leader = _commandLeader != null ? _commandLeader : (GameManager.Instance != null ? GameManager.Instance.GirlTransform : null);
+            float distToLeader = leader != null ? Vector3.Distance(transform.position, leader.position) : 999f;
+
+            // When following/escorting the Girl and near her (<= 18m):
+            // EnemyNPC_AI logic: Strictly play the walk animation! Never run, never spasm into stand/idle!
+            if (currentCommand == Command.Follow && distToLeader <= 18.0f)
+            {
+                _animator.SetBool(_isWalkingHash, true);
+                _animator.SetBool(_isRunningHash, false);
+
+                if (_currentLocomotionAnimHash != _stateZombieWalk)
+                {
+                    _animator.CrossFade(_stateZombieWalk, 0.2f);
+                    _currentLocomotionAnimHash = _stateZombieWalk;
+                }
+                return;
+            }
+
             bool shouldRun = false;
 
             if (currentState == AIState.Running)
@@ -383,14 +401,7 @@ public class ZombieAI : MonsterAI
                 }
                 else if (currentCommand == Command.Follow)
                 {
-                    Transform leader = _commandLeader != null ? _commandLeader : (GameManager.Instance != null ? GameManager.Instance.GirlTransform : null);
-                    if (leader != null)
-                    {
-                        float distToLeader = Vector3.Distance(transform.position, leader.position);
-                        // When closing distance to girl (> 4.5m), sprint upright!
-                        // When closer (<= 4.5m), walk while patrolling her perimeter!
-                        shouldRun = distToLeader > 4.5f;
-                    }
+                    shouldRun = distToLeader > 18.0f;
                 }
             }
 

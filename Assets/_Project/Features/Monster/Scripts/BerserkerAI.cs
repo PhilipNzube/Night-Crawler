@@ -42,6 +42,7 @@ public class BerserkerAI : MonsterAI
     protected readonly int _stateMutantSwiping = Animator.StringToHash("Mutant Swiping");
     protected readonly int _stateMutantHit     = Animator.StringToHash("Mutant Reaction Hit");
     protected readonly int _stateBerserkerIdle = Animator.StringToHash("Berserker Idle");
+    private int _currentLocomotionAnimHash = 0;
 
     protected override void Awake()
     {
@@ -133,6 +134,7 @@ public class BerserkerAI : MonsterAI
 
     protected override void TriggerScreamAnimation()
     {
+        _currentLocomotionAnimHash = 0;
         if (_animator != null)
         {
             _animator.SetTrigger(_roarHash);
@@ -214,6 +216,7 @@ public class BerserkerAI : MonsterAI
     {
         if (combat == null || combat.IsOnCooldown) return;
 
+        _currentLocomotionAnimHash = 0;
         currentState = AIState.Attacking;
         if (locomotion != null)
         {
@@ -256,6 +259,7 @@ public class BerserkerAI : MonsterAI
     {
         if (currentState == AIState.Dead) return;
 
+        _currentLocomotionAnimHash = 0;
         _hitStaggerTimer = 0.45f;
         if (_animator != null)
         {
@@ -282,6 +286,60 @@ public class BerserkerAI : MonsterAI
         {
             _animator.SetTrigger(_hitReactionHash);
             _animator.CrossFade(_stateMutantHit, 0.08f);
+        }
+    }
+
+    protected override void UpdateLocomotionAnimation()
+    {
+        if (locomotion == null || _animator == null) return;
+
+        Transform leader = _commandLeader != null ? _commandLeader : (GameManager.Instance != null ? GameManager.Instance.GirlTransform : null);
+        float distToLeader = leader != null ? Vector3.Distance(transform.position, leader.position) : 999f;
+
+        if (currentCommand == Command.Follow && distToLeader <= 18.0f)
+        {
+            // When escorting/patrolling around the Girl, strictly drive Mutant Walk (EnemyNPC_AI logic)
+            _animator.SetFloat(_speedHash, walkSpeed);
+            if (_isRunningHash != 0) _animator.SetBool(_isRunningHash, false);
+            if (_isWalkingHash != 0) _animator.SetBool(_isWalkingHash, true);
+
+            if (_currentLocomotionAnimHash != _stateMutantWalk && currentState != AIState.Attacking && currentState != AIState.SpawningScream)
+            {
+                _animator.CrossFade(_stateMutantWalk, 0.2f);
+                _currentLocomotionAnimHash = _stateMutantWalk;
+            }
+            return;
+        }
+
+        base.UpdateLocomotionAnimation();
+
+        if (currentState != AIState.Attacking && currentState != AIState.SpawningScream)
+        {
+            float spd = locomotion.agent != null ? locomotion.agent.velocity.magnitude : 0f;
+            if (spd > (walkSpeed * 1.25f))
+            {
+                if (_currentLocomotionAnimHash != _stateMutantRun)
+                {
+                    _animator.CrossFade(_stateMutantRun, 0.2f);
+                    _currentLocomotionAnimHash = _stateMutantRun;
+                }
+            }
+            else if (spd > 0.1f)
+            {
+                if (_currentLocomotionAnimHash != _stateMutantWalk)
+                {
+                    _animator.CrossFade(_stateMutantWalk, 0.2f);
+                    _currentLocomotionAnimHash = _stateMutantWalk;
+                }
+            }
+            else
+            {
+                if (_currentLocomotionAnimHash != _stateBerserkerIdle)
+                {
+                    _animator.CrossFade(_stateBerserkerIdle, 0.25f);
+                    _currentLocomotionAnimHash = _stateBerserkerIdle;
+                }
+            }
         }
     }
 }
