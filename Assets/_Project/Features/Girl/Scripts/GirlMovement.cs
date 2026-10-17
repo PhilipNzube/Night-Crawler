@@ -61,10 +61,15 @@ public class GirlMovement : NetworkBehaviour
     private readonly int _comboStepHash  = Animator.StringToHash("ComboStep");
     private readonly int _fidgetHash     = Animator.StringToHash("IdleFidget");
 
+    private GirlMaterialController _materialController;
+
+    public bool IsManifested => _materialController == null || _materialController.isManifested.Value;
+
     private void Awake()
     {
         if (controller == null) controller = GetComponent<CharacterController>();
         if (animator == null) animator = GetComponentInChildren<Animator>();
+        if (_materialController == null) _materialController = GetComponent<GirlMaterialController>();
         SanitizeGirlAnimator();
     }
 
@@ -221,8 +226,8 @@ public class GirlMovement : NetworkBehaviour
         // Physical movement
         controller.Move(move * currentSpeed * Time.deltaTime);
 
-        // Footstep audio cadence (plays while moving on ground)
-        if (move.sqrMagnitude > 0.01f && controller.isGrounded)
+        // Footstep audio cadence (plays while moving on ground ONLY WHEN MANIFESTED)
+        if (move.sqrMagnitude > 0.01f && controller.isGrounded && IsManifested)
         {
             _stepTimer -= Time.deltaTime;
             if (_stepTimer <= 0f)
@@ -255,14 +260,46 @@ public class GirlMovement : NetworkBehaviour
     /// </summary>
     public void OnFootstep(AnimationEvent animationEvent)
     {
-        if (!enabled) return;
+        if (!enabled || !IsManifested) return;
         if (animationEvent != null && animationEvent.animatorClipInfo.weight <= 0.5f) return;
         PlayFootstep();
     }
 
     public void PlayFootstep()
     {
+        // When invisible, footsteps MUST NOT play! Only play when manifested!
+        if (!IsManifested) return;
+
         bool isRailOrMetal = CheckIfOnRailOrMetal();
+
+        // 1. Play locally with zero latency
+        PlayFootstepAudio(isRailOrMetal, transform.position);
+
+        // 2. Replicate across network to all players
+        if (IsSpawned && IsOwner)
+        {
+            PlayGirlFootstepServerRpc(isRailOrMetal, transform.position);
+        }
+    }
+
+    [ServerRpc]
+    private void PlayGirlFootstepServerRpc(bool isRailOrMetal, Vector3 position)
+    {
+        PlayGirlFootstepClientRpc(isRailOrMetal, position);
+    }
+
+    [ClientRpc]
+    private void PlayGirlFootstepClientRpc(bool isRailOrMetal, Vector3 position)
+    {
+        if (IsOwner) return;
+        // Remote clients only hear footsteps if the Girl is currently manifested
+        if (!IsManifested) return;
+
+        PlayFootstepAudio(isRailOrMetal, position);
+    }
+
+    public void PlayFootstepAudio(bool isRailOrMetal, Vector3 position)
+    {
         AudioClip[] targetClips = null;
 
         if (isRailOrMetal && railFootstepClips != null && railFootstepClips.Length > 0)
@@ -291,7 +328,7 @@ public class GirlMovement : NetworkBehaviour
         }
         else
         {
-            AudioSource.PlayClipAtPoint(clip, transform.position, effectiveVol);
+            AudioSource.PlayClipAtPoint(clip, position, effectiveVol);
         }
     }
 

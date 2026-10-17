@@ -227,8 +227,6 @@ namespace NightCrawler.Monsters
 
         public void OpenModalDirectly()
         {
-            if (modalWindow != null && modalWindow.isOn) return;
-
             if (modalWindow != null)
             {
                 modalWindow.startBehaviour = ModalWindowManager.StartBehaviour.Enable;
@@ -262,10 +260,9 @@ namespace NightCrawler.Monsters
                     modalCg.blocksRaycasts = true;
                 }
 
-                if (!modalWindow.isOn)
-                {
-                    modalWindow.OpenWindow();
-                }
+                // Force isOn to false before OpenWindow() so Michsky never early-exits on the first tap!
+                modalWindow.isOn = false;
+                modalWindow.OpenWindow();
             }
         }
 

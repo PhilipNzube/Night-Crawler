@@ -85,6 +85,8 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     public AudioClip spawnScreamClip;
     public AudioSource audioSource;
     public AudioClip hurtSoundClip;
+    [Tooltip("Audio clip played when this monster's attack successfully hits a victim (e.g. flesh impact / axe strike). Replicated to all clients.")]
+    public AudioClip attackHitImpactClip;
 
     [Header("EnemyNPC_AI Health Bar Integration")]
     [Tooltip("EnemyHealthBar component from the EnemyNPC_AI package. Drag and wire in Inspector.")]
@@ -135,7 +137,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     [Tooltip("Delay in seconds after death before the corpse starts dissolving (e.g. 5s - 15s for quick cleanup, or 60s - 180s for a few minutes).")]
     [Range(1f, 600f)]
-    public float dissolveDelayAfterDeath = 10f;
+    public float dissolveDelayAfterDeath = 75f;
 
     [Tooltip("Duration of the dissolve effect animation in seconds.")]
     [Range(0.5f, 15f)]
@@ -330,15 +332,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
         else
         {
-            // On client devices: disable local NavMeshAgent & CharacterController
-            // so they do NOT fight the server's synchronized transform position!
+            // On client devices: disable local NavMeshAgent
+            // so it does NOT fight the server's synchronized transform position!
+            // CharacterController remains enabled so physical presence, ground alignment and ragdoll setup are preserved!
             if (_agent != null)
             {
                 _agent.enabled = false;
-            }
-            if (TryGetComponent<CharacterController>(out var cc))
-            {
-                cc.enabled = false;
             }
         }
 
@@ -1397,6 +1396,57 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     private void PlayAttackAudioClientRpc()
     {
         // Attack swing audio silenced per design
+    }
+
+    /// <summary>
+    /// Broadcasts the physical attack impact sound when this monster's attack connects with a player/victim.
+    /// Replicated to all clients so the victim clearly hears the blow landing.
+    /// </summary>
+    public void BroadcastAttackHitImpact(Vector3 contactPoint)
+    {
+        AudioClip clip = attackHitImpactClip != null 
+            ? attackHitImpactClip 
+            : (combat != null && combat.attackHitbox != null ? combat.attackHitbox.hitSound : null);
+
+        if (clip != null)
+        {
+            float sfxVol = GameSettingsManager.SFXVolume;
+            if (audioSource != null)
+            {
+                audioSource.PlayOneShot(clip, sfxVol);
+            }
+            else
+            {
+                AudioSource.PlayClipAtPoint(clip, contactPoint, sfxVol);
+            }
+        }
+
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            PlayAttackHitImpactClientRpc(contactPoint);
+        }
+    }
+
+    [ClientRpc]
+    private void PlayAttackHitImpactClientRpc(Vector3 contactPoint)
+    {
+        if (IsServer) return;
+        AudioClip clip = attackHitImpactClip != null 
+            ? attackHitImpactClip 
+            : (combat != null && combat.attackHitbox != null ? combat.attackHitbox.hitSound : null);
+
+        if (clip != null)
+        {
+            float sfxVol = GameSettingsManager.SFXVolume;
+            if (audioSource != null)
+            {
+                audioSource.PlayOneShot(clip, sfxVol);
+            }
+            else
+            {
+                AudioSource.PlayClipAtPoint(clip, contactPoint, sfxVol);
+            }
+        }
     }
 
     public void Stop3DAttackAudio()

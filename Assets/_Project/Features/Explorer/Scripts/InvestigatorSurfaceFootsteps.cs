@@ -1,19 +1,14 @@
 using UnityEngine;
 using StarterAssets;
+using Unity.Netcode;
 
 /// <summary>
-/// Dynamically updates the Investigator's footstep audio clips based on the surface beneath their feet.
-/// Switches between mine ground (dirt/rock/stone) and minecart tracks/metal (rail/iron).
-/// 
-/// Works in TWO modes:
-/// 1. Built-in Mode (Default): If footstepSource is left empty, it feeds clips directly into
-///    ThirdPersonController.FootstepAudioClips and lets Unity play them via PlayClipAtPoint (no AudioSource required!).
-/// 2. Dedicated AudioSource Mode: If you assign an AudioSource to footstepSource, it plays footsteps
-///    directly through that AudioSource with full 3D spatial settings, and silences ThirdPersonController
-///    so footsteps never double-play.
+/// Controls the Investigator's footstep audio with dynamic surface detection (Mine Ground vs Rail/Metal),
+/// a reliable movement cadence timer (identical to GirlMovement), and full network synchronization.
+/// Replicates footsteps to all players across the network so investigators can hear each other.
 /// </summary>
 [DisallowMultipleComponent]
-public class InvestigatorSurfaceFootsteps : MonoBehaviour
+public class InvestigatorSurfaceFootsteps : NetworkBehaviour
 {
     public enum SurfaceType
     {
@@ -25,7 +20,7 @@ public class InvestigatorSurfaceFootsteps : MonoBehaviour
     [Tooltip("Drag the ThirdPersonController component from this GameObject here.")]
     public ThirdPersonController controller;
 
-    [Tooltip("Optional AudioSource. If assigned, footsteps play through this source with your custom 3D curves. If left empty, ThirdPersonController plays them automatically.")]
+    [Tooltip("Optional AudioSource. If assigned, footsteps play through this source with custom 3D curves. If unassigned, plays via PlayClipAtPoint.")]
     public AudioSource footstepSource;
 
     [Tooltip("Optional CharacterController reference. If empty, will auto-detect from this GameObject.")]
@@ -40,6 +35,13 @@ public class InvestigatorSurfaceFootsteps : MonoBehaviour
 
     [Tooltip("Volume for footstep playback. Values above 1.0 provide extra audio boost for quiet clips.")]
     [Range(0f, 2.5f)] public float footstepVolume = 0.9f;
+
+    [Header("Cadence Settings (Movement Timer)")]
+    [Tooltip("Cadence/interval between footsteps while walking (seconds).")]
+    public float walkStepInterval = 0.44f;
+
+    [Tooltip("Cadence/interval between footsteps while running/sprinting (seconds).")]
+    public float runStepInterval = 0.28f;
 
     [Header("Surface Detection")]
     [Tooltip("Raycast distance downwards to check the ground surface.")]
@@ -58,6 +60,13 @@ public class InvestigatorSurfaceFootsteps : MonoBehaviour
     [SerializeField] private SurfaceType _currentSurface = SurfaceType.MineGround;
     public SurfaceType CurrentSurface => _currentSurface;
 
+    private StarterAssetsInputs _inputs;
+    private TargetHealth _targetHealth;
+    private HealthSystem _healthSystem;
+    private float _stepTimer = 0f;
+    private float _lastStepTime = 0f;
+    private Vector3 _lastPosition;
+
     private void Awake()
     {
         if (controller == null)
@@ -68,14 +77,21 @@ public class InvestigatorSurfaceFootsteps : MonoBehaviour
         {
             characterController = GetComponent<CharacterController>();
         }
+        if (_inputs == null)
+        {
+            _inputs = GetComponent<StarterAssetsInputs>();
+        }
+        _targetHealth = GetComponent<TargetHealth>();
+        _healthSystem = GetComponent<HealthSystem>();
+        _lastPosition = transform.position;
     }
 
     private void Start()
     {
-        if (footstepSource != null && controller != null)
+        // Silence ThirdPersonController's built-in un-networked footstep player
+        // so our synchronized cadence and surface audio plays cleanly without double-triggering.
+        if (controller != null)
         {
-            // If using a dedicated AudioSource, silence ThirdPersonController's built-in PlayClipAtPoint
-            // so footsteps never double-play!
             controller.FootstepAudioClips = new AudioClip[0];
             controller.FootstepAudioVolume = 0f;
         }
@@ -85,45 +101,113 @@ public class InvestigatorSurfaceFootsteps : MonoBehaviour
 
     private void Update()
     {
+        // Check ground surface periodically
         UpdateSurfaceAndClips(force: false);
+
+        // Footstep cadence runs authoritatively on the local owning player
+        if (!IsOwner) return;
+
+        // Dead investigators don't make footstep sounds
+        if (_targetHealth != null && (_targetHealth.isCorpse.Value || _targetHealth.CurrentHealth <= 0)) return;
+        if (_healthSystem != null && _healthSystem.IsDead) return;
+
+        bool isGrounded = (characterController != null && characterController.isGrounded)
+                       || (controller != null && controller.Grounded);
+
+        float horizontalSpeed = characterController != null
+            ? new Vector3(characterController.velocity.x, 0f, characterController.velocity.z).magnitude
+            : 0f;
+
+        // Position delta fallback if characterController.velocity is 0 on certain frames
+        float posDeltaSpeed = (new Vector3(transform.position.x - _lastPosition.x, 0f, transform.position.z - _lastPosition.z).magnitude) / Mathf.Max(Time.deltaTime, 0.001f);
+        _lastPosition = transform.position;
+
+        float effectiveSpeed = Mathf.Max(horizontalSpeed, posDeltaSpeed);
+        bool hasMoveInput = _inputs != null && _inputs.move.sqrMagnitude > 0.01f;
+        bool isMoving = isGrounded && (effectiveSpeed > 0.18f || (hasMoveInput && effectiveSpeed > 0.05f));
+
+        if (isMoving)
+        {
+            bool isRunning = (_inputs != null && _inputs.sprint) || effectiveSpeed > 3.2f;
+            _stepTimer -= Time.deltaTime;
+            if (_stepTimer <= 0f)
+            {
+                TriggerFootstep();
+                _stepTimer = isRunning ? runStepInterval : walkStepInterval;
+            }
+        }
+        else
+        {
+            _stepTimer = 0f;
+        }
     }
 
     /// <summary>
-    /// Checks ground beneath player and updates clips accordingly.
+    /// Checks ground beneath player and updates current surface enum.
     /// </summary>
     public void UpdateSurfaceAndClips(bool force = false)
     {
-        if (controller == null) return;
+        bool isGrounded = (characterController != null && characterController.isGrounded)
+                       || (controller != null && controller.Grounded);
 
-        // Only check when grounded or forced
-        if (!force && !controller.Grounded) return;
+        if (!force && !isGrounded) return;
 
         SurfaceType detectedSurface = DetectSurfaceUnderfoot();
         if (detectedSurface != _currentSurface || force)
         {
             _currentSurface = detectedSurface;
-            ApplyClipsForCurrentSurface();
         }
     }
 
     /// <summary>
-    /// Animation event receiver. Triggered automatically by Walk/Run animation events.
+    /// Animation event receiver. Triggered by Walk/Run animation events if present on animation clips.
+    /// Uses a small time-guard so it cooperates smoothly with the cadence timer without double-playing.
     /// </summary>
     public void OnFootstep(AnimationEvent animationEvent)
     {
         if (!enabled) return;
+        if (!IsOwner) return;
         if (animationEvent != null && animationEvent.animatorClipInfo.weight <= 0.5f) return;
 
-        // If using dedicated AudioSource, play the sound here
-        if (footstepSource != null)
+        if (Time.time - _lastStepTime >= 0.16f)
         {
-            PlayFootstepClip();
+            TriggerFootstep();
         }
     }
 
-    private void PlayFootstepClip()
+    private void TriggerFootstep()
     {
-        AudioClip[] targetClips = (_currentSurface == SurfaceType.RailMetal && railFootstepClips != null && railFootstepClips.Length > 0)
+        _lastStepTime = Time.time;
+        bool isRailOrMetal = (_currentSurface == SurfaceType.RailMetal);
+
+        // 1. Play locally on owner immediately with zero latency
+        PlayFootstepAudio(isRailOrMetal, transform.position);
+
+        // 2. Replicate across network to all remote clients
+        if (IsSpawned)
+        {
+            PlayFootstepServerRpc(isRailOrMetal, transform.position);
+        }
+    }
+
+    [ServerRpc]
+    private void PlayFootstepServerRpc(bool isRailOrMetal, Vector3 position)
+    {
+        PlayFootstepClientRpc(isRailOrMetal, position);
+    }
+
+    [ClientRpc]
+    private void PlayFootstepClientRpc(bool isRailOrMetal, Vector3 position)
+    {
+        // Owner already played locally
+        if (IsOwner) return;
+
+        PlayFootstepAudio(isRailOrMetal, position);
+    }
+
+    public void PlayFootstepAudio(bool isRailOrMetal, Vector3 position)
+    {
+        AudioClip[] targetClips = (isRailOrMetal && railFootstepClips != null && railFootstepClips.Length > 0)
             ? railFootstepClips
             : mineFootstepClips;
 
@@ -140,7 +224,7 @@ public class InvestigatorSurfaceFootsteps : MonoBehaviour
         }
         else
         {
-            AudioSource.PlayClipAtPoint(clip, transform.position, effectiveVol);
+            AudioSource.PlayClipAtPoint(clip, position, effectiveVol);
         }
     }
 
@@ -199,23 +283,6 @@ public class InvestigatorSurfaceFootsteps : MonoBehaviour
             }
         }
         return false;
-    }
-
-    private void ApplyClipsForCurrentSurface()
-    {
-        // In built-in mode (no dedicated AudioSource), feed clips directly into ThirdPersonController
-        if (footstepSource == null && controller != null)
-        {
-            controller.FootstepAudioVolume = Mathf.Clamp01(footstepVolume);
-            if (_currentSurface == SurfaceType.RailMetal && railFootstepClips != null && railFootstepClips.Length > 0)
-            {
-                controller.FootstepAudioClips = railFootstepClips;
-            }
-            else if (mineFootstepClips != null && mineFootstepClips.Length > 0)
-            {
-                controller.FootstepAudioClips = mineFootstepClips;
-            }
-        }
     }
 
     private bool SafeCompareTag(Component comp, string tag)

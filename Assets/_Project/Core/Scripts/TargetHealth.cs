@@ -12,6 +12,12 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
     public EntityStats stats;
     
     public bool destroyOnDeath = true;
+
+    [Header("Audio Feedback")]
+    [Tooltip("Impact sound played on this character when taking physical damage (flesh impact / hurt).")]
+    public AudioClip impactDamageSound;
+    [Tooltip("Impact sound played on this character when taking soul damage.")]
+    public AudioClip soulDamageSound;
     
     [Header("Runtime Variables (Synced)")]
     public NetworkVariable<float> maxHealth = new NetworkVariable<float>(100f, NetworkVariableReadPermission.Everyone, NetworkVariableWritePermission.Server);
@@ -107,6 +113,16 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
                         isLocalCharacter = false;
                     }
                 }
+            }
+
+            // CRITICAL SAFEGUARD: Monsters and NPCs are NEVER the local player character!
+            // Prevents monster slaying from deactivating the player's own HUD health bar!
+            bool isMonster = GetComponent<MonsterAI>() != null || 
+                             GetComponentInParent<MonsterAI>() != null || 
+                             GetComponent<NightCrawler.Monsters.MonsterLocomotion>() != null;
+            if (isMonster)
+            {
+                isLocalCharacter = false;
             }
 
             if (isLocalCharacter && DeathUI.Instance != null)
@@ -221,7 +237,15 @@ public class TargetHealth : NetworkBehaviour, IDamageReceiver
             }
         }
 
-        // 2. Visual Flash (Maybe blue/purple for soul?)
+        // 2. Audio Feedback (Flesh Impact / Hurt)
+        AudioClip clipToPlay = isSoulAttack ? soulDamageSound : impactDamageSound;
+        if (clipToPlay != null)
+        {
+            float sfxVol = GameSettingsManager.SFXVolume;
+            AudioSource.PlayClipAtPoint(clipToPlay, transform.position, sfxVol);
+        }
+
+        // 3. Visual Flash (Maybe blue/purple for soul?)
         StartCoroutine(isSoulAttack ? FlashSoulRoutine() : FlashRedRoutine());
     }
 

@@ -1100,10 +1100,9 @@ namespace NightCrawler.Monsters
                         }
                     }
 
-                    if (!targetModal.isOn)
-                    {
-                        targetModal.OpenWindow();
-                    }
+                    // Force isOn to false before OpenWindow() so Michsky never early-exits on the first tap!
+                    targetModal.isOn = false;
+                    targetModal.OpenWindow();
                 }
                 else if (selectionConfirmationModal != null)
                 {

@@ -197,6 +197,12 @@ public class NetworkRagdollController : NetworkBehaviour
             _characterController.enabled = !active;
         }
 
+        // Disable NavMeshAgent on death so it doesn't fight ragdoll physics (for monster NPCs)
+        if (TryGetComponent<UnityEngine.AI.NavMeshAgent>(out var agent))
+        {
+            agent.enabled = !active;
+        }
+
         // 2. Toggle animators
         if (_animator != null)
         {
@@ -215,6 +221,11 @@ public class NetworkRagdollController : NetworkBehaviour
             {
                 rb.isKinematic = !active;
                 rb.detectCollisions = active;
+                if (active)
+                {
+                    rb.linearVelocity = Vector3.zero;
+                    rb.angularVelocity = Vector3.zero;
+                }
             }
         }
 
@@ -261,10 +272,10 @@ public class NetworkRagdollController : NetworkBehaviour
 
         SetRagdollActive(true);
 
-        // Apply slight impulse to hips so the body collapses naturally
+        // Apply gentle impulse to hips so the body collapses naturally onto the floor (no upward launch)
         if (_ragdollRigidbodies.Count > 0 && _ragdollRigidbodies[0] != null)
         {
-            Vector3 force = (-transform.forward * 0.5f + Vector3.up * 0.2f) * deathImpulse;
+            Vector3 force = (-transform.forward * 0.35f + Vector3.down * 0.1f) * Mathf.Clamp(deathImpulse, 0.5f, 1.5f);
             _ragdollRigidbodies[0].AddForce(force, ForceMode.Impulse);
         }
 

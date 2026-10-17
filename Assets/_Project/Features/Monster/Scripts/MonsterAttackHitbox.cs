@@ -225,8 +225,15 @@ namespace NightCrawler.Monsters
                     c?.PlayHitReaction(Random.Range(0, 2));
                 }
 
-                // Audio feedback
-                if (hitSound != null)
+                Vector3 contactPoint = other.ClosestPoint(transform.position);
+
+                // Replicate attack hit audio to victim and all clients via MonsterAI
+                MonsterAI hitMonsterAI = _ownerRoot != null ? _ownerRoot.GetComponent<MonsterAI>() : GetComponentInParent<MonsterAI>();
+                if (hitMonsterAI != null)
+                {
+                    hitMonsterAI.BroadcastAttackHitImpact(contactPoint);
+                }
+                else if (hitSound != null)
                 {
                     float sfxVol = GameSettingsManager.SFXVolume;
                     if (_audioSource != null)
@@ -235,14 +242,13 @@ namespace NightCrawler.Monsters
                     }
                     else
                     {
-                        AudioSource.PlayClipAtPoint(hitSound, transform.position, sfxVol);
+                        AudioSource.PlayClipAtPoint(hitSound, contactPoint, sfxVol);
                     }
                 }
 
                 // Visual feedback VFX
                 if (hitVfxPrefab != null)
                 {
-                    Vector3 contactPoint = other.ClosestPoint(transform.position);
                     Instantiate(hitVfxPrefab, contactPoint, Quaternion.identity);
                 }
             }
