@@ -59,26 +59,28 @@ public class BerserkerAI : MonsterAI
         }
     }
 
+    private int _currentLocomotionAnimHash = 0;
+
     protected override void ConfigureMonsterDefaults()
     {
         monsterType = MonsterType.Berserker;
         currentPosture = ZombiePosture.Standing;
         screamDuration = totalRoarDuration;
-        berserkerContactDistance = 1.15f;
+        berserkerContactDistance = 1.45f;
         attackAudioDelay = 0.20f;
 
         if (locomotion != null)
         {
             locomotion.chaseSpeed = 4.5f;
             locomotion.walkSpeed = 1.8f;
-            locomotion.stoppingDistance = 1.10f;
-            if (locomotion.agent != null) locomotion.agent.stoppingDistance = 1.10f;
+            locomotion.stoppingDistance = 1.40f;
+            if (locomotion.agent != null) locomotion.agent.stoppingDistance = 1.40f;
         }
 
         if (combat != null)
         {
-            combat.attackDamage = 65f;
-            combat.attackRange = 1.35f;
+            combat.attackDamage = 75f;
+            combat.attackRange = 2.0f;
             combat.attackCooldown = 1.8f;
         }
 
@@ -137,6 +139,7 @@ public class BerserkerAI : MonsterAI
 
     protected override void TriggerScreamAnimation()
     {
+        _currentLocomotionAnimHash = 0;
         if (_animator != null)
         {
             _animator.SetTrigger(_roarHash);
@@ -153,6 +156,7 @@ public class BerserkerAI : MonsterAI
     private void TriggerRoarClientRpc()
     {
         if (IsServer) return;
+        _currentLocomotionAnimHash = 0;
         if (_animator != null)
         {
             _animator.SetTrigger(_roarHash);
@@ -162,6 +166,7 @@ public class BerserkerAI : MonsterAI
 
     private void TriggerSecondRoar()
     {
+        _currentLocomotionAnimHash = 0;
         if (_animator != null)
         {
             _animator.SetTrigger(_roarHash);
@@ -178,6 +183,7 @@ public class BerserkerAI : MonsterAI
     private void TriggerSecondRoarClientRpc()
     {
         if (IsServer) return;
+        _currentLocomotionAnimHash = 0;
         if (_animator != null)
         {
             _animator.SetTrigger(_roarHash);
@@ -214,10 +220,74 @@ public class BerserkerAI : MonsterAI
         }
     }
 
-    [Header("Berserker Melee & Swipe Alignment")]
-    [Tooltip("Intimate strike distance where the claw swipe reaches the investigator.")]
-    public float berserkerContactDistance = 1.15f;
+    [Header("Berserker Melee & Axe Alignment")]
+    [Tooltip("Intimate strike distance where the axe blade reaches the investigator.")]
+    public float berserkerContactDistance = 1.45f;
     private Coroutine _swipeAlignmentRoutine;
+
+    protected override void UpdateLocomotionAnimation()
+    {
+        if (_animator == null) return;
+
+        AIState effectiveState = HasAuthority ? currentState : netAIState.Value;
+
+        // Never override roar, attack, or hit reaction animations
+        if (effectiveState == AIState.SpawningScream ||
+            effectiveState == AIState.Attacking ||
+            _hitStaggerTimer > 0f)
+        {
+            _currentLocomotionAnimHash = 0;
+            return;
+        }
+
+        float currentSpeed = HasAuthority
+            ? ((_agent != null && _agent.isOnNavMesh) ? _agent.velocity.magnitude : (Time.deltaTime > 0f ? (transform.position - _lastPosition).magnitude / Time.deltaTime : 0f))
+            : netMoveSpeed.Value;
+
+        bool isStopped = HasAuthority ? ((_agent != null && _agent.isOnNavMesh) ? _agent.isStopped : false) : (currentSpeed < 0.15f);
+        bool isMoving = currentSpeed > 0.15f && !isStopped;
+
+        _animator.SetFloat(_speedHash, currentSpeed);
+
+        bool shouldRun = (effectiveState == AIState.Running);
+
+        if (isMoving)
+        {
+            if (shouldRun || currentSpeed > (walkSpeed * 1.25f))
+            {
+                // Heavy sprinting chase (Mutant Run)
+                _animator.SetBool(_isRunningHash, true);
+
+                if (_currentLocomotionAnimHash != _stateMutantRun)
+                {
+                    _animator.CrossFade(_stateMutantRun, 0.2f);
+                    _currentLocomotionAnimHash = _stateMutantRun;
+                }
+            }
+            else
+            {
+                // Patrol / Roam walk (Mutant Walk)
+                _animator.SetBool(_isRunningHash, false);
+
+                if (_currentLocomotionAnimHash != _stateMutantWalk)
+                {
+                    _animator.CrossFade(_stateMutantWalk, 0.2f);
+                    _currentLocomotionAnimHash = _stateMutantWalk;
+                }
+            }
+        }
+        else
+        {
+            // Stationary posture (Berserker Idle)
+            _animator.SetBool(_isRunningHash, false);
+
+            if (_currentLocomotionAnimHash != _stateBerserkerIdle)
+            {
+                _animator.CrossFade(_stateBerserkerIdle, 0.25f);
+                _currentLocomotionAnimHash = _stateBerserkerIdle;
+            }
+        }
+    }
 
     protected override void ExecuteAttack(Transform attackTarget)
     {
@@ -233,6 +303,7 @@ public class BerserkerAI : MonsterAI
         }
 
         currentState = AIState.Attacking;
+        _currentLocomotionAnimHash = 0;
         if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
         {
             netAIState.Value = AIState.Attacking;
@@ -242,11 +313,12 @@ public class BerserkerAI : MonsterAI
             locomotion.Stop();
         }
 
-        // Align and step into intimate swipe distance (~1.15m) on the authoritative server
+        // Align and step into intimate strike distance on the authoritative server
         AlignSwipeWithTarget(attackTarget);
 
         if (_animator != null)
         {
+            _animator.SetTrigger(_attackHash);
             _animator.CrossFade(_stateMutantSwiping, 0.12f);
         }
 
@@ -313,7 +385,7 @@ public class BerserkerAI : MonsterAI
             transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * 24f);
         }
 
-        // 2. Step into intimate strike range (~1.15m)
+        // 2. Step into intimate strike range (~1.45m)
         if (currentDist > 0.01f && Mathf.Abs(currentDist - berserkerContactDistance) > 0.04f)
         {
             Vector3 desiredPos = victim.position - toVictim.normalized * berserkerContactDistance;
@@ -342,8 +414,10 @@ public class BerserkerAI : MonsterAI
         // On non-authority clients: DO NOT manipulate transform.position or transform.rotation!
         // NetworkTransform has 100% authoritative control over position and rotation,
         // preventing the clone from jittering or flipping around when attacking.
+        _currentLocomotionAnimHash = 0;
         if (_animator != null)
         {
+            _animator.SetTrigger(_attackHash);
             _animator.CrossFade(_stateMutantSwiping, 0.12f);
         }
     }
@@ -352,6 +426,7 @@ public class BerserkerAI : MonsterAI
     {
         if (currentState == AIState.Dead) return;
 
+        _currentLocomotionAnimHash = 0;
         Stop3DAttackAudio();
         if (_swipeAlignmentRoutine != null)
         {
@@ -385,6 +460,7 @@ public class BerserkerAI : MonsterAI
     {
         if (IsServer) return;
 
+        _currentLocomotionAnimHash = 0;
         Stop3DAttackAudio();
         if (_swipeAlignmentRoutine != null)
         {

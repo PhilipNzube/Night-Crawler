@@ -241,6 +241,18 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (enemyNPCHealthBar == null) enemyNPCHealthBar = GetComponentInChildren<EnemyHealthBar>(true);
         if (combat != null && combat.attackHitbox == null) combat.attackHitbox = GetComponentInChildren<MonsterAttackHitbox>(true);
         if (networkTransform == null) networkTransform = GetComponent<Unity.Netcode.Components.NetworkTransform>();
+        if (networkTransform != null) networkTransform.Interpolate = true;
+
+        // Ensure all active gameplay cameras render the Monster layer (Layer 10)
+        int monsterLayer = LayerMask.NameToLayer("Monster");
+        if (monsterLayer >= 0)
+        {
+            if (Camera.main != null) Camera.main.cullingMask |= (1 << monsterLayer);
+            foreach (var cam in Camera.allCameras)
+            {
+                if (cam != null) cam.cullingMask |= (1 << monsterLayer);
+            }
+        }
 
         _lastPosition = transform.position;
         _roamTestPath = new NavMeshPath();
@@ -290,6 +302,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
+
+        if (networkTransform == null) networkTransform = GetComponent<Unity.Netcode.Components.NetworkTransform>();
+        if (networkTransform != null) networkTransform.Interpolate = true;
 
         if (!ActiveMonsters.Contains(this))
         {
@@ -489,8 +504,18 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             {
                 if (netPosition.Value != Vector3.zero)
                 {
-                    transform.position = Vector3.Lerp(transform.position, netPosition.Value, Time.deltaTime * 18f);
-                    transform.rotation = Quaternion.Slerp(transform.rotation, netRotation.Value, Time.deltaTime * 18f);
+                    float dist = Vector3.Distance(transform.position, netPosition.Value);
+                    if (dist > 5f)
+                    {
+                        transform.position = netPosition.Value;
+                        transform.rotation = netRotation.Value;
+                    }
+                    else
+                    {
+                        float lerpRate = Mathf.Max(16f, netMoveSpeed.Value * 3.5f);
+                        transform.position = Vector3.Lerp(transform.position, netPosition.Value, Time.deltaTime * lerpRate);
+                        transform.rotation = Quaternion.Slerp(transform.rotation, netRotation.Value, Time.deltaTime * 18f);
+                    }
                 }
             }
         }

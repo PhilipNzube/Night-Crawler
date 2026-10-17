@@ -752,13 +752,26 @@ namespace NightCrawler.Monsters
         }
 
         /// <summary>
-        /// Synchronizes the Animator parameters with the agent's real physical velocity.
+        /// Synchronizes the Animator parameters with the agent's real physical velocity (or networked velocity on clients).
         /// </summary>
         public void UpdateAnimation(int speedHash, int isRunningHash)
         {
-            if (animator == null || agent == null || !agent.enabled) return;
+            if (animator == null) return;
 
-            float currentSpeed = agent.velocity.magnitude;
+            float currentSpeed = 0f;
+            if (agent != null && agent.enabled && agent.isOnNavMesh)
+            {
+                currentSpeed = agent.velocity.magnitude;
+            }
+            else if (_monsterAI != null)
+            {
+                currentSpeed = _monsterAI.netMoveSpeed.Value;
+            }
+            else if (Time.deltaTime > 0f)
+            {
+                currentSpeed = (transform.position - _lastPhysicalPosition).magnitude / Time.deltaTime;
+            }
+
             animator.SetFloat(speedHash, currentSpeed);
 
             if (isRunningHash != 0)
