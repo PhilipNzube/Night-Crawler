@@ -340,7 +340,8 @@ namespace NightCrawler.Monsters
                 {
                     if (Vector3.Distance(_currentDestination, stepHit.position) > 0.6f)
                     {
-                        MoveTo(stepHit.position, walkSpeed);
+                        Resume(walkSpeed);
+                        SetDestinationDirect(stepHit.position);
                     }
                 }
                 else
