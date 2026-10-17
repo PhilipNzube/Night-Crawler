@@ -126,9 +126,20 @@ namespace NightCrawler.Monsters
                 }
             }
 
-            if (selectionConfirmationModal == null && confirmationModal != null)
+            if (selectionConfirmationModal == null)
             {
-                selectionConfirmationModal = confirmationModal.GetComponent<SelectionConfirmationModal>();
+                if (confirmationModal != null)
+                {
+                    selectionConfirmationModal = confirmationModal.GetComponent<SelectionConfirmationModal>();
+                }
+                if (selectionConfirmationModal == null)
+                {
+                    selectionConfirmationModal = FindFirstObjectByType<SelectionConfirmationModal>(FindObjectsInactive.Include);
+                }
+            }
+            if (confirmationModal == null && selectionConfirmationModal != null)
+            {
+                confirmationModal = selectionConfirmationModal.modalWindow;
             }
 
             // Ensure modals are primed on startup so Michsky's StartBehaviour.Disable doesn't swallow the first user click

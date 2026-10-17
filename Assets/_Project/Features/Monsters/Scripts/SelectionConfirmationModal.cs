@@ -61,13 +61,27 @@ namespace NightCrawler.Monsters
         /// </summary>
         public void PrimeModal()
         {
+            // 1. Temporarily activate GameObject so Unity executes Awake() and Start() on ModalWindowManager
+            // during scene initialization on frame 0 rather than when the player taps a card for the first time!
+            bool wasActive = gameObject.activeSelf;
+            if (!wasActive)
+            {
+                gameObject.SetActive(true);
+            }
+
             if (modalWindow == null)
             {
                 modalWindow = GetComponent<ModalWindowManager>();
+                if (modalWindow == null) modalWindow = GetComponentInChildren<ModalWindowManager>(true);
             }
 
             if (modalWindow != null)
             {
+                if (!modalWindow.gameObject.activeSelf)
+                {
+                    modalWindow.gameObject.SetActive(true);
+                }
+
                 modalWindow.useLocalization = false;
                 modalWindow.closeOnCancel = true;
                 modalWindow.closeOnConfirm = true;
@@ -82,6 +96,8 @@ namespace NightCrawler.Monsters
                     mc.interactable = false;
                     mc.blocksRaycasts = false;
                 }
+
+                modalWindow.gameObject.SetActive(false);
             }
 
             var cg = GetComponent<CanvasGroup>();
@@ -92,10 +108,7 @@ namespace NightCrawler.Monsters
                 cg.blocksRaycasts = false;
             }
 
-            if (gameObject.activeSelf)
-            {
-                gameObject.SetActive(false);
-            }
+            gameObject.SetActive(false);
         }
 
         /// <summary>

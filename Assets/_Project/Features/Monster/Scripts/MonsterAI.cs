@@ -231,6 +231,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         _agent = GetComponent<NavMeshAgent>();
         _animator = GetComponentInChildren<Animator>();
+        if (_animator != null)
+        {
+            _animator.applyRootMotion = false;
+        }
 
         // Wire or add modular subsystems
         if (perception == null) perception = GetComponent<MonsterPerception>();
@@ -304,6 +308,11 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
+
+        if (_animator != null)
+        {
+            _animator.applyRootMotion = false;
+        }
 
         if (networkTransform == null) networkTransform = GetComponent<Unity.Netcode.Components.NetworkTransform>();
         if (networkTransform != null) networkTransform.Interpolate = true;
@@ -1163,6 +1172,13 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             if (combat != null) combat.CancelAttack();
             _recallGraceTimer = 0f;
 
+            // Stop any active spawn scream or roar coroutine immediately so monster can immediately follow
+            if (_spawnScreamCoroutine != null)
+            {
+                StopCoroutine(_spawnScreamCoroutine);
+                _spawnScreamCoroutine = null;
+            }
+
             SwitchState(AIState.Running);
             if (locomotion != null && _commandLeader != null)
             {
@@ -1327,9 +1343,38 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         target = null;
         currentCommand = Command.Roam;
         SwitchState(AIState.Patrol);
-        if (locomotion != null) locomotion.Resume(walkSpeed);
+        _isWaitingAtRoamWaypoint = false;
+        _roamWaitTimer = 0f;
+        PickNewRoamDestination(walkSpeed);
 
         _spawnScreamCoroutine = null;
+    }
+
+    /// <summary>
+    /// Commands the monster to sprint rapidly away from a spawn point along the corridor
+    /// so the spawn point is freed up immediately for upcoming summons.
+    /// </summary>
+    public void SprintAwayFromPoint(Vector3 fromPoint, float distance = 8.0f)
+    {
+        if (currentState == AIState.Dead) return;
+
+        Vector3 awayDir = transform.position - fromPoint;
+        awayDir.y = 0f;
+        if (awayDir.sqrMagnitude < 0.05f) awayDir = transform.forward;
+        awayDir.Normalize();
+
+        Vector3 targetSpot = transform.position + awayDir * distance;
+        if (NavMesh.SamplePosition(targetSpot, out NavMeshHit hit, 5.0f, NavMesh.AllAreas))
+        {
+            _isWaitingAtRoamWaypoint = false;
+            _roamWaitTimer = 0f;
+            SwitchState(AIState.Patrol);
+            if (locomotion != null)
+            {
+                locomotion.Resume(runSpeed);
+                locomotion.SetDestinationDirect(hit.position);
+            }
+        }
     }
 
     protected virtual void TriggerScreamAnimation()

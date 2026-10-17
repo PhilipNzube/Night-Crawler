@@ -50,6 +50,10 @@ public class ZombieAI : MonsterAI
         currentCommand = Command.Roam;
         target = null;
         _hasLastKnownPosition = false;
+        if (_animator != null)
+        {
+            _animator.applyRootMotion = false;
+        }
         if (locomotion != null)
         {
             locomotion.SetCrawlPosture(false);
@@ -59,6 +63,10 @@ public class ZombieAI : MonsterAI
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
+        if (_animator != null)
+        {
+            _animator.applyRootMotion = false;
+        }
         if (IsServer)
         {
             netPosture.Value = ZombiePosture.Standing;
@@ -140,6 +148,7 @@ public class ZombieAI : MonsterAI
         else
         {
             // When roaming, searching, patrolling, or idling, MUST BE STANDING
+            // Strictly only stand up if the zombie was actually crawling
             if (currentPosture == ZombiePosture.Crawling && _standUpRoutine == null)
             {
                 Vector3 headOrigin = transform.position + Vector3.up * 0.65f;
@@ -200,8 +209,8 @@ public class ZombieAI : MonsterAI
 
         // When following/guarding the Girl:
         // Monsters must NEVER drop into crawl state when already around the Girl!
-        // Only drop into crawl sprint if the Girl is quite far away (> 22m),
-        // and stand up early (<= 14m) so they escort/patrol her perimeter standing and walking.
+        // Only drop into crawl sprint if the target/leader is quite far away (> 22m),
+        // and stand up early (<= 14m) so they escort/patrol upright.
         float effectiveCrawlDist = isFollowingLeader ? crawlTransitionDistance : 16.0f;
         float effectiveStandDist = isFollowingLeader ? standTransitionDistance : 8.0f;
 
@@ -223,13 +232,10 @@ public class ZombieAI : MonsterAI
         }
         else if (currentPosture == ZombiePosture.Standing)
         {
+            // Strictly only drop to crawl sprint during long-distance pursuit (> effectiveCrawlDist).
+            // Never drop to crawl from arbitrary obstacle hits while patrolling or roaming!
             if (distanceToTarget > effectiveCrawlDist)
             {
-                DropToCrawl();
-            }
-            else if (locomotion != null && locomotion.HasLowOverheadObstacleAhead())
-            {
-                // Standing height is blocked by low clearance ahead, but crawling fits through!
                 DropToCrawl();
             }
         }
@@ -237,7 +243,8 @@ public class ZombieAI : MonsterAI
 
     private void StartStandUp()
     {
-        if (_standUpRoutine != null) return;
+        // Stand up animation must NEVER play unless explicitly transitioning from an active crawl!
+        if (currentPosture != ZombiePosture.Crawling || _standUpRoutine != null) return;
         _standUpRoutine = StartCoroutine(StandUpRoutine());
     }
 
@@ -287,6 +294,9 @@ public class ZombieAI : MonsterAI
     private void TriggerStandUpClientRpc()
     {
         if (IsServer) return;
+        // Client safety guard: Stand up must never play unless in Crawling posture
+        if (currentPosture != ZombiePosture.Crawling && netPosture.Value != ZombiePosture.Crawling) return;
+
         if (_animator != null)
         {
             _animator.SetTrigger(_standUpHash);
@@ -463,6 +473,21 @@ public class ZombieAI : MonsterAI
         }
     }
 
+    protected override IEnumerator SpawnScreamRoutine()
+    {
+        yield return base.SpawnScreamRoutine();
+
+        // When scream ends, explicitly crossfade into upright walk/idle if posture is standing,
+        // so the controller's exit-time transition into Running Crawl is completely prevented.
+        if (currentPosture == ZombiePosture.Standing && _animator != null)
+        {
+            _animator.SetBool(_isStandingHash, true);
+            _animator.SetBool(_isCrawlingHash, false);
+            _animator.CrossFade(_stateZombieWalk, 0.15f);
+        }
+        _currentLocomotionAnimHash = 0;
+    }
+
     [Header("Zombie Melee & Hand Swipe Alignment")]
     [Tooltip("Intimate strike distance where the zombie's right hand swipe reaches the victim.")]
     public float strikeContactDistance = 1.15f;
@@ -536,6 +561,14 @@ public class ZombieAI : MonsterAI
             {
                 SwitchState(target != null ? AIState.Running : AIState.Patrol);
                 if (locomotion != null) locomotion.Resume(target != null ? runSpeed : walkSpeed);
+
+                // Enforce upright posture when attack completes so controller exit-time to Running Crawl is prevented
+                if (currentPosture == ZombiePosture.Standing && _animator != null)
+                {
+                    _animator.SetBool(_isStandingHash, true);
+                    _animator.SetBool(_isCrawlingHash, false);
+                    _animator.CrossFade(target != null ? _stateZombieRun : _stateZombieWalk, 0.15f);
+                }
             }
             _attackCoroutine = null;
             _currentLocomotionAnimHash = 0;

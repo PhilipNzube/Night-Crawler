@@ -94,6 +94,7 @@ namespace NightCrawler.Monsters
 
             if (agent != null)
             {
+                if (agent.baseOffset < 0f) agent.baseOffset = 0f;
                 agent.speed = chaseSpeed;
                 agent.angularSpeed = angularSpeed;
                 agent.acceleration = acceleration;
@@ -406,7 +407,7 @@ namespace NightCrawler.Monsters
                 validPos = hit.position;
             }
 
-            if (Vector3.Distance(_currentDestination, validPos) > MinDestinationDelta || !agent.hasPath)
+            if (Vector3.Distance(_currentDestination, validPos) > MinDestinationDelta || !agent.hasPath || agent.isStopped)
             {
                 agent.isStopped = false;
                 agent.SetDestination(validPos);
@@ -455,16 +456,30 @@ namespace NightCrawler.Monsters
 
                 // Cast capsule with monster's body dimensions (with a small 0.05m clearance tolerance)
                 float castRadius = Mathf.Max(0.18f, bodyRadius * 0.88f);
-                bool hitObstacle = Physics.CapsuleCast(
+                RaycastHit[] hits = Physics.CapsuleCastAll(
                     bottom,
                     top,
                     castRadius,
                     probeDir,
-                    out RaycastHit hit,
                     maxDistance,
                     obstacleMask,
                     QueryTriggerInteraction.Ignore
                 );
+
+                RaycastHit hit = default;
+                bool hitObstacle = false;
+                float closestDist = float.MaxValue;
+                for (int hIdx = 0; hIdx < hits.Length; hIdx++)
+                {
+                    var h = hits[hIdx];
+                    if (h.collider != null && h.collider.transform.root == transform.root) continue;
+                    if (h.distance < closestDist)
+                    {
+                        closestDist = h.distance;
+                        hit = h;
+                        hitObstacle = true;
+                    }
+                }
 
                 if (!hitObstacle)
                 {

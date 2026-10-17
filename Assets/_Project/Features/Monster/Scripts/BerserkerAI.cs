@@ -48,11 +48,19 @@ public class BerserkerAI : MonsterAI
         monsterType = MonsterType.Berserker;
         currentPosture = ZombiePosture.Standing;
         base.Awake();
+        if (_animator != null)
+        {
+            _animator.applyRootMotion = false;
+        }
     }
 
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
+        if (_animator != null)
+        {
+            _animator.applyRootMotion = false;
+        }
         if (IsServer)
         {
             netPosture.Value = ZombiePosture.Standing;
@@ -94,6 +102,20 @@ public class BerserkerAI : MonsterAI
         }
     }
 
+    public override void SetCommand(Command cmd, Transform girlTransform)
+    {
+        base.SetCommand(cmd, girlTransform);
+
+        if (cmd == Command.Follow)
+        {
+            if (_swipeAlignmentRoutine != null)
+            {
+                StopCoroutine(_swipeAlignmentRoutine);
+                _swipeAlignmentRoutine = null;
+            }
+        }
+    }
+
     protected override IEnumerator SpawnScreamRoutine()
     {
         _hasScreamed = true;
@@ -132,7 +154,9 @@ public class BerserkerAI : MonsterAI
         target = null;
         currentCommand = Command.Roam;
         SwitchState(AIState.Patrol);
-        if (locomotion != null) locomotion.Resume(walkSpeed);
+        _isWaitingAtRoamWaypoint = false;
+        _roamWaitTimer = 0f;
+        PickNewRoamDestination(walkSpeed);
 
         _spawnScreamCoroutine = null;
     }

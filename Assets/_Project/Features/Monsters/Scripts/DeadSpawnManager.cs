@@ -104,36 +104,8 @@ namespace NightCrawler.Monsters
                 DiscoverSpawnPoints();
             }
 
-            // Pick a random spawn point
-            Vector3 spawnPos = Vector3.zero;
-            Quaternion spawnRot = Quaternion.identity;
-
-            if (_registeredSpawnPoints.Count > 0)
-            {
-                var pt = _registeredSpawnPoints[UnityEngine.Random.Range(0, _registeredSpawnPoints.Count)];
-                if (pt != null)
-                {
-                    spawnPos = pt.transform.position;
-                    spawnRot = pt.transform.rotation;
-                }
-            }
-            else
-            {
-                spawnPos = new Vector3(UnityEngine.Random.Range(-5f, 5f), 1f, UnityEngine.Random.Range(-5f, 5f));
-            }
-
-            // Snap to ground (EnemyNPC_AI Raycast & NavMesh floor sampling)
-            LayerMask groundMask = ~LayerMask.GetMask("UI", "Ignore Raycast", "Player", "Monster");
-            if (Physics.Raycast(spawnPos + Vector3.up * 0.5f, Vector3.down, out RaycastHit hit, 25f, groundMask, QueryTriggerInteraction.Ignore))
-            {
-                spawnPos = hit.point;
-            }
-
-            // Sample nearest NavMesh point so NavMeshAgent places cleanly on the floor
-            if (NavMesh.SamplePosition(spawnPos, out NavMeshHit navHit, 5.0f, NavMesh.AllAreas))
-            {
-                spawnPos = navHit.position;
-            }
+            // Select best unoccupied spawn point or clear corridor offset (EnemyNPC_AI)
+            GetBestSpawnPositionAndRotation(out Vector3 spawnPos, out Quaternion spawnRot);
 
             // Instantiate and network spawn
             GameObject spawnedObj = Instantiate(prefabToSpawn, spawnPos, spawnRot);
@@ -357,6 +329,207 @@ namespace NightCrawler.Monsters
             if (NotificationManager.Instance != null)
             {
                 NotificationManager.Instance.ShowNotification(message, 3.5f);
+            }
+        }
+
+        /// <summary>
+        /// Selects an unoccupied spawn point using EnemyNPC_AI spatial clearance logic.
+        /// 1. Finds all registered spawn points with no living monster standing within 2.2m.
+        /// 2. If unoccupied points exist, picks randomly from them.
+        /// 3. If ALL spawn points are occupied:
+        ///    - Picks the least crowded spawn point.
+        ///    - Smartly instructs the occupying monster to roam/walk away along the cavern corridor.
+        ///    - Samples radial candidate offsets (2.6m - 3.8m) along the NavMesh.
+        ///    - Uses NavMesh.Raycast and Physics checks to guarantee the offset does NOT enter a wall or clip another monster.
+        /// </summary>
+        private void GetBestSpawnPositionAndRotation(out Vector3 spawnPos, out Quaternion spawnRot)
+        {
+            spawnPos = Vector3.zero;
+            spawnRot = Quaternion.identity;
+
+            if (_registeredSpawnPoints.Count == 0)
+            {
+                DiscoverSpawnPoints();
+            }
+
+            if (_registeredSpawnPoints.Count == 0)
+            {
+                spawnPos = new Vector3(UnityEngine.Random.Range(-5f, 5f), 1f, UnityEngine.Random.Range(-5f, 5f));
+                SnapPositionToNavMesh(ref spawnPos);
+                return;
+            }
+
+            // Gather active living monsters
+            var livingMonsters = new List<MonsterAI>();
+            var allMonsters = MonsterAI.ActiveMonsters;
+            if (allMonsters != null)
+            {
+                for (int i = 0; i < allMonsters.Count; i++)
+                {
+                    var m = allMonsters[i];
+                    if (m != null && m.gameObject != null && m.currentState != MonsterAI.AIState.Dead)
+                    {
+                        livingMonsters.Add(m);
+                    }
+                }
+            }
+
+            float occupancyRadius = 2.2f;
+            var unoccupiedPoints = new List<DeadSpawnPoint>();
+            DeadSpawnPoint bestCandidatePoint = null;
+            float maxOccupantDist = -1f;
+            MonsterAI occupantToNudge = null;
+
+            // 1. Identify unoccupied spawn points
+            foreach (var pt in _registeredSpawnPoints)
+            {
+                if (pt == null) continue;
+                Vector3 ptPos = pt.transform.position;
+
+                float closestMonsterDist = float.MaxValue;
+                MonsterAI closestMonster = null;
+                foreach (var m in livingMonsters)
+                {
+                    if (m == null) continue;
+                    float d = Vector3.Distance(ptPos, m.transform.position);
+                    if (d < closestMonsterDist)
+                    {
+                        closestMonsterDist = d;
+                        closestMonster = m;
+                    }
+                }
+
+                if (closestMonsterDist > occupancyRadius)
+                {
+                    unoccupiedPoints.Add(pt);
+                }
+                else if (closestMonsterDist > maxOccupantDist)
+                {
+                    maxOccupantDist = closestMonsterDist;
+                    bestCandidatePoint = pt;
+                    occupantToNudge = closestMonster;
+                }
+            }
+
+            // 2. If unoccupied points exist, pick randomly among them
+            if (unoccupiedPoints.Count > 0)
+            {
+                var selected = unoccupiedPoints[UnityEngine.Random.Range(0, unoccupiedPoints.Count)];
+                spawnPos = selected.transform.position;
+                spawnRot = selected.transform.rotation;
+                SnapPositionToNavMesh(ref spawnPos);
+                return;
+            }
+
+            // 3. All spawn points are occupied!
+            // Smartly tell the occupying monster to walk away, and find a clear offset along the corridor.
+            if (bestCandidatePoint == null)
+            {
+                bestCandidatePoint = _registeredSpawnPoints[UnityEngine.Random.Range(0, _registeredSpawnPoints.Count)];
+            }
+
+            Vector3 basePos = bestCandidatePoint.transform.position;
+            spawnRot = bestCandidatePoint.transform.rotation;
+
+            // Nudge occupying monster to walk away
+            if (occupantToNudge != null)
+            {
+                NudgeMonsterAway(occupantToNudge, basePos);
+            }
+
+            // Search for a clean corridor offset (2.6m - 3.8m) around the spawn point
+            // that is NOT inside a wall (NavMesh.Raycast) and NOT inside another monster
+            if (TryFindClearSpawnOffset(basePos, spawnRot, livingMonsters, out Vector3 clearOffsetPos))
+            {
+                spawnPos = clearOffsetPos;
+                Vector3 awayDir = (spawnPos - basePos);
+                awayDir.y = 0f;
+                if (awayDir.sqrMagnitude > 0.05f)
+                {
+                    spawnRot = Quaternion.LookRotation(awayDir.normalized, Vector3.up);
+                }
+            }
+            else
+            {
+                spawnPos = basePos;
+                SnapPositionToNavMesh(ref spawnPos);
+            }
+        }
+
+        private void NudgeMonsterAway(MonsterAI monster, Vector3 fromPoint)
+        {
+            if (monster == null || monster.currentState == MonsterAI.AIState.Dead) return;
+
+            // Only nudge if roaming or patrolling (never cancel active player pursuit or guarding)
+            if (monster.currentCommand == MonsterAI.Command.Roam || monster.currentState == MonsterAI.AIState.Patrol)
+            {
+                monster.SprintAwayFromPoint(fromPoint, 8.0f);
+            }
+        }
+
+        private bool TryFindClearSpawnOffset(Vector3 basePos, Quaternion baseRot, List<MonsterAI> livingMonsters, out Vector3 clearPos)
+        {
+            clearPos = basePos;
+            float[] radii = { 2.6f, 3.2f, 3.8f };
+            float[] angles = { 0f, 45f, -45f, 90f, -90f, 135f, -135f, 180f };
+            Vector3 forward = baseRot * Vector3.forward;
+            forward.y = 0f;
+            if (forward.sqrMagnitude < 0.01f) forward = Vector3.forward;
+
+            LayerMask obstacleMask = LayerMask.GetMask("Default");
+
+            foreach (float r in radii)
+            {
+                foreach (float a in angles)
+                {
+                    Vector3 dir = Quaternion.Euler(0f, a, 0f) * forward;
+                    Vector3 candidate = basePos + dir.normalized * r;
+
+                    // 1. Sample onto NavMesh floor
+                    if (NavMesh.SamplePosition(candidate, out NavMeshHit navHit, 1.8f, NavMesh.AllAreas))
+                    {
+                        // 2. Ensure no wall separates the spawn point from the candidate position (EnemyNPC_AI corridor logic)
+                        if (!NavMesh.Raycast(basePos + Vector3.up * 0.5f, navHit.position + Vector3.up * 0.5f, out NavMeshHit rayHit, NavMesh.AllAreas))
+                        {
+                            // 3. Ensure distance >= 2.0m from all living monsters
+                            bool tooCloseToMonster = false;
+                            for (int mIdx = 0; mIdx < livingMonsters.Count; mIdx++)
+                            {
+                                var m = livingMonsters[mIdx];
+                                if (m != null && Vector3.Distance(navHit.position, m.transform.position) < 2.0f)
+                                {
+                                    tooCloseToMonster = true;
+                                    break;
+                                }
+                            }
+
+                            if (!tooCloseToMonster)
+                            {
+                                // 4. Ensure no physical geometry collision
+                                if (!Physics.CheckSphere(navHit.position + Vector3.up * 1.0f, 0.45f, obstacleMask, QueryTriggerInteraction.Ignore))
+                                {
+                                    clearPos = navHit.position;
+                                    return true;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            return false;
+        }
+
+        private void SnapPositionToNavMesh(ref Vector3 pos)
+        {
+            LayerMask groundMask = ~LayerMask.GetMask("UI", "Ignore Raycast", "Player", "Monster");
+            if (Physics.Raycast(pos + Vector3.up * 0.5f, Vector3.down, out RaycastHit hit, 25f, groundMask, QueryTriggerInteraction.Ignore))
+            {
+                pos = hit.point;
+            }
+            if (NavMesh.SamplePosition(pos, out NavMeshHit navHit, 5.0f, NavMesh.AllAreas))
+            {
+                pos = navHit.position;
             }
         }
     }
