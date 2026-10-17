@@ -10,7 +10,7 @@ using Unity.Netcode;
 ///   calm upright walking when patrolling/guarding/roaming, and stationary idling at waypoints.
 /// - Terrifying screech spawn scream.
 /// - Seamless stand-up and crawl transitions with network synchronization.
-/// - Vicious bite and claw melee attack hitbox (Zombie Neck).
+/// - Relentless right-hand claw swipe melee attack (Zombie Attack).
 /// - Full synchronization with Zombie Animator states:
 ///   * Zombie Scream
 ///   * Running Crawl
@@ -18,7 +18,7 @@ using Unity.Netcode;
 ///   * Zombie Walk
 ///   * Zombie Idle
 ///   * Zombie Stand Up
-///   * Zombie Neck
+///   * Zombie Attack
 ///   * Zombie Reaction Hit
 /// </summary>
 public class ZombieAI : MonsterAI
@@ -29,7 +29,7 @@ public class ZombieAI : MonsterAI
     protected readonly int _stateZombieWalk    = Animator.StringToHash("Zombie Walk");
     protected readonly int _stateZombieIdle    = Animator.StringToHash("Zombie Idle");
     protected readonly int _stateZombieStandUp = Animator.StringToHash("Zombie Stand Up");
-    protected readonly int _stateZombieNeck    = Animator.StringToHash("Zombie Neck");
+    protected readonly int _stateZombieAttack = Animator.StringToHash("Zombie Attack");
     protected readonly int _stateZombieHit     = Animator.StringToHash("Zombie Reaction Hit");
 
     [Header("Zombie Posture Transitions")]
@@ -78,21 +78,21 @@ public class ZombieAI : MonsterAI
         crawlTransitionDistance = 22.0f;
         standTransitionDistance = 14.0f;
 
-        biteContactDistance = 0.72f;
+        strikeContactDistance = 1.15f;
         attackAudioDelay = 0.15f;
 
         if (locomotion != null)
         {
             locomotion.chaseSpeed = crawlSpeed;
             locomotion.walkSpeed = 1.5f;
-            locomotion.stoppingDistance = 0.65f;
-            if (locomotion.agent != null) locomotion.agent.stoppingDistance = 0.65f;
+            locomotion.stoppingDistance = 1.0f;
+            if (locomotion.agent != null) locomotion.agent.stoppingDistance = 1.0f;
         }
 
         if (combat != null)
         {
             combat.attackDamage = 35f;
-            combat.attackRange = 0.88f;
+            combat.attackRange = 1.35f;
             combat.attackCooldown = 1.6f;
         }
 
@@ -463,16 +463,24 @@ public class ZombieAI : MonsterAI
         }
     }
 
-    [Header("Zombie Grapple & Bite Alignment")]
-    [Tooltip("Intimate grapple distance where the zombie's head and teeth touch the victim's neck/shoulder/chest.")]
-    public float biteContactDistance = 0.75f;
-    private Coroutine _biteAlignmentRoutine;
+    [Header("Zombie Melee & Hand Swipe Alignment")]
+    [Tooltip("Intimate strike distance where the zombie's right hand swipe reaches the victim.")]
+    public float strikeContactDistance = 1.15f;
+
+    [System.Obsolete("Use strikeContactDistance instead.")]
+    public float biteContactDistance
+    {
+        get => strikeContactDistance;
+        set => strikeContactDistance = value;
+    }
+
+    private Coroutine _swipeAlignmentRoutine;
 
     protected override void ExecuteAttack(Transform attackTarget)
     {
         if (combat == null || combat.IsOnCooldown || attackTarget == null) return;
 
-        // If distance opened up, keep sprinting to close the gap instead of biting empty air
+        // If distance opened up, keep running to close the gap instead of swinging at empty air
         float dist = Vector3.Distance(transform.position, attackTarget.position);
         if (dist > MaxAttackInitiationDistance)
         {
@@ -493,19 +501,16 @@ public class ZombieAI : MonsterAI
             locomotion.Stop();
         }
 
-        // Align zombie head and arms directly into the victim's neck/shoulder on the authoritative server
-        AlignBiteWithTarget(attackTarget);
+        // Align zombie directly towards victim on authoritative server
+        AlignSwipeWithTarget(attackTarget);
 
         if (_animator != null)
         {
-            _animator.CrossFade(_stateZombieNeck, 0.12f);
+            _animator.CrossFade(_stateZombieAttack, 0.12f);
         }
 
-        // Synchronize bite attack audio timing with animation wind-up apex
-        StartSynchronizedAttackAudio(attackAudioDelay);
-
-        if (_biteAlignmentRoutine != null) StopCoroutine(_biteAlignmentRoutine);
-        _biteAlignmentRoutine = StartCoroutine(BiteHoldAlignmentRoutine(attackTarget));
+        if (_swipeAlignmentRoutine != null) StopCoroutine(_swipeAlignmentRoutine);
+        _swipeAlignmentRoutine = StartCoroutine(SwipeAlignmentRoutine(attackTarget));
 
         ulong targetNetId = 0;
         if (attackTarget.TryGetComponent<NetworkObject>(out var targetNetObj))
@@ -520,16 +525,17 @@ public class ZombieAI : MonsterAI
         combat.StartAttack("Attack", () =>
         {
             Stop3DAttackAudio();
-            if (_biteAlignmentRoutine != null)
+            if (_swipeAlignmentRoutine != null)
             {
-                StopCoroutine(_biteAlignmentRoutine);
-                _biteAlignmentRoutine = null;
+                StopCoroutine(_swipeAlignmentRoutine);
+                _swipeAlignmentRoutine = null;
             }
 
+            // No recoil push back: instantly resume running or patrolling
             if (currentState != AIState.Dead)
             {
-                // Push back slightly as the attack animation ends to match the recovery recoil
-                StartCoroutine(AttackRecoilAndResumeRoutine(0.38f, 0.25f));
+                SwitchState(target != null ? AIState.Running : AIState.Patrol);
+                if (locomotion != null) locomotion.Resume(target != null ? runSpeed : walkSpeed);
             }
             _attackCoroutine = null;
             _currentLocomotionAnimHash = 0;
@@ -541,7 +547,7 @@ public class ZombieAI : MonsterAI
         }
     }
 
-    private IEnumerator BiteHoldAlignmentRoutine(Transform victim)
+    private IEnumerator SwipeAlignmentRoutine(Transform victim)
     {
         float timer = 0f;
         float attackDuration = combat != null ? combat.attackCooldown : 1.6f;
@@ -550,16 +556,16 @@ public class ZombieAI : MonsterAI
         {
             if (victim == null || !victim.gameObject.activeInHierarchy) yield break;
 
-            AlignBiteWithTarget(victim);
+            AlignSwipeWithTarget(victim);
 
             timer += Time.deltaTime;
             yield return null;
         }
 
-        _biteAlignmentRoutine = null;
+        _swipeAlignmentRoutine = null;
     }
 
-    private void AlignBiteWithTarget(Transform victim)
+    private void AlignSwipeWithTarget(Transform victim)
     {
         if (victim == null) return;
 
@@ -574,10 +580,10 @@ public class ZombieAI : MonsterAI
             transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * 24f);
         }
 
-        // 2. Step into close bite contact distance (~0.72m) so the teeth contact the neck/shoulder/chest
-        if (currentDist > 0.01f && Mathf.Abs(currentDist - biteContactDistance) > 0.03f)
+        // 2. Step into strike contact distance (~1.15m) so the right hand swipe reaches the victim
+        if (currentDist > 0.01f && Mathf.Abs(currentDist - strikeContactDistance) > 0.03f)
         {
-            Vector3 desiredPos = victim.position - toVictim.normalized * biteContactDistance;
+            Vector3 desiredPos = victim.position - toVictim.normalized * strikeContactDistance;
             if (UnityEngine.AI.NavMesh.SamplePosition(desiredPos, out UnityEngine.AI.NavMeshHit hit, 0.6f, UnityEngine.AI.NavMesh.AllAreas))
             {
                 desiredPos = hit.position;
@@ -606,10 +612,8 @@ public class ZombieAI : MonsterAI
         // preventing the clone from jittering or flipping around when attacking.
         if (_animator != null)
         {
-            _animator.CrossFade(_stateZombieNeck, 0.12f);
+            _animator.CrossFade(_stateZombieAttack, 0.12f);
         }
-
-        StartSynchronizedAttackAudio(attackAudioDelay);
     }
 
     public override void PlayHitReaction()
@@ -617,10 +621,10 @@ public class ZombieAI : MonsterAI
         if (currentState == AIState.Dead) return;
 
         Stop3DAttackAudio();
-        if (_biteAlignmentRoutine != null)
+        if (_swipeAlignmentRoutine != null)
         {
-            StopCoroutine(_biteAlignmentRoutine);
-            _biteAlignmentRoutine = null;
+            StopCoroutine(_swipeAlignmentRoutine);
+            _swipeAlignmentRoutine = null;
         }
 
         if (combat != null) combat.CancelAttack();
@@ -651,10 +655,10 @@ public class ZombieAI : MonsterAI
         if (IsServer) return;
 
         Stop3DAttackAudio();
-        if (_biteAlignmentRoutine != null)
+        if (_swipeAlignmentRoutine != null)
         {
-            StopCoroutine(_biteAlignmentRoutine);
-            _biteAlignmentRoutine = null;
+            StopCoroutine(_swipeAlignmentRoutine);
+            _swipeAlignmentRoutine = null;
         }
 
         if (locomotion != null) locomotion.Stop();

@@ -194,7 +194,6 @@ namespace NightCrawler.Monsters
             TrackPhysicalMovement();
             ResolveSameKindAvoidance();
             ResolveQueenClearance();
-            ResolveTargetClearance();
 
             if (_repositionDurationTimer > 0f)
             {
@@ -284,10 +283,11 @@ namespace NightCrawler.Monsters
         }
 
         /// <summary>
-        /// Ensures monsters always treat the Girl as their Queen:
+        /// Ensures monsters always treat the Girl as their Queen when guarding or following:
         /// 1. Never stops or clips inside her (keeps at least 2.4m clearance).
         /// 2. If standing in her forward path, smartly turns forward, moves to clear her corridor,
         ///    and turns back to face her once clear (never walks backwards).
+        /// Suppressed completely during active Hunt commands or player pursuit.
         /// </summary>
         public void ResolveQueenClearance()
         {
@@ -295,8 +295,14 @@ namespace NightCrawler.Monsters
             if (_monsterAI == null) _monsterAI = GetComponent<MonsterAI>();
             if (_monsterAI == null || _monsterAI.currentState == MonsterAI.AIState.Dead) return;
 
+            // When actively hunting investigators, NEVER divert to clear or face the Queen!
+            if (_monsterAI.currentCommand == MonsterAI.Command.Hunt || (_monsterAI.target != null && !MonsterAI.IsGirl(_monsterAI.target)))
+            {
+                return;
+            }
+
             Transform queen = _monsterAI.CommandLeader;
-            if (queen == null && GameManager.Instance != null)
+            if (queen == null && GameManager.Instance != null && _monsterAI.currentCommand == MonsterAI.Command.Follow)
             {
                 queen = GameManager.Instance.GirlTransform;
             }
@@ -339,7 +345,7 @@ namespace NightCrawler.Monsters
                 float moveSpeed = (dist < clearanceRadius) ? (clearanceRadius - dist) * 3.5f + 1.5f : 2.5f;
                 agent.Move(clearDir * (moveSpeed * Time.deltaTime));
             }
-            else if (dist < 3.8f && (!agent.hasPath || agent.isStopped || agent.velocity.sqrMagnitude < 0.1f))
+            else if (dist < 3.8f && _monsterAI.currentCommand == MonsterAI.Command.Follow && (!agent.hasPath || agent.isStopped || agent.velocity.sqrMagnitude < 0.1f))
             {
                 // Cleared the corridor and stopped: turn back and face the Queen respectfully!
                 RotateTowards(queenPos, angularSpeed * 1.2f);
@@ -347,35 +353,12 @@ namespace NightCrawler.Monsters
         }
 
         /// <summary>
-        /// Ensures monsters never stop or clip inside human investigators during pursuit or combat.
-        /// Enforces physical striking clearance (~1.35m).
+        /// Deprecated: Target clearance is managed by NavMeshAgent.stoppingDistance and EnemyNPC_AI gap closing.
+        /// Preserved as safe no-op.
         /// </summary>
         public void ResolveTargetClearance()
         {
-            if (agent == null || !agent.enabled || !agent.isOnNavMesh) return;
-            if (_monsterAI == null) _monsterAI = GetComponent<MonsterAI>();
-            if (_monsterAI == null || _monsterAI.currentState == MonsterAI.AIState.Dead) return;
-
-            Transform target = _monsterAI.target;
-            if (target == null) return;
-
-            // Don't apply target clearance against the Girl (Queen clearance handles her with higher priority)
-            if (target == _monsterAI.CommandLeader || (GameManager.Instance != null && target == GameManager.Instance.GirlTransform)) return;
-
-            Vector3 myPos = transform.position;
-            Vector3 targetPos = target.position;
-            Vector3 diff = myPos - targetPos;
-            diff.y = 0f;
-
-            float dist = diff.magnitude;
-            float combatClearance = 1.35f;
-
-            if (dist < combatClearance)
-            {
-                Vector3 pushDir = dist > 0.01f ? diff / dist : -transform.forward;
-                float penetration = combatClearance - dist;
-                agent.Move(pushDir * (penetration * 4.0f * Time.deltaTime));
-            }
+            // No-op: Monsters hold their ground in striking range and close gaps smoothly without physical pushback fighting.
         }
 
         /// <summary>

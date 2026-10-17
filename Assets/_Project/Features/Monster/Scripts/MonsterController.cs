@@ -35,7 +35,11 @@ public class MonsterController : MonoBehaviour, IPossessable
     void Awake()
     {
         _controller = GetComponent<CharacterController>();
-        if (_controller != null) _controller.stepOffset = 0.4f;
+        if (_controller != null)
+        {
+            _controller.stepOffset = 0.4f;
+            _controller.enabled = _isPossessed;
+        }
         _animator = GetComponentInChildren<Animator>();
 
         // Auto-detect monsterCameraTarget if not manually assigned
@@ -141,6 +145,9 @@ public class MonsterController : MonoBehaviour, IPossessable
         _isPossessed = true;
         _girlRef = girl;
 
+        if (_controller != null) _controller.enabled = true;
+        if (TryGetComponent<UnityEngine.AI.NavMeshAgent>(out var agent)) agent.enabled = false;
+
         // Turn off AI logic if it exists
         MonsterAI ai = GetComponent<MonsterAI>();
         if (ai != null) ai.isBeingPossessed = true;
@@ -180,11 +187,11 @@ public class MonsterController : MonoBehaviour, IPossessable
 
     /// <summary>
     /// Ensures the monster is always firmly touching the floor using EnemyNPC_AI gravity and grounding logic.
-    /// Works whether possessed by the Girl or moving as an autonomous AI minion.
-    /// Never turns off the CharacterController.
+    /// Only active during player possession so it does not fight NavMeshAgent movement.
     /// </summary>
     private void ApplyGroundingAndGravity()
     {
+        if (!_isPossessed) return;
         if (_controller == null || !_controller.enabled) return;
 
         _isGrounded = _controller.isGrounded;
@@ -198,14 +205,6 @@ public class MonsterController : MonoBehaviour, IPossessable
         else
         {
             _verticalVelocity += gravity * Time.deltaTime;
-        }
-
-        // When unpossessed, the AI controls horizontal movement via NavMeshAgent.
-        // We apply pure vertical gravity through the CharacterController so the monster
-        // always falls and stays firmly touching the floor even before starting movement.
-        if (!_isPossessed)
-        {
-            _controller.Move(new Vector3(0f, _verticalVelocity * Time.deltaTime, 0f));
         }
     }
 
@@ -289,6 +288,12 @@ public class MonsterController : MonoBehaviour, IPossessable
     public void Release()
     {
         _isPossessed = false;
+
+        if (_controller != null) _controller.enabled = false;
+        if (GetComponent<Unity.Netcode.NetworkBehaviour>() is Unity.Netcode.NetworkBehaviour nb && nb.IsServer)
+        {
+            if (TryGetComponent<UnityEngine.AI.NavMeshAgent>(out var agent)) agent.enabled = true;
+        }
 
         if (monsterFollowCamera != null)
         {

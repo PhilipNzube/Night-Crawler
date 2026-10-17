@@ -92,11 +92,7 @@ namespace NightCrawler.Monsters
                 animator.SetTrigger(animationTrigger);
             }
 
-            // 2. Play attack grunt SFX (only if MonsterAI is not managing synchronized audio)
-            if (autoPlayAudioInSequence && attackSoundClip != null && audioSource != null)
-            {
-                audioSource.PlayOneShot(attackSoundClip, GameSettingsManager.SFXVolume);
-            }
+            // 2. Attack swing sound is silenced per design (physical impact audio handled on hitbox contact)
 
             // 3. Anticipation window (strike wind-up)
             yield return new WaitForSeconds(0.25f);

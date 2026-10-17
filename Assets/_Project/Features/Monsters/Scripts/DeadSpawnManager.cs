@@ -148,6 +148,13 @@ namespace NightCrawler.Monsters
                 mc.SnapToFloor();
             }
 
+            // Enforce that a newly spawned monster never inherits previous Hunt or Follow commands
+            if (spawnedObj.TryGetComponent<MonsterAI>(out var monsterAI))
+            {
+                monsterAI.currentCommand = MonsterAI.Command.Roam;
+                monsterAI.target = null;
+            }
+
             if (spawnedObj.TryGetComponent<NetworkObject>(out var netObj))
             {
                 netObj.Spawn(true);

@@ -160,9 +160,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     public virtual float CloseAttackContactDistance => (monsterType == MonsterType.Berserker) ? 1.15f : 0.72f;
 
     /// <summary>
-    /// Distance threshold required to initiate an attack. If distance is larger, monster continues running to close the gap.
+    /// Distance threshold required to initiate an attack. Matches combat striking range.
+    /// If distance is larger, monster continues running to close the gap (EnemyNPC_AI).
     /// </summary>
-    public virtual float MaxAttackInitiationDistance => (monsterType == MonsterType.Berserker) ? 1.35f : 0.88f;
+    public virtual float MaxAttackInitiationDistance => combat != null ? combat.attackRange : 1.35f;
 
     // Single source of truth delegates to subsystems (eliminates duplicate Inspector fields)
     public float attackRange => combat != null ? combat.attackRange : 2.2f;
@@ -200,7 +201,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     protected Vector3 _lastPosition;
     protected NavMeshPath _roamTestPath;
     protected Transform _commandLeader;
-    public Transform CommandLeader => _commandLeader != null ? _commandLeader : (GameManager.Instance != null ? GameManager.Instance.GirlTransform : null);
+    public Transform CommandLeader => (currentCommand == Command.Follow) ? (_commandLeader != null ? _commandLeader : (GameManager.Instance != null ? GameManager.Instance.GirlTransform : null)) : null;
     protected Coroutine _spawnScreamCoroutine;
     protected Coroutine _attackCoroutine;
 
@@ -305,6 +306,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         if (IsServer)
         {
+            currentCommand = Command.Roam;
+            target = null;
+            _hasLastKnownPosition = false;
             netAIState.Value = currentState;
             netPosition.Value = transform.position;
             netRotation.Value = transform.rotation;
@@ -581,7 +585,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 if (locomotion != null)
                 {
                     locomotion.Resume(runSpeed);
-                    locomotion.SetDestinationSmooth(GetSurroundingDestination(target, CloseAttackContactDistance));
+                    locomotion.SetDestinationSmooth(target.position);
                 }
                 return;
             }
@@ -660,13 +664,27 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 _lastKnownTargetPosition = target.position;
             }
 
-            // In range for intimate attack?
-            // Only initiate attack when in close striking range and have line of sight!
-            // If space opened up (> MaxAttackInitiationDistance), DO NOT swing at air — continue running to close the gap!
-            if (dist <= MaxAttackInitiationDistance && perception.HasLineOfSight(target))
+            float strikeRange = combat != null ? combat.attackRange : 1.35f;
+
+            // In range for attack?
+            // If in close striking range and have line of sight:
+            if (dist <= strikeRange && perception.HasLineOfSight(target))
             {
-                ExecuteAttack(target);
-                return;
+                if (combat != null && !combat.IsOnCooldown)
+                {
+                    ExecuteAttack(target);
+                    return;
+                }
+                else
+                {
+                    // In striking range but on cooldown: hold ground and face the target directly
+                    if (locomotion != null)
+                    {
+                        locomotion.Stop();
+                        locomotion.RotateTowards(target.position, angularSpeed * 1.5f);
+                    }
+                    return;
+                }
             }
 
             // If actively executing an obstacle reposition escape detour:
@@ -694,16 +712,15 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 }
             }
 
-            // Chase target smoothly along the NavMesh corridor (EnemyNPC_AI navigation)
+            // EnemyNPC_AI Navigation: If the enemy is a bit far from the stop and attack distance,
+            // move directly towards target.position to close that gap and attack!
             if (locomotion != null)
             {
                 locomotion.Resume(runSpeed);
-                locomotion.SetDestinationSmooth(GetSurroundingDestination(target, CloseAttackContactDistance));
+                locomotion.SetDestinationSmooth(target.position);
 
                 // EnemyNPC_AI steering alignment:
-                // Only rotate directly towards the target when in clear visual contact and close.
-                // Otherwise rotate along the corridor towards steeringTarget to prevent pressing/facing into walls!
-                if (canSee && dist <= attackRange * 2.5f)
+                if (canSee && dist <= strikeRange * 2.5f)
                 {
                     locomotion.RotateTowards(target.position, angularSpeed);
                 }
@@ -739,7 +756,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 if (locomotion != null)
                 {
                     locomotion.Resume(runSpeed);
-                    locomotion.SetDestinationSmooth(GetSurroundingDestination(target, CloseAttackContactDistance));
+                    locomotion.SetDestinationSmooth(target.position);
                 }
                 return;
             }
@@ -1133,6 +1150,14 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         {
             _commandLeader = null;
             _recallGraceTimer = 0f;
+
+            // Stop any active spawn scream or roar coroutine immediately so monster can attack
+            if (_spawnScreamCoroutine != null)
+            {
+                StopCoroutine(_spawnScreamCoroutine);
+                _spawnScreamCoroutine = null;
+            }
+
             target = FindGlobalInvestigatorTarget();
             if (target != null)
             {
@@ -1142,7 +1167,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 if (locomotion != null)
                 {
                     locomotion.Resume(runSpeed);
-                    locomotion.SetDestinationSmooth(GetSurroundingDestination(target, CloseAttackContactDistance));
+                    locomotion.SetDestinationSmooth(target.position);
                 }
             }
             else
@@ -1261,12 +1286,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         _hasScreamed = true;
         currentState = AIState.SpawningScream;
         if (locomotion != null) locomotion.Stop();
-
-        target = perception.FindBestTarget(null);
-        if (target != null && locomotion != null)
-        {
-            locomotion.RotateTowards(target.position, angularSpeed * 2f);
-        }
+        target = null; // Do not acquire any target on spawn
 
         TriggerScreamAnimation();
 
@@ -1278,8 +1298,14 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         float remaining = Mathf.Max(0.5f, screamDuration - audioDelay);
         yield return new WaitForSeconds(remaining);
 
-        SwitchState(target != null ? AIState.Running : AIState.Patrol);
-        if (locomotion != null) locomotion.Resume(target != null ? runSpeed : walkSpeed);
+        // A newly spawned monster always begins in calm Patrol/Roam mode.
+        // It strictly ignores previous commands and only hunts if commanded AFTER spawning.
+        target = null;
+        currentCommand = Command.Roam;
+        SwitchState(AIState.Patrol);
+        if (locomotion != null) locomotion.Resume(walkSpeed);
+
+        _spawnScreamCoroutine = null;
     }
 
     protected virtual void TriggerScreamAnimation()
@@ -1334,131 +1360,37 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     public void StartSynchronizedAttackAudio(float delay = 0.15f)
     {
-        if (_attackAudioCoroutine != null) StopCoroutine(_attackAudioCoroutine);
-        _attackAudioCoroutine = StartCoroutine(AttackAudioRoutine(delay));
-    }
-
-    private IEnumerator AttackAudioRoutine(float delay)
-    {
-        if (delay > 0f) yield return new WaitForSeconds(delay);
-        Play3DAttackAudio();
-        _attackAudioCoroutine = null;
+        // Attack swing audio silenced per design (physical impact audio handled on hitbox contact)
     }
 
     public void Play3DAttackAudio()
     {
-        AudioClip clip = attackSoundClip != null ? attackSoundClip : (combat != null ? combat.attackSoundClip : null);
-        if (clip != null && audioSource != null)
-        {
-            audioSource.clip = clip;
-            audioSource.volume = GameSettingsManager.SFXVolume;
-            audioSource.Play();
-        }
-
-        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
-        {
-            PlayAttackAudioClientRpc();
-        }
+        // Attack swing audio silenced per design
     }
 
     [ClientRpc]
     private void PlayAttackAudioClientRpc()
     {
-        if (IsServer) return;
-        AudioClip clip = attackSoundClip != null ? attackSoundClip : (combat != null ? combat.attackSoundClip : null);
-        if (clip != null && audioSource != null)
-        {
-            audioSource.clip = clip;
-            audioSource.volume = GameSettingsManager.SFXVolume;
-            audioSource.Play();
-        }
+        // Attack swing audio silenced per design
     }
 
     public void Stop3DAttackAudio()
     {
-        if (_attackAudioCoroutine != null)
-        {
-            StopCoroutine(_attackAudioCoroutine);
-            _attackAudioCoroutine = null;
-        }
-
-        AudioClip clip = attackSoundClip != null ? attackSoundClip : (combat != null ? combat.attackSoundClip : null);
-        if (audioSource != null && audioSource.isPlaying && (clip == null || audioSource.clip == clip))
-        {
-            audioSource.Stop();
-        }
-
-        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
-        {
-            StopAttackAudioClientRpc();
-        }
+        // Safe no-op
     }
 
     [ClientRpc]
     private void StopAttackAudioClientRpc()
     {
-        if (IsServer) return;
-        if (_attackAudioCoroutine != null)
-        {
-            StopCoroutine(_attackAudioCoroutine);
-            _attackAudioCoroutine = null;
-        }
-        AudioClip clip = attackSoundClip != null ? attackSoundClip : (combat != null ? combat.attackSoundClip : null);
-        if (audioSource != null && audioSource.isPlaying && (clip == null || audioSource.clip == clip))
-        {
-            audioSource.Stop();
-        }
+        // Safe no-op
     }
 
     /// <summary>
-    /// Smoothly pushes the monster backward along -transform.forward on the NavMesh
-    /// during the recovery/ending window of the attack animation.
-    /// Replicated authoritative transform via NetworkTransform.
-    /// When recoil completes, switches to Running state so if target has distance, it runs to close the gap again.
+    /// Deprecated: Recoil step-back removed per design. Monsters hold their ground in striking range.
     /// </summary>
     protected virtual IEnumerator AttackRecoilAndResumeRoutine(float pushDistance = 0.38f, float duration = 0.25f)
     {
-        float timer = 0f;
-        Vector3 recoilDir = -transform.forward;
-        recoilDir.y = 0f;
-        if (recoilDir.sqrMagnitude > 0.001f)
-        {
-            recoilDir.Normalize();
-            Vector3 targetPos = transform.position + recoilDir * pushDistance;
-            if (NavMesh.SamplePosition(targetPos, out NavMeshHit hit, pushDistance + 0.6f, NavMesh.AllAreas))
-            {
-                targetPos = hit.position;
-            }
-
-            Vector3 startPos = transform.position;
-
-            while (timer < duration && currentState == AIState.Attacking && _hitStaggerTimer <= 0f)
-            {
-                timer += Time.deltaTime;
-                float t = Mathf.Clamp01(timer / duration);
-                float smoothT = Mathf.SmoothStep(0f, 1f, t);
-                Vector3 nextPos = Vector3.Lerp(startPos, targetPos, smoothT);
-
-                if (_agent != null && _agent.enabled && _agent.isOnNavMesh)
-                {
-                    Vector3 step = nextPos - transform.position;
-                    _agent.Move(step);
-                }
-                else
-                {
-                    transform.position = nextPos;
-                }
-
-                yield return null;
-            }
-        }
-
-        if (currentState != AIState.Dead && _hitStaggerTimer <= 0f)
-        {
-            SwitchState(target != null ? AIState.Running : AIState.Patrol);
-            if (locomotion != null) locomotion.Resume(target != null ? runSpeed : walkSpeed);
-        }
-        _attackCoroutine = null;
+        yield break;
     }
 
     // =========================================================================

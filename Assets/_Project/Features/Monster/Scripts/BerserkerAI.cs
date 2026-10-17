@@ -97,21 +97,7 @@ public class BerserkerAI : MonsterAI
         _hasScreamed = true;
         currentState = AIState.SpawningScream;
         if (locomotion != null) locomotion.Stop();
-
-        Transform cand = perception != null ? perception.FindBestTarget(null) : null;
-        if (cand != null && !IsGirl(cand))
-        {
-            target = cand;
-        }
-        else
-        {
-            target = null;
-        }
-
-        if (target != null && locomotion != null)
-        {
-            locomotion.RotateTowards(target.position, angularSpeed * 2f);
-        }
+        target = null; // Do not acquire any target on spawn
 
         // 1. Trigger First Roar
         TriggerScreamAnimation();
@@ -139,8 +125,14 @@ public class BerserkerAI : MonsterAI
             yield return new WaitForSeconds(clipLength);
         }
 
-        SwitchState(target != null ? AIState.Running : AIState.Patrol);
-        if (locomotion != null) locomotion.Resume(target != null ? runSpeed : walkSpeed);
+        // A newly spawned monster always begins in calm Patrol/Roam mode.
+        // It strictly ignores previous commands and only hunts if commanded AFTER spawning.
+        target = null;
+        currentCommand = Command.Roam;
+        SwitchState(AIState.Patrol);
+        if (locomotion != null) locomotion.Resume(walkSpeed);
+
+        _spawnScreamCoroutine = null;
     }
 
     protected override void TriggerScreamAnimation()
@@ -258,9 +250,6 @@ public class BerserkerAI : MonsterAI
             _animator.CrossFade(_stateMutantSwiping, 0.12f);
         }
 
-        // Synchronize claw swipe attack audio timing with animation wind-up apex
-        StartSynchronizedAttackAudio(attackAudioDelay);
-
         if (_swipeAlignmentRoutine != null) StopCoroutine(_swipeAlignmentRoutine);
         _swipeAlignmentRoutine = StartCoroutine(SwipeAlignmentRoutine(attackTarget));
 
@@ -276,7 +265,11 @@ public class BerserkerAI : MonsterAI
             if (currentState != AIState.Dead)
             {
                 SwitchState(target != null ? AIState.Running : AIState.Patrol);
-                if (locomotion != null) locomotion.Resume(target != null ? runSpeed : walkSpeed);
+                if (locomotion != null)
+                {
+                    locomotion.Resume(target != null ? runSpeed : walkSpeed);
+                    if (target != null) locomotion.SetDestinationSmooth(target.position);
+                }
             }
             _attackCoroutine = null;
         });
@@ -353,8 +346,6 @@ public class BerserkerAI : MonsterAI
         {
             _animator.CrossFade(_stateMutantSwiping, 0.12f);
         }
-
-        StartSynchronizedAttackAudio(attackAudioDelay);
     }
 
     public override void PlayHitReaction()

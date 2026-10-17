@@ -35,15 +35,15 @@ namespace NightCrawler.Monsters
 
         private void Awake()
         {
+            // Check if this GameObject is a physical ragdoll bone (has Rigidbody with non-kinematic physics or CharacterJoint)
+            bool isRagdollBone = GetComponent<CharacterJoint>() != null || (GetComponent<Rigidbody>() != null && !GetComponent<Rigidbody>().isKinematic && transform.parent != null);
+
             if (hitboxCollider != null)
             {
                 _hitboxCollider = hitboxCollider;
             }
-            else
+            else if (isRagdollBone)
             {
-                // Check if this GameObject is a physical ragdoll bone (has Rigidbody or CharacterJoint)
-                bool isRagdollBone = GetComponent<CharacterJoint>() != null || (GetComponent<Rigidbody>() != null && transform.parent != null);
-
                 // First, check if a dedicated child trigger already exists
                 Collider[] childCols = GetComponentsInChildren<Collider>(true);
                 foreach (var c in childCols)
@@ -57,24 +57,40 @@ namespace NightCrawler.Monsters
 
                 if (_hitboxCollider == null)
                 {
-                    if (isRagdollBone)
-                    {
-                        // Pro safeguard: Do NOT convert the physical bone collider to a trigger, as it would cause the ragdoll limb to fall through the ground on death!
-                        // Dynamically create a dedicated child trigger collider instead.
-                        GameObject triggerChild = new GameObject("HitboxTrigger_Auto");
-                        triggerChild.transform.SetParent(transform, false);
-                        triggerChild.transform.localPosition = Vector3.zero;
-                        var sphere = triggerChild.AddComponent<SphereCollider>();
-                        sphere.radius = 0.35f;
-                        sphere.isTrigger = true;
-                        _hitboxCollider = sphere;
+                    // Safeguard: NEVER convert a physical ragdoll bone collider to a trigger!
+                    // Automatically spawn a dedicated child trigger object to preserve the physical ragdoll bone intact.
+                    GameObject triggerChild = new GameObject("HitboxTrigger_Auto");
+                    triggerChild.transform.SetParent(transform, false);
+                    triggerChild.transform.localPosition = Vector3.zero;
+                    var rb = triggerChild.AddComponent<Rigidbody>();
+                    rb.isKinematic = true;
+                    rb.useGravity = false;
+                    var sphere = triggerChild.AddComponent<SphereCollider>();
+                    sphere.radius = 0.32f;
+                    sphere.isTrigger = true;
+                    _hitboxCollider = sphere;
 
-                        Debug.LogWarning($"[MonsterAttackHitbox] Auto-created child trigger on '{gameObject.name}' to preserve the ragdoll bone collider!");
-                    }
-                    else
-                    {
-                        _hitboxCollider = GetComponent<Collider>();
-                    }
+                    Debug.LogWarning($"[MonsterAttackHitbox] Auto-created child trigger on '{gameObject.name}' to preserve the physical ragdoll bone intact!");
+                }
+            }
+            else
+            {
+                // Standalone dedicated hitbox object (e.g. child under hand_r)
+                _hitboxCollider = GetComponent<Collider>();
+                if (_hitboxCollider == null)
+                {
+                    var sphere = gameObject.AddComponent<SphereCollider>();
+                    sphere.radius = 0.28f;
+                    _hitboxCollider = sphere;
+                }
+
+                // Ensure an independent kinematic Rigidbody so OnTriggerEnter routes directly here
+                // instead of bubbling up to ancestor ragdoll bones (e.g. lowerarm_r).
+                if (GetComponent<Rigidbody>() == null)
+                {
+                    var rb = gameObject.AddComponent<Rigidbody>();
+                    rb.isKinematic = true;
+                    rb.useGravity = false;
                 }
             }
 
@@ -82,6 +98,21 @@ namespace NightCrawler.Monsters
             {
                 _hitboxCollider.isTrigger = true;
                 _hitboxCollider.enabled = false;
+
+                // If the collider lives on a separate sibling/child GameObject, ensure it forwards trigger events back to this script!
+                if (_hitboxCollider.gameObject != gameObject)
+                {
+                    var forwarder = _hitboxCollider.gameObject.GetComponent<HitboxTriggerForwarder>();
+                    if (forwarder == null) forwarder = _hitboxCollider.gameObject.AddComponent<HitboxTriggerForwarder>();
+                    forwarder.targetHitbox = this;
+
+                    if (_hitboxCollider.GetComponent<Rigidbody>() == null)
+                    {
+                        var rb = _hitboxCollider.gameObject.AddComponent<Rigidbody>();
+                        rb.isKinematic = true;
+                        rb.useGravity = false;
+                    }
+                }
             }
 
             // Find root monster GameObject to prevent friendly fire on self
@@ -136,6 +167,14 @@ namespace NightCrawler.Monsters
         }
 
         private void OnTriggerEnter(Collider other)
+        {
+            ProcessHit(other);
+        }
+
+        /// <summary>
+        /// Processes physical collision with potential investigator victims.
+        /// </summary>
+        public void ProcessHit(Collider other)
         {
             if (!_isDamageActive) return;
             if (other == null || other.gameObject == _ownerRoot) return;
@@ -206,6 +245,22 @@ namespace NightCrawler.Monsters
                     Vector3 contactPoint = other.ClosestPoint(transform.position);
                     Instantiate(hitVfxPrefab, contactPoint, Quaternion.identity);
                 }
+            }
+        }
+    }
+
+    /// <summary>
+    /// Forwards OnTriggerEnter events to a MonsterAttackHitbox when the collider lives on a separate GameObject.
+    /// </summary>
+    public class HitboxTriggerForwarder : MonoBehaviour
+    {
+        public MonsterAttackHitbox targetHitbox;
+
+        private void OnTriggerEnter(Collider other)
+        {
+            if (targetHitbox != null)
+            {
+                targetHitbox.ProcessHit(other);
             }
         }
     }
