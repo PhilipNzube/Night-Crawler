@@ -269,11 +269,8 @@ namespace NightCrawler.Monsters
             if (pushCount > 0)
             {
                 Vector3 avgPush = totalPush / pushCount;
-                // Apply soft physical separation displacement along NavMesh
-                Vector3 moveDelta = avgPush * (3.0f * Time.deltaTime);
-                agent.Move(moveDelta);
 
-                // If moving along a path, also apply lateral steering to smoothly route around peer
+                // If moving along a path, apply lateral steering to smoothly route around peer
                 if (agent.hasPath && !agent.isStopped && agent.velocity.sqrMagnitude > 0.1f)
                 {
                     Vector3 lateral = Vector3.Cross(Vector3.up, agent.velocity.normalized);
@@ -285,9 +282,9 @@ namespace NightCrawler.Monsters
 
         /// <summary>
         /// Ensures monsters always treat the Girl as their Queen when guarding or following:
-        /// 1. Never stops or clips inside her (keeps at least 2.4m clearance).
-        /// 2. If standing in her forward path, smartly turns forward, moves to clear her corridor,
-        ///    and turns back to face her once clear (never walks backwards).
+        /// 1. Never stops or clips inside her (keeps safe personal space).
+        /// 2. If standing directly in her walking path, smoothly walks to clear her corridor with proper walk animation (never glides).
+        /// 3. When holding position near her, stands firmly and faces her respectfully without sliding away.
         /// Suppressed completely during active Hunt commands or player pursuit.
         /// </summary>
         public void ResolveQueenClearance()
@@ -315,17 +312,16 @@ namespace NightCrawler.Monsters
             diff.y = 0f;
 
             float dist = diff.magnitude;
-            float clearanceRadius = 2.4f;
 
             Vector3 queenForward = queen.forward;
             queenForward.y = 0f;
             bool isInFrontOfQueen = false;
             Vector3 clearDir = diff.sqrMagnitude > 0.05f ? diff.normalized : transform.forward;
 
-            if (queenForward.sqrMagnitude > 0.05f && dist < 3.5f && dist > 0.05f)
+            if (queenForward.sqrMagnitude > 0.05f && dist < 2.5f && dist > 0.05f)
             {
                 float dot = Vector3.Dot(queenForward.normalized, diff.normalized);
-                if (dot > 0.25f)
+                if (dot > 0.35f)
                 {
                     isInFrontOfQueen = true;
                     // Lateral clearance perpendicular to Queen's forward direction
@@ -336,19 +332,25 @@ namespace NightCrawler.Monsters
                 }
             }
 
-            // If too close or blocking her path, turn in the movement direction and move forward!
-            if (dist < clearanceRadius || isInFrontOfQueen)
+            // Only actively step aside if deeply overlapping (< 0.95m) or directly blocking her forward path
+            if (dist < 0.95f || isInFrontOfQueen)
             {
-                // Turn to face the direction of clearing movement (moves forward, never backwards!)
-                RotateTowards(myPos + clearDir, angularSpeed * 1.8f);
-
-                // Move forward along clearing direction
-                float moveSpeed = (dist < clearanceRadius) ? (clearanceRadius - dist) * 3.5f + 1.5f : 2.5f;
-                agent.Move(clearDir * (moveSpeed * Time.deltaTime));
+                Vector3 stepAsideSpot = myPos + clearDir * 1.8f;
+                if (NavMesh.SamplePosition(stepAsideSpot, out NavMeshHit stepHit, 2.0f, NavMesh.AllAreas))
+                {
+                    if (Vector3.Distance(_currentDestination, stepHit.position) > 0.6f)
+                    {
+                        MoveTo(stepHit.position, walkSpeed);
+                    }
+                }
+                else
+                {
+                    RotateTowards(myPos + clearDir, angularSpeed * 1.5f);
+                }
             }
-            else if (dist < 3.8f && _monsterAI.currentCommand == MonsterAI.Command.Follow && (!agent.hasPath || agent.isStopped || agent.velocity.sqrMagnitude < 0.1f))
+            else if (dist < 4.0f && _monsterAI.currentCommand == MonsterAI.Command.Follow && (!agent.hasPath || agent.isStopped || agent.velocity.sqrMagnitude < 0.1f))
             {
-                // Cleared the corridor and stopped: turn back and face the Queen respectfully!
+                // Standing near the Queen: hold ground firmly and face her respectfully — zero gliding!
                 RotateTowards(queenPos, angularSpeed * 1.2f);
             }
         }

@@ -57,14 +57,12 @@ namespace NightCrawler.Monsters
         /// <summary>
         /// Primes the modal on startup so Unity triggers Awake() and Start() during scene init,
         /// ensuring Michsky's StartBehaviour.Disable does not swallow the player's first card click.
-        /// Uses the exact priming pattern from GirlDealUI.
+        /// Visibility is controlled purely through CanvasGroup (exact pattern from GirlDealUI).
         /// </summary>
         public void PrimeModal()
         {
-            // 1. Temporarily activate GameObject so Unity executes Awake() and Start() on ModalWindowManager
-            // during scene initialization on frame 0 rather than when the player taps a card for the first time!
-            bool wasActive = gameObject.activeSelf;
-            if (!wasActive)
+            // Keep GameObject active so Unity executes Awake() and Start() during scene initialization
+            if (!gameObject.activeSelf)
             {
                 gameObject.SetActive(true);
             }
@@ -90,29 +88,21 @@ namespace NightCrawler.Monsters
                 modalWindow.isOn = false;
 
                 var mc = modalWindow.GetComponent<CanvasGroup>();
-                if (mc != null)
-                {
-                    mc.alpha = 0f;
-                    mc.interactable = false;
-                    mc.blocksRaycasts = false;
-                }
-
-                modalWindow.gameObject.SetActive(false);
+                if (mc == null) mc = modalWindow.gameObject.AddComponent<CanvasGroup>();
+                mc.alpha = 0f;
+                mc.interactable = false;
+                mc.blocksRaycasts = false;
             }
 
             var cg = GetComponent<CanvasGroup>();
-            if (cg != null)
-            {
-                cg.alpha = 0f;
-                cg.interactable = false;
-                cg.blocksRaycasts = false;
-            }
-
-            gameObject.SetActive(false);
+            if (cg == null) cg = gameObject.AddComponent<CanvasGroup>();
+            cg.alpha = 0f;
+            cg.interactable = false;
+            cg.blocksRaycasts = false;
         }
 
         /// <summary>
-        /// Strips invalid state, forces StartBehaviour.Enable, alpha = 0, and deactivates GameObject.
+        /// Strips invalid state, forces StartBehaviour.Enable, and hides via CanvasGroup without disabling GameObject.
         /// </summary>
         public static void SanitizeModal(ModalWindowManager modal)
         {
@@ -125,21 +115,14 @@ namespace NightCrawler.Monsters
             modal.isOn = false;
 
             var cg = modal.GetComponent<CanvasGroup>();
-            if (cg != null)
-            {
-                cg.alpha = 0f;
-                cg.interactable = false;
-                cg.blocksRaycasts = false;
-            }
-
-            if (modal.gameObject.activeSelf)
-            {
-                modal.gameObject.SetActive(false);
-            }
+            if (cg == null) cg = modal.gameObject.AddComponent<CanvasGroup>();
+            cg.alpha = 0f;
+            cg.interactable = false;
+            cg.blocksRaycasts = false;
         }
 
         /// <summary>
-        /// Strictly closes and deactivates the modal, resetting CanvasGroup to transparent non-blocking.
+        /// Strictly closes the modal, resetting CanvasGroup to transparent non-blocking without deactivating GameObject.
         /// Follows the exact closing pattern of GirlDealUI.CloseDealModal.
         /// </summary>
         public void DeactivateModal()
@@ -155,8 +138,6 @@ namespace NightCrawler.Monsters
                     cg.interactable = false;
                     cg.blocksRaycasts = false;
                 }
-
-                modalWindow.gameObject.SetActive(false);
             }
 
             var rootCg = GetComponent<CanvasGroup>();
@@ -165,11 +146,6 @@ namespace NightCrawler.Monsters
                 rootCg.alpha = 0f;
                 rootCg.interactable = false;
                 rootCg.blocksRaycasts = false;
-            }
-
-            if (gameObject.activeSelf)
-            {
-                gameObject.SetActive(false);
             }
         }
 

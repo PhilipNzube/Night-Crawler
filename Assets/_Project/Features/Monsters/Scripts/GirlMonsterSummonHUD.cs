@@ -507,8 +507,6 @@ namespace NightCrawler.Monsters
                     cg.interactable = false;
                     cg.blocksRaycasts = false;
                 }
-
-                targetModal.gameObject.SetActive(false);
             }
 
             if (selectionConfirmationModal != null)
@@ -805,26 +803,35 @@ namespace NightCrawler.Monsters
 
                 foreach (var bm in card.GetComponentsInChildren<Michsky.UI.Heat.ButtonManager>(true))
                 {
+                    if (handledButtonManagers.Contains(bm)) continue;
                     handledButtonManagers.Add(bm);
                     bm.checkForDoubleClick = false;
                     bm.onClick.RemoveAllListeners();
                     bm.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
                     bm.onDoubleClick.RemoveAllListeners();
                     bm.onDoubleClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+
+                    var uBtn = bm.GetComponent<Button>();
+                    if (uBtn != null) handledButtons.Add(uBtn);
                 }
 
                 foreach (var bbm in card.GetComponentsInChildren<Michsky.UI.Heat.BoxButtonManager>(true))
                 {
+                    if (handledBoxButtons.Contains(bbm)) continue;
                     handledBoxButtons.Add(bbm);
                     bbm.checkForDoubleClick = false;
                     bbm.onClick.RemoveAllListeners();
                     bbm.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
                     bbm.onDoubleClick.RemoveAllListeners();
                     bbm.onDoubleClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
+
+                    var uBtn = bbm.GetComponent<Button>();
+                    if (uBtn != null) handledButtons.Add(uBtn);
                 }
 
                 foreach (var btn in card.GetComponentsInChildren<Button>(true))
                 {
+                    if (handledButtons.Contains(btn)) continue;
                     handledButtons.Add(btn);
                     btn.onClick.RemoveAllListeners();
                     btn.onClick.AddListener(() => OnCardSelectClicked(resolvedIndex));
@@ -1019,8 +1026,12 @@ namespace NightCrawler.Monsters
             }
         }
 
+        private float _lastCardSelectClickTime = 0f;
+
         public void OnCardSelectClicked(int index)
         {
+            if (Time.unscaledTime - _lastCardSelectClickTime < 0.25f) return;
+            _lastCardSelectClickTime = Time.unscaledTime;
             OpenConfirmationModal(index);
         }
 

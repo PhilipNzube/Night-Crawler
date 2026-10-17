@@ -231,10 +231,6 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         _agent = GetComponent<NavMeshAgent>();
         _animator = GetComponentInChildren<Animator>();
-        if (_animator != null)
-        {
-            _animator.applyRootMotion = false;
-        }
 
         // Wire or add modular subsystems
         if (perception == null) perception = GetComponent<MonsterPerception>();
@@ -308,11 +304,6 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     public override void OnNetworkSpawn()
     {
         base.OnNetworkSpawn();
-
-        if (_animator != null)
-        {
-            _animator.applyRootMotion = false;
-        }
 
         if (networkTransform == null) networkTransform = GetComponent<Unity.Netcode.Components.NetworkTransform>();
         if (networkTransform != null) networkTransform.Interpolate = true;

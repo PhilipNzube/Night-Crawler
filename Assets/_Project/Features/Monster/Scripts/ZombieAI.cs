@@ -52,7 +52,7 @@ public class ZombieAI : MonsterAI
         _hasLastKnownPosition = false;
         if (_animator != null)
         {
-            _animator.applyRootMotion = false;
+            _animator.applyRootMotion = true;
         }
         if (locomotion != null)
         {
@@ -65,7 +65,7 @@ public class ZombieAI : MonsterAI
         base.OnNetworkSpawn();
         if (_animator != null)
         {
-            _animator.applyRootMotion = false;
+            _animator.applyRootMotion = true;
         }
         if (IsServer)
         {
