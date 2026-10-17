@@ -4,6 +4,7 @@ using UnityEngine;
 using UnityEngine.AI;
 using Unity.Netcode;
 using NightCrawler.Monsters;
+using SuperHorizon.EnemyNPCai;
 
 /// <summary>
 /// Server-authoritative Monster AI for Night Crawler.
@@ -13,10 +14,10 @@ using NightCrawler.Monsters;
 /// - MonsterPerception (FOV cone, Line-of-Sight, Hearing, Target selection)
 /// - MonsterLocomotion (NavMeshAgent navigation, SetDestinationSmooth, Obstacle blockage & Repositioning)
 /// - MonsterCombat (Attack timing, Hitbox synchronization, Vocalizations)
-/// - Network synchronization (Server-authoritative AI, ClientRpc animation & audio triggers)
+/// - Network synchronization (Server-authoritative AI, NetworkTransform, ClientRpc animation & audio triggers)
 /// - Vengeful Spirit Commands (Hunt, Follow/Guard, Roam)
 /// - Vengeful Spirit Possession (IPossessable / MonsterController)
-/// - Damage reception (IDamageReceiver, TargetHealth, MonsterHealthBar)
+/// - Damage reception (IDamageReceiver, TargetHealth, EnemyHealthBar)
 /// </summary>
 [RequireComponent(typeof(NavMeshAgent))]
 public class MonsterAI : NetworkBehaviour, IDamageReceiver
@@ -85,9 +86,48 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     public AudioSource audioSource;
     public AudioClip hurtSoundClip;
 
-    [Header("Health & UI")]
+    [Header("EnemyNPC_AI Health Bar Integration")]
+    [Tooltip("EnemyHealthBar component from the EnemyNPC_AI package. Drag and wire in Inspector.")]
+    public EnemyHealthBar enemyNPCHealthBar;
+
+    [Tooltip("World offset above monster head for EnemyHealthBar.")]
+    public Vector3 enemyHealthBarOffset = new Vector3(0, 2.2f, 0);
+
+    [Header("Health & UI (Legacy Fallback)")]
     public MonsterHealthBar healthBar;
     public TargetHealth targetHealth;
+
+    [Header("Hit Stagger & Stun Settings")]
+    [Tooltip("Duration in seconds the monster remains stunned/immobile upon taking damage from axe or weapons.")]
+    public float hitReactionStunDuration = 2.5f;
+
+    [Header("Network Synchronization")]
+    public NetworkVariable<AIState> netAIState = new NetworkVariable<AIState>(
+        AIState.SpawningScream,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    public NetworkVariable<float> netMoveSpeed = new NetworkVariable<float>(
+        0f,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    public NetworkVariable<Vector3> netPosition = new NetworkVariable<Vector3>(
+        Vector3.zero,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    public NetworkVariable<Quaternion> netRotation = new NetworkVariable<Quaternion>(
+        Quaternion.identity,
+        NetworkVariableReadPermission.Everyone,
+        NetworkVariableWritePermission.Server
+    );
+
+    [Tooltip("Optional NetworkTransform component on this monster for real-time position/rotation sync.")]
+    public Unity.Netcode.Components.NetworkTransform networkTransform;
 
     [Header("Corpse Dissolve (Death Cleanup)")]
     [Tooltip("If true, the dead monster corpse will dissolve away after death using the Wraith dissolve effect.")]
@@ -176,25 +216,40 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         // Wire or add modular subsystems
         if (perception == null) perception = GetComponent<MonsterPerception>();
-        if (perception == null) perception = gameObject.AddComponent<MonsterPerception>();
-
         if (locomotion == null) locomotion = GetComponent<MonsterLocomotion>();
-        if (locomotion == null) locomotion = gameObject.AddComponent<MonsterLocomotion>();
-
         if (combat == null) combat = GetComponent<MonsterCombat>();
-        if (combat == null) combat = gameObject.AddComponent<MonsterCombat>();
-
         if (targetHealth == null) targetHealth = GetComponent<TargetHealth>();
         if (targetHealth == null) targetHealth = GetComponentInChildren<TargetHealth>(true);
 
         if (healthBar == null) healthBar = GetComponentInChildren<MonsterHealthBar>(true);
+        if (enemyNPCHealthBar == null) enemyNPCHealthBar = GetComponentInChildren<EnemyHealthBar>(true);
         if (combat != null && combat.attackHitbox == null) combat.attackHitbox = GetComponentInChildren<MonsterAttackHitbox>(true);
+        if (networkTransform == null) networkTransform = GetComponent<Unity.Netcode.Components.NetworkTransform>();
 
         _lastPosition = transform.position;
         _roamTestPath = new NavMeshPath();
         ConfigureAudio();
         ConfigureMonsterDefaults();
         SyncSubsystemParameters();
+
+        // Enforce default command is Roam at spawn: monsters never automatically start chasing the girl!
+        currentCommand = Command.Roam;
+        target = null;
+        _hasLastKnownPosition = false;
+
+        if (enemyNPCHealthBar != null)
+        {
+            if (healthBar != null)
+            {
+                // Custom Heat UI healthbar is attached; suppress EnemyNPC_AI bar so it never conflicts
+                enemyNPCHealthBar.gameObject.SetActive(false);
+            }
+            else
+            {
+                enemyNPCHealthBar.target = transform;
+                enemyNPCHealthBar.offset = enemyHealthBarOffset;
+            }
+        }
 
         if (!ActiveMonsters.Contains(this))
         {
@@ -231,6 +286,37 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
 
         netPosture.OnValueChanged += HandlePostureNetworkChanged;
+        netAIState.OnValueChanged += HandleNetAIStateChanged;
+
+        if (IsServer)
+        {
+            netAIState.Value = currentState;
+            netPosition.Value = transform.position;
+            netRotation.Value = transform.rotation;
+        }
+        else
+        {
+            // On client devices: disable local NavMeshAgent & CharacterController
+            // so they do NOT fight the server's synchronized transform position!
+            if (_agent != null)
+            {
+                _agent.enabled = false;
+            }
+            if (TryGetComponent<CharacterController>(out var cc))
+            {
+                cc.enabled = false;
+            }
+        }
+
+        // Initialize EnemyNPC_AI Health Bar if wired
+        if (enemyNPCHealthBar != null)
+        {
+            enemyNPCHealthBar.target = transform;
+            enemyNPCHealthBar.offset = enemyHealthBarOffset;
+            float max = targetHealth != null ? targetHealth.MaxHealth : 100f;
+            float cur = targetHealth != null ? targetHealth.CurrentHealth : 100f;
+            enemyNPCHealthBar.SetHealth(max > 0 ? cur / max : 1f);
+        }
     }
 
     public override void OnNetworkDespawn()
@@ -244,6 +330,12 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
 
         netPosture.OnValueChanged -= HandlePostureNetworkChanged;
+        netAIState.OnValueChanged -= HandleNetAIStateChanged;
+    }
+
+    private void HandleNetAIStateChanged(AIState prev, AIState curr)
+    {
+        currentState = curr;
     }
 
     public override void OnDestroy()
@@ -338,15 +430,46 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
         if (HasAuthority)
         {
-            // Hit stagger pause
+            // Hit stagger pause (Stun for hitReactionStunDuration seconds)
             if (_hitStaggerTimer > 0f)
             {
                 _hitStaggerTimer -= Time.deltaTime;
                 if (locomotion != null) locomotion.Stop();
+                if (_hitStaggerTimer <= 0f)
+                {
+                    Debug.Log($"<color=yellow>[MonsterAI / Zombie]</color> {gameObject.name} recovered from hit stun! Resuming pursuit and attack.");
+                    if (target != null && !perception.IsTargetInvalidOrDead(target))
+                    {
+                        SwitchState(AIState.Running);
+                        if (locomotion != null) locomotion.Resume(runSpeed);
+                    }
+                    else
+                    {
+                        SwitchState(AIState.Patrol);
+                    }
+                }
                 return;
             }
 
             UpdateBrain();
+
+            // Replicate server transform and velocity to network variables
+            netPosition.Value = transform.position;
+            netRotation.Value = transform.rotation;
+            float curSpeed = (_agent != null && _agent.isOnNavMesh) ? _agent.velocity.magnitude : 0f;
+            netMoveSpeed.Value = curSpeed;
+        }
+        else
+        {
+            // On clients without NetworkTransform, smoothly interpolate to server position & rotation
+            if (networkTransform == null)
+            {
+                if (netPosition.Value != Vector3.zero)
+                {
+                    transform.position = Vector3.Lerp(transform.position, netPosition.Value, Time.deltaTime * 18f);
+                    transform.rotation = Quaternion.Slerp(transform.rotation, netRotation.Value, Time.deltaTime * 18f);
+                }
+            }
         }
 
         UpdateLocomotionAnimation();
@@ -445,9 +568,9 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             }
         }
 
-        // 2. Scan for players/threats (EnemyNPC_AI)
+        // 2. Scan for players/threats (EnemyNPC_AI) - strictly ignore the Girl!
         Transform candidate = perception != null ? perception.FindBestTarget(null) : null;
-        if (candidate != null && perception.CanSeeTarget(candidate, true))
+        if (candidate != null && !IsGirl(candidate) && perception.CanSeeTarget(candidate, true))
         {
             target = candidate;
             SwitchState(AIState.Running);
@@ -486,7 +609,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         // 1. Under Hunt command, continuously acquire/track the closest living investigator globally
         if (currentCommand == Command.Hunt)
         {
-            if (target == null || perception.IsTargetInvalidOrDead(target))
+            if (target == null || perception.IsTargetInvalidOrDead(target) || IsGirl(target))
             {
                 target = FindGlobalInvestigatorTarget();
             }
@@ -498,12 +621,16 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             if (_retargetTimer <= 0f)
             {
                 _retargetTimer = 0.4f;
-                target = perception.FindBestTarget(target);
+                Transform candidate = perception != null ? perception.FindBestTarget(target) : null;
+                if (candidate != null && !IsGirl(candidate))
+                {
+                    target = candidate;
+                }
             }
         }
 
-        // Validate target
-        if (target != null && !perception.IsTargetInvalidOrDead(target))
+        // Validate target - strictly ensure it is NOT the Girl!
+        if (target != null && !IsGirl(target) && !perception.IsTargetInvalidOrDead(target))
         {
             bool canSee = perception.CanSeeTarget(target);
             float dist = Vector3.Distance(transform.position, target.position);
@@ -677,7 +804,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
 
         Transform candidate = perception != null ? perception.FindBestTarget(null, perception.searchViewRadius) : null;
-        if (candidate != null && perception.CanSeeTarget(candidate, true))
+        if (candidate != null && !IsGirl(candidate) && perception.CanSeeTarget(candidate, true))
         {
             target = candidate;
             SwitchState(AIState.Running);
@@ -1016,6 +1143,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         if (currentState == newState) return;
         currentState = newState;
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            netAIState.Value = newState;
+        }
 
         _isWaitingAtRoamWaypoint = false;
         _roamWaitTimer = 0f;
@@ -1048,6 +1179,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (combat == null || combat.IsOnCooldown) return;
 
         currentState = AIState.Attacking;
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            netAIState.Value = AIState.Attacking;
+        }
         locomotion.Stop();
         locomotion.RotateTowards(attackTarget.position, angularSpeed * 2f);
 
@@ -1070,6 +1205,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             if (currentState != AIState.Dead)
             {
                 currentState = AIState.Running;
+                if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+                {
+                    netAIState.Value = AIState.Running;
+                }
                 locomotion.Resume(runSpeed);
             }
             _attackCoroutine = null;
@@ -1174,34 +1313,68 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     public void TakeDamage(float amount, bool isSoulAttack = false)
     {
-        if (!HasAuthority || currentState == AIState.Dead) return;
+        if (currentState == AIState.Dead) return;
+
+        // Remote client forwarding: allow investigators to hit monsters even without network authority
+        if (!IsServer)
+        {
+            Debug.Log($"<color=orange>[MonsterAI / TakeDamage]</color> Client forwarding {amount} damage to server for {gameObject.name}");
+            TakeDamageServerRpc(amount, isSoulAttack);
+            return;
+        }
 
         if (targetHealth != null)
         {
             targetHealth.TakeDamage(amount, isSoulAttack);
         }
 
-        if (healthBar != null && targetHealth != null)
+        float currentHp = targetHealth != null ? targetHealth.CurrentHealth : 0f;
+        float maxHp = targetHealth != null ? targetHealth.MaxHealth : 100f;
+
+        Debug.Log($"<color=red>[MonsterAI / Zombie Hit Detected]</color> {gameObject.name} took {amount:F1} damage! Current HP: {currentHp:F1}/{maxHp:F1}. Stunned for {hitReactionStunDuration:F1}s.");
+
+        // 1. Update custom Heat UI healthbar (primary)
+        if (healthBar != null)
         {
-            healthBar.OnDamaged(targetHealth.CurrentHealth, targetHealth.MaxHealth);
+            healthBar.OnDamaged(currentHp, maxHp);
+        }
+        // 2. Fallback to EnemyNPC_AI healthbar only if no custom Heat UI bar is attached
+        else if (enemyNPCHealthBar != null)
+        {
+            enemyNPCHealthBar.gameObject.SetActive(true);
+            enemyNPCHealthBar.SetHealth(maxHp > 0.001f ? currentHp / maxHp : 0f);
         }
 
         PlayHitReaction();
 
-        // Aggro Retaliation: switch to attacker
-        Transform attacker = perception.FindBestTarget(null, 15f);
-        if (attacker != null)
+        // Aggro Retaliation: switch to attacker (ignoring the Girl)
+        Transform attacker = perception != null ? perception.FindBestTarget(null, 15f) : null;
+        if (attacker != null && !IsGirl(attacker))
         {
             target = attacker;
             SwitchState(AIState.Running);
         }
     }
 
+    [Rpc(SendTo.Server, InvokePermission = RpcInvokePermission.Everyone)]
+    public void TakeDamageServerRpc(float amount, bool isSoulAttack = false)
+    {
+        TakeDamage(amount, isSoulAttack);
+    }
+
     public virtual void PlayHitReaction()
     {
         if (currentState == AIState.Dead) return;
 
-        _hitStaggerTimer = 0.4f;
+        _hitStaggerTimer = hitReactionStunDuration;
+        if (locomotion != null) locomotion.Stop();
+        if (combat != null) combat.CancelAttack();
+        if (_attackCoroutine != null)
+        {
+            StopCoroutine(_attackCoroutine);
+            _attackCoroutine = null;
+        }
+
         if (_animator != null) _animator.SetTrigger(_hitReactionHash);
 
         if (hurtSoundClip != null && audioSource != null)
@@ -1219,6 +1392,15 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     private void PlayHitReactionClientRpc()
     {
         if (IsServer) return;
+        _hitStaggerTimer = hitReactionStunDuration;
+        if (locomotion != null) locomotion.Stop();
+        if (combat != null) combat.CancelAttack();
+        if (_attackCoroutine != null)
+        {
+            StopCoroutine(_attackCoroutine);
+            _attackCoroutine = null;
+        }
+
         if (_animator != null) _animator.SetTrigger(_hitReactionHash);
         if (hurtSoundClip != null && audioSource != null)
         {
@@ -1228,9 +1410,18 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
 
     private void HandleTargetHealthChanged(float prev, float curr)
     {
-        if (healthBar != null && targetHealth != null)
+        float maxHp = targetHealth != null ? targetHealth.MaxHealth : 100f;
+
+        // 1. Update custom Heat UI healthbar (primary)
+        if (healthBar != null)
         {
-            healthBar.OnDamaged(curr, targetHealth.MaxHealth);
+            healthBar.OnDamaged(curr, maxHp);
+        }
+        // 2. Fallback to EnemyNPC_AI healthbar only if custom bar is absent
+        else if (enemyNPCHealthBar != null)
+        {
+            enemyNPCHealthBar.gameObject.SetActive(true);
+            enemyNPCHealthBar.SetHealth(maxHp > 0.001f ? curr / maxHp : 0f);
         }
 
         if (curr <= 0f && currentState != AIState.Dead)
@@ -1245,12 +1436,19 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         _hasDied = true;
 
         currentState = AIState.Dead;
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            netAIState.Value = AIState.Dead;
+        }
         ActiveMonsters.Remove(this);
 
         if (locomotion != null) locomotion.Stop();
         if (_agent != null) _agent.enabled = false;
         if (combat != null) combat.CancelAttack();
         if (healthBar != null) healthBar.gameObject.SetActive(false);
+        if (enemyNPCHealthBar != null) enemyNPCHealthBar.gameObject.SetActive(false);
+
+        Debug.Log($"<color=red>[MonsterAI / Zombie Slain]</color> {gameObject.name} has died.");
 
         TriggerRagdollPhysics();
 
@@ -1363,22 +1561,53 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     public static bool IsGirl(Transform t)
     {
         if (t == null) return false;
-        if (GameManager.Instance != null && (GameManager.Instance.GirlTransform == t || (t.root != null && GameManager.Instance.GirlTransform == t.root))) return true;
-        if (t.GetComponentInChildren<GirlStealth>() != null || t.GetComponentInParent<GirlStealth>() != null) return true;
-        if (t.GetComponentInChildren<GirlPossession>() != null || t.GetComponentInParent<GirlPossession>() != null) return true;
-        if (t.GetComponentInChildren<GirlMaterialController>() != null || t.GetComponentInParent<GirlMaterialController>() != null) return true;
-        if (t.GetComponentInChildren<GirlMovement>() != null || t.GetComponentInParent<GirlMovement>() != null) return true;
-        if (t.GetComponentInChildren<GirlCommandNet>() != null || t.GetComponentInParent<GirlCommandNet>() != null) return true;
-        if (t.GetComponentInChildren<GirlPuppetNet>() != null || t.GetComponentInParent<GirlPuppetNet>() != null) return true;
-        if (t.GetComponentInChildren<GirlSenseNet>() != null || t.GetComponentInParent<GirlSenseNet>() != null) return true;
-        if (t.GetComponentInChildren<GirlAttackNet>() != null || t.GetComponentInParent<GirlAttackNet>() != null) return true;
-        if (t.GetComponentInChildren<GirlShadowTeleportNet>() != null || t.GetComponentInParent<GirlShadowTeleportNet>() != null) return true;
-        if (t.GetComponentInChildren<GirlStateController>() != null || t.GetComponentInParent<GirlStateController>() != null) return true;
+        Transform root = t.root != null ? t.root : t;
+
+        // 1. Direct Transform match from GameManager
+        if (GameManager.Instance != null)
+        {
+            if (GameManager.Instance.GirlTransform == t || GameManager.Instance.GirlTransform == root) return true;
+            if (GameManager.Instance.girlClientId != null && GameManager.Instance.girlClientId.Value != 999 && GameManager.Instance.girlClientId.Value != ulong.MaxValue)
+            {
+                if (t.TryGetComponent<NetworkObject>(out var no) && no.OwnerClientId == GameManager.Instance.girlClientId.Value) return true;
+                if (root.TryGetComponent<NetworkObject>(out var rno) && rno.OwnerClientId == GameManager.Instance.girlClientId.Value) return true;
+            }
+        }
+
+        // 2. Client ID match from CharacterSelectManager or GirlRevealManager
+        if (CharacterSelectManager.SavedVengefulSpiritClientId != 999 && CharacterSelectManager.SavedVengefulSpiritClientId != ulong.MaxValue)
+        {
+            if (t.TryGetComponent<NetworkObject>(out var no) && no.OwnerClientId == CharacterSelectManager.SavedVengefulSpiritClientId) return true;
+            if (root.TryGetComponent<NetworkObject>(out var rno) && rno.OwnerClientId == CharacterSelectManager.SavedVengefulSpiritClientId) return true;
+        }
+        if (GirlRevealManager.SavedGirlClientId != 999 && GirlRevealManager.SavedGirlClientId != ulong.MaxValue)
+        {
+            if (t.TryGetComponent<NetworkObject>(out var no) && no.OwnerClientId == GirlRevealManager.SavedGirlClientId) return true;
+            if (root.TryGetComponent<NetworkObject>(out var rno) && rno.OwnerClientId == GirlRevealManager.SavedGirlClientId) return true;
+        }
+
+        // 3. Component signatures
+        if (t.GetComponentInChildren<GirlStealth>() != null || t.GetComponentInParent<GirlStealth>() != null || root.GetComponentInChildren<GirlStealth>() != null) return true;
+        if (t.GetComponentInChildren<GirlPossession>() != null || t.GetComponentInParent<GirlPossession>() != null || root.GetComponentInChildren<GirlPossession>() != null) return true;
+        if (t.GetComponentInChildren<GirlMaterialController>() != null || t.GetComponentInParent<GirlMaterialController>() != null || root.GetComponentInChildren<GirlMaterialController>() != null) return true;
+        if (t.GetComponentInChildren<GirlMovement>() != null || t.GetComponentInParent<GirlMovement>() != null || root.GetComponentInChildren<GirlMovement>() != null) return true;
+        if (t.GetComponentInChildren<GirlCommandNet>() != null || t.GetComponentInParent<GirlCommandNet>() != null || root.GetComponentInChildren<GirlCommandNet>() != null) return true;
+        if (t.GetComponentInChildren<GirlPuppetNet>() != null || t.GetComponentInParent<GirlPuppetNet>() != null || root.GetComponentInChildren<GirlPuppetNet>() != null) return true;
+        if (t.GetComponentInChildren<GirlSenseNet>() != null || t.GetComponentInParent<GirlSenseNet>() != null || root.GetComponentInChildren<GirlSenseNet>() != null) return true;
+        if (t.GetComponentInChildren<GirlAttackNet>() != null || t.GetComponentInParent<GirlAttackNet>() != null || root.GetComponentInChildren<GirlAttackNet>() != null) return true;
+        if (t.GetComponentInChildren<GirlShadowTeleportNet>() != null || t.GetComponentInParent<GirlShadowTeleportNet>() != null || root.GetComponentInChildren<GirlShadowTeleportNet>() != null) return true;
+        if (t.GetComponentInChildren<GirlStateController>() != null || t.GetComponentInParent<GirlStateController>() != null || root.GetComponentInChildren<GirlStateController>() != null) return true;
+
         var pNet = t.GetComponentInChildren<PlayerPossessableNet>();
         if (pNet == null) pNet = t.GetComponentInParent<PlayerPossessableNet>();
+        if (pNet == null) pNet = root.GetComponentInChildren<PlayerPossessableNet>();
         if (pNet != null && pNet.isPossessed.Value) return true;
+
+        // 4. Name signatures on both t and its root
         string n = t.name.ToLower();
-        return n.Contains("girl") || (n.Contains("demon") && !n.Contains("monster") && !n.Contains("creep")) || n.Contains("vengeful") || n.Contains("wraith");
+        string rn = root.name.ToLower();
+        return n.Contains("girl") || (n.Contains("demon") && !n.Contains("monster") && !n.Contains("creep")) || n.Contains("vengeful") || n.Contains("wraith")
+            || rn.Contains("girl") || (rn.Contains("demon") && !rn.Contains("monster") && !rn.Contains("creep")) || rn.Contains("vengeful") || rn.Contains("wraith");
     }
 
     public Vector3 FindUnobstructedPerimeterSpot(Transform leader, float preferredDist = 4.2f, float minClearance = 2.5f)
@@ -1426,7 +1655,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 var netObj = aliveList[i];
                 if (netObj == null || !netObj.gameObject.activeInHierarchy) continue;
                 Transform t = netObj.transform;
-                if (IsTargetInvalidOrDead(t)) continue;
+                if (IsGirl(t) || IsTargetInvalidOrDead(t)) continue;
 
                 float dist = Vector3.Distance(myPos, t.position);
                 if (dist < bestDist)
@@ -1445,7 +1674,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             {
                 if (netObj == null || !netObj.IsPlayerObject || !netObj.gameObject.activeInHierarchy) continue;
                 Transform t = netObj.transform;
-                if (IsTargetInvalidOrDead(t)) continue;
+                if (IsGirl(t) || IsTargetInvalidOrDead(t)) continue;
 
                 float dist = Vector3.Distance(myPos, t.position);
                 if (dist < bestDist)
@@ -1464,7 +1693,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             var p = players[i];
             if (p == null || !p.activeInHierarchy) continue;
             Transform root = p.transform.root != null ? p.transform.root : p.transform;
-            if (IsTargetInvalidOrDead(root)) continue;
+            if (IsGirl(root) || IsTargetInvalidOrDead(root)) continue;
 
             float dist = Vector3.Distance(myPos, root.position);
             if (dist < bestDist)

@@ -47,6 +47,9 @@ public class ZombieAI : MonsterAI
         monsterType = MonsterType.Zombie;
         currentPosture = ZombiePosture.Standing;
         base.Awake();
+        currentCommand = Command.Roam;
+        target = null;
+        _hasLastKnownPosition = false;
         if (locomotion != null)
         {
             locomotion.SetCrawlPosture(false);
@@ -328,33 +331,36 @@ public class ZombieAI : MonsterAI
 
     /// <summary>
     /// Synchronizes locomotion animations across idle, walk, run, and crawl.
-    /// Drives the Zombie Animator state machine cleanly.
+    /// Drives the Zombie Animator state machine cleanly across host and clients.
     /// </summary>
     protected override void UpdateLocomotionAnimation()
     {
-        if (_animator == null || locomotion == null) return;
+        if (_animator == null) return;
+
+        AIState effectiveState = HasAuthority ? currentState : netAIState.Value;
+        ZombiePosture effectivePosture = HasAuthority ? currentPosture : netPosture.Value;
 
         // Do not override special action states
-        if (currentState == AIState.Dead || 
-            currentState == AIState.SpawningScream || 
-            currentState == AIState.Attacking || 
-            currentPosture == ZombiePosture.StandingUp || 
+        if (effectiveState == AIState.Dead || 
+            effectiveState == AIState.SpawningScream || 
+            effectiveState == AIState.Attacking || 
+            effectivePosture == ZombiePosture.StandingUp || 
             _hitStaggerTimer > 0f)
         {
             _currentLocomotionAnimHash = 0;
             return;
         }
 
-        float currentSpeed = (_agent != null && _agent.isOnNavMesh) 
-            ? _agent.velocity.magnitude 
-            : (Time.deltaTime > 0f ? (transform.position - _lastPosition).magnitude / Time.deltaTime : 0f);
+        float currentSpeed = HasAuthority
+            ? ((_agent != null && _agent.isOnNavMesh) ? _agent.velocity.magnitude : (Time.deltaTime > 0f ? (transform.position - _lastPosition).magnitude / Time.deltaTime : 0f))
+            : netMoveSpeed.Value;
 
-        bool isStopped = (_agent != null && _agent.isOnNavMesh) ? _agent.isStopped : false;
+        bool isStopped = HasAuthority ? ((_agent != null && _agent.isOnNavMesh) ? _agent.isStopped : false) : (currentSpeed < 0.15f);
         bool isMoving = currentSpeed > 0.15f && !isStopped;
 
         _animator.SetFloat(_speedHash, currentSpeed);
 
-        if (currentPosture == ZombiePosture.Crawling)
+        if (effectivePosture == ZombiePosture.Crawling)
         {
             _animator.SetBool(_isCrawlingHash, true);
             _animator.SetBool(_isStandingHash, false);
@@ -372,27 +378,7 @@ public class ZombieAI : MonsterAI
             _animator.SetBool(_isStandingHash, true);
             _animator.SetBool(_isCrawlingHash, false);
 
-            bool shouldRun = false;
-
-            if (currentState == AIState.Running)
-            {
-                if (target != null)
-                {
-                    // Chasing an enemy player close-up
-                    shouldRun = true;
-                }
-                else if (currentCommand == Command.Follow)
-                {
-                    Transform leader = _commandLeader != null ? _commandLeader : (GameManager.Instance != null ? GameManager.Instance.GirlTransform : null);
-                    if (leader != null)
-                    {
-                        float distToLeader = Vector3.Distance(transform.position, leader.position);
-                        // When closing distance to girl (> 4.5m), sprint upright!
-                        // When closer (<= 4.5m), walk while patrolling her perimeter!
-                        shouldRun = distToLeader > 4.5f;
-                    }
-                }
-            }
+            bool shouldRun = (effectiveState == AIState.Running);
 
             if (isMoving)
             {
@@ -473,25 +459,56 @@ public class ZombieAI : MonsterAI
         }
     }
 
+    [Header("Zombie Grapple & Bite Alignment")]
+    [Tooltip("Intimate grapple distance where the zombie's head and teeth touch the victim's neck/shoulder/chest.")]
+    public float biteContactDistance = 0.75f;
+    private Coroutine _biteAlignmentRoutine;
+
     protected override void ExecuteAttack(Transform attackTarget)
     {
-        if (combat == null || combat.IsOnCooldown) return;
+        if (combat == null || combat.IsOnCooldown || attackTarget == null) return;
 
         currentState = AIState.Attacking;
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            netAIState.Value = AIState.Attacking;
+        }
         _currentLocomotionAnimHash = 0;
+
         if (locomotion != null)
         {
             locomotion.Stop();
-            locomotion.RotateTowards(attackTarget.position, angularSpeed * 2f);
         }
+
+        // Align zombie head and arms directly into the victim's neck/shoulder
+        AlignBiteWithTarget(attackTarget);
 
         if (_animator != null)
         {
             _animator.CrossFade(_stateZombieNeck, 0.12f);
         }
 
+        if (_biteAlignmentRoutine != null) StopCoroutine(_biteAlignmentRoutine);
+        _biteAlignmentRoutine = StartCoroutine(BiteHoldAlignmentRoutine(attackTarget));
+
+        ulong targetNetId = 0;
+        if (attackTarget.TryGetComponent<NetworkObject>(out var targetNetObj))
+        {
+            targetNetId = targetNetObj.NetworkObjectId;
+        }
+        else if (attackTarget.root != null && attackTarget.root.TryGetComponent<NetworkObject>(out var rootNetObj))
+        {
+            targetNetId = rootNetObj.NetworkObjectId;
+        }
+
         combat.StartAttack("Attack", () =>
         {
+            if (_biteAlignmentRoutine != null)
+            {
+                StopCoroutine(_biteAlignmentRoutine);
+                _biteAlignmentRoutine = null;
+            }
+
             if (currentState != AIState.Dead)
             {
                 SwitchState(target != null ? AIState.Running : AIState.Patrol);
@@ -503,15 +520,86 @@ public class ZombieAI : MonsterAI
 
         if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
         {
-            PlayZombieAttackClientRpc();
+            PlayZombieAttackClientRpc(targetNetId);
+        }
+    }
+
+    private IEnumerator BiteHoldAlignmentRoutine(Transform victim)
+    {
+        float timer = 0f;
+        float attackDuration = combat != null ? combat.attackCooldown : 1.6f;
+
+        while (timer < attackDuration && currentState == AIState.Attacking && _hitStaggerTimer <= 0f)
+        {
+            if (victim == null || !victim.gameObject.activeInHierarchy) yield break;
+
+            AlignBiteWithTarget(victim);
+
+            timer += Time.deltaTime;
+            yield return null;
+        }
+
+        _biteAlignmentRoutine = null;
+    }
+
+    private void AlignBiteWithTarget(Transform victim)
+    {
+        if (victim == null) return;
+
+        Vector3 toVictim = victim.position - transform.position;
+        toVictim.y = 0f;
+        float currentDist = toVictim.magnitude;
+
+        // 1. Rotate to face victim directly
+        if (toVictim.sqrMagnitude > 0.001f)
+        {
+            Quaternion targetRot = Quaternion.LookRotation(toVictim);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * 24f);
+        }
+
+        // 2. Step into close bite contact distance (~0.75m) so the teeth contact the neck/shoulder/chest
+        if (currentDist > 0.01f && Mathf.Abs(currentDist - biteContactDistance) > 0.04f)
+        {
+            Vector3 desiredPos = victim.position - toVictim.normalized * biteContactDistance;
+            if (UnityEngine.AI.NavMesh.SamplePosition(desiredPos, out UnityEngine.AI.NavMeshHit hit, 0.6f, UnityEngine.AI.NavMesh.AllAreas))
+            {
+                desiredPos = hit.position;
+            }
+
+            if (_agent != null && _agent.enabled && _agent.isOnNavMesh)
+            {
+                Vector3 step = (desiredPos - transform.position);
+                _agent.Move(step * (Time.deltaTime * 12f));
+            }
+            else
+            {
+                transform.position = Vector3.Lerp(transform.position, desiredPos, Time.deltaTime * 12f);
+            }
         }
     }
 
     [ClientRpc]
-    private void PlayZombieAttackClientRpc()
+    private void PlayZombieAttackClientRpc(ulong targetNetId)
     {
         if (IsServer) return;
         _currentLocomotionAnimHash = 0;
+
+        Transform victim = null;
+        if (targetNetId != 0 && NetworkManager.Singleton != null && NetworkManager.Singleton.SpawnManager != null)
+        {
+            if (NetworkManager.Singleton.SpawnManager.SpawnedObjects.TryGetValue(targetNetId, out var netObj) && netObj != null)
+            {
+                victim = netObj.transform;
+            }
+        }
+
+        if (victim != null)
+        {
+            AlignBiteWithTarget(victim);
+            if (_biteAlignmentRoutine != null) StopCoroutine(_biteAlignmentRoutine);
+            _biteAlignmentRoutine = StartCoroutine(BiteHoldAlignmentRoutine(victim));
+        }
+
         if (_animator != null)
         {
             _animator.CrossFade(_stateZombieNeck, 0.12f);
@@ -522,7 +610,16 @@ public class ZombieAI : MonsterAI
     {
         if (currentState == AIState.Dead) return;
 
-        _hitStaggerTimer = 0.40f;
+        if (_biteAlignmentRoutine != null)
+        {
+            StopCoroutine(_biteAlignmentRoutine);
+            _biteAlignmentRoutine = null;
+        }
+
+        if (combat != null) combat.CancelAttack();
+        if (locomotion != null) locomotion.Stop();
+
+        _hitStaggerTimer = hitReactionStunDuration; // Stun duration (2.5s)
         _currentLocomotionAnimHash = 0;
         if (_animator != null)
         {
@@ -545,11 +642,26 @@ public class ZombieAI : MonsterAI
     private void PlayZombieHitClientRpc()
     {
         if (IsServer) return;
+
+        if (_biteAlignmentRoutine != null)
+        {
+            StopCoroutine(_biteAlignmentRoutine);
+            _biteAlignmentRoutine = null;
+        }
+
+        if (locomotion != null) locomotion.Stop();
+        _hitStaggerTimer = hitReactionStunDuration;
         _currentLocomotionAnimHash = 0;
+
         if (_animator != null)
         {
             _animator.SetTrigger(_hitReactionHash);
             _animator.CrossFade(_stateZombieHit, 0.08f);
+        }
+
+        if (hurtSoundClip != null && audioSource != null)
+        {
+            audioSource.PlayOneShot(hurtSoundClip, GameSettingsManager.SFXVolume);
         }
     }
 }

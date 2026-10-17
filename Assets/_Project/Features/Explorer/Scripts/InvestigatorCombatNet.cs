@@ -892,7 +892,10 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
     private void PerformMeleeHit(WeaponStats stats)
     {
         Vector3 origin = transform.position + Vector3.up * 1.2f;
-        Collider[] hits = Physics.OverlapSphere(origin + transform.forward * stats.range, stats.meleeRadius);
+        // Melee reach: clamp stats.range so large ranged/fallback values (e.g. 50m) do not offset the sphere far away!
+        float reach = (stats != null && stats.range > 0f && stats.range <= 5f) ? stats.range : 1.4f;
+        float radius = (stats != null && stats.meleeRadius > 0f) ? stats.meleeRadius : 2.0f;
+        Collider[] hits = Physics.OverlapSphere(origin + transform.forward * reach, radius);
 
         int attackerWpnLvl = CloudCharacterSaveManager.Instance != null ? CloudCharacterSaveManager.Instance.GetUpgradeLevel(UpgradeStatType.WeaponDamage) : 0;
 
@@ -941,16 +944,28 @@ public class InvestigatorCombatNet : NetworkBehaviour, IWeaponOriginProvider
                 }
                 else if (receiver != null)
                 {
+                    Debug.Log($"<color=cyan>[InvestigatorCombatNet]</color> Axe hit <b>{hit.gameObject.name}</b> (receiver: {receiver.GetType().Name}) for <b>{finalDamage:F1}</b> damage!");
                     receiver.TakeDamage(finalDamage);
                 }
 
-                // Show monster health bar exclusively to this player who inflicted the damage
+                // Show custom Heat UI monster health bar exclusively to this player who inflicted the damage
                 var mHealthBar = hit.GetComponentInParent<NightCrawler.Monsters.MonsterHealthBar>()
                               ?? hit.GetComponentInChildren<NightCrawler.Monsters.MonsterHealthBar>()
                               ?? (receiver as Component)?.GetComponentInChildren<NightCrawler.Monsters.MonsterHealthBar>();
                 if (mHealthBar != null)
                 {
                     mHealthBar.ShowToLocalAttacker();
+                }
+                else
+                {
+                    // Fallback to EnemyNPC_AI health bar only if no custom Heat UI bar is attached
+                    var enemyNpcBar = hit.GetComponentInParent<SuperHorizon.EnemyNPCai.EnemyHealthBar>()
+                                   ?? hit.GetComponentInChildren<SuperHorizon.EnemyNPCai.EnemyHealthBar>()
+                                   ?? (receiver as Component)?.GetComponentInChildren<SuperHorizon.EnemyNPCai.EnemyHealthBar>();
+                    if (enemyNpcBar != null)
+                    {
+                        enemyNpcBar.gameObject.SetActive(true);
+                    }
                 }
 
                 // Audio feedback on successful melee contact

@@ -27,6 +27,9 @@ public class MatchResultOverlay : MonoBehaviour
     [Tooltip("Prefab instantiated into contentLayoutGroup for each achievement (e.g. Heat Achievement Item prefab).")]
     public GameObject achievementItemPrefab;
 
+    [Tooltip("GameObject (e.g. 'NoAchievementTexts') shown when there are no achievement prefabs or items, and hidden when achievements exist.")]
+    public GameObject noAchievementTexts;
+
     [Header("Heat UI Summary Counters (Bottom)")]
     [Tooltip("The 'Summary' horizontal layout container GameObject.")]
     public Transform summaryContainer;
@@ -213,6 +216,10 @@ public class MatchResultOverlay : MonoBehaviour
         Cursor.visible = true;
 
         UpdateEconomyText();
+        if (!_latestPayout.HasValue)
+        {
+            UpdateNoAchievementsVisibility(0);
+        }
     }
 
     private void UpdateEconomyText()
@@ -267,27 +274,47 @@ public class MatchResultOverlay : MonoBehaviour
 
             sb.AppendLine($"<size=14>Current Balance: <b>{p.newBalance} {CurrencyConfig.CurrencyName}</b></size>");
         }
+        else
+        {
+            UpdateNoAchievementsVisibility(0);
+        }
     }
 
     private void PopulateAchievements(MatchPayoutSummary p)
     {
-        if (contentLayoutGroup == null || achievementItemPrefab == null) return;
+        if (contentLayoutGroup == null)
+        {
+            UpdateNoAchievementsVisibility(0);
+            return;
+        }
 
-        // Clear previously instantiated items
+        // Clear previously instantiated items (preserving noAchievementTexts if placed inside contentLayoutGroup)
         for (int i = contentLayoutGroup.childCount - 1; i >= 0; i--)
         {
-            Destroy(contentLayoutGroup.GetChild(i).gameObject);
+            GameObject child = contentLayoutGroup.GetChild(i).gameObject;
+            if (noAchievementTexts != null && (child == noAchievementTexts || child.transform.IsChildOf(noAchievementTexts.transform))) continue;
+            Destroy(child);
         }
+
+        if (achievementItemPrefab == null)
+        {
+            UpdateNoAchievementsVisibility(0);
+            return;
+        }
+
+        int achievementCount = 0;
 
         // 1. Primary Match Objective
         string outcomeTitle = p.won ? "Mission Accomplished" : "Mission Failed";
         string outcomeDesc = p.won ? "Your team successfully survived and achieved the objective." : "The match ended in defeat against the dark entity.";
         SpawnAchievementEntry(outcomeTitle, outcomeDesc, p.won);
+        achievementCount++;
 
         // 2. Pot Share Bounty
         if (p.won && p.potWinnings > 0)
         {
             SpawnAchievementEntry("High Roller Bounty", $"Secured +{p.potWinnings} {CurrencyConfig.CurrencySymbol} share from the shared match stake pot.", true);
+            achievementCount++;
         }
 
         // 3. Contribution Bonuses from bonusDetails
@@ -318,8 +345,19 @@ public class MatchResultOverlay : MonoBehaviour
                     aTitle = "MIA";
 
                 SpawnAchievementEntry(aTitle, aDesc, true);
+                achievementCount++;
             }
         }
+
+        UpdateNoAchievementsVisibility(achievementCount);
+    }
+
+    public void UpdateNoAchievementsVisibility(int achievementCount)
+    {
+        if (noAchievementTexts == null) return;
+
+        bool hasAchievements = (achievementItemPrefab != null && achievementCount > 0);
+        noAchievementTexts.SetActive(!hasAchievements);
     }
 
     private void SpawnAchievementEntry(string title, string desc, bool unlocked)

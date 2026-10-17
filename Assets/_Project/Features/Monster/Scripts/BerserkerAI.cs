@@ -95,7 +95,16 @@ public class BerserkerAI : MonsterAI
         currentState = AIState.SpawningScream;
         if (locomotion != null) locomotion.Stop();
 
-        target = perception.FindBestTarget(null);
+        Transform cand = perception != null ? perception.FindBestTarget(null) : null;
+        if (cand != null && !IsGirl(cand))
+        {
+            target = cand;
+        }
+        else
+        {
+            target = null;
+        }
+
         if (target != null && locomotion != null)
         {
             locomotion.RotateTowards(target.position, angularSpeed * 2f);
@@ -215,6 +224,10 @@ public class BerserkerAI : MonsterAI
         if (combat == null || combat.IsOnCooldown) return;
 
         currentState = AIState.Attacking;
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            netAIState.Value = AIState.Attacking;
+        }
         if (locomotion != null)
         {
             locomotion.Stop();
@@ -256,7 +269,10 @@ public class BerserkerAI : MonsterAI
     {
         if (currentState == AIState.Dead) return;
 
-        _hitStaggerTimer = 0.45f;
+        if (combat != null) combat.CancelAttack();
+        if (locomotion != null) locomotion.Stop();
+
+        _hitStaggerTimer = hitReactionStunDuration;
         if (_animator != null)
         {
             _animator.SetTrigger(_hitReactionHash);
@@ -278,6 +294,8 @@ public class BerserkerAI : MonsterAI
     private void PlayBerserkerHitClientRpc()
     {
         if (IsServer) return;
+        if (locomotion != null) locomotion.Stop();
+        _hitStaggerTimer = hitReactionStunDuration;
         if (_animator != null)
         {
             _animator.SetTrigger(_hitReactionHash);
