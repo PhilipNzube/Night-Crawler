@@ -64,18 +64,21 @@ public class BerserkerAI : MonsterAI
         monsterType = MonsterType.Berserker;
         currentPosture = ZombiePosture.Standing;
         screamDuration = totalRoarDuration;
+        berserkerContactDistance = 1.15f;
+        attackAudioDelay = 0.20f;
 
         if (locomotion != null)
         {
             locomotion.chaseSpeed = 4.5f;
             locomotion.walkSpeed = 1.8f;
-            locomotion.stoppingDistance = 1.8f;
+            locomotion.stoppingDistance = 1.10f;
+            if (locomotion.agent != null) locomotion.agent.stoppingDistance = 1.10f;
         }
 
         if (combat != null)
         {
             combat.attackDamage = 65f;
-            combat.attackRange = 2.2f;
+            combat.attackRange = 1.35f;
             combat.attackCooldown = 1.8f;
         }
 
@@ -219,9 +222,23 @@ public class BerserkerAI : MonsterAI
         }
     }
 
+    [Header("Berserker Melee & Swipe Alignment")]
+    [Tooltip("Intimate strike distance where the claw swipe reaches the investigator.")]
+    public float berserkerContactDistance = 1.15f;
+    private Coroutine _swipeAlignmentRoutine;
+
     protected override void ExecuteAttack(Transform attackTarget)
     {
-        if (combat == null || combat.IsOnCooldown) return;
+        if (combat == null || combat.IsOnCooldown || attackTarget == null) return;
+
+        // If distance opened up, keep running to close the gap before swinging
+        float dist = Vector3.Distance(transform.position, attackTarget.position);
+        if (dist > MaxAttackInitiationDistance)
+        {
+            SwitchState(AIState.Running);
+            if (locomotion != null) locomotion.Resume(runSpeed);
+            return;
+        }
 
         currentState = AIState.Attacking;
         if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
@@ -231,16 +248,31 @@ public class BerserkerAI : MonsterAI
         if (locomotion != null)
         {
             locomotion.Stop();
-            locomotion.RotateTowards(attackTarget.position, angularSpeed * 2f);
         }
+
+        // Align and step into intimate swipe distance (~1.15m) on the authoritative server
+        AlignSwipeWithTarget(attackTarget);
 
         if (_animator != null)
         {
             _animator.CrossFade(_stateMutantSwiping, 0.12f);
         }
 
+        // Synchronize claw swipe attack audio timing with animation wind-up apex
+        StartSynchronizedAttackAudio(attackAudioDelay);
+
+        if (_swipeAlignmentRoutine != null) StopCoroutine(_swipeAlignmentRoutine);
+        _swipeAlignmentRoutine = StartCoroutine(SwipeAlignmentRoutine(attackTarget));
+
         combat.StartAttack("Attack", () =>
         {
+            Stop3DAttackAudio();
+            if (_swipeAlignmentRoutine != null)
+            {
+                StopCoroutine(_swipeAlignmentRoutine);
+                _swipeAlignmentRoutine = null;
+            }
+
             if (currentState != AIState.Dead)
             {
                 SwitchState(target != null ? AIState.Running : AIState.Patrol);
@@ -255,19 +287,86 @@ public class BerserkerAI : MonsterAI
         }
     }
 
+    private IEnumerator SwipeAlignmentRoutine(Transform victim)
+    {
+        float timer = 0f;
+        float attackDuration = combat != null ? combat.attackCooldown : 1.8f;
+
+        while (timer < attackDuration && currentState == AIState.Attacking && _hitStaggerTimer <= 0f)
+        {
+            if (victim == null || !victim.gameObject.activeInHierarchy) yield break;
+
+            AlignSwipeWithTarget(victim);
+
+            timer += Time.deltaTime;
+            yield return null;
+        }
+
+        _swipeAlignmentRoutine = null;
+    }
+
+    private void AlignSwipeWithTarget(Transform victim)
+    {
+        if (victim == null) return;
+
+        Vector3 toVictim = victim.position - transform.position;
+        toVictim.y = 0f;
+        float currentDist = toVictim.magnitude;
+
+        // 1. Rotate to face victim directly
+        if (toVictim.sqrMagnitude > 0.001f)
+        {
+            Quaternion targetRot = Quaternion.LookRotation(toVictim);
+            transform.rotation = Quaternion.Slerp(transform.rotation, targetRot, Time.deltaTime * 24f);
+        }
+
+        // 2. Step into intimate strike range (~1.15m)
+        if (currentDist > 0.01f && Mathf.Abs(currentDist - berserkerContactDistance) > 0.04f)
+        {
+            Vector3 desiredPos = victim.position - toVictim.normalized * berserkerContactDistance;
+            if (UnityEngine.AI.NavMesh.SamplePosition(desiredPos, out UnityEngine.AI.NavMeshHit hit, 0.6f, UnityEngine.AI.NavMesh.AllAreas))
+            {
+                desiredPos = hit.position;
+            }
+
+            if (_agent != null && _agent.enabled && _agent.isOnNavMesh)
+            {
+                Vector3 step = (desiredPos - transform.position);
+                _agent.Move(step * (Time.deltaTime * 10f));
+            }
+            else
+            {
+                transform.position = Vector3.Lerp(transform.position, desiredPos, Time.deltaTime * 10f);
+            }
+        }
+    }
+
     [ClientRpc]
     private void PlayBerserkerAttackClientRpc()
     {
         if (IsServer) return;
+
+        // On non-authority clients: DO NOT manipulate transform.position or transform.rotation!
+        // NetworkTransform has 100% authoritative control over position and rotation,
+        // preventing the clone from jittering or flipping around when attacking.
         if (_animator != null)
         {
             _animator.CrossFade(_stateMutantSwiping, 0.12f);
         }
+
+        StartSynchronizedAttackAudio(attackAudioDelay);
     }
 
     public override void PlayHitReaction()
     {
         if (currentState == AIState.Dead) return;
+
+        Stop3DAttackAudio();
+        if (_swipeAlignmentRoutine != null)
+        {
+            StopCoroutine(_swipeAlignmentRoutine);
+            _swipeAlignmentRoutine = null;
+        }
 
         if (combat != null) combat.CancelAttack();
         if (locomotion != null) locomotion.Stop();
@@ -294,6 +393,14 @@ public class BerserkerAI : MonsterAI
     private void PlayBerserkerHitClientRpc()
     {
         if (IsServer) return;
+
+        Stop3DAttackAudio();
+        if (_swipeAlignmentRoutine != null)
+        {
+            StopCoroutine(_swipeAlignmentRoutine);
+            _swipeAlignmentRoutine = null;
+        }
+
         if (locomotion != null) locomotion.Stop();
         _hitStaggerTimer = hitReactionStunDuration;
         if (_animator != null)

@@ -216,10 +216,7 @@ public class MatchResultOverlay : MonoBehaviour
         Cursor.visible = true;
 
         UpdateEconomyText();
-        if (!_latestPayout.HasValue)
-        {
-            UpdateNoAchievementsVisibility(0);
-        }
+        RefreshAchievementsUI();
     }
 
     private void UpdateEconomyText()
@@ -248,6 +245,7 @@ public class MatchResultOverlay : MonoBehaviour
 
             // 2. Populate Heat UI achievement items into layout group
             PopulateAchievements(p);
+            RefreshAchievementsUI();
 
             // 3. Fallback text breakdown if legacy text components are present
             var sb = new System.Text.StringBuilder();
@@ -276,7 +274,7 @@ public class MatchResultOverlay : MonoBehaviour
         }
         else
         {
-            UpdateNoAchievementsVisibility(0);
+            RefreshAchievementsUI();
         }
     }
 
@@ -284,7 +282,7 @@ public class MatchResultOverlay : MonoBehaviour
     {
         if (contentLayoutGroup == null)
         {
-            UpdateNoAchievementsVisibility(0);
+            RefreshAchievementsUI();
             return;
         }
 
@@ -298,26 +296,17 @@ public class MatchResultOverlay : MonoBehaviour
 
         if (achievementItemPrefab == null)
         {
-            UpdateNoAchievementsVisibility(0);
+            RefreshAchievementsUI();
             return;
         }
 
-        int achievementCount = 0;
-
-        // 1. Primary Match Objective
-        string outcomeTitle = p.won ? "Mission Accomplished" : "Mission Failed";
-        string outcomeDesc = p.won ? "Your team successfully survived and achieved the objective." : "The match ended in defeat against the dark entity.";
-        SpawnAchievementEntry(outcomeTitle, outcomeDesc, p.won);
-        achievementCount++;
-
-        // 2. Pot Share Bounty
+        // 1. Pot Share Bounty (only when won and pot was shared)
         if (p.won && p.potWinnings > 0)
         {
             SpawnAchievementEntry("High Roller Bounty", $"Secured +{p.potWinnings} {CurrencyConfig.CurrencySymbol} share from the shared match stake pot.", true);
-            achievementCount++;
         }
 
-        // 3. Contribution Bonuses from bonusDetails
+        // 2. Contribution Bonuses from bonusDetails
         if (!string.IsNullOrEmpty(p.bonusDetails))
         {
             string[] items = p.bonusDetails.Split(new[] { ',', ';', '\n', '|' }, System.StringSplitOptions.RemoveEmptyEntries);
@@ -345,19 +334,77 @@ public class MatchResultOverlay : MonoBehaviour
                     aTitle = "MIA";
 
                 SpawnAchievementEntry(aTitle, aDesc, true);
-                achievementCount++;
             }
         }
 
-        UpdateNoAchievementsVisibility(achievementCount);
+        RefreshAchievementsUI();
+    }
+
+    public void RefreshAchievementsUI()
+    {
+        if (gameObject.activeInHierarchy)
+        {
+            StartCoroutine(RefreshAchievementsUIRoutine());
+        }
+        else
+        {
+            ApplyAchievementsVisibility();
+        }
+    }
+
+    private IEnumerator RefreshAchievementsUIRoutine()
+    {
+        // Wait for end of frame to ensure Animator.Rebind() or Play("In") keyframes have evaluated
+        yield return new WaitForEndOfFrame();
+        ApplyAchievementsVisibility();
+    }
+
+    private void ApplyAchievementsVisibility()
+    {
+        if (noAchievementTexts == null) return;
+
+        int activeAchievementCount = 0;
+        if (contentLayoutGroup != null && achievementItemPrefab != null)
+        {
+            for (int i = 0; i < contentLayoutGroup.childCount; i++)
+            {
+                Transform child = contentLayoutGroup.GetChild(i);
+                if (child == null) continue;
+                if (child.gameObject == noAchievementTexts || child.IsChildOf(noAchievementTexts.transform)) continue;
+                if (child.gameObject.activeSelf)
+                {
+                    activeAchievementCount++;
+                }
+            }
+        }
+
+        bool hasAchievements = activeAchievementCount > 0;
+        noAchievementTexts.SetActive(!hasAchievements);
+
+        if (!hasAchievements)
+        {
+            // Ensure CanvasGroup on noAchievementTexts is fully visible
+            var cg = noAchievementTexts.GetComponent<CanvasGroup>();
+            if (cg != null)
+            {
+                cg.alpha = 1f;
+                cg.interactable = true;
+                cg.blocksRaycasts = true;
+            }
+
+            // Ensure parent hierarchy of noAchievementTexts is active
+            Transform p = noAchievementTexts.transform.parent;
+            while (p != null && p != transform)
+            {
+                if (!p.gameObject.activeSelf) p.gameObject.SetActive(true);
+                p = p.parent;
+            }
+        }
     }
 
     public void UpdateNoAchievementsVisibility(int achievementCount)
     {
-        if (noAchievementTexts == null) return;
-
-        bool hasAchievements = (achievementItemPrefab != null && achievementCount > 0);
-        noAchievementTexts.SetActive(!hasAchievements);
+        RefreshAchievementsUI();
     }
 
     private void SpawnAchievementEntry(string title, string desc, bool unlocked)

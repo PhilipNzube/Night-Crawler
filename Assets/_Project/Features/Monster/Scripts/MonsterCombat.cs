@@ -29,6 +29,9 @@ namespace NightCrawler.Monsters
         [Tooltip("Audio clip played during the attack swing.")]
         public AudioClip attackSoundClip;
 
+        [Tooltip("If true, MonsterCombat will play attackSoundClip directly with PlayOneShot. If false, MonsterAI manages synchronized 3D attack audio across the network.")]
+        public bool autoPlayAudioInSequence = false;
+
         [Tooltip("AudioSource for spatial attack audio.")]
         public AudioSource audioSource;
 
@@ -89,8 +92,8 @@ namespace NightCrawler.Monsters
                 animator.SetTrigger(animationTrigger);
             }
 
-            // 2. Play attack grunt SFX
-            if (attackSoundClip != null && audioSource != null)
+            // 2. Play attack grunt SFX (only if MonsterAI is not managing synchronized audio)
+            if (autoPlayAudioInSequence && attackSoundClip != null && audioSource != null)
             {
                 audioSource.PlayOneShot(attackSoundClip, GameSettingsManager.SFXVolume);
             }

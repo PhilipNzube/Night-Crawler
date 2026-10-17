@@ -149,6 +149,21 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     [Header("Runtime State")]
     public AIState currentState = AIState.SpawningScream;
 
+    [Header("Close Melee Closeness & Recoil")]
+    [Tooltip("Delay in seconds before attack audio plays, synchronizing with the strike animation.")]
+    public float attackAudioDelay = 0.15f;
+    protected Coroutine _attackAudioCoroutine;
+
+    /// <summary>
+    /// Intimate striking distance where claws, jaw, or weapons make physical contact with the victim.
+    /// </summary>
+    public virtual float CloseAttackContactDistance => (monsterType == MonsterType.Berserker) ? 1.15f : 0.72f;
+
+    /// <summary>
+    /// Distance threshold required to initiate an attack. If distance is larger, monster continues running to close the gap.
+    /// </summary>
+    public virtual float MaxAttackInitiationDistance => (monsterType == MonsterType.Berserker) ? 1.35f : 0.88f;
+
     // Single source of truth delegates to subsystems (eliminates duplicate Inspector fields)
     public float attackRange => combat != null ? combat.attackRange : 2.2f;
     public float attackDamage => combat != null ? combat.attackDamage : 35f;
@@ -361,16 +376,18 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         if (monsterType == MonsterType.Berserker)
         {
+            attackAudioDelay = 0.20f;
             if (locomotion != null)
             {
                 locomotion.chaseSpeed = 4.5f;
                 locomotion.walkSpeed = 1.8f;
-                locomotion.stoppingDistance = 1.8f;
+                locomotion.stoppingDistance = 1.10f;
+                if (locomotion.agent != null) locomotion.agent.stoppingDistance = 1.10f;
             }
             if (combat != null)
             {
                 combat.attackDamage = 65f;
-                combat.attackRange = 2.2f;
+                combat.attackRange = 1.35f;
                 combat.attackCooldown = 1.8f;
             }
             screamDuration = 2.6f;
@@ -378,16 +395,18 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         }
         else
         {
+            attackAudioDelay = 0.15f;
             if (locomotion != null)
             {
                 locomotion.chaseSpeed = 3.8f;
                 locomotion.walkSpeed = 0.55f;
-                locomotion.stoppingDistance = 1.5f;
+                locomotion.stoppingDistance = 0.65f;
+                if (locomotion.agent != null) locomotion.agent.stoppingDistance = 0.65f;
             }
             if (combat != null)
             {
                 combat.attackDamage = 35f;
-                combat.attackRange = 2.0f;
+                combat.attackRange = 0.88f;
                 combat.attackCooldown = 1.6f;
             }
             screamDuration = 2.4f;
@@ -562,7 +581,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 if (locomotion != null)
                 {
                     locomotion.Resume(runSpeed);
-                    locomotion.SetDestinationSmooth(GetSurroundingDestination(target, attackRange * 0.85f));
+                    locomotion.SetDestinationSmooth(GetSurroundingDestination(target, CloseAttackContactDistance));
                 }
                 return;
             }
@@ -641,8 +660,10 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 _lastKnownTargetPosition = target.position;
             }
 
-            // In range for attack?
-            if (dist <= attackRange && perception.HasLineOfSight(target))
+            // In range for intimate attack?
+            // Only initiate attack when in close striking range and have line of sight!
+            // If space opened up (> MaxAttackInitiationDistance), DO NOT swing at air — continue running to close the gap!
+            if (dist <= MaxAttackInitiationDistance && perception.HasLineOfSight(target))
             {
                 ExecuteAttack(target);
                 return;
@@ -677,7 +698,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
             if (locomotion != null)
             {
                 locomotion.Resume(runSpeed);
-                locomotion.SetDestinationSmooth(GetSurroundingDestination(target, attackRange * 0.85f));
+                locomotion.SetDestinationSmooth(GetSurroundingDestination(target, CloseAttackContactDistance));
 
                 // EnemyNPC_AI steering alignment:
                 // Only rotate directly towards the target when in clear visual contact and close.
@@ -718,7 +739,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 if (locomotion != null)
                 {
                     locomotion.Resume(runSpeed);
-                    locomotion.SetDestinationSmooth(GetSurroundingDestination(target, attackRange * 0.85f));
+                    locomotion.SetDestinationSmooth(GetSurroundingDestination(target, CloseAttackContactDistance));
                 }
                 return;
             }
@@ -797,7 +818,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 if (locomotion != null)
                 {
                     locomotion.Resume(runSpeed);
-                    locomotion.SetDestinationSmooth(GetSurroundingDestination(target, attackRange * 0.85f));
+                    locomotion.SetDestinationSmooth(GetSurroundingDestination(target, CloseAttackContactDistance));
                 }
                 return;
             }
@@ -919,7 +940,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (targetTransform == null) return transform.position;
 
         bool isFollowingLeader = (currentCommand == Command.Follow || targetTransform == _commandLeader || (GameManager.Instance != null && targetTransform == GameManager.Instance.GirlTransform));
-        float effectiveRadius = isFollowingLeader ? Mathf.Clamp(radius, 2.5f, 3.8f) : Mathf.Clamp(radius, 1.4f, 2.8f);
+        float effectiveRadius = isFollowingLeader ? Mathf.Clamp(radius, 2.5f, 3.8f) : Mathf.Clamp(radius, 0.55f, 2.8f);
 
         int sameKindIndex = 0;
         int totalSameKind = 0;
@@ -1121,7 +1142,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
                 if (locomotion != null)
                 {
                     locomotion.Resume(runSpeed);
-                    locomotion.SetDestinationSmooth(GetSurroundingDestination(target, attackRange * 0.85f));
+                    locomotion.SetDestinationSmooth(GetSurroundingDestination(target, CloseAttackContactDistance));
                 }
             }
             else
@@ -1308,6 +1329,139 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     }
 
     // =========================================================================
+    //  Attack Audio & Animation Recoil Synchronization
+    // =========================================================================
+
+    public void StartSynchronizedAttackAudio(float delay = 0.15f)
+    {
+        if (_attackAudioCoroutine != null) StopCoroutine(_attackAudioCoroutine);
+        _attackAudioCoroutine = StartCoroutine(AttackAudioRoutine(delay));
+    }
+
+    private IEnumerator AttackAudioRoutine(float delay)
+    {
+        if (delay > 0f) yield return new WaitForSeconds(delay);
+        Play3DAttackAudio();
+        _attackAudioCoroutine = null;
+    }
+
+    public void Play3DAttackAudio()
+    {
+        AudioClip clip = attackSoundClip != null ? attackSoundClip : (combat != null ? combat.attackSoundClip : null);
+        if (clip != null && audioSource != null)
+        {
+            audioSource.clip = clip;
+            audioSource.volume = GameSettingsManager.SFXVolume;
+            audioSource.Play();
+        }
+
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            PlayAttackAudioClientRpc();
+        }
+    }
+
+    [ClientRpc]
+    private void PlayAttackAudioClientRpc()
+    {
+        if (IsServer) return;
+        AudioClip clip = attackSoundClip != null ? attackSoundClip : (combat != null ? combat.attackSoundClip : null);
+        if (clip != null && audioSource != null)
+        {
+            audioSource.clip = clip;
+            audioSource.volume = GameSettingsManager.SFXVolume;
+            audioSource.Play();
+        }
+    }
+
+    public void Stop3DAttackAudio()
+    {
+        if (_attackAudioCoroutine != null)
+        {
+            StopCoroutine(_attackAudioCoroutine);
+            _attackAudioCoroutine = null;
+        }
+
+        AudioClip clip = attackSoundClip != null ? attackSoundClip : (combat != null ? combat.attackSoundClip : null);
+        if (audioSource != null && audioSource.isPlaying && (clip == null || audioSource.clip == clip))
+        {
+            audioSource.Stop();
+        }
+
+        if (IsServer && NetworkObject != null && NetworkObject.IsSpawned)
+        {
+            StopAttackAudioClientRpc();
+        }
+    }
+
+    [ClientRpc]
+    private void StopAttackAudioClientRpc()
+    {
+        if (IsServer) return;
+        if (_attackAudioCoroutine != null)
+        {
+            StopCoroutine(_attackAudioCoroutine);
+            _attackAudioCoroutine = null;
+        }
+        AudioClip clip = attackSoundClip != null ? attackSoundClip : (combat != null ? combat.attackSoundClip : null);
+        if (audioSource != null && audioSource.isPlaying && (clip == null || audioSource.clip == clip))
+        {
+            audioSource.Stop();
+        }
+    }
+
+    /// <summary>
+    /// Smoothly pushes the monster backward along -transform.forward on the NavMesh
+    /// during the recovery/ending window of the attack animation.
+    /// Replicated authoritative transform via NetworkTransform.
+    /// When recoil completes, switches to Running state so if target has distance, it runs to close the gap again.
+    /// </summary>
+    protected virtual IEnumerator AttackRecoilAndResumeRoutine(float pushDistance = 0.38f, float duration = 0.25f)
+    {
+        float timer = 0f;
+        Vector3 recoilDir = -transform.forward;
+        recoilDir.y = 0f;
+        if (recoilDir.sqrMagnitude > 0.001f)
+        {
+            recoilDir.Normalize();
+            Vector3 targetPos = transform.position + recoilDir * pushDistance;
+            if (NavMesh.SamplePosition(targetPos, out NavMeshHit hit, pushDistance + 0.6f, NavMesh.AllAreas))
+            {
+                targetPos = hit.position;
+            }
+
+            Vector3 startPos = transform.position;
+
+            while (timer < duration && currentState == AIState.Attacking && _hitStaggerTimer <= 0f)
+            {
+                timer += Time.deltaTime;
+                float t = Mathf.Clamp01(timer / duration);
+                float smoothT = Mathf.SmoothStep(0f, 1f, t);
+                Vector3 nextPos = Vector3.Lerp(startPos, targetPos, smoothT);
+
+                if (_agent != null && _agent.enabled && _agent.isOnNavMesh)
+                {
+                    Vector3 step = nextPos - transform.position;
+                    _agent.Move(step);
+                }
+                else
+                {
+                    transform.position = nextPos;
+                }
+
+                yield return null;
+            }
+        }
+
+        if (currentState != AIState.Dead && _hitStaggerTimer <= 0f)
+        {
+            SwitchState(target != null ? AIState.Running : AIState.Patrol);
+            if (locomotion != null) locomotion.Resume(target != null ? runSpeed : walkSpeed);
+        }
+        _attackCoroutine = null;
+    }
+
+    // =========================================================================
     //  Damage Intake, Hit Reactions & Death
     // =========================================================================
 
@@ -1366,6 +1520,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     {
         if (currentState == AIState.Dead) return;
 
+        Stop3DAttackAudio();
         _hitStaggerTimer = hitReactionStunDuration;
         if (locomotion != null) locomotion.Stop();
         if (combat != null) combat.CancelAttack();
@@ -1392,6 +1547,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
     private void PlayHitReactionClientRpc()
     {
         if (IsServer) return;
+        Stop3DAttackAudio();
         _hitStaggerTimer = hitReactionStunDuration;
         if (locomotion != null) locomotion.Stop();
         if (combat != null) combat.CancelAttack();
@@ -1445,6 +1601,7 @@ public class MonsterAI : NetworkBehaviour, IDamageReceiver
         if (locomotion != null) locomotion.Stop();
         if (_agent != null) _agent.enabled = false;
         if (combat != null) combat.CancelAttack();
+        Stop3DAttackAudio();
         if (healthBar != null) healthBar.gameObject.SetActive(false);
         if (enemyNPCHealthBar != null) enemyNPCHealthBar.gameObject.SetActive(false);
 
